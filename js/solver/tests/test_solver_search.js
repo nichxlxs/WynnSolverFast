@@ -654,6 +654,169 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
     });
 }
 
+// ── Rust enumeration-kernel fixture export (P2.3) ────────────────────────────
+//
+// SOLVER_EXPORT_RUST=<path> dumps everything the Rust enumeration kernel
+// needs to replay this scenario's search space: free slots in enumeration
+// order with priority-ordered pools (reqs/skp/crafted/set/illegal-set +
+// precheck stat values), fixed equipment, weapon/guild tome, the set-bonus
+// SP table, precheck thresholds with root running values, and EHP precheck
+// constants. All floats are printed with full precision.
+
+function exportRustFixture(outPath, { initMsgBase, ringPoolSer, solverSnap }) {
+    const L = [];
+    const f = (x) => (typeof x === 'number' && Number.isFinite(x)) ? String(x) : '0';
+
+    const H = vm.runInContext(`({
+        sp100: skillPointsToPercentage(100),
+        fm3: skillpoint_final_mult[3], fm4: skillpoint_final_mult[4],
+        static_ids: [...STATMAP_STATIC_IDS],
+        indirect: [...INDIRECT_CONSTRAINT_STATS],
+        skp_order: [...skp_order],
+        classDefFor: (t) => classDefenseMultipliers.get(t) || 1.0,
+    })`, ctx);
+    const STATIC_SET = new Set(H.static_ids);
+    const EXCLUDED = new Set([...H.indirect, 'str', 'dex', 'int', 'def', 'agi']);
+
+    // ── Mirror the worker's partial[] and fixed running statmap ──
+    const NONE = (sm) => !sm || sm.has('NONE');
+    const lk = initMsgBase.locked ?? {};
+    const partial = {
+        helmet: lk.helmet?.statMap, chestplate: lk.chestplate?.statMap,
+        leggings: lk.leggings?.statMap, boots: lk.boots?.statMap,
+        ring1: initMsgBase.ring1_locked?.statMap, ring2: initMsgBase.ring2_locked?.statMap,
+        bracelet: lk.bracelet?.statMap, necklace: lk.necklace?.statMap,
+    };
+    const fixed_sms = [];
+    for (const sm of Object.values(partial)) if (!NONE(sm)) fixed_sms.push(sm);
+    for (const t of initMsgBase.tome_sms) fixed_sms.push(t);
+    fixed_sms.push(initMsgBase.weapon_sm);
+    const running0 = ctx._init_running_statmap(initMsgBase.level, fixed_sms);
+
+    // ── Prechecks (mirror _build_constraint_prechecks) ──
+    const fixedContrib = (stat) =>
+        (solverSnap.atree_raw?.get(stat) ?? 0) + (solverSnap.static_boosts?.get(stat) ?? 0);
+    const thresholds = solverSnap.restrictions?.stat_thresholds ?? [];
+    const pcs = [];
+    let ehp = null, ehpna = null, thp = null;
+    for (const { stat, op, value } of thresholds) {
+        if (op !== 'ge') continue;
+        if (stat === 'ehp' || stat === 'ehp_no_agi') {
+            const fixed_hp = fixedContrib('hpBonus');
+            const def_pct = H.sp100 * H.fm3;
+            const defMult = 2 - H.classDefFor(initMsgBase.weapon_sm.get('type'));
+            if (stat === 'ehp') {
+                const agi_pct = H.sp100 * H.fm4;
+                const agi_reduction = (100 - 90) / 100;
+                ehp = { threshold: value, fixed_hp, divisor: (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult };
+            } else {
+                ehpna = { threshold: value, fixed_hp, divisor: (1 - def_pct) * defMult };
+            }
+            continue;
+        }
+        if (stat === 'total_hp') { thp = { threshold: value, fixed_hp: fixedContrib('hpBonus') }; continue; }
+        if (EXCLUDED.has(stat)) continue;
+        pcs.push({ stat, adjusted_threshold: value - fixedContrib(stat), start: running0.get(stat) ?? 0 });
+    }
+
+    // ── Set / illegal-set id tables ──
+    const setIds = new Map();
+    const illegalIds = new Map();
+    const setId = (name) => {
+        if (!name) return -1;
+        if (!setIds.has(name)) setIds.set(name, setIds.size);
+        return setIds.get(name);
+    };
+    const illegalId = (name) => {
+        if (!name) return -1;
+        if (!illegalIds.has(name)) illegalIds.set(name, illegalIds.size);
+        return illegalIds.get(name);
+    };
+
+    const itemLine = (it) => {
+        const sm = it.statMap;
+        const reqs = sm.get('reqs'), skp = sm.get('skillpoints');
+        const maxRolls = sm.get('maxRolls');
+        const sVal = (stat) => STATIC_SET.has(stat) ? (sm.get(stat) || 0) : (maxRolls?.get(stat) || 0);
+        const hp = (sm.get('hp') || 0) + (maxRolls?.get('hpBonus') || 0);
+        return ['ITEM', sm.get('crafted') ? 1 : 0, ...reqs, ...skp,
+            setId(sm.get('crafted') ? null : sm.get('set')), illegalId(it._illegalSet),
+            f(hp), ...pcs.map(pc => f(sVal(pc.stat)))].join(' ');
+    };
+
+    // ── Free slots in the worker's enumeration order ──
+    const pools = initMsgBase.pools ?? {};
+    const getPool = (slot) => (slot === 'ring1' || slot === 'ring2') ? ringPoolSer : pools[slot];
+    const free_slots = [];
+    for (const slot of ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace']) {
+        if (!lk[slot]) free_slots.push(slot);
+    }
+    if (!initMsgBase.ring1_locked) free_slots.push('ring1');
+    if (!initMsgBase.ring2_locked) free_slots.push('ring2');
+    free_slots.sort((a, b) => {
+        const diff = (getPool(a)?.length ?? 0) - (getPool(b)?.length ?? 0);
+        if (diff !== 0) return diff;
+        if (a === 'ring1' && b === 'ring2') return -1;
+        if (a === 'ring2' && b === 'ring1') return 1;
+        return 0;
+    });
+    const SLOT_POS = { helmet: 0, chestplate: 1, leggings: 2, boots: 3, ring1: 4, ring2: 5, bracelet: 6, necklace: 7 };
+
+    // ── Emit ──
+    L.push(`BUDGET ${initMsgBase.sp_budget}`);
+    L.push(`PRECHECKS ${pcs.length}`);
+    for (const pc of pcs) L.push(`PC ${pc.stat} ${f(pc.adjusted_threshold)} ${f(pc.start)}`);
+    L.push(`EHP ${ehp ? 1 : 0} ${f(ehp?.threshold)} ${f(ehp?.fixed_hp)} ${f(ehp?.divisor)}`);
+    L.push(`EHPNA ${ehpna ? 1 : 0} ${f(ehpna?.threshold)} ${f(ehpna?.fixed_hp)} ${f(ehpna?.divisor)}`);
+    L.push(`THP ${thp ? 1 : 0} ${f(thp?.threshold)} ${f(thp?.fixed_hp)}`);
+    L.push(`HPSTART ${f((running0.get('hp') ?? 0) + (running0.get('hpBonus') ?? 0))}`);
+    const wep = initMsgBase.weapon_sm;
+    L.push(`WEAPON ${wep.get('reqs').join(' ')} ${wep.get('skillpoints').join(' ')}`);
+    const gt = initMsgBase.guild_tome_sm;
+    const gtPresent = gt && !gt.has('NONE');
+    L.push(`GUILD ${gtPresent ? 1 : 0} ${gtPresent && gt.get('crafted') ? 1 : 0} `
+        + `${(gtPresent ? gt.get('reqs') : [0,0,0,0,0]).join(' ')} `
+        + `${(gtPresent ? gt.get('skillpoints') : [0,0,0,0,0]).join(' ')} `
+        + `${gtPresent ? setId(gt.get('set')) : -1}`);
+
+    // Fixed equipment (non-NONE locked slots).
+    const fixedLines = [];
+    for (const [slot, sm] of Object.entries(partial)) {
+        if (NONE(sm)) continue;
+        const wrapper = (slot === 'ring1') ? initMsgBase.ring1_locked
+            : (slot === 'ring2') ? initMsgBase.ring2_locked : lk[slot];
+        fixedLines.push(`FIXED ${SLOT_POS[slot]} ${sm.get('crafted') ? 1 : 0} `
+            + `${sm.get('reqs').join(' ')} ${sm.get('skillpoints').join(' ')} `
+            + `${setId(sm.get('crafted') ? null : sm.get('set'))} ${illegalId(wrapper?._illegalSet)}`);
+    }
+    L.push(`NFIXED ${fixedLines.length}`);
+    L.push(...fixedLines);
+
+    // Free slots + pools (items reference set/illegal ids, so emit before SETS).
+    L.push(`NSLOTS ${free_slots.length}`);
+    const slotLines = [];
+    for (const slot of free_slots) {
+        const pool = getPool(slot) ?? [];
+        slotLines.push(`SLOT ${slot} ${SLOT_POS[slot]} ${slot === 'ring1' ? 1 : 0} ${slot === 'ring2' ? 1 : 0} ${pool.length}`);
+        for (const it of pool) slotLines.push(itemLine(it));
+    }
+    L.push(...slotLines);
+
+    // Set-bonus SP table (ids assigned while emitting items above).
+    const setLines = [];
+    for (const [name, id] of setIds) {
+        const bonuses = ctx.sets.get(name)?.bonuses ?? [];
+        const rows = bonuses.map(b => H.skp_order.map(k => (b?.[k] || 0)).join(' '));
+        setLines.push(`SET ${id} ${rows.length} ${rows.join('  ')}`);
+    }
+    L.push(`NSETS ${setIds.size}`);
+    L.push(...setLines);
+
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, L.join('\n') + '\n');
+    console.log(`  [export] Rust fixture written to ${outPath}`);
+}
+
 // ── Seed build helper ────────────────────────────────────────────────────────
 
 /**
@@ -893,6 +1056,13 @@ async function runSolverTest(snapName) {
         none_item_sms: noneItemSMs,
         none_idx_map: NONE_IDX,
     };
+
+    // Optional: dump this scenario as a Rust enumeration-kernel fixture and stop.
+    if (process.env.SOLVER_EXPORT_RUST) {
+        exportRustFixture(process.env.SOLVER_EXPORT_RUST, { initMsgBase, ringPoolSer, solverSnap });
+        t.assert(true, `${snapName}: exported Rust fixture`);
+        return;
+    }
 
     // 10. Build partitions and run workers
     // Match the real solver's worker count: min(hardwareConcurrency - 2, 16), at least 1.
