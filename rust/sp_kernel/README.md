@@ -130,3 +130,28 @@ allocations): ~119K evals/s on the 1-row melee combo, ~1.6K evals/s on the
 33-row spell combo, single-threaded. The compiled-stat-index optimization
 pass comes after greedy SP + mana sim land, turning this into a full leaf
 scorer inside enum_kernel.
+
+## Scored enumeration (P2.4 layer 3+4)
+
+`enum_kernel <enum_fixture> [threads] [score_fixture.json]` runs the full
+leaf pipeline at every feasible leaf: SP solve → score-ceiling gate (vs a
+cross-thread shared cutoff) → greedy damage trials → mana check + rescue →
+merged top-15. Both fixtures must be co-exported from one scenario run:
+
+```bash
+SOLVER_EXPORT_RUST=rust/sp_kernel/fixtures/enum_spell2.txt \
+SOLVER_EXPORT_SCORE=rust/sp_kernel/fixtures/score_spell2.json \
+  node js/solver/tests/test_solver_search.js <scenario>
+./target/release/enum_kernel fixtures/enum_spell2.txt 4 fixtures/score_spell2.json
+```
+
+Measured (2026-08-12, this container, 4 threads vs JS 2 workers):
+
+| Scenario | JS | Rust |
+|---|---:|---:|
+| Dense combo_damage (readme armor2 pools, 3,712 search, no restrictions) | 10.2s | **2.9s**, top-15 bit-identical |
+| `readme_spell_wide` coverage @ 180s (20.07B search) | 430K checked | **1.38M checked (3.2x)**, rate still climbing at cap |
+
+Caveat: scenarios with stat restrictions need a `check_thresholds` port
+(the exact assembled-stat check that runs after the additive prechecks)
+before their scored top-N matches JS.
