@@ -250,6 +250,24 @@ function makeNoneItem() {
     t.assert(ds.lower.has('spRaw1'), 'Test 17: spRaw1 in lower');
 }
 
+// Test 18: ordinary set pieces are not safe standalone dominance candidates.
+// A weaker item can enable a globally superior set bonus with another slot.
+{
+    const standalone = makeItem({ damPct: 20 });
+    const setPiece = makeItem({ damPct: 10 });
+    setPiece.statMap.set('set', 'Test Set');
+    const pools = { helmet: [standalone, setPiece] };
+    const ds = { higher: new Set(['damPct']), lower: new Set() };
+    _prune_dominated_items(pools, ds);
+    t.assert(pools.helmet.includes(setPiece),
+        'Test 18: set piece survives standalone-stat dominance pruning');
+
+    const legacyPools = { helmet: [standalone, setPiece] };
+    _prune_dominated_items(legacyPools, ds, { preserve_set_items: false });
+    t.assert(!legacyPools.helmet.includes(setPiece),
+        'Test 18: benchmark-only legacy mode reproduces original set pruning');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 const summary = t.summary();

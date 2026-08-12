@@ -53,6 +53,7 @@ const SANDBOX_FILES = [
     'js/solver/pure/utils.js',
     'js/solver/pure/simulate.js',
     'js/solver/pure/engine.js',
+    'js/solver/engine/top_results.js',
     'js/solver/engine/worker_shims.js',
     'js/solver/engine/item_priority.js',
     'js/game/build.js',
@@ -274,6 +275,7 @@ function loadGameData(ctx) {
     // Build itemMap, idMap, itemLists.
     const itemMap = new Map();
     const idMap = new Map();
+    const redirectMap = new Map();
     const itemLists = new Map();
     for (const it of ctx.item_types) {
         itemLists.set(it, []);
@@ -289,6 +291,8 @@ function loadGameData(ctx) {
             } else {
                 idMap.set(item.id, item.displayName);
             }
+        } else {
+            redirectMap.set(item.id, item.remapID);
         }
     }
     // Assign set names to items.
@@ -414,6 +418,7 @@ function loadGameData(ctx) {
     // ── Inject into sandbox ──
     ctx.itemMap = itemMap;
     ctx.idMap = idMap;
+    ctx.redirectMap = redirectMap;
     ctx.itemLists = itemLists;
     ctx.sets = sets;
     ctx.none_items = none_items;
