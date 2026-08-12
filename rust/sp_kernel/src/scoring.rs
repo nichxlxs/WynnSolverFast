@@ -1295,6 +1295,7 @@ impl Layer2 {
 pub fn simulate_mana_fast(
     rows: &[Row], combo_base: &Obj, has_transcendence: bool,
     registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
 ) -> (f64, f64, bool, bool) {
     let stats = StatsView::Borrowed(combo_base);
     let mr = stats.num_or0("mr");
@@ -1336,7 +1337,7 @@ pub fn simulate_mana_fast(
     }
     let _ = mana_wasted;
 
-    for row in rows {
+    for (row_idx, row) in rows.iter().enumerate() {
         // Add Flat Mana: inject (or drain) qty mana at this point.
         if row.pseudo_kind.as_deref() == Some("add_flat_mana") {
             if !row.mana_excl && row.qty != 0.0 {
@@ -1351,7 +1352,10 @@ pub fn simulate_mana_fast(
         if row.mana_excl { continue; }
 
         let unclamped_cost = if spell.get("cost").map(|c| !c.is_null()).unwrap_or(false) {
-            row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts)
+            match compiled {
+                Some(c) => row_cost_compiled(combo_base, spell, &c[row_idx], tables, consts),
+                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts),
+            }
         } else { 0.0 };
         let is_spell = spell.get("cost").map(|c| !c.is_null()).unwrap_or(false);
         let is_melee_scaling = spell.get("scaling").and_then(|s| s.as_str()) == Some("melee");
@@ -1501,6 +1505,7 @@ impl L2Consts {
 /// no loops, no Blood Pact, no buff states.
 pub fn mana_check_passes(
     rows: &[Row], combo_base: &Obj, registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
 ) -> bool {
     if consts.combo_time == 0.0 && !consts.hp_casting {
         return true;
@@ -1512,7 +1517,7 @@ pub fn mana_check_passes(
         .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
         .unwrap_or(false);
     let (start_mana, end_mana, hp_warn, mana_warn) =
-        simulate_mana_fast(rows, combo_base, has_transcendence, registry, tables, consts);
+        simulate_mana_fast(rows, combo_base, has_transcendence, registry, tables, consts, compiled);
     if hp_warn { return false; }
     if mana_warn { return false; }
     if consts.allow_downtime { return end_mana > 0.0; }
@@ -1712,7 +1717,7 @@ pub fn leaf_pipeline_gated(
         for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
         doom_sp[2] = 150.0;
         let cb_doom = l2.assemble_from_base(&build_base, &doom_sp, weapon);
-        if !mana_check_passes(rows, &cb_doom, registry, tables, consts) {
+        if !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled) {
             return Ok(LeafOutcome::ManaReject);
         }
     }
@@ -1732,9 +1737,9 @@ pub fn leaf_pipeline_gated(
     // Final assemble + mana check (+ rescue).
     let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
     let mut combo_base = l2.assemble_from_base(&build_base, &sp_f, weapon);
-    if !mana_check_passes(rows, &combo_base, registry, tables, consts) {
+    if !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
         match mana_rescue(&build_base, l2, weapon, &mut base_sp, &mut total_sp,
-                          &orig_base_sp, rows, registry, hit_refs, tables, consts)? {
+                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
             Some(rescued) => combo_base = rescued,
             None => return Ok(LeafOutcome::ManaReject),
         }
@@ -1751,6 +1756,7 @@ pub fn mana_rescue(
     base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
 ) -> Result<Option<Obj>, String> {
     let _ = hit_refs;
     if consts.hp_casting { return Ok(None); }
@@ -1800,7 +1806,7 @@ pub fn mana_rescue(
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
         let combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
-        if mana_check_passes(rows, &combo_base, registry, tables, consts) {
+        if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
     }
@@ -2221,6 +2227,10 @@ pub struct CompiledBonus {
 
 pub struct CompiledRow {
     pub bonuses: Vec<CompiledBonus>,
+    /// Cost-stat deltas for row_unclamped_spell_cost (which: 0=int, 1=spRaw,
+    /// 2=spPct, 3=spPctFinal; contrib; use_max) and the row's cost key names.
+    pub cost_bonuses: Vec<(u8, f64, bool)>,
+    pub cost_keys: Option<(String, String, String)>,
     /// The spell with prop overrides already applied (or the original).
     pub mod_spell: Option<Value>,
     /// DPS analysis of mod_spell (always valid — overrides are constant).
@@ -2284,6 +2294,40 @@ pub fn compile_rows(
                 }
             }
         }
+        let mut cost_bonuses: Vec<(u8, f64, bool)> = Vec::new();
+        let mut cost_keys: Option<(String, String, String)> = None;
+        if let Some(spell) = &row.spell {
+            if spell.get("cost").map(|c| !c.is_null()).unwrap_or(false) {
+                let bs = spell.get("mana_derived_from").and_then(|v| v.as_i64())
+                    .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
+                let k_raw = format!("spRaw{}", bs);
+                let k_pct = format!("spPct{}", bs);
+                let k_final = format!("spPct{}Final", bs);
+                for token in &row.tokens {
+                    for (entry, effective_value) in find_all_matching_boosts(token, registry) {
+                        for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                            let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
+                            let which = if key == "int" { 0u8 }
+                                else if key == k_raw { 1 }
+                                else if key == k_pct { 2 }
+                                else if key == k_final { 3 }
+                                else { continue };
+                            let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
+                            if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
+                                contrib = round_near(contrib).floor();
+                            }
+                            if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
+                                if mx > 0.0 && contrib > mx { contrib = mx; }
+                                else if mx < 0.0 && contrib < mx { contrib = mx; }
+                            }
+                            let use_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
+                            cost_bonuses.push((which, contrib, use_max));
+                        }
+                    }
+                }
+                cost_keys = Some((k_raw, k_pct, k_final));
+            }
+        }
         let mod_spell: Option<Value> = row.spell.as_ref().map(|spell| {
             apply_spell_prop_overrides(spell, &prop_overrides, hit_refs).into_owned()
         });
@@ -2293,8 +2337,31 @@ pub fn compile_rows(
         let fallback_root = mod_spell.as_ref().and_then(|s| {
             if spell_is_dps(s) { find_dps_display_root(s) } else { None }
         });
-        CompiledRow { bonuses, mod_spell, dps, fallback_root }
+        CompiledRow { bonuses, cost_bonuses, cost_keys, mod_spell, dps, fallback_root }
     }).collect()
+}
+
+/// row_unclamped_spell_cost over compiled cost deltas — identical floats.
+pub fn row_cost_compiled(
+    base_stats: &Obj, spell: &Value, comp: &CompiledRow, tables: &Tables, consts: &L2Consts,
+) -> f64 {
+    let sv = StatsView::Borrowed(base_stats);
+    let (k_raw, k_pct, k_final) = comp.cost_keys.as_ref().expect("cost keys");
+    let mut v = [
+        sv.num_or0("int"),
+        sv.num_or0(k_raw),
+        sv.num_or0(k_pct),
+        sv.num_or0(k_final),
+    ];
+    for (which, contrib, use_max) in &comp.cost_bonuses {
+        let i = *which as usize;
+        v[i] = if *use_max { js_max(v[i], *contrib) } else { v[i] + *contrib };
+    }
+    let int_reduction = tables.sp_to_pct(v[0]) * consts.skillpoint_final_mult_2;
+    let mut cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN) * (1.0 - int_reduction);
+    cost += v[1];
+    cost *= 1.0 + v[2] / 100.0;
+    cost * (1.0 + v[3] / 100.0)
 }
 
 /// apply_combo_row_boosts with a precompiled delta list — identical float
