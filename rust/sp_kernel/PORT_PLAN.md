@@ -184,3 +184,35 @@ levels; tie membership at the top-15 boundary may differ from JS
   future: indirect-objective mana/pipeline specialization.
 - New benchmark fixtures (validated 96/96 bit-exact incl. dense per-trial):
   spell_8free (all 8 slots free), spell_ehp, spell_xpb.
+
+## Indirect-objective round (2026-08-12, fifth pass — ehp/mana)
+
+The ehp trace showed the ceiling gate discriminates poorly for defensive
+objectives (many near-cutoff leaves), so most leaves ran the full pipeline
+and the lazily-built JSON Obj base + Obj mana stages dominated (base 58s of
+140s CPU in a 30s window). Fixes, all validated bit-exact (8 fixtures,
+per-trial + doom/mana/rescue assertions under SCORE_DENSE_CHECK):
+
+- **Dense doom/mana/final**: gate survivors no longer build the Obj base.
+  The fast mana sim reads exactly {mr, ms, maxMana, int, hp, hpBonus,
+  atkTier, atkSpd, cost keys, ARCANES}; a mini stat map materialized from
+  the dense assembled state feeds the existing validated sim bit-identically.
+- **Dense mana rescue**: the Int-shift rescue loop re-assembles on the
+  dense path; the Obj base now only exists for non-dense scenarios and
+  check mode.
+- **Fail-fast sim** (verdict decided at first warning) + **hoisted static
+  spell fields** (cost/scaling/recast/hp_cost read once at parse, not per
+  sim per row).
+
+ehp benchmark 45.2K -> 238.9K leaves/s (5.3x). Remaining ehp profile: the
+mana sim itself (~12us x millions — most builds fail mana deep into the
+combo). Next levers there: doom-style subtree mana bounds for scenarios
+where var effects couple into mana stats (needs a bounded-coupling
+argument), or a coarse mana-stat cluster prefilter.
+
+Melee review: enumeration-bound and effectively done — all-8-free 144.7B
+completes in 0.30s, colossal 334.8B in 1.47s (228B/s effective via band
+credits). The melee gap is correctness scope, not speed: scored parity on
+restriction scenarios still needs the check_thresholds port (task #23).
+Spell review: BOUND_TAIL=1 now default (+13% — the set-transition fix made
+depth-(n-2) ceilings straddle the cutoff).

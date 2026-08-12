@@ -1119,7 +1119,7 @@ fn main() {
     let bound_max_depth: usize = env::var("BOUND_DEPTH").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(0);
     let bound_tail: usize = env::var("BOUND_TAIL").ok()
-        .and_then(|s| s.parse().ok()).unwrap_or(0);
+        .and_then(|s| s.parse().ok()).unwrap_or(1);
     let bound_tables: Option<sp_kernel::scoring::BoundTables> = scoring.and_then(|sc| {
         let bound_cluster_on: bool = env::var("BOUND_CLUSTER").ok()
             .and_then(|s| s.parse::<usize>().ok()).unwrap_or(4) > 0;

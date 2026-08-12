@@ -859,6 +859,12 @@ pub struct Row {
     pub delay: Option<f64>,
     pub recast_penalties: Vec<f64>,
     pub has_loop_marker: bool,
+    // Static spell fields hoisted for the mana sim (reads the ORIGINAL
+    // spell, which is parse-time constant).
+    pub sim_cost_present: bool,
+    pub sim_melee_scaling: bool,
+    pub sim_recast_base: i64,
+    pub sim_hp_cost: f64,
     // Parse-time DPS analysis of the ORIGINAL spell — valid whenever no
     // prop override modified the spell for a given evaluation.
     pub static_dps: Option<(String, f64, String)>, // per_hit_name, max_hits, chain_root
@@ -876,7 +882,18 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
             }).collect())
             .unwrap_or_default();
         let spell_ref: Option<Value> = r.get("spell").filter(|s| !s.is_null()).cloned();
+        let sim_cost_present = spell_ref.as_ref()
+            .and_then(|sp| sp.get("cost")).map(|c| !c.is_null()).unwrap_or(false);
+        let sim_melee_scaling = spell_ref.as_ref()
+            .and_then(|sp| sp.get("scaling")).and_then(|s| s.as_str()) == Some("melee");
+        let sim_recast_base = spell_ref.as_ref().and_then(|sp| {
+            sp.get("mana_derived_from").and_then(|v| v.as_i64())
+                .or_else(|| sp.get("base_spell").and_then(|v| v.as_i64()))
+        }).unwrap_or(0);
+        let sim_hp_cost = spell_ref.as_ref()
+            .and_then(|sp| sp.get("hp_cost")).and_then(|v| v.as_f64()).unwrap_or(0.0);
         rows.push(Row {
+            sim_cost_present, sim_melee_scaling, sim_recast_base, sim_hp_cost,
             qty: r.get("qty").and_then(|q| q.as_f64()).unwrap_or(0.0),
             dmg_excl: r.get("dmg_excl").and_then(|x| x.as_bool()).unwrap_or(false),
             pseudo: r.get("pseudo").map(|p| !p.is_null()).unwrap_or(false),
@@ -1311,6 +1328,19 @@ pub fn simulate_mana_fast(
     registry: &[Value], tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>,
 ) -> (f64, f64, bool, bool) {
+    simulate_mana_fast_ff(rows, combo_base, has_transcendence, registry, tables, consts, compiled, false)
+}
+
+/// simulate_mana_fast with an optional fail-fast: when `fail_fast` is set
+/// and a warning fires, the sim returns immediately — mana_check_passes
+/// fails on any warning regardless of the remaining trajectory, so the
+/// verdict is identical and the rest of the combo is skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_mana_fast_ff(
+    rows: &[Row], combo_base: &Obj, has_transcendence: bool,
+    registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>, fail_fast: bool,
+) -> (f64, f64, bool, bool) {
     let stats = StatsView::Borrowed(combo_base);
     let mr = stats.num_or0("mr");
     let ms = stats.num_or0("ms");
@@ -1365,16 +1395,15 @@ pub fn simulate_mana_fast(
         let Some(spell) = &row.spell else { continue };
         if row.mana_excl { continue; }
 
-        let unclamped_cost = if spell.get("cost").map(|c| !c.is_null()).unwrap_or(false) {
+        let is_spell = row.sim_cost_present;
+        let unclamped_cost = if is_spell {
             match compiled {
                 Some(c) => row_cost_compiled(combo_base, spell, &c[row_idx], tables, consts),
                 None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts),
             }
         } else { 0.0 };
-        let is_spell = spell.get("cost").map(|c| !c.is_null()).unwrap_or(false);
-        let is_melee_scaling = spell.get("scaling").and_then(|s| s.as_str()) == Some("melee");
-        let recast_base = spell.get("mana_derived_from").and_then(|v| v.as_i64())
-            .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
+        let is_melee_scaling = row.sim_melee_scaling;
+        let recast_base = row.sim_recast_base;
         let is_melee = recast_base == 0;
 
         let eff_cast_time = if is_melee { 0.0 } else { row.cast_time.unwrap_or(consts.spell_cast_time) };
@@ -1414,10 +1443,13 @@ pub fn simulate_mana_fast(
             }
 
             // Spell-level HP cost (e.g. Mindless Slaughter)
-            let spell_hp_cost = spell.get("hp_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let spell_hp_cost = row.sim_hp_cost;
             if spell_hp_cost > 0.0 {
                 let hp_deduction = spell_hp_cost / 100.0 * max_hp;
-                if hp < hp_deduction { has_hp_warning = true; }
+                if hp < hp_deduction {
+                    has_hp_warning = true;
+                    if fail_fast { return (start_mana, mana, true, has_mana_warning); }
+                }
                 hp -= hp_deduction;
             }
 
@@ -1430,6 +1462,7 @@ pub fn simulate_mana_fast(
                 } else {
                     mana -= effective_cost;
                     has_mana_warning = true;
+                    if fail_fast { return (start_mana, mana, has_hp_warning, true); }
                 }
             }
 
@@ -1531,7 +1564,7 @@ pub fn mana_check_passes(
         .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
         .unwrap_or(false);
     let (start_mana, end_mana, hp_warn, mana_warn) =
-        simulate_mana_fast(rows, combo_base, has_transcendence, registry, tables, consts, compiled);
+        simulate_mana_fast_ff(rows, combo_base, has_transcendence, registry, tables, consts, compiled, true);
     if hp_warn { return false; }
     if mana_warn { return false; }
     if consts.allow_downtime { return end_mana > 0.0; }
@@ -1812,12 +1845,13 @@ pub fn leaf_pipeline_gated(
         }
     }
 
-    // Leaf-invariant build stats for the surviving-leaf pipeline (doom
-    // precheck, mana checks, rescue, final assemble).
-    let build_base = match base_opt {
-        Some(b) => b,
-        None => phase!(BASE_NS, l2.build_base(item_names, weapon))?,
-    };
+    // Leaf-invariant build stats for the Obj-path stages (fallbacks, check
+    // mode, and the mana rescue). Dense leaves never build it unless the
+    // rescue path fires — the mana/doom/final stages read a mini stat map
+    // materialized from the dense assembled state instead.
+    if (dwork.is_none() || dense_check) && base_opt.is_none() {
+        base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+    }
 
     // Mana-doom precheck: mana feasibility depends on the greedy SP only
     // through Int (monotone — more Int means more starting mana and cheaper
@@ -1829,8 +1863,21 @@ pub fn leaf_pipeline_gated(
             let mut doom_sp = [0f64; 5];
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
             doom_sp[2] = 150.0;
-            let cb_doom = l2.assemble_from_base(&build_base, &doom_sp, weapon);
-            !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled)
+            if let Some((d, w)) = dwork.as_mut() {
+                let DenseWork { leaf, scratch } = &mut **w;
+                dense_assemble(d, leaf, scratch, &doom_sp);
+                let mini = dense_mana_obj(d, leaf, scratch);
+                let doomed = !mana_check_passes(rows, &mini, registry, tables, consts, compiled);
+                if dense_check {
+                    let cb_doom = l2.assemble_from_base(base_opt.as_ref().unwrap(), &doom_sp, weapon);
+                    let od = !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled);
+                    assert_eq!(doomed, od, "dense/obj doom mismatch");
+                }
+                doomed
+            } else {
+                let cb_doom = l2.assemble_from_base(base_opt.as_ref().unwrap(), &doom_sp, weapon);
+                !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled)
+            }
         });
         if doomed { return Ok(LeafOutcome::ManaReject); }
     }
@@ -1848,23 +1895,85 @@ pub fn leaf_pipeline_gated(
             phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
             let v = phase!(DMG_NS, dense_score(d, leaf, scratch, rows, compiled_rows, tables));
             if dense_check {
-                let mut cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
+                let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon);
                 let o = obj_score(&mut cb);
                 assert!(v == o || (v.is_nan() && o.is_nan()),
                         "dense/obj trial mismatch at {sp:?}: {v:?} vs {o:?}");
             }
             return v;
         }
-        let mut cb = phase!(ASM_NS, l2.assemble_from_base(&build_base, &trial_sp_f, weapon));
+        let mut cb = phase!(ASM_NS, l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon));
         phase!(DMG_NS, obj_score(&mut cb))
     };
     assigned_sp += phase!(GREEDY_NS, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
 
     // Final assemble + mana check (+ rescue).
-    let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-    let mut combo_base = l2.assemble_from_base(&build_base, &sp_f, weapon);
+    let mut sp_f5 = [0f64; 5];
+    for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
+    if let Some((d, w)) = dwork.as_mut() {
+        let mana_ok = phase!(MANA_NS, {
+            let DenseWork { leaf, scratch } = &mut **w;
+            dense_assemble(d, leaf, scratch, &sp_f5);
+            let mini = dense_mana_obj(d, leaf, scratch);
+            let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
+            if dense_check {
+                let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                let oo = mana_check_passes(rows, &cb, registry, tables, consts, compiled);
+                assert_eq!(ok, oo, "dense/obj final mana mismatch");
+            }
+            ok
+        });
+        let saved_rescue_base = base_sp;
+        let saved_rescue_total = total_sp;
+        let _ = (saved_rescue_base, saved_rescue_total);
+        if mana_ok {
+            let score = phase!(FINAL_NS, {
+                let DenseWork { leaf, scratch } = &mut **w;
+                let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
+                if dense_check {
+                    let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                    let o = obj_score(&mut cb);
+                    assert!(v == o || (v.is_nan() && o.is_nan()),
+                            "dense/obj final score mismatch: {v:?} vs {o:?}");
+                }
+                v
+            });
+            return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
+        }
+        // Rescue on the dense path (identical shift logic and checks).
+        let rescued = phase!(MANA_NS, {
+            let (d, w) = dwork.as_mut().unwrap();
+            let ok = dense_mana_rescue(d, w, &mut base_sp, &mut total_sp, &orig_base_sp,
+                                       rows, registry, tables, consts, compiled);
+            if dense_check {
+                let bb = match &base_opt {
+                    Some(b) => b,
+                    None => { base_opt = Some(l2.build_base(item_names, weapon)?); base_opt.as_ref().unwrap() }
+                };
+                let mut b2 = saved_rescue_base;
+                let mut t2 = saved_rescue_total;
+                let o = mana_rescue(bb, l2, weapon, &mut b2, &mut t2, &orig_base_sp,
+                                    rows, registry, hit_refs, tables, consts, compiled)?.is_some();
+                assert_eq!(ok, o, "dense/obj rescue mismatch");
+                assert_eq!((b2, t2), (base_sp, total_sp), "dense/obj rescue SP mismatch");
+            }
+            ok
+        });
+        if rescued {
+            let score = phase!(FINAL_NS, {
+                let (d, w) = dwork.as_mut().unwrap();
+                let DenseWork { leaf, scratch } = &mut **w;
+                dense_score(d, leaf, scratch, rows, compiled_rows, tables)
+            });
+            return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
+        }
+        return Ok(LeafOutcome::ManaReject);
+    }
+    let build_base = base_opt.as_ref().unwrap();
+    let sp_f: Vec<f64> = sp_f5.to_vec();
+    let mut combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
     if phase!(MANA_NS, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
-        match mana_rescue(&build_base, l2, weapon, &mut base_sp, &mut total_sp,
+        match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
             Some(rescued) => combo_base = rescued,
             None => return Ok(LeafOutcome::ManaReject),
@@ -2961,6 +3070,10 @@ pub struct DenseCtx {
     pub s_def: u32, pub s_agi: u32, pub s_hp: u32, pub s_hp_bonus: u32,
     pub s_agi_def: u32, pub s_hpr_raw: u32, pub s_hpr_pct: u32,
     pub s_max_mana: u32, pub s_int: u32,
+    /// Every stat key the fast mana sim / cost path reads, for the mini
+    /// stat map materialized from the dense assembled state.
+    pub mana_keys: Vec<(String, u32)>,
+    pub atk_spd_str: Option<String>,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -2996,6 +3109,7 @@ pub struct DenseLeaf {
     pub def_entries: Vec<DMultEntry>,
     pub def_vals: Vec<f64>,
     pub atk_spd_idx: i64,
+    pub has_arcanes: bool,
 }
 
 /// Mutable trial state; dam/def lists are journaled per row and end each
@@ -3076,9 +3190,27 @@ impl DenseCtx {
         let s_hp_bonus = it!("hpBonus"); let s_agi_def = it!("agiDef");
         let s_hpr_raw = it!("hprRaw"); let s_hpr_pct = it!("hprPct");
         let s_max_mana = it!("maxMana"); let s_int = it!("int");
+        let s_mr = it!("mr"); let s_ms = it!("ms");
+        let mut mana_keys: Vec<(String, u32)> = vec![
+            ("mr".into(), s_mr), ("ms".into(), s_ms),
+            ("maxMana".into(), s_max_mana), ("int".into(), s_int),
+            ("hp".into(), s_hp), ("hpBonus".into(), s_hp_bonus),
+        ];
+        for comp in compiled {
+            if let Some((kr, kp, kf)) = &comp.cost_keys {
+                for k in [kr, kp, kf] {
+                    if !mana_keys.iter().any(|(n, _)| n == k) {
+                        let i = intern(k, &mut idx, &mut keys);
+                        mana_keys.push((k.clone(), i));
+                    }
+                }
+            }
+        }
+        let atk_spd_str = weapon.get("atkSpd").and_then(|v| v.as_str()).map(String::from);
         let class_def_idx = it!("classDef");
         let dex_idx = it!("dex");
         let atk_tier_idx = it!("atkTier");
+        mana_keys.push(("atkTier".into(), atk_tier_idx));
 
         // Weapon constants (weapon is scenario-constant).
         let wview = StatsView::Borrowed(weapon);
@@ -3337,6 +3469,7 @@ impl DenseCtx {
                 post_item_adds.extend(di.adds);
             }
             let wdi = DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied())?;
+            let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
             post_item_adds.extend(wdi.adds);
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
@@ -3378,7 +3511,7 @@ impl DenseCtx {
                 dam_tome_adds: dam_sim.tome_adds,
                 def_tome_adds: def_sim.tome_adds,
                 atk_spd_idx: tables.atk_spd_index(weapon.get("atkSpd").and_then(|v| v.as_str())),
-                template_zero_idxs, hp_idx, agi_def_idx,
+                template_zero_idxs, base_arcanes, hp_idx, agi_def_idx,
                 hp_base: l2.hp_base,
                 class_def_idx: 0,               // filled below
                 class_def_val,
@@ -3445,7 +3578,7 @@ impl DenseCtx {
             s_sd_pct, s_md_pct, s_dam_pct, s_r_sd_pct, s_r_md_pct, s_r_dam_pct,
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
-            s_hpr_raw, s_hpr_pct, s_max_mana, s_int,
+            s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, atk_spd_str,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -3516,10 +3649,14 @@ impl DenseLeaf {
         let (dam_entries, dam_vals) = parse_mult_map("damMult")?;
         let (def_entries, def_vals) = parse_mult_map("defMult")?;
         let atk_spd_idx = tables.atk_spd_index(lc.get("atkSpd").and_then(|v| v.as_str()));
+        let has_arcanes = lc.get("activeMajorIDs")
+            .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+            .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+            .unwrap_or(false);
 
         Some(DenseLeaf {
             lc_vals, present, var_out_absent, const_term_vals,
-            dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx,
+            dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx, has_arcanes,
         })
     }
 }
@@ -4012,6 +4149,14 @@ pub struct DItem {
     pub adds: Vec<(u32, f64)>,
     pub set_name: Option<String>,
     pub crafted: bool,
+    pub arcanes: bool,
+}
+
+fn item_has_arcanes(item: &Obj) -> bool {
+    item.get("majorIds")
+        .and_then(|v| v.as_array().or_else(|| v.get("__s").and_then(|s| s.as_array())))
+        .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+        .unwrap_or(false)
 }
 
 pub struct DenseDirect {
@@ -4038,6 +4183,8 @@ pub struct DenseDirect {
     pub def_tail: Vec<(DMultEntry, f64)>,
     pub atk_spd_idx: i64,
     pub template_zero_idxs: Vec<u32>,
+    /// ARCANES present on tomes/weapon (leaf items OR onto this).
+    pub base_arcanes: bool,
     pub hp_idx: u32,
     pub agi_def_idx: u32,
     pub hp_base: f64,
@@ -4067,6 +4214,7 @@ impl DenseDirect {
             adds,
             set_name: item.get("set").and_then(|v| v.as_str()).map(String::from),
             crafted: item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+            arcanes: item_has_arcanes(item),
         })
     }
 }
@@ -4110,9 +4258,11 @@ impl DenseLeaf {
             };
         }
         let mut set_counts: Vec<(&str, i64)> = Vec::new();
+        self.has_arcanes = dd.base_arcanes;
         for name in item_names {
             let Some(item) = dd.items.get(*name) else { return false };
             add_item_ops!(&item.adds);
+            if item.arcanes { self.has_arcanes = true; }
             if !item.crafted {
                 if let Some(set_name) = &item.set_name {
                     match set_counts.iter_mut().find(|(n, _)| *n == set_name.as_str()) {
@@ -4380,6 +4530,98 @@ impl DenseBound {
         }
         Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size })
     }
+}
+
+/// mana_rescue on the dense path: identical shift logic, with the mana
+/// check running on the mini stat map from the dense assembled state.
+/// Returns true when rescued (leaving the rescued assemble in `work`).
+#[allow(clippy::too_many_arguments)]
+pub fn dense_mana_rescue(
+    d: &DenseCtx, work: &mut DenseWork,
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
+    rows: &[Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
+) -> bool {
+    if consts.hp_casting { return false; }
+    if consts.combo_time == 0.0 { return false; }
+
+    const INT_IDX: usize = 2;
+    let int_room = (100 - base_sp[INT_IDX]).min(150 - total_sp[INT_IDX]);
+    if int_room <= 0 { return false; }
+
+    let mut total_stealable = 0;
+    let mut stealable = [0i32; 5];
+    for i in 0..5 {
+        if i == INT_IDX { continue; }
+        stealable[i] = base_sp[i] - orig_base_sp[i];
+        total_stealable += stealable[i];
+    }
+    if total_stealable <= 0 { return false; }
+    let max_shift = total_stealable.min(int_room);
+    if max_shift <= 0 { return false; }
+
+    let saved_base = *base_sp;
+    let saved_total = *total_sp;
+
+    for frac in [0.25f64, 0.5, 0.75, 1.0] {
+        let shift_target = (max_shift as f64 * frac).ceil() as i32;
+        if shift_target <= 0 { continue; }
+
+        *base_sp = saved_base;
+        *total_sp = saved_total;
+
+        let mut order = [0usize, 1, 3, 4];
+        order.sort_by(|&a, &b| stealable[b].cmp(&stealable[a]));
+
+        let mut shifted = 0;
+        for &i in &order {
+            if shifted >= shift_target { break; }
+            let take = stealable[i].min(shift_target - shifted);
+            if take <= 0 { continue; }
+            base_sp[i] -= take;
+            total_sp[i] -= take;
+            shifted += take;
+        }
+        base_sp[INT_IDX] += shifted;
+        total_sp[INT_IDX] += shifted;
+
+        let mut sp_f = [0f64; 5];
+        for i in 0..5 { sp_f[i] = total_sp[i] as f64; }
+        let DenseWork { leaf, scratch } = work;
+        dense_assemble(d, leaf, scratch, &sp_f);
+        let mini = dense_mana_obj(d, leaf, scratch);
+        if mana_check_passes(rows, &mini, registry, tables, consts, compiled) {
+            return true;
+        }
+    }
+
+    *base_sp = saved_base;
+    *total_sp = saved_total;
+    false
+}
+
+/// Mini stat map for the fast mana sim, materialized from the dense
+/// assembled state. Contains exactly the keys the sim and the compiled
+/// cost path read, with bit-identical values (present non-numerics become
+/// Null — both read as 0 through as_f64/num_or0).
+pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
+    let mut o = Obj::new();
+    for (k, i) in &d.mana_keys {
+        if bit_get(&s.present, *i) {
+            let v = s.vals[*i as usize];
+            if v.is_nan() { o.insert(k.clone(), Value::Null); }
+            else { o.insert(k.clone(), Value::from(v)); }
+        }
+    }
+    if let Some(spd) = &d.atk_spd_str {
+        o.insert("atkSpd".into(), Value::from(spd.clone()));
+    }
+    if leaf.has_arcanes {
+        let mut w = Obj::new();
+        w.insert("__s".into(), Value::Array(vec![Value::from("ARCANES")]));
+        o.insert("activeMajorIDs".into(), Value::Object(w));
+    }
+    o
 }
 
 /// Objective ceiling for bound deltas over an ALREADY-FILLED leaf in `work`
