@@ -1019,6 +1019,7 @@ fn main() {
         ctx
     });
     let scoring = scoring_ctx.as_ref();
+    sp_kernel::scoring::trace::init_from_env();
     let shared_cutoff = AtomicU64::new(0);
 
     // Mid-tree damage ceiling bound tables (objective B&B). Memo keys pack
@@ -1174,6 +1175,7 @@ fn main() {
         elapsed.as_secs_f64(),
         totals.checked / elapsed.as_secs_f64(),
     );
+    sp_kernel::scoring::trace::report();
     if scoring.is_some() {
         println!(
             "scoring: scored {} | gated {} | mana_reject {} | bound_pruned {}",

@@ -1613,13 +1613,56 @@ pub fn leaf_pipeline(
 }
 
 #[allow(clippy::too_many_arguments)]
+// ── Phase trace (SCORE_TRACE=1): coarse per-phase nanos across all threads ──
+pub mod trace {
+    use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+    pub static ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static SP_NS: AtomicU64 = AtomicU64::new(0);
+    pub static BASE_NS: AtomicU64 = AtomicU64::new(0);
+    pub static GATE_NS: AtomicU64 = AtomicU64::new(0);
+    pub static DOOM_NS: AtomicU64 = AtomicU64::new(0);
+    pub static GREEDY_NS: AtomicU64 = AtomicU64::new(0);
+    pub static MANA_NS: AtomicU64 = AtomicU64::new(0);
+    pub static FINAL_NS: AtomicU64 = AtomicU64::new(0);
+    pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
+
+    pub fn init_from_env() {
+        if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
+            ENABLED.store(true, Ordering::Relaxed);
+        }
+    }
+    #[inline]
+    pub fn on() -> bool { ENABLED.load(Ordering::Relaxed) }
+    pub fn add(c: &AtomicU64, ns: u64) { c.fetch_add(ns, Ordering::Relaxed); }
+    pub fn report() {
+        if !on() { return; }
+        let f = |c: &AtomicU64| c.load(Ordering::Relaxed) as f64 / 1e9;
+        eprintln!(
+            "score_trace: sp {:.2}s | base {:.2}s | gate {:.2}s | doom {:.2}s | greedy {:.2}s ({} trials) | mana {:.2}s | final {:.2}s",
+            f(&SP_NS), f(&BASE_NS), f(&GATE_NS), f(&DOOM_NS), f(&GREEDY_NS),
+            GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
+        );
+    }
+}
+
+macro_rules! phase {
+    ($counter:ident, $body:expr) => {{
+        if trace::on() {
+            let t0 = std::time::Instant::now();
+            let r = $body;
+            trace::add(&trace::$counter, t0.elapsed().as_nanos() as u64);
+            r
+        } else { $body }
+    }};
+}
+
 pub fn leaf_pipeline_gated(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
 ) -> Result<LeafOutcome, String> {
-    let obj_score = |cb: &Obj| -> f64 {
+    let obj_score = |cb: &mut Obj| -> f64 {
         match compiled {
             Some(c) => objective.score_compiled(cb, weapon, rows, c, tables),
             None => objective.score(cb, weapon, rows, registry, hit_refs, tables),
@@ -1682,7 +1725,7 @@ pub fn leaf_pipeline_gated(
         set_free,
         expected: None,
     };
-    let Some((assign, total, assigned)) = kernel.calculate_with_extra(&case, guild) else {
+    let Some((assign, total, assigned)) = phase!(SP_NS, kernel.calculate_with_extra(&case, guild)) else {
         return Ok(LeafOutcome::SpInfeasible);
     };
     let mut base_sp = assign;
@@ -1691,19 +1734,20 @@ pub fn leaf_pipeline_gated(
 
     // Leaf-invariant build stats, computed once; the gate, every greedy
     // trial, the final assemble, and the rescue all reuse it.
-    let build_base = l2.build_base(item_names, weapon)?;
+    let build_base = phase!(BASE_NS, l2.build_base(item_names, weapon))?;
 
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
         if objective.supports_ceiling() {
-            let ceiling_sp = [150f64; 5];
-            let cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
-            let ceiling = obj_score(&cb150);
-            if ceiling < cutoff - cutoff.abs() * 1e-9 {
-                return Ok(LeafOutcome::Gated);
-            }
+            let gated = phase!(GATE_NS, {
+                let ceiling_sp = [150f64; 5];
+                let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+                let ceiling = obj_score(&mut cb150);
+                ceiling < cutoff - cutoff.abs() * 1e-9
+            });
+            if gated { return Ok(LeafOutcome::Gated); }
         }
     }
 
@@ -1713,13 +1757,14 @@ pub fn leaf_pipeline_gated(
     // outcome. Admissible only when no atree var effect couples stats into
     // the mana-relevant set (l2.mana_doom_ok).
     if l2.mana_doom_ok && (consts.combo_time != 0.0 || consts.hp_casting) {
-        let mut doom_sp = [0f64; 5];
-        for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
-        doom_sp[2] = 150.0;
-        let cb_doom = l2.assemble_from_base(&build_base, &doom_sp, weapon);
-        if !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled) {
-            return Ok(LeafOutcome::ManaReject);
-        }
+        let doomed = phase!(DOOM_NS, {
+            let mut doom_sp = [0f64; 5];
+            for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
+            doom_sp[2] = 150.0;
+            let cb_doom = l2.assemble_from_base(&build_base, &doom_sp, weapon);
+            !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled)
+        });
+        if doomed { return Ok(LeafOutcome::ManaReject); }
     }
 
     // Greedy allocation with objective-scored trials.
@@ -1728,16 +1773,17 @@ pub fn leaf_pipeline_gated(
     let orig_base_sp = base_sp;
     let mut trial_sp_f = [0f64; 5];
     let mut trial = |sp: &[i32; 5]| -> f64 {
+        if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
-        let cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
-        obj_score(&cb)
+        let mut cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
+        obj_score(&mut cb)
     };
-    assigned_sp += greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial);
+    assigned_sp += phase!(GREEDY_NS, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
 
     // Final assemble + mana check (+ rescue).
     let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
     let mut combo_base = l2.assemble_from_base(&build_base, &sp_f, weapon);
-    if !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
+    if phase!(MANA_NS, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(&build_base, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
             Some(rescued) => combo_base = rescued,
@@ -1745,7 +1791,7 @@ pub fn leaf_pipeline_gated(
         }
     }
 
-    let score = obj_score(&combo_base);
+    let score = phase!(FINAL_NS, obj_score(&mut combo_base));
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
@@ -2027,9 +2073,9 @@ impl Layer2 {
         add(&mut base, &bounds.suffix_max[next_depth]);
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
-        let cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
+        let mut cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
         Ok(match compiled {
-            Some(c) => objective.score_compiled(&cb, weapon, rows, c, tables),
+            Some(c) => objective.score_compiled(&mut cb, weapon, rows, c, tables),
             None => objective.score(&cb, weapon, rows, registry, hit_refs, tables),
         })
     }
@@ -2165,7 +2211,7 @@ impl Objective {
 
     /// Hot-path score over precompiled rows (bit-identical to score()).
     pub fn score_compiled(
-        &self, combo_base: &Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
     ) -> f64 {
         match self {
             Objective::ComboDamage =>
@@ -2174,14 +2220,20 @@ impl Objective {
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
                 let mut damage: Option<f64> = None;
-                let stats = StatsView::Borrowed(combo_base);
                 let mut sum = 0.0;
                 for (target, weight) in weights {
                     let sub = if target == "combo_damage" {
-                        *damage.get_or_insert_with(|| eval_combo_damage_compiled(
-                            combo_base, weapon, rows, compiled, tables))
+                        match damage {
+                            Some(d) => d,
+                            None => {
+                                let d = eval_combo_damage_compiled(
+                                    combo_base, weapon, rows, compiled, tables);
+                                damage = Some(d);
+                                d
+                            }
+                        }
                     } else {
-                        eval_indirect_stat(&stats, target, tables)
+                        eval_indirect_stat(&StatsView::Borrowed(combo_base), target, tables)
                     };
                     sum += weight * sub;
                 }
@@ -2389,20 +2441,66 @@ pub fn apply_compiled_boosts<'a>(base: &'a Obj, compiled: &CompiledRow) -> Stats
     StatsView::Owned(stats)
 }
 
+/// Apply a row's compiled deltas in place with an undo journal. Existing
+/// keys keep their positions and new keys append — the same layout the
+/// clone-and-extend path produced — and rollback restores the exact
+/// original bits, so results are bit-identical while touching only
+/// len(bonuses) entries instead of cloning ~200.
+pub fn with_row_overlay<R>(
+    base: &mut Obj, comp: &CompiledRow, f: impl FnOnce(&Obj) -> R,
+) -> R {
+    if comp.bonuses.is_empty() {
+        return f(base);
+    }
+    // (kind, key, previous value or None-if-absent)
+    let mut journal: Vec<(u8, &str, Option<Value>)> = Vec::with_capacity(comp.bonuses.len());
+    for b in &comp.bonuses {
+        let (kind_tag, target): (u8, &mut Obj) = match b.kind {
+            CompiledBonusKind::Stat => (0, base),
+            CompiledBonusKind::DamMult => (1, base.get_mut("damMult")
+                .and_then(|v| v.get_mut("__m")).and_then(|m| m.as_object_mut())
+                .expect("damMult wrap")),
+            CompiledBonusKind::DefMult => (2, base.get_mut("defMult")
+                .and_then(|v| v.get_mut("__m")).and_then(|m| m.as_object_mut())
+                .expect("defMult wrap")),
+        };
+        let prev = target.get(&b.key).cloned();
+        let cur = prev.as_ref().and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let nv = if b.use_max { js_max(cur, b.contrib) } else { cur + b.contrib };
+        target.insert(b.key.clone(), Value::from(nv));
+        journal.push((kind_tag, b.key.as_str(), prev));
+    }
+    let r = f(base);
+    for (kind_tag, key, prev) in journal.into_iter().rev() {
+        let target: &mut Obj = match kind_tag {
+            0 => base,
+            1 => base.get_mut("damMult").and_then(|v| v.get_mut("__m"))
+                .and_then(|m| m.as_object_mut()).expect("damMult wrap"),
+            _ => base.get_mut("defMult").and_then(|v| v.get_mut("__m"))
+                .and_then(|m| m.as_object_mut()).expect("defMult wrap"),
+        };
+        match prev {
+            Some(v) => { target.insert(key.to_string(), v); }
+            None => { target.shift_remove(key); }
+        }
+    }
+    r
+}
+
 /// eval_combo_damage over precompiled rows — the hot-path variant.
 pub fn eval_combo_damage_compiled(
-    combo_base: &Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
 ) -> f64 {
-    let base_view = StatsView::Borrowed(combo_base);
-    let dex = base_view.num("dex");
-    let crit = tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex });
+    let crit = {
+        let bv = StatsView::Borrowed(combo_base);
+        let dex = bv.num("dex");
+        tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex })
+    };
 
     let mut total_damage = 0.0;
     for (row, comp) in rows.iter().zip(compiled) {
         let Some(mod_spell) = &comp.mod_spell else { continue };
         if row.qty <= 0.0 || row.pseudo { continue; }
-
-        let stats = apply_compiled_boosts(combo_base, comp);
 
         let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
         let mut eff_dps_hits = row.dps_hits;
@@ -2414,20 +2512,24 @@ pub fn eval_combo_damage_compiled(
                 chain_root = Some(root);
             }
         }
-
-        let per_cast = match eff_dps_name {
-            Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
-            None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
-        };
-
         let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
-        let mut flat_per_cast = 0.0;
-        if let Some(root) = final_root {
-            flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
-        }
+
+        let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, |b| {
+            let stats = StatsView::Borrowed(b);
+            let per_cast = match eff_dps_name {
+                Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
+                None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
+            };
+            let mut flat_per_cast = 0.0;
+            if let Some(root) = final_root {
+                flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
+            }
+            (per_cast, flat_per_cast)
+        });
 
         let eff_qty = if row.is_melee_time {
-            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables)
+            let bv = StatsView::Borrowed(combo_base);
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables)
         } else { row.qty };
         let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
         total_damage += row_damage;
