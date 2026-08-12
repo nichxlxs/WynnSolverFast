@@ -170,6 +170,8 @@ struct Search<'a> {
 
     // Subtree leaf counts
     subtree: Vec<Vec<f64>>,              // [n_free+1][l_max+1]
+    subtree_prefix: Vec<Vec<f64>>,       // [n_free+1][l_max+2]
+    suffix_max_rank: Vec<i64>,           // [n_free+1]
     ring_pair_count: Vec<f64>,
 
     // Running state
@@ -298,6 +300,19 @@ impl<'a> Search<'a> {
             }
         }
 
+        // Prefix sums of subtree rows (band credits) + max rank suffixes.
+        let mut subtree_prefix = vec![vec![0f64; l_max + 2]; n_free + 1];
+        for d in 0..=n_free {
+            for t in 0..=l_max {
+                subtree_prefix[d][t + 1] = subtree_prefix[d][t] + subtree[d][t];
+            }
+        }
+        let mut suffix_max_rank = vec![0i64; n_free + 1];
+        for d in (0..n_free).rev() {
+            let ub = fx.slots[d].pool.len().saturating_sub(1) as i64;
+            suffix_max_rank[d] = suffix_max_rank[d + 1] + ub.max(0);
+        }
+
         // Fixed SP baseline
         let mut sp_fixed_max_req = [0i32; 5];
         let mut sp_fixed_prov = [0i32; 5];
@@ -334,7 +349,8 @@ impl<'a> Search<'a> {
 
         Search {
             fx, n_free, l_max, ring1_depth, ring2_depth, rings_contiguous,
-            sp_suffix_max_prov, pc_suffix, hp_suffix, subtree, ring_pair_count,
+            sp_suffix_max_prov, pc_suffix, hp_suffix, subtree, subtree_prefix,
+            suffix_max_rank, ring_pair_count,
             pc_running: fx.pc_start.clone(),
             hp_running: fx.hp_start,
             sp_fixed_max_req,
@@ -384,17 +400,68 @@ impl<'a> Search<'a> {
         let l_max = self.l_max;
         let mut prefix = vec![0f64; l_max + 2];
         for l in 0..=l_max { prefix[l + 1] = prefix[l] + tail[l]; }
-        let row = &mut self.subtree[d];
-        for l in 0..=l_max { row[l] = 0.0; }
-        if lb > ub { return; }
-        for l in 0..=l_max {
-            let lo = l.saturating_sub(ub);
-            if l < lb { continue; }
-            let hi_incl = l - lb;
-            if hi_incl < lo { continue; }
-            let hi = hi_incl.min(l_max);
-            row[l] = prefix[hi + 1] - prefix[lo];
+        {
+            let row = &mut self.subtree[d];
+            for l in 0..=l_max { row[l] = 0.0; }
+            if lb <= ub {
+                for l in 0..=l_max {
+                    let lo = l.saturating_sub(ub);
+                    if l < lb { continue; }
+                    let hi_incl = l - lb;
+                    if hi_incl < lo { continue; }
+                    let hi = hi_incl.min(l_max);
+                    row[l] = prefix[hi + 1] - prefix[lo];
+                }
+            }
         }
+        for t in 0..=l_max {
+            self.subtree_prefix[d][t + 1] = self.subtree_prefix[d][t] + self.subtree[d][t];
+        }
+    }
+
+    /// Leaves below depth d with remaining rank sum in [lo, hi].
+    fn band_credit(&self, d: usize, lo: i64, hi: i64) -> f64 {
+        if hi < 0 { return 0.0; }
+        let lo_c = lo.max(0) as usize;
+        let hi_c = (hi as usize).min(self.l_max);
+        if lo_c > hi_c { return 0.0; }
+        let p = &self.subtree_prefix[d];
+        p[hi_c + 1] - p[lo_c]
+    }
+
+    /// SP bound for placing pool[offset] at `depth` — identical outcome to
+    /// placing and running sp_mid_tree_feasible / sp_leaf_feasible.
+    fn sp_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+        let it = &self.fx.slots[depth].pool[offset];
+        let mut total_deficit = 0i32;
+        for j in 0..5 {
+            let m = it.reqs[j].max(self.sp_max_req[j]);
+            if m == 0 { continue; }
+            let item_prov = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
+            let sfx = if is_leaf { 0 } else { self.sp_suffix_max_prov[depth + 1][j] };
+            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j] + item_prov + sfx;
+            if m <= prov { continue; }
+            let deficit = m - prov;
+            if deficit > SP_PER_ATTR_CAP { return false; }
+            total_deficit += deficit;
+            if total_deficit > self.fx.budget { return false; }
+        }
+        true
+    }
+
+    /// Restriction/EHP bound for placing pool[offset] at `depth`.
+    fn restr_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+        let it = &self.fx.slots[depth].pool[offset];
+        let n_pc = self.fx.pc_thresholds.len();
+        for i in 0..n_pc {
+            let sfx = if is_leaf { 0.0 } else { self.pc_suffix[(depth + 1) * n_pc + i] };
+            if self.pc_running[i] + it.pc[i] + sfx < self.fx.pc_thresholds[i] { return false; }
+        }
+        if self.fx.ehp.is_some() || self.fx.ehpna.is_some() || self.fx.thp.is_some() {
+            let sfx = if is_leaf { 0.0 } else { self.hp_suffix[depth + 1] };
+            if !self.hp_gates_ok(self.hp_running + it.hp + sfx) { return false; }
+        }
+        true
     }
 
     fn sp_mid_tree_feasible(&self, next_depth: usize) -> bool {
@@ -538,7 +605,8 @@ impl<'a> Search<'a> {
         illegal_id >= 0 && self.illegal_counts[illegal_id as usize] > 0
     }
 
-    fn enumerate(&mut self, depth: usize, remaining_l: usize) {
+    // Visit every completion whose remaining rank sum lies in [lo_rem, hi_rem].
+    fn enumerate(&mut self, depth: usize, lo_rem: i64, hi_rem: i64) {
         if depth == self.n_free {
             self.evaluate_leaf();
             return;
@@ -547,64 +615,88 @@ impl<'a> Search<'a> {
         let slot_is_ring2 = depth as isize == self.ring2_depth;
         let pool_len = self.fx.slots[depth].pool.len();
         if pool_len == 0 {
-            self.enumerate(depth + 1, remaining_l);
+            self.enumerate(depth + 1, lo_rem, hi_rem);
             return;
         }
-        let pool_max = pool_len - 1;
-        let min_offset = if slot_is_ring2 && self.ring1_depth >= 0 {
-            self.ring1_placed_offset
+        let pool_max = (pool_len - 1) as i64;
+        let min_offset: i64 = if slot_is_ring2 && self.ring1_depth >= 0 {
+            self.ring1_placed_offset as i64
         } else { 0 };
 
         if depth == self.n_free - 1 {
-            // Last slot: place exactly offset = remaining_l.
-            if remaining_l >= min_offset && remaining_l <= pool_max {
-                let illegal = self.fx.slots[depth].pool[remaining_l].illegal_id;
-                if !self.blocks(illegal) {
-                    self.place(depth, remaining_l);
-                    if self.sp_leaf_feasible() {
-                        self.evaluate_leaf();
-                    } else {
-                        self.checked += 1.0;
-                        self.sp_leaf_reject += 1;
-                    }
-                    self.unplace(depth, remaining_l);
-                } else {
+            // Last slot: the leaf's remaining rank equals its offset, so the
+            // in-band offsets are exactly [lo_rem, hi_rem].
+            let from = min_offset.max(lo_rem).max(0);
+            let to = pool_max.min(hi_rem);
+            let mut offset = from;
+            while offset <= to {
+                let o = offset as usize;
+                let illegal = self.fx.slots[depth].pool[o].illegal_id;
+                if self.blocks(illegal) {
                     self.checked += 1.0;
+                    self.maybe_report();
+                } else if !self.sp_bound_ok(depth, o, true) {
+                    self.checked += 1.0;
+                    self.sp_leaf_reject += 1;
+                    self.maybe_report();
+                } else if !self.restr_bound_ok(depth, o, true) {
+                    self.checked += 1.0;
+                    self.precheck_reject += 1.0;
+                    self.maybe_report();
+                } else {
+                    self.place(depth, o);
+                    self.evaluate_leaf();
+                    self.unplace(depth, o);
                 }
+                offset += 1;
             }
             return;
         }
 
-        let max_offset = remaining_l.min(pool_max);
-        let mut offset = min_offset;
+        // Band reachability: offsets too small to reach lo_rem have no
+        // in-band leaves (all were visited in earlier bands).
+        let reach_min = lo_rem - self.suffix_max_rank[depth + 1];
+        let mut offset = min_offset.max(reach_min).max(0);
+        let max_offset = hi_rem.min(pool_max);
         while offset <= max_offset {
-            let illegal = self.fx.slots[depth].pool[offset].illegal_id;
+            let o = offset as usize;
+            let illegal = self.fx.slots[depth].pool[o].illegal_id;
             if self.blocks(illegal) {
                 if slot_is_ring1 && self.rings_contiguous {
-                    self.rebuild_ring2_subtree(offset);
+                    self.rebuild_ring2_subtree(o);
                 }
-                self.checked += self.subtree[depth + 1][remaining_l - offset];
+                self.checked += self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
                 self.maybe_report();
                 offset += 1;
                 continue;
             }
-            self.place(depth, offset);
-            if slot_is_ring1 {
-                self.ring1_placed_offset = offset;
-                if self.rings_contiguous { self.rebuild_ring2_subtree(offset); }
-            }
-            if !self.sp_mid_tree_feasible(depth + 1) {
-                self.checked += self.subtree[depth + 1][remaining_l - offset];
+            if !self.sp_bound_ok(depth, o, false) {
+                if slot_is_ring1 && self.rings_contiguous {
+                    self.rebuild_ring2_subtree(o);
+                }
+                self.checked += self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
                 self.maybe_report();
-            } else if !self.restr_mid_tree_feasible(depth + 1) {
-                let pruned = self.subtree[depth + 1][remaining_l - offset];
+                offset += 1;
+                continue;
+            }
+            if !self.restr_bound_ok(depth, o, false) {
+                if slot_is_ring1 && self.rings_contiguous {
+                    self.rebuild_ring2_subtree(o);
+                }
+                let pruned = self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
                 self.checked += pruned;
                 self.precheck_reject += pruned;
                 self.maybe_report();
-            } else {
-                self.enumerate(depth + 1, remaining_l - offset);
+                offset += 1;
+                continue;
             }
-            self.unplace(depth, offset);
+            self.place(depth, o);
+            if slot_is_ring1 {
+                self.ring1_placed_offset = o;
+                if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
+            }
+            self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
+            self.unplace(depth, o);
             offset += 1;
         }
     }
@@ -622,8 +714,16 @@ impl<'a> Search<'a> {
             self.evaluate_leaf();
             return;
         }
-        for l in 0..=self.l_max {
-            self.enumerate(0, l);
+        // Geometric level bands (see the JS worker): fine-grained ordering
+        // early, O(log L_max) prefix re-walks overall.
+        let l_max = self.l_max as i64;
+        let mut band_lo: i64 = 0;
+        let mut band_width: i64 = 1;
+        while band_lo <= l_max {
+            let band_hi = l_max.min(band_lo + band_width - 1);
+            self.enumerate(0, band_lo, band_hi);
+            band_lo = band_hi + 1;
+            band_width *= 2;
         }
     }
 }

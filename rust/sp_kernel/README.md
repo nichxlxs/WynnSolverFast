@@ -63,9 +63,14 @@ engines completed (identical checked and feasible):
 
 | Scenario | JS (2 workers, full leaf pipeline) | Rust (1 thread, no scoring) |
 |---|---:|---:|
-| Gaia 135.5M input / 22.97M search, 10,313 feasible | 1.881s | 0.342s |
-| Gaia 1.898B input / 229.7M search, 4,017 feasible | 1.376s | 0.332s |
-| Gaia colossal 4.52T input / 334.8B search (lvl 98-121, all slots free), 329,883 feasible | 180s cap | 77.1s |
+| Gaia 135.5M input / 22.97M search, 10,313 feasible | 1.881s | 0.069s |
+| Gaia 1.898B input / 229.7M search, 4,017 feasible | 1.376s | 0.055s |
+| Gaia all-free 1.816T input / 144.7B search, 81,616 feasible | — | 0.847s |
+| Gaia colossal 4.52T input / 334.8B search (lvl 98-121, all slots free), 329,883 feasible | **completes 32.9s** | **4.33s** |
+
+Both engines use geometric level-band enumeration with pre-placement column
+bound checks (2026-08-12); funnel counters are bit-identical to the
+per-level enumeration they replaced.
 
 (The first two rows predate the dominance equality-set fix, which grows
 those scenarios' post-dominance spaces; regenerate fixtures before

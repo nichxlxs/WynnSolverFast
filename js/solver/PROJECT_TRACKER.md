@@ -89,6 +89,11 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Dominance equality-set fix | All-free Gaia, 8 slots, lvl 100+ | — | 100.4B → 144.7B | feasible 0 (atkTier items wrongly pruned) | feasible 81,616 | correctness fix | Recalcitrance/Buzzsaw Bracer restored; Test 19 guards |
 | 2026-08-12 | Split atree scaling (const cache + per-trial stat effects) | Two-armor dense trace | — | 1,872 | wall 640ms | wall **330ms** | greedy 254→97µs/leaf | 15,095 unchanged; oracle-exact on all fixtures |
 | 2026-08-12 | New colossal benchmark (`gaia_colossal_4_5t_input`) | 4.52T input / 334.8B search, lvl 98-121, all slots free, 180s cap | 8,206,486,035 @ timeout (2.5%) | 301,683,889,228 @ timeout (90.1%) | 45.5M/s | 1.67B/s | Rust 1 thread completes in **77.1s** (feasible 329,883) | Both JS variants time out at 180s holding 470,163 |
+| 2026-08-12 | Adaptive progress throttle + pre-placement column bounds | Colossal, 1 worker, 40s window | — | 41.1B → 62.5B checked | — | +52% | postMessage flood fixed; SP place/unplace 20% → 5% of samples | 470,163 |
+| 2026-08-12 | Geometric level-band enumeration | Colossal, 1 worker, 40s window | — | 62.5B → 167.9B checked | — | +169% (4.1x round total) | prefix re-walks O(L_max) → O(log L_max); within-band order coarser, visited set identical | Oracle-exact; suite 240/240 |
+| 2026-08-12 | Bands cumulative, full run | Colossal 4.52T input, 2 workers, 180s cap | completes 31.2s (147.8B legacy space) | **completes 32.9s** (334,843,891,200 = full space) | — | 10.17B/s | was timeout @ 90.1% | feasible 329,883 identical to Rust; 470,163 |
+| 2026-08-12 | Rust enum_kernel with bands | all fixtures, 1 thread | — | — | 77.1s (colossal) | **4.33s**; all-free 8.4→0.85s; 1.9B 0.33→0.06s | 17.8x | Funnel counters bit-identical pre/post bands |
+| 2026-08-12 | New spell-spam benchmark (`readme_spell_wide`) | 350.6B input / 20.07B search, combo_damage, no restrictions | — | 35,000 checked @ 180s timeout | — | ~194 leaves/s | feasibility-dense: 17,433/35,000 feasible — leaf pipeline dominates | best 7,832,627; the anti-Gaia workload |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -245,6 +250,17 @@ will be used by both JS reference and future Rust core.
    standing scenarios (2M/95M/135M/1.9B) in the next benchmarking pass.
 8. PR #3 reviewed and closed: progress checkpoint + precompiled item entries
    absorbed; the rest duplicated master or this branch.
+9. Restriction-based iterated pool filtering (remove items whose every
+   completion fails the leaf precheck bound at the pool level) remains a
+   space reducer for tight-bound scenarios; deprioritized after bands made
+   those scenarios fast. Revisit if a tight-bound trillion-scale case shows
+   up.
+10. The spell-spam workload (`readme_spell_wide`) is leaf-bound: ~194
+   leaves/s, feasible ratio ~50%, no restrictions to prune with. Next lever
+   is the greedy-trial damage evaluation itself (incremental damage w.r.t.
+   SP changes, or gradient-guided trial ordering with exact re-verification);
+   all five skills can affect damage through elemental skill boosts, so
+   naive trial skipping is not exact.
 
 ## Update protocol
 

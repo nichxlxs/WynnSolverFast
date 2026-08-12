@@ -108,9 +108,15 @@ const PROGRESS_INTERVAL_LONG = 50000;
 const _progress_checkpoint = { next: PROGRESS_INTERVAL };
 function _take_progress_checkpoint(checked) {
     if (checked < _progress_checkpoint.next) return false;
+    // Adaptive step: fixed intervals early, then ~0.4% of the current count.
+    // Subtree crediting can advance checked by billions — a fixed 50K step
+    // would flood postMessage/structuredClone (measured ~15% of worker CPU
+    // on the 4.5T scenario).
+    const step = checked < 1_000_000
+        ? PROGRESS_INTERVAL
+        : Math.max(PROGRESS_INTERVAL_LONG, Math.floor(checked / 256));
     do {
-        _progress_checkpoint.next += _progress_checkpoint.next < 1_000_000
-            ? PROGRESS_INTERVAL : PROGRESS_INTERVAL_LONG;
+        _progress_checkpoint.next += step;
     } while (_progress_checkpoint.next <= checked);
     return true;
 }
@@ -757,6 +763,119 @@ function _run_level_enum() {
     }
     const _restr_pruning_active = !!(_pc_suffix || _hp_suffix);
 
+    // ── Pre-placement bound columns ─────────────────────────────────────────
+    //
+    // Flat per-slot columns of every pool item's bound-relevant values, so
+    // enumerate() can test the SP and restriction suffix bounds for a child
+    // BEFORE paying placement (identical math to the post-placement checks:
+    // running-after-place equals running-before + the column value). At
+    // trillion scale most children are pruned, so skipping place/unplace for
+    // them dominates the enumeration cost.
+
+    const _col_pc = new Array(N_free);    // Float64Array [offset*_n_pc + i] | null
+    const _col_hp = new Array(N_free);    // Float64Array [offset] | null
+    const _col_req = new Array(N_free);   // Int32Array [offset*5 + j]
+    const _col_prov = new Array(N_free);  // Int32Array [offset*5 + j], non-crafted positive skp
+    for (let d = 0; d < N_free; d++) {
+        const pool = _get_pool(free_slots[d]) ?? [];
+        const n = pool.length;
+        const pcs = _n_pc > 0 ? new Float64Array(n * _n_pc) : null;
+        const hps = _hp_prechecks_active ? new Float64Array(n) : null;
+        const reqs = new Int32Array(n * 5);
+        const provs = new Int32Array(n * 5);
+        for (let o = 0; o < n; o++) {
+            const sm = pool[o].statMap;
+            if (pcs) {
+                for (let i = 0; i < _n_pc; i++) {
+                    pcs[o * _n_pc + i] = _item_stat_value(sm, _constraint_prechecks[i].stat);
+                }
+            }
+            if (hps) {
+                hps[o] = (sm.get('hp') || 0) + (sm.get('maxRolls')?.get('hpBonus') || 0);
+            }
+            const req = sm.get('reqs');
+            const skp = sm.get('skillpoints');
+            const crafted = sm.get('crafted');
+            for (let j = 0; j < 5; j++) {
+                reqs[o * 5 + j] = req[j];
+                provs[o * 5 + j] = (!crafted && skp[j] > 0) ? skp[j] : 0;
+            }
+        }
+        _col_pc[d] = pcs;
+        _col_hp[d] = hps;
+        _col_req[d] = reqs;
+        _col_prov[d] = provs;
+    }
+
+    // Per-depth hoist buffers (recursion-safe: one set per depth).
+    const _hoist_prov_sfx = [];   // Int32Array(5): fixed+free prov + suffix at child depth
+    const _hoist_pc_base = [];    // Float64Array(_n_pc): running pc + suffix at child depth
+    const _hoist_hp_base = new Float64Array(N_free || 1);
+    for (let d = 0; d < N_free; d++) {
+        _hoist_prov_sfx.push(new Int32Array(5));
+        _hoist_pc_base.push(_n_pc > 0 ? new Float64Array(_n_pc) : null);
+    }
+    const _pc_thresholds_flat = new Float64Array(_n_pc);
+    for (let i = 0; i < _n_pc; i++) _pc_thresholds_flat[i] = _constraint_prechecks[i].adjusted_threshold;
+
+    /** SP bound for placing pool[offset] at slot_idx (bases pre-hoisted). */
+    function _sp_bound_ok(slot_idx, offset) {
+        const req_col = _col_req[slot_idx];
+        const prov_col = _col_prov[slot_idx];
+        const prov_sfx = _hoist_prov_sfx[slot_idx];
+        const ro = offset * 5;
+        let total_deficit = 0;
+        for (let j = 0; j < 5; j++) {
+            const r = req_col[ro + j];
+            const m = r > _sp_running_max_eff_req[j] ? r : _sp_running_max_eff_req[j];
+            if (m === 0) continue;
+            const prov = prov_sfx[j] + prov_col[ro + j];
+            if (m <= prov) continue;
+            const deficit = m - prov;
+            if (deficit > SP_PER_ATTR_CAP) return false;
+            total_deficit += deficit;
+            if (total_deficit > sp_budget) return false;
+        }
+        return true;
+    }
+
+    /** Restriction/EHP bound for placing pool[offset] at slot_idx. */
+    function _restr_bound_ok(slot_idx, offset) {
+        const pc_col = _col_pc[slot_idx];
+        if (pc_col) {
+            const pc_base = _hoist_pc_base[slot_idx];
+            const po = offset * _n_pc;
+            for (let i = 0; i < _n_pc; i++) {
+                if (pc_base[i] + pc_col[po + i] < _pc_thresholds_flat[i]) return false;
+            }
+        }
+        const hp_col = _col_hp[slot_idx];
+        if (hp_col) {
+            if (!_hp_gates_ok(_hoist_hp_base[slot_idx] + hp_col[offset])) return false;
+        }
+        return true;
+    }
+
+    /** EHP-family gate on an optimistic raw hp value (mirrors _fast_ehp_precheck). */
+    function _hp_gates_ok(raw_hp) {
+        if (_ehp_precheck) {
+            let totalHp = raw_hp + _ehp_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if ((totalHp / _ehp_precheck.ehp_divisor) < _ehp_precheck.threshold) return false;
+        }
+        if (_ehp_no_agi_precheck) {
+            let totalHp = raw_hp + _ehp_no_agi_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if ((totalHp / _ehp_no_agi_precheck.ehp_divisor) < _ehp_no_agi_precheck.threshold) return false;
+        }
+        if (_total_hp_precheck) {
+            let totalHp = raw_hp + _total_hp_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if (totalHp < _total_hp_precheck.threshold) return false;
+        }
+        return true;
+    }
+
     // ── Incremental stat accumulation ───────────────────────────────────────
     // Build base statMap from locked items + tomes + weapon. Free items are added/removed during search.
 
@@ -1317,6 +1436,46 @@ function _run_level_enum() {
         }
     }
 
+    // ── Band accounting ──────────────────────────────────────────────────────
+    //
+    // The enumeration visits leaves in geometric LEVEL BANDS [lo, hi] instead
+    // of one level at a time: band widths double (1, 2, 4, ...) so the early,
+    // quality-critical ordering stays fine-grained while deep-tail prefixes
+    // are re-walked O(log L_max) times instead of O(L_max). Each tuple's
+    // level falls in exactly one band, so the visited set and all funnel
+    // totals are unchanged; only the within-band visit order differs from the
+    // strict per-level ordering.
+    //
+    // _subtree_prefix[d][t+1] = Σ_{u<=t} _subtree_leaf_count[d][u], so a
+    // pruned child subtree's in-band leaves are credited with one prefix
+    // difference.
+
+    const _subtree_prefix = new Array(N_free + 1);
+    function _rebuild_subtree_prefix(d) {
+        let p = _subtree_prefix[d];
+        if (!p) p = _subtree_prefix[d] = new Float64Array(L_max + 2);
+        const row = _subtree_leaf_count[d];
+        for (let t = 0; t <= L_max; t++) p[t + 1] = p[t] + row[t];
+    }
+    for (let d = 0; d <= N_free; d++) _rebuild_subtree_prefix(d);
+
+    /** Leaves below depth d with remaining rank sum in [lo, hi]. */
+    function _band_credit(d, lo, hi) {
+        if (hi < 0) return 0;
+        const p = _subtree_prefix[d];
+        const lo_c = lo > 0 ? lo : 0;
+        const hi_c = hi < L_max ? hi : L_max;
+        if (lo_c > hi_c) return 0;
+        return p[hi_c + 1] - p[lo_c];
+    }
+
+    // Max achievable rank sum from depth d onward (band reachability).
+    const _suffix_max_rank = new Int32Array(N_free + 1);
+    for (let d = N_free - 1; d >= 0; d--) {
+        _suffix_max_rank[d] = _suffix_max_rank[d + 1]
+            + (_slot_ub[d] > 0 ? _slot_ub[d] : 0);
+    }
+
     // Rebuild _subtree_leaf_count[ring2_depth] for the given ring1 placement.
     // Only meaningful when both rings free and contiguous.
     function _rebuild_ring2_subtree_leaf_count(ring1_offset) {
@@ -1325,17 +1484,19 @@ function _run_level_enum() {
         arr.fill(0);
         const lb2 = Math.max(_slot_lb[ring2_depth], ring1_offset);
         const ub2 = _slot_ub[ring2_depth];
-        if (lb2 > ub2) return;
-        const tail = _subtree_leaf_count[ring2_depth + 1];
-        const prefix = new Float64Array(L_max + 2);
-        for (let L = 0; L <= L_max; L++) prefix[L + 1] = prefix[L] + tail[L];
-        for (let L = 0; L <= L_max; L++) {
-            const lo = Math.max(0, L - ub2);
-            const hi_incl = L - lb2;
-            if (hi_incl < lo) continue;
-            const hi = Math.min(L_max, hi_incl);
-            arr[L] = prefix[hi + 1] - prefix[lo];
+        if (lb2 <= ub2) {
+            const tail = _subtree_leaf_count[ring2_depth + 1];
+            const prefix = new Float64Array(L_max + 2);
+            for (let L = 0; L <= L_max; L++) prefix[L + 1] = prefix[L] + tail[L];
+            for (let L = 0; L <= L_max; L++) {
+                const lo = Math.max(0, L - ub2);
+                const hi_incl = L - lb2;
+                if (hi_incl < lo) continue;
+                const hi = Math.min(L_max, hi_incl);
+                arr[L] = prefix[hi + 1] - prefix[lo];
+            }
         }
+        _rebuild_subtree_prefix(ring2_depth);
     }
 
     // ── Mid-tree SP pruning state & helpers ──────────────────────────────────
@@ -1507,7 +1668,10 @@ function _run_level_enum() {
     // Track ring1's placed offset for ring2 symmetry constraint (ring2 offset >= ring1 offset).
     let _ring1_placed_offset = 0;
 
-    function enumerate(slot_idx, remaining_L) {
+    // enumerate(slot_idx, lo_rem, hi_rem): visit every completion of the
+    // current prefix whose remaining rank sum lies in [lo_rem, hi_rem].
+    // lo_rem may go <= 0 (no lower bound left); hi_rem is the budget.
+    function enumerate(slot_idx, lo_rem, hi_rem) {
         if (_cancelled) return;
 
         if (slot_idx === N_free) {
@@ -1517,7 +1681,7 @@ function _run_level_enum() {
 
         const slot = free_slots[slot_idx];
         const pool = _get_pool(slot);
-        if (!pool) { enumerate(slot_idx + 1, remaining_L); return; }
+        if (!pool) { enumerate(slot_idx + 1, lo_rem, hi_rem); return; }
 
         const is_ring1 = (slot_idx === ring1_depth);
         const is_ring2 = (slot_idx === ring2_depth);
@@ -1540,41 +1704,89 @@ function _run_level_enum() {
             pool_max = Math.min(pool_max, partition.end - 1);
         }
 
-        // For the last free slot, we must place an item at exactly offset=remaining_L.
-        // This ensures each combination is visited at exactly one level (level == sum of offsets),
-        // preventing duplicates where lower-sum combinations were re-evaluated at every higher L.
-        if (slot_idx === N_free - 1) {
-            if (remaining_L >= min_offset && remaining_L <= pool_max) {
-                const item = pool[remaining_L];
+        // ── Hoisted bound bases (constant across this slot's offsets) ──────
+        // running-after-place[x] == running-before[x] + column[x] for every
+        // bound-relevant value, so testing base + column reproduces the
+        // post-placement checks exactly, without placing.
+        const next_depth = slot_idx + 1;
+        const req_col = _col_req[slot_idx];
+        const prov_col = _col_prov[slot_idx];
+        const pc_col = _col_pc[slot_idx];
+        const hp_col = _col_hp[slot_idx];
+        const is_leaf_slot = (slot_idx === N_free - 1);
+
+        {
+            // Leaf slot uses no suffix (mirrors _sp_leaf_feasible / the leaf
+            // prechecks); interior slots add the child-depth suffix.
+            const prov_sfx = _hoist_prov_sfx[slot_idx];
+            const sfx = is_leaf_slot ? null : _sp_suffix_max_prov[next_depth];
+            for (let j = 0; j < 5; j++) {
+                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j] + (sfx ? sfx[j] : 0);
+            }
+            if (pc_col) {
+                const pc_base = _hoist_pc_base[slot_idx];
+                const row = next_depth * _n_pc;
+                for (let i = 0; i < _n_pc; i++) {
+                    const pc = _constraint_prechecks[i];
+                    pc_base[i] = _running_get(pc.stat, pc.stat_idx)
+                        + (is_leaf_slot ? 0 : _pc_suffix[row + i]);
+                }
+            }
+            if (hp_col) {
+                _hoist_hp_base[slot_idx] = _running_get('hp', _vec_hp_idx)
+                    + _running_get('hpBonus', _vec_hpBonus_idx)
+                    + (is_leaf_slot ? 0 : _hp_suffix[next_depth]);
+            }
+        }
+
+        // For the last free slot, the leaf's total rank equals its offset, so
+        // the in-band offsets form the exact range [lo_rem, hi_rem]. Each
+        // tuple's level lies in exactly one band, so no duplicates.
+        if (is_leaf_slot) {
+            const from = Math.max(min_offset, lo_rem);
+            const to = Math.min(pool_max, hi_rem);
+            for (let offset = from; offset <= to; offset++) {
+                if (_cancelled) return;
+                const item = pool[offset];
                 const is = item._illegalSet;
                 const iname = item._illegalSetName;
-                if (!tracker.blocks(is, iname)) {
-                    if (is) tracker.add(is, iname);
-                    partial[slot] = item;
-                    _place_item(item);
-                    _sp_place_free_item(item.statMap, slot_idx);
-                    if (_sp_leaf_feasible()) {
-                        _evaluate_leaf();
-                    } else {
-                        _checked++;
-                        _dbg_sp_leaf_reject++;
-                        _maybe_progress();
-                    }
-                    _sp_unplace_free_item(item.statMap, slot_idx);
-                    _unplace_item(item);
-                    if (is) tracker.remove(is, iname);
-                } else {
+                if (tracker.blocks(is, iname)) {
                     // Illegal-set blocked — the single leaf for this tuple is still
                     // counted toward total, so credit it to _checked.
                     _checked++;
                     _maybe_progress();
+                } else if (!_sp_bound_ok(slot_idx, offset)) {
+                    // Same outcome _sp_leaf_feasible would produce after placing.
+                    _checked++;
+                    _dbg_sp_leaf_reject++;
+                    _maybe_progress();
+                } else if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
+                    // Same outcome the leaf prechecks would produce after placing.
+                    _checked++;
+                    _precheck_reject++;
+                    _dbg_precheck_reject++;
+                    _maybe_progress();
+                } else {
+                    if (is) tracker.add(is, iname);
+                    partial[slot] = item;
+                    _place_item(item);
+                    _sp_place_free_item(item.statMap, slot_idx);
+                    _evaluate_leaf();
+                    _sp_unplace_free_item(item.statMap, slot_idx);
+                    _unplace_item(item);
+                    if (is) tracker.remove(is, iname);
                 }
             }
             partial[slot] = locked[slot] ?? none_items_wrapped[_cfg.none_idx_map[slot]];
             return;
         }
 
-        const max_offset = Math.min(remaining_L, pool_max);
+        // Band reachability: offsets too small to reach lo_rem with the
+        // remaining slots' maximum ranks have no in-band leaves (they were
+        // all visited in earlier bands).
+        const reach_min = lo_rem - _suffix_max_rank[next_depth];
+        if (reach_min > min_offset) min_offset = reach_min;
+        const max_offset = Math.min(hi_rem, pool_max);
 
         for (let offset = min_offset; offset <= max_offset; offset++) {
             if (_cancelled) return;
@@ -1590,13 +1802,38 @@ function _run_level_enum() {
                 if (is_ring1 && both_rings_free && rings_contiguous) {
                     _rebuild_ring2_subtree_leaf_count(offset);
                 }
-                const skipped = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
+                const skipped = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += skipped;
                 _maybe_progress();
                 continue;
             }
-            if (is) tracker.add(is, iname);
 
+            if (!_sp_bound_ok(slot_idx, offset)) {
+                if (is_ring1 && both_rings_free && rings_contiguous) {
+                    _rebuild_ring2_subtree_leaf_count(offset);
+                }
+                const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
+                _checked += pruned;
+                _dbg_sp_prune_count += pruned;
+                _maybe_progress();
+                continue;
+            }
+            if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
+                // Every completion would fail the leaf precheck — credit the
+                // subtree to checked and precheck_reject so funnel totals
+                // match the unpruned enumeration exactly.
+                if (is_ring1 && both_rings_free && rings_contiguous) {
+                    _rebuild_ring2_subtree_leaf_count(offset);
+                }
+                const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
+                _checked += pruned;
+                _precheck_reject += pruned;
+                _dbg_restr_prune_count += pruned;
+                _maybe_progress();
+                continue;
+            }
+
+            if (is) tracker.add(is, iname);
             partial[slot] = item;
             _place_item(item);
             _sp_place_free_item(item.statMap, slot_idx);
@@ -1606,23 +1843,7 @@ function _run_level_enum() {
                 _rebuild_ring2_subtree_leaf_count(offset);
             }
 
-            if (!_sp_mid_tree_feasible(slot_idx + 1)) {
-                const pruned = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
-                _checked += pruned;
-                _dbg_sp_prune_count += pruned;
-                _maybe_progress();
-            } else if (_restr_pruning_active && !_restr_mid_tree_feasible(slot_idx + 1)) {
-                // Every completion would fail the leaf precheck — credit the
-                // subtree to checked and precheck_reject so funnel totals
-                // match the unpruned enumeration exactly.
-                const pruned = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
-                _checked += pruned;
-                _precheck_reject += pruned;
-                _dbg_restr_prune_count += pruned;
-                _maybe_progress();
-            } else {
-                enumerate(slot_idx + 1, remaining_L - offset);
-            }
+            enumerate(next_depth, lo_rem - offset, hi_rem - offset);
 
             _sp_unplace_free_item(item.statMap, slot_idx);
             _unplace_item(item);
@@ -1637,9 +1858,18 @@ function _run_level_enum() {
     if (N_free === 0) {
         _evaluate_leaf();
     } else {
-        for (let L = 0; L <= L_max && !_cancelled; L++) {
-            _current_L = L;
-            enumerate(0, L);
+        // Geometric level bands: strict per-level ordering for the first,
+        // narrow bands (the quality-critical head of the search) and
+        // doubling widths for the tail, cutting prefix re-walks from
+        // O(L_max) to O(log L_max) per prefix.
+        let band_lo = 0;
+        let band_width = 1;
+        while (band_lo <= L_max && !_cancelled) {
+            const band_hi = Math.min(L_max, band_lo + band_width - 1);
+            _current_L = band_hi;
+            enumerate(0, band_lo, band_hi);
+            band_lo = band_hi + 1;
+            band_width *= 2;
         }
     }
 
