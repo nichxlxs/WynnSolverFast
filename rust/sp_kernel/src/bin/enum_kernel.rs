@@ -1144,7 +1144,9 @@ fn main() {
             eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
             return None;
         }
-        if !sc.objective.supports_ceiling() { return None; }
+        if !sc.objective.supports_ceiling()
+            || !sc.layer2.ceiling_vars_ok
+            || sc.consts.hp_casting { return None; }
         let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
     });

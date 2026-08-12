@@ -1364,10 +1364,14 @@ function _run_solver_search_workers(pools, locked, snap) {
     } catch (e) { cutoff_sab = null; cutoff_view = null; }
     const cutoff_scores = new Map();  // item_names key -> best score seen
     let last_cutoff = -Infinity;
-    // The seed competes in the final merge as its own entry, so it gets its
-    // own key even if the search rediscovers the same build.
+    // Key the seed by its item names: _insert_top5 dedups the final merge by
+    // names, so a worker rediscovering the same build must collapse to ONE
+    // cutoff entry — a duplicate would make the shared cutoff the 14th
+    // distinct score and let the ceiling gate discard a legitimate #15.
     if (typeof _solver_state.seed_build?.score === 'number') {
-        cutoff_scores.set('\x00seed', _solver_state.seed_build.score);
+        const seed_names = _solver_state.seed_build.items
+            ?.map(i => i.statMap?.get?.('name') ?? '').join(' ');
+        cutoff_scores.set(seed_names || '\x00seed', _solver_state.seed_build.score);
     }
     function _update_shared_cutoff(entries) {
         if (!entries) return;

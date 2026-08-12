@@ -1072,6 +1072,12 @@ pub struct Layer2 {
     /// fast mana sim is monotone in Int and the Int=150 doom precheck is
     /// admissible (see leaf_pipeline_gated).
     pub mana_doom_ok: bool,
+    /// Mirrors the worker's _ceiling_gate_setup var-effect conditions: every
+    /// atree var effect must have non-negative stat-input factors and only
+    /// plain stat outputs that are neither atkTier nor *ConvBase. Without
+    /// this, evaluating at all-150 SP is not an upper bound and the ceiling
+    /// gate / subtree bounds would prune inadmissibly.
+    pub ceiling_vars_ok: bool,
     pub item_registry: HashMap<String, Obj>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
@@ -1121,8 +1127,22 @@ impl Layer2 {
                 outs.iter().all(|o| o.as_str().map(|k| !mana_relevant(k)).unwrap_or(false))
             }).unwrap_or(false)
         });
+        let ceiling_vars_ok = var_effects_list.iter().all(|eff| {
+            let terms_ok = eff.get("terms").and_then(|t| t.as_array())
+                .map(|ts| ts.iter().all(|t| {
+                    t.get("factor").and_then(|f| f.as_f64()).map(|f| f >= 0.0).unwrap_or(false)
+                }))
+                .unwrap_or(true);
+            let outs_ok = eff.get("outputs").and_then(|o| o.as_array())
+                .map(|outs| outs.iter().all(|o| {
+                    o.as_str().map(|n| n != "atkTier" && !n.contains("ConvBase")).unwrap_or(false)
+                }))
+                .unwrap_or(true);
+            terms_ok && outs_ok
+        });
         Some(Layer2 {
             mana_doom_ok,
+            ceiling_vars_ok,
             item_registry,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
@@ -1821,7 +1841,7 @@ pub fn leaf_pipeline_gated(
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
-        if objective.supports_ceiling() {
+        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting {
             if (dwork.is_none() || dense_check) && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
