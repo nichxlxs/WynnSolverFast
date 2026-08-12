@@ -23,7 +23,9 @@ const SOLVER_DEBUG_DOMINANCE = false;
 
 // Log worker-0 enumeration stats: SP prune / precheck / threshold / mana
 // rejection counts, feasible leaf timing, and best score found.  [worker.js]
-const SOLVER_DEBUG_WORKER = false;
+// Headless runs (worker_thread.js) can enable it via SOLVER_DEBUG_WORKER=1.
+const SOLVER_DEBUG_WORKER = (typeof process !== 'undefined'
+    && !!(process.env && process.env.SOLVER_DEBUG_WORKER)) || false;
 
 // ── Sensitivity weight computation (main thread) ─────────────────────────────
 

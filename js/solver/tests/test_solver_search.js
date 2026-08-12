@@ -324,6 +324,11 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
             value: r.value,
         })),
     };
+    // Snapshot-level extra thresholds (oracle fixtures exercise restriction
+    // pruning without needing a new URL hash).
+    if (snap.extra_restrictions) {
+        restrictions.stat_thresholds.push(...snap.extra_restrictions);
+    }
 
     // ── 12. Spell base costs ────────────────────────────────────────────────
     const spellBaseCosts = {};
@@ -522,6 +527,133 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
     });
 }
 
+// ── Exhaustive Cartesian oracle (P0.4) ───────────────────────────────────────
+//
+// Re-enumerates the entire canonical tuple space with plain nested loops
+// (rings as unordered pairs, ring2 index >= ring1 index) and evaluates each
+// tuple through a worker whose slots are ALL locked (N_free = 0), completely
+// bypassing the production level enumeration, mid-tree pruning, partitioning,
+// and top-N cutoff. The production search must reproduce the oracle's
+// checked count, feasible count, and top-N scores exactly.
+
+const ORACLE_ARMOR_SLOTS = ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace'];
+
+/** Replicates _make_illegal_tracker semantics over a full equipment set:
+ *  at most one item per illegal set across all eight slots. */
+function _oracleTupleBlocked(items) {
+    const seen = new Set();
+    for (const it of items) {
+        const is = it?._illegalSet;
+        if (!is) continue;
+        if (seen.has(is)) return true;
+        seen.add(is);
+    }
+    return false;
+}
+
+function runOracleEnumeration(initMsgBase, ringPoolSer) {
+    return new Promise((resolve, reject) => {
+        // Enumerate canonical tuples: Cartesian product of free armor slots,
+        // times canonical ring pairs (i <= j) when both rings are free.
+        const freeSlots = ORACLE_ARMOR_SLOTS.filter(s => initMsgBase.pools[s]?.length);
+        const ringsFree = !initMsgBase.ring1_locked && !initMsgBase.ring2_locked
+            && ringPoolSer.length > 0;
+
+        const lockedItems = [
+            ...Object.values(initMsgBase.locked ?? {}),
+            initMsgBase.ring1_locked, initMsgBase.ring2_locked,
+        ].filter(Boolean);
+
+        const tuples = [];
+        const build = (slotIdx, chosen) => {
+            if (slotIdx === freeSlots.length) {
+                if (ringsFree) {
+                    for (let i = 0; i < ringPoolSer.length; i++) {
+                        for (let j = i; j < ringPoolSer.length; j++) {
+                            tuples.push({ armor: chosen.slice(), ring1: i, ring2: j });
+                        }
+                    }
+                } else {
+                    tuples.push({ armor: chosen.slice(), ring1: -1, ring2: -1 });
+                }
+                return;
+            }
+            const pool = initMsgBase.pools[freeSlots[slotIdx]];
+            for (let k = 0; k < pool.length; k++) {
+                chosen.push(k);
+                build(slotIdx + 1, chosen);
+                chosen.pop();
+            }
+        };
+        build(0, []);
+
+        const results = { tupleCount: tuples.length, blocked: 0, feasible: 0, top: [] };
+        let idx = 0;
+
+        const worker = new Worker(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
+
+        const sendNext = () => {
+            while (idx < tuples.length) {
+                const tup = tuples[idx];
+                const items = [];
+                const lockedOverride = { ...initMsgBase.locked };
+                for (let s = 0; s < freeSlots.length; s++) {
+                    const item = initMsgBase.pools[freeSlots[s]][tup.armor[s]];
+                    lockedOverride[freeSlots[s]] = item;
+                    items.push(item);
+                }
+                let ring1_locked = initMsgBase.ring1_locked;
+                let ring2_locked = initMsgBase.ring2_locked;
+                if (tup.ring1 >= 0) {
+                    ring1_locked = ringPoolSer[tup.ring1];
+                    ring2_locked = ringPoolSer[tup.ring2];
+                    items.push(ring1_locked, ring2_locked);
+                }
+                items.push(...lockedItems);
+
+                if (_oracleTupleBlocked(items)) {
+                    // Production counts illegal-set tuples as checked without
+                    // evaluating them.
+                    results.blocked++;
+                    idx++;
+                    continue;
+                }
+
+                worker.postMessage({
+                    ...initMsgBase,
+                    pools: {},
+                    ring_pool: [],
+                    locked: lockedOverride,
+                    ring1_locked,
+                    ring2_locked,
+                    partition: { type: 'full' },
+                    worker_id: 0,
+                });
+                idx++;
+                return;
+            }
+            worker.terminate();
+            results.top.sort((a, b) => (b.score || 0) - (a.score || 0));
+            results.top = results.top.slice(0, 15);
+            resolve(results);
+        };
+
+        worker.on('message', (msg) => {
+            if (msg.type === 'done') {
+                results.feasible += msg.feasible || 0;
+                if (msg.top5) results.top.push(...msg.top5);
+                sendNext();
+            } else if (msg.type === 'worker_error') {
+                worker.terminate();
+                reject(new Error(msg.message));
+            }
+        });
+        worker.on('error', (err) => { worker.terminate(); reject(err); });
+
+        sendNext();
+    });
+}
+
 // ── Seed build helper ────────────────────────────────────────────────────────
 
 /**
@@ -683,6 +815,14 @@ async function runSolverTest(snapName) {
         ctx._prioritize_pools(freePools, dmgWeights);
     }
 
+    // Oracle snapshots truncate every free pool after prioritization so the
+    // full Cartesian space stays small enough for per-tuple re-evaluation.
+    if (snap.max_pool_size) {
+        for (const key of Object.keys(freePools)) {
+            freePools[key] = freePools[key].slice(0, snap.max_pool_size);
+        }
+    }
+
     // Freshness check: locked item stats + compress hash (has free slots).
     const currentLockedStats = extractLockedItemStats(locked);
     const hasFreeSlots = Object.keys(freePools).length > 0;
@@ -804,6 +944,51 @@ async function runSolverTest(snapName) {
         }
     } else {
         t.assert(false, `${snapName}: solver found no results`);
+    }
+
+    // 12. Oracle verification (P0.4): exact equality against an independent
+    // Cartesian enumeration, plus partition-count invariance.
+    if (snap.oracle) {
+        t.assert(!result.timedOut, `${snapName}: oracle run completed within time limit`);
+
+        const oracle = await runOracleEnumeration(initMsgBase, ringPoolSer);
+        console.log(`  [${snapName}] oracle: ${oracle.tupleCount} tuples, ${oracle.blocked} illegal-set blocked, ${oracle.feasible} feasible`);
+
+        t.assert(oracle.tupleCount === combinations,
+            `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
+        t.assert(result.checked === oracle.tupleCount,
+            `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
+        t.assert(result.feasible === oracle.feasible,
+            `${snapName}: production feasible ${result.feasible} == oracle ${oracle.feasible}`);
+
+        const prodScores = result.top5.map(r => r.score);
+        const oracleScores = oracle.top.map(r => r.score);
+        t.assert(prodScores.length === oracleScores.length,
+            `${snapName}: top-N length ${prodScores.length} == oracle ${oracleScores.length}`);
+        let scoresEqual = prodScores.length === oracleScores.length;
+        for (let i = 0; i < Math.min(prodScores.length, oracleScores.length); i++) {
+            if (prodScores[i] !== oracleScores[i]) { scoresEqual = false; break; }
+        }
+        t.assert(scoresEqual,
+            `${snapName}: top-N scores match oracle exactly`
+            + (scoresEqual ? '' : ` (prod=${JSON.stringify(prodScores)} oracle=${JSON.stringify(oracleScores)})`));
+        if (result.top5.length && oracle.top.length) {
+            t.assert(JSON.stringify(result.top5[0].item_names) === JSON.stringify(oracle.top[0].item_names),
+                `${snapName}: best build items match oracle`);
+        }
+
+        // Partition completeness: a different partition count must not change
+        // checked, feasible, or top-N scores.
+        const altPartitions = ctx._partition_work(freePools, locked, 3);
+        const altResult = await runSolverWorkers(
+            initMsgBase, ringPoolSer, altPartitions, 1, timeLimitMs, null, null);
+        t.assert(altResult.checked === result.checked,
+            `${snapName}: 3-partition checked ${altResult.checked} == ${result.checked}`);
+        t.assert(altResult.feasible === result.feasible,
+            `${snapName}: 3-partition feasible ${altResult.feasible} == ${result.feasible}`);
+        const altScores = altResult.top5.map(r => r.score);
+        t.assert(JSON.stringify(altScores) === JSON.stringify(prodScores),
+            `${snapName}: 3-partition top-N scores identical`);
     }
 }
 
