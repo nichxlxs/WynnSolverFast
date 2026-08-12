@@ -800,6 +800,7 @@ struct Row {
     qty: f64,
     dmg_excl: bool,
     pseudo: bool,
+    pseudo_kind: Option<String>,
     is_melee_time: bool,
     melee_cd_override: Option<f64>,
     dps_per_hit_name: Option<String>,
@@ -807,6 +808,12 @@ struct Row {
     dps_hits_override: Option<f64>,
     tokens: Vec<Token>,
     spell: Option<Value>,
+    // mana-sim fields
+    mana_excl: bool,
+    cast_time: Option<f64>,
+    delay: Option<f64>,
+    recast_penalties: Vec<f64>,
+    has_loop_marker: bool,
 }
 
 fn parse_rows(v: &Value) -> Vec<Row> {
@@ -823,6 +830,7 @@ fn parse_rows(v: &Value) -> Vec<Row> {
             qty: r.get("qty").and_then(|q| q.as_f64()).unwrap_or(0.0),
             dmg_excl: r.get("dmg_excl").and_then(|x| x.as_bool()).unwrap_or(false),
             pseudo: r.get("pseudo").map(|p| !p.is_null()).unwrap_or(false),
+            pseudo_kind: r.get("pseudo").and_then(|p| p.as_str()).map(String::from),
             is_melee_time: r.get("is_melee_time").and_then(|x| x.as_bool()).unwrap_or(false),
             melee_cd_override: r.get("melee_cd_override").and_then(|x| x.as_f64()),
             dps_per_hit_name: r.get("dps_per_hit_name").and_then(|x| x.as_str()).map(String::from),
@@ -830,6 +838,12 @@ fn parse_rows(v: &Value) -> Vec<Row> {
             dps_hits_override: r.get("dps_hits_override").and_then(|x| x.as_f64()),
             tokens,
             spell: r.get("spell").filter(|s| !s.is_null()).cloned(),
+            mana_excl: r.get("mana_excl").and_then(|x| x.as_bool()).unwrap_or(false),
+            cast_time: r.get("cast_time").and_then(|x| x.as_f64()),
+            delay: r.get("delay").and_then(|x| x.as_f64()),
+            recast_penalties: r.get("recast_penalties").map(arr_f64).unwrap_or_default(),
+            has_loop_marker: r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false)
+                || r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
         });
     }
     rows
@@ -1175,6 +1189,468 @@ impl Layer2 {
     }
 }
 
+// ── Layer 2 sub-pieces 3–4: greedy SP + fast mana check ─────────────────────
+
+/// simulate_combo_mana_fast, ported for the supported subset: no buff
+/// states, no loop brackets, no Blood Pact. Returns
+/// (start_mana, end_mana, has_hp_warning, has_mana_warning).
+#[allow(clippy::too_many_arguments)]
+fn simulate_mana_fast(
+    rows: &[Row], combo_base: &Obj, has_transcendence: bool,
+    registry: &[Value], tables: &Tables, consts: &L2Consts,
+) -> (f64, f64, bool, bool) {
+    let stats = StatsView::Borrowed(combo_base);
+    let mr = stats.num_or0("mr");
+    let ms = stats.num_or0("ms");
+    let item_mana = stats.num_or0("maxMana");
+    let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
+    let start_mana = 100.0 + item_mana + int_mana;
+    let max_mana = start_mana;
+    let mut mana_wasted = 0.0;
+
+    let base_hp = stats.num_or0("hp");
+    let hp_bonus = stats.num_or0("hpBonus");
+    let max_hp = js_max(5.0, base_hp + hp_bonus);
+
+    let mr_per_sec = (mr + consts.base_mana_regen) / consts.mana_tick_seconds;
+
+    let mut adj = tables.atk_spd_index(stats.str_of("atkSpd")) as f64 + stats.num_or0("atkTier");
+    if adj < 0.0 { adj = 0.0; }
+    if adj > 6.0 { adj = 6.0; }
+    let ms_per_hit = if ms != 0.0 { ms / 3.0 / tables.base_damage_multiplier[adj as usize] } else { 0.0 };
+    let melee_period = 1.0 / tables.base_damage_multiplier[adj as usize];
+    let mut melee_cd_remaining = 0.0f64;
+
+    let mut mana = start_mana;
+    let mut hp = max_hp;
+    let mut has_hp_warning = false;
+    let mut has_mana_warning = false;
+
+    // _advance_time_fast (no buff states): regen with cap + wasted tracking.
+    macro_rules! advance {
+        ($dt:expr) => {{
+            let dt = $dt;
+            if dt > 0.0 {
+                let uncapped = mana + mr_per_sec * dt;
+                if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+                mana = if uncapped < max_mana { uncapped } else { max_mana };
+            }
+        }};
+    }
+    let _ = mana_wasted;
+
+    for row in rows {
+        // Add Flat Mana: inject (or drain) qty mana at this point.
+        if row.pseudo_kind.as_deref() == Some("add_flat_mana") {
+            if !row.mana_excl && row.qty != 0.0 {
+                let uncapped = mana + row.qty;
+                if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+                mana = js_max(0.0, if uncapped < max_mana { uncapped } else { max_mana });
+            }
+            continue;
+        }
+        if row.pseudo || row.qty <= 0.0 { continue; }
+        let Some(spell) = &row.spell else { continue };
+        if row.mana_excl { continue; }
+
+        let unclamped_cost = if spell.get("cost").map(|c| !c.is_null()).unwrap_or(false) {
+            row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts)
+        } else { 0.0 };
+        let is_spell = spell.get("cost").map(|c| !c.is_null()).unwrap_or(false);
+        let is_melee_scaling = spell.get("scaling").and_then(|s| s.as_str()) == Some("melee");
+        let recast_base = spell.get("mana_derived_from").and_then(|v| v.as_i64())
+            .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
+        let is_melee = recast_base == 0;
+
+        let eff_cast_time = if is_melee { 0.0 } else { row.cast_time.unwrap_or(consts.spell_cast_time) };
+        let eff_delay = row.delay.unwrap_or(consts.spell_cast_delay);
+        let base_view = StatsView::Borrowed(combo_base);
+        let sim_qty = if row.is_melee_time {
+            // JS passes eff_delay as the floor for the melee period here.
+            let period = match row.melee_cd_override {
+                Some(p) => p,
+                None => melee_period,
+            };
+            js_round(row.qty / period.max(eff_delay))
+        } else {
+            js_round(row.qty)
+        } as i64;
+        let _ = base_view;
+        let eff_melee_period = row.melee_cd_override.unwrap_or(melee_period);
+
+        for c in 0..sim_qty {
+            // compute_wall_dt
+            let (pre_dt, post_dt, new_cd) = if is_melee {
+                (melee_cd_remaining, eff_delay, js_max(0.0, eff_melee_period - eff_delay))
+            } else if is_spell {
+                let spell_dt = eff_cast_time + eff_delay;
+                (eff_cast_time, eff_delay, js_max(0.0, melee_cd_remaining - spell_dt))
+            } else {
+                (0.0, 0.0, melee_cd_remaining)
+            };
+            melee_cd_remaining = new_cd;
+
+            advance!(pre_dt);
+
+            if is_melee_scaling && ms_per_hit != 0.0 {
+                let uncapped = mana + ms_per_hit;
+                if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+                mana = uncapped.min(max_mana).max(0.0);
+            }
+
+            // Spell-level HP cost (e.g. Mindless Slaughter)
+            let spell_hp_cost = spell.get("hp_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if spell_hp_cost > 0.0 {
+                let hp_deduction = spell_hp_cost / 100.0 * max_hp;
+                if hp < hp_deduction { has_hp_warning = true; }
+                hp -= hp_deduction;
+            }
+
+            if is_spell {
+                let penalty = row.recast_penalties.get(c as usize).copied().unwrap_or(0.0);
+                let effective_cost = js_max(1.0, unclamped_cost + penalty);
+                let adj_cost = if has_transcendence { effective_cost * 0.75 } else { effective_cost };
+                if mana >= effective_cost {
+                    mana -= adj_cost;
+                } else {
+                    mana -= effective_cost;
+                    has_mana_warning = true;
+                }
+            }
+
+            advance!(post_dt);
+        }
+    }
+    (start_mana, mana, has_hp_warning, has_mana_warning)
+}
+
+/// row_unclamped_spell_cost (pure/boost.js).
+fn row_unclamped_spell_cost(
+    base_stats: &Obj, spell: &Value, tokens: &[Token], registry: &[Value],
+    tables: &Tables, consts: &L2Consts,
+) -> f64 {
+    let bs = spell.get("mana_derived_from").and_then(|v| v.as_i64())
+        .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
+    let k_raw = format!("spRaw{}", bs);
+    let k_pct = format!("spPct{}", bs);
+    let k_final = format!("spPct{}Final", bs);
+    let sv = StatsView::Borrowed(base_stats);
+    let mut v_int = sv.num_or0("int");
+    let mut v_raw = sv.num_or0(&k_raw);
+    let mut v_pct = sv.num_or0(&k_pct);
+    let mut v_final = sv.num_or0(&k_final);
+
+    for token in tokens {
+        for (entry, effective_value) in find_all_matching_boosts(token, registry) {
+            for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
+                if key != "int" && key != k_raw && key != k_pct && key != k_final { continue; }
+                let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
+                if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
+                    contrib = round_near(contrib).floor();
+                }
+                if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
+                    if mx > 0.0 && contrib > mx { contrib = mx; }
+                    else if mx < 0.0 && contrib < mx { contrib = mx; }
+                }
+                let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
+                if key == "int" { v_int = if mode_max { js_max(v_int, contrib) } else { v_int + contrib }; }
+                else if key == k_raw { v_raw = if mode_max { js_max(v_raw, contrib) } else { v_raw + contrib }; }
+                else if key == k_pct { v_pct = if mode_max { js_max(v_pct, contrib) } else { v_pct + contrib }; }
+                else { v_final = if mode_max { js_max(v_final, contrib) } else { v_final + contrib }; }
+            }
+        }
+    }
+
+    let int_reduction = tables.sp_to_pct(v_int) * consts.skillpoint_final_mult_2;
+    let mut cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN) * (1.0 - int_reduction);
+    cost += v_raw;
+    cost *= 1.0 + v_pct / 100.0;
+    cost * (1.0 + v_final / 100.0)
+}
+
+struct L2Consts {
+    base_mana_regen: f64,
+    mana_tick_seconds: f64,
+    spell_cast_time: f64,
+    spell_cast_delay: f64,
+    skillpoint_final_mult_2: f64,
+    combo_time: f64,
+    allow_downtime: bool,
+    hp_casting: bool,
+    sp_budget: i32,
+}
+
+impl L2Consts {
+    fn parse(fixture: &Value) -> Option<L2Consts> {
+        let l2 = fixture.get("layer2")?;
+        let c = l2.get("constants")?;
+        Some(L2Consts {
+            base_mana_regen: c.get("base_mana_regen")?.as_f64()?,
+            mana_tick_seconds: c.get("mana_tick_seconds")?.as_f64()?,
+            spell_cast_time: c.get("spell_cast_time")?.as_f64()?,
+            spell_cast_delay: c.get("spell_cast_delay")?.as_f64()?,
+            skillpoint_final_mult_2: fixture.get("tables")?
+                .get("skillpoint_final_mult")?.as_array()?.get(2)?.as_f64()?,
+            combo_time: l2.get("combo_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            allow_downtime: l2.get("allow_downtime").and_then(|v| v.as_bool()).unwrap_or(false),
+            hp_casting: l2.get("hp_casting").and_then(|v| v.as_bool()).unwrap_or(false),
+            sp_budget: l2.get("sp_budget").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
+        })
+    }
+}
+
+/// eval_combo_mana_check (fast-sim path) for the supported subset:
+/// no loops, no Blood Pact, no buff states.
+fn mana_check_passes(
+    rows: &[Row], combo_base: &Obj, registry: &[Value], tables: &Tables, consts: &L2Consts,
+) -> bool {
+    if consts.combo_time == 0.0 && !consts.hp_casting {
+        return true;
+    }
+    assert!(!rows.iter().any(|r| r.has_loop_marker),
+        "loop brackets not supported in the ported fast mana sim");
+    let has_transcendence = combo_base.get("activeMajorIDs")
+        .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+        .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+        .unwrap_or(false);
+    let (start_mana, end_mana, hp_warn, mana_warn) =
+        simulate_mana_fast(rows, combo_base, has_transcendence, registry, tables, consts);
+    if hp_warn { return false; }
+    if mana_warn { return false; }
+    if consts.allow_downtime { return end_mana > 0.0; }
+    (start_mana - end_mana) <= 5.0
+}
+
+/// greedy_sp_loop (pure/engine.js): step-down [20,4,1], try-revert-keep.
+fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], mut remaining: i32,
+    cap_total: &[i32; 5], mut trial_score: F,
+) -> i32 {
+    let mut allocated = 0;
+    let mut cur = trial_score(total_sp);
+
+    for step in [20, 4, 1] {
+        let mut progress = true;
+        while progress && remaining > 0 {
+            progress = false;
+            let mut best_i: i32 = -1;
+            let mut best_s = cur;
+
+            for i in 0..5 {
+                let a = step.min(remaining).min(100 - base_sp[i]).min(cap_total[i] - total_sp[i]);
+                if a <= 0 { continue; }
+                total_sp[i] += a;
+                let s = trial_score(total_sp);
+                total_sp[i] -= a;
+                if s > best_s { best_s = s; best_i = i as i32; }
+            }
+
+            if best_i >= 0 {
+                let i = best_i as usize;
+                let a = step.min(remaining).min(100 - base_sp[i]).min(cap_total[i] - total_sp[i]);
+                base_sp[i] += a;
+                total_sp[i] += a;
+                remaining -= a;
+                allocated += a;
+                cur = best_s;
+                progress = true;
+            }
+        }
+    }
+    allocated
+}
+
+/// greedy_sp_allocate without sp_floors (score fixtures are exported with
+/// restrictions stripped, so floors are always null there).
+fn greedy_sp_allocate<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], remaining: i32,
+    cap_total: &[i32; 5], trial_score: F,
+) -> i32 {
+    if remaining <= 0 { return 0; }
+    let mut any_room = false;
+    for i in 0..5 {
+        if base_sp[i] < 100 && total_sp[i] < 150 { any_room = true; break; }
+    }
+    if !any_room { return 0; }
+    greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score)
+}
+
+/// The worker's full leaf pipeline for one locked build:
+/// SP solve → greedy (damage-trial) → assemble → mana check (+rescue) → score.
+/// Returns None when the leaf is infeasible (SP or mana).
+struct LeafResult {
+    base_sp: [i32; 5],
+    total_sp: [i32; 5],
+    assigned_sp: i32,
+    score: f64,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn leaf_pipeline(
+    item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&sp_kernel::Unit>,
+    kernel: &mut sp_kernel::Kernel, rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+) -> Result<Option<LeafResult>, String> {
+    // Units in worker order (helmet-first _scratch_sp_input order).
+    let unit_of = |sm: &Obj| -> sp_kernel::Unit {
+        let arr5 = |k: &str| -> [i32; 5] {
+            let mut out = [0i32; 5];
+            if let Some(a) = sm.get(k).and_then(|v| v.as_array()) {
+                for (i, x) in a.iter().take(5).enumerate() {
+                    out[i] = x.as_f64().unwrap_or(0.0) as i32;
+                }
+            }
+            out
+        };
+        sp_kernel::Unit {
+            crafted: sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+            reqs: arr5("reqs"),
+            skp: arr5("skillpoints"),
+        }
+    };
+    let mut equipment: [sp_kernel::Unit; 8] = Default::default();
+    let mut equips: Vec<&Obj> = Vec::new();
+    for (i, name) in item_names.iter().enumerate().take(8) {
+        let item = l2.item_registry.get(*name)
+            .ok_or_else(|| format!("item not in registry: {}", name))?;
+        equipment[i] = unit_of(item);
+        equips.push(item);
+    }
+
+    // Set-bonus SP folded into the free pool (worker leaf behavior).
+    let mut set_free = [0i32; 5];
+    {
+        let mut set_counts: Vec<(String, i64)> = Vec::new();
+        for item in &equips {
+            if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
+            let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
+            match set_counts.iter_mut().find(|(n, _)| n == set_name) {
+                Some((_, c)) => *c += 1,
+                None => set_counts.push((set_name.to_string(), 1)),
+            }
+        }
+        for (set_name, count) in &set_counts {
+            let Some(set_data) = l2.sets_data.get(set_name) else { continue };
+            let Some(bonus) = set_data.get("bonuses").and_then(|b| b.as_array())
+                .and_then(|b| b.get((*count - 1) as usize)).and_then(|b| b.as_object()) else { continue };
+            for (i, skp) in l2.skp_order.iter().enumerate() {
+                if let Some(v) = bonus.get(skp).and_then(|x| x.as_f64()) {
+                    set_free[i] += v as i32;
+                }
+            }
+        }
+    }
+
+    let case = sp_kernel::Case {
+        budget: consts.sp_budget,
+        equipment,
+        weapon: unit_of(weapon),
+        set_free,
+        expected: None,
+    };
+    let Some((assign, total, assigned)) = kernel.calculate_with_extra(&case, guild) else {
+        return Ok(None);  // SP infeasible
+    };
+    let mut base_sp = assign;
+    let mut total_sp = total;
+    let mut assigned_sp = assigned;
+
+    // Greedy allocation with damage trials (combo_damage target).
+    let remaining = consts.sp_budget - assigned_sp;
+    let cap_total = [150i32; 5];
+    let orig_base_sp = base_sp;
+    let mut trial_sp_f = [0f64; 5];
+    let mut trial = |sp: &[i32; 5]| -> f64 {
+        for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
+        match l2.assemble(item_names, &trial_sp_f, weapon) {
+            Ok(cb) => eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables),
+            Err(_) => f64::NEG_INFINITY,
+        }
+    };
+    assigned_sp += greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial);
+
+    // Final assemble + mana check (+ rescue).
+    let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
+    let mut combo_base = l2.assemble(item_names, &sp_f, weapon)?;
+    if !mana_check_passes(rows, &combo_base, registry, tables, consts) {
+        match mana_rescue(item_names, l2, weapon, &mut base_sp, &mut total_sp,
+                          &orig_base_sp, rows, registry, hit_refs, tables, consts)? {
+            Some(rescued) => combo_base = rescued,
+            None => return Ok(None),  // mana reject
+        }
+    }
+
+    let score = eval_combo_damage(&combo_base, weapon, rows, registry, hit_refs, tables);
+    Ok(Some(LeafResult { base_sp, total_sp, assigned_sp, score }))
+}
+
+/// _mana_rescue: shift freely-assigned SP into Int in increasing fractions.
+#[allow(clippy::too_many_arguments)]
+fn mana_rescue(
+    item_names: &[&str], l2: &Layer2, weapon: &Obj,
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
+    rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+) -> Result<Option<Obj>, String> {
+    let _ = hit_refs;
+    if consts.hp_casting { return Ok(None); }
+    if consts.combo_time == 0.0 { return Ok(None); }
+
+    const INT_IDX: usize = 2;
+    let int_room = (100 - base_sp[INT_IDX]).min(150 - total_sp[INT_IDX]);
+    if int_room <= 0 { return Ok(None); }
+
+    let mut total_stealable = 0;
+    let mut stealable = [0i32; 5];
+    for i in 0..5 {
+        if i == INT_IDX { continue; }
+        stealable[i] = base_sp[i] - orig_base_sp[i];
+        total_stealable += stealable[i];
+    }
+    if total_stealable <= 0 { return Ok(None); }
+    let max_shift = total_stealable.min(int_room);
+    if max_shift <= 0 { return Ok(None); }
+
+    let saved_base = *base_sp;
+    let saved_total = *total_sp;
+
+    for frac in [0.25f64, 0.5, 0.75, 1.0] {
+        let shift_target = (max_shift as f64 * frac).ceil() as i32;
+        if shift_target <= 0 { continue; }
+
+        *base_sp = saved_base;
+        *total_sp = saved_total;
+
+        // Steal from attributes with most free SP first (stable sort mirrors
+        // JS Array.sort on 4 elements — insertion-order ties preserved).
+        let mut order = [0usize, 1, 3, 4];
+        order.sort_by(|&a, &b| stealable[b].cmp(&stealable[a]));
+
+        let mut shifted = 0;
+        for &i in &order {
+            if shifted >= shift_target { break; }
+            let take = stealable[i].min(shift_target - shifted);
+            if take <= 0 { continue; }
+            base_sp[i] -= take;
+            total_sp[i] -= take;
+            shifted += take;
+        }
+        base_sp[INT_IDX] += shifted;
+        total_sp[INT_IDX] += shifted;
+
+        let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
+        let combo_base = l2.assemble(item_names, &sp_f, weapon)?;
+        if mana_check_passes(rows, &combo_base, registry, tables, consts) {
+            return Ok(Some(combo_base));
+        }
+    }
+
+    *base_sp = saved_base;
+    *total_sp = saved_total;
+    Ok(None)
+}
+
 /// Compare an assembled combo_base against the worker-exported one.
 /// Missing numeric keys are 0 (the worker's vector materialization drops
 /// non-base zeros); nested maps, the majorID set, and strings compare
@@ -1277,6 +1753,30 @@ fn main() {
     let mut l2_score_pass = 0u64;
     let mut l2_score_fail = 0u64;
 
+    // Layer 2 full-pipeline state (greedy + mana): SP kernel + guild unit.
+    let l2consts = L2Consts::parse(&fixture);
+    let mut kernel = sp_kernel::Kernel::new();
+    let guild_unit: Option<sp_kernel::Unit> = fixture["layer2"].get("guild_tome_sm")
+        .and_then(as_map)
+        .map(|sm| {
+            let arr5 = |k: &str| -> [i32; 5] {
+                let mut out = [0i32; 5];
+                if let Some(a) = sm.get(k).and_then(|v| v.as_array()) {
+                    for (i, x) in a.iter().take(5).enumerate() {
+                        out[i] = x.as_f64().unwrap_or(0.0) as i32;
+                    }
+                }
+                out
+            };
+            sp_kernel::Unit {
+                crafted: sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+                reqs: arr5("reqs"),
+                skp: arr5("skillpoints"),
+            }
+        });
+    let mut l3_pass = 0u64;
+    let mut l3_fail = 0u64;
+
     let cases = fixture["cases"].as_array().expect("cases array");
     let mut pass = 0u64;
     let mut fail = 0u64;
@@ -1352,6 +1852,44 @@ fn main() {
                     if l2_fail <= 3 { eprintln!("case {}: assemble failed: {}", i, e); }
                 }
             }
+
+            // Layer 2 full pipeline: SP solve → greedy → mana → score,
+            // validated against the worker's base_sp/total_sp/assigned/score.
+            if let (Some(consts), Some(exp_base), Some(exp_assigned)) = (
+                l2consts.as_ref(),
+                case.get("base_sp").map(arr_f64),
+                case.get("assigned_sp").and_then(|v| v.as_i64()),
+            ) {
+                let exp_total: Vec<f64> = arr_f64(&case["total_sp"]);
+                match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
+                                    &mut kernel, &rows, &registry, &hit_refs, &tables, consts) {
+                    Ok(Some(r)) => {
+                        let base_ok = (0..5).all(|j| r.base_sp[j] as f64 == exp_base[j]);
+                        let total_ok = (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]);
+                        let ok = base_ok && total_ok
+                            && r.assigned_sp as i64 == exp_assigned
+                            && r.score.to_bits() == expected.to_bits();
+                        if ok { l3_pass += 1; } else {
+                            l3_fail += 1;
+                            if l3_fail <= 3 {
+                                eprintln!("case {}: PIPELINE MISMATCH", i);
+                                eprintln!("    base_sp  got {:?} want {:?}", r.base_sp, exp_base);
+                                eprintln!("    total_sp got {:?} want {:?}", r.total_sp, exp_total);
+                                eprintln!("    assigned got {} want {}", r.assigned_sp, exp_assigned);
+                                eprintln!("    score    got {:.17e} want {:.17e}", r.score, expected);
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        l3_fail += 1;
+                        if l3_fail <= 3 { eprintln!("case {}: pipeline says infeasible, worker scored it", i); }
+                    }
+                    Err(e) => {
+                        l3_fail += 1;
+                        if l3_fail <= 3 { eprintln!("case {}: pipeline error: {}", i, e); }
+                    }
+                }
+            }
         }
 
         let got = eval_combo_damage(combo_base, &weapon, &rows, &registry, &hit_refs, &tables);
@@ -1381,8 +1919,14 @@ fn main() {
             "layer2: assembly {} exact / {} diff | end-to-end score {} exact / {} diff",
             l2_pass, l2_fail, l2_score_pass, l2_score_fail,
         );
+        if l3_pass + l3_fail > 0 {
+            println!(
+                "pipeline (SP+greedy+mana+score): {} exact / {} diff",
+                l3_pass, l3_fail,
+            );
+        }
     } else if layer2.is_some() {
         println!("layer2: scaling plan unsupported (kind=full), skipped");
     }
-    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 { std::process::exit(1); }
+    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 || l3_fail > 0 { std::process::exit(1); }
 }

@@ -986,7 +986,9 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
                 if (top && top._debug_combo_base) {
                     cases.push({
                         item_names: top.item_names,
+                        base_sp: [...top.base_sp],
                         total_sp: [...top.total_sp],
+                        assigned_sp: top.assigned_sp,
                         expected_damage: top.score,
                         combo_base: _jser(top._debug_combo_base),
                     });
