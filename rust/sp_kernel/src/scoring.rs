@@ -94,6 +94,39 @@ pub struct Tables {
     pub sp_rate: f64,
     pub sp_cap: f64,
     pub sp_pct_table: Vec<f64>,
+    /// Precomputed per-element stat key names (hot-path format! hoist).
+    pub names: ElemNames,
+}
+
+pub struct ElemNames {
+    pub conv_base: [String; 6],
+    pub dam_add_min: [String; 6],
+    pub dam_add_max: [String; 6],
+    pub sd_pct: [String; 6],
+    pub md_pct: [String; 6],
+    pub dam_pct: [String; 6],
+    pub sd_raw: [String; 6],
+    pub md_raw: [String; 6],
+    pub dam_raw: [String; 6],
+}
+
+impl ElemNames {
+    fn build() -> ElemNames {
+        let mk = |suffix: &str| -> [String; 6] {
+            std::array::from_fn(|i| format!("{}{}", DAMAGE_ELEMENTS[i], suffix))
+        };
+        ElemNames {
+            conv_base: mk("ConvBase"),
+            dam_add_min: mk("DamAddMin"),
+            dam_add_max: mk("DamAddMax"),
+            sd_pct: mk("SdPct"),
+            md_pct: mk("MdPct"),
+            dam_pct: mk("DamPct"),
+            sd_raw: mk("SdRaw"),
+            md_raw: mk("MdRaw"),
+            dam_raw: mk("DamRaw"),
+        }
+    }
 }
 
 impl Tables {
@@ -108,6 +141,7 @@ impl Tables {
             sp_rate: v["sp_percentage_rate"].as_f64().unwrap(),
             sp_cap: v["sp_percentage_input_cap"].as_f64().unwrap(),
             sp_pct_table: v.get("sp_pct_table").map(arr_f64).unwrap_or_default(),
+            names: ElemNames::build(),
         }
     }
     pub fn sp_to_pct(&self, skp: f64) -> f64 {
@@ -161,9 +195,9 @@ pub fn calculate_spell_damage(
             if stats.has(&name) { conversions[i] += stats.num(&name); }
         }
     }
-    for (i, el) in DAMAGE_ELEMENTS.iter().enumerate() {
-        let name = format!("{}ConvBase", el);
-        if stats.has(&name) { conversions[i] += stats.num(&name); }
+    for i in 0..6 {
+        let name = &tables.names.conv_base[i];
+        if stats.has(name) { conversions[i] += stats.num(name); }
     }
 
     // 2.1 Neutral conversion.
@@ -199,34 +233,40 @@ pub fn calculate_spell_damage(
     }
 
     // 4. Additive damage.
-    for (i, el) in DAMAGE_ELEMENTS.iter().enumerate() {
+    let names = &tables.names;
+    for i in 0..6 {
         if present[i] {
-            damages[i][0] += stats.num(&format!("{}DamAddMin", el));
-            damages[i][1] += stats.num(&format!("{}DamAddMax", el));
+            damages[i][0] += stats.num(&names.dam_add_min[i]);
+            damages[i][1] += stats.num(&names.dam_add_max[i]);
         }
     }
 
     // 5. ID bonuses.
-    let specific = if use_spell_damage { "Sd" } else { "Md" };
-    let specific_lower = if use_spell_damage { "sd" } else { "md" };
-    let mut skill_boost = vec![0.0f64];
+    let (spec_pct, spec_raw, spec_pct_name, spec_raw_name, r_pct_name, r_raw_name) =
+        if use_spell_damage {
+            (&names.sd_pct, &names.sd_raw, "sdPct", "sdRaw", "rSdPct", "rSdRaw")
+        } else {
+            (&names.md_pct, &names.md_raw, "mdPct", "mdRaw", "rMdPct", "rMdRaw")
+        };
+    let mut skill_boost = [0.0f64; 6];
     for (i, skp) in SKP_ORDER.iter().enumerate() {
-        skill_boost.push(tables.sp_to_pct(stats.num(skp)) * tables.skillpoint_damage_mult[i]);
+        skill_boost[i + 1] = tables.sp_to_pct(stats.num(skp)) * tables.skillpoint_damage_mult[i];
     }
-    let static_boost = (stats.num(&format!("{}Pct", specific_lower)) + stats.num("damPct")) / 100.0;
+    let static_boost = (stats.num(spec_pct_name) + stats.num("damPct")) / 100.0;
 
     let mut total_min = 0.0;
     let mut total_max = 0.0;
-    let mut save_prop: Vec<[f64; 2]> = Vec::with_capacity(6);
-    for (i, el) in DAMAGE_ELEMENTS.iter().enumerate() {
-        save_prop.push(damages[i]);
+    let mut save_prop = [[0.0f64; 2]; 6];
+    let r_pct = (stats.num(r_pct_name) + stats.num("rDamPct")) / 100.0;
+    for i in 0..6 {
+        save_prop[i] = damages[i];
         total_min += damages[i][0];
         total_max += damages[i][1];
 
         let mut boost = 1.0 + skill_boost[i] + static_boost
-            + (stats.num(&format!("{}{}Pct", el, specific)) + stats.num(&format!("{}DamPct", el))) / 100.0;
+            + (stats.num(&spec_pct[i]) + stats.num(&names.dam_pct[i])) / 100.0;
         if i > 0 {
-            boost += (stats.num(&format!("r{}Pct", specific)) + stats.num("rDamPct")) / 100.0;
+            boost += r_pct;
         }
         damages[i][0] *= boost;
         damages[i][1] *= boost;
@@ -236,14 +276,13 @@ pub fn calculate_spell_damage(
     let total_elem_max = total_max - save_prop[0][1];
 
     // 5.2 Raw application.
-    let prop_raw = stats.num(&format!("{}Raw", specific_lower)) + stats.num("damRaw");
-    let rainbow_raw = stats.num(&format!("r{}Raw", specific)) + stats.num("rDamRaw");
+    let prop_raw = stats.num(spec_raw_name) + stats.num("damRaw");
+    let rainbow_raw = stats.num(r_raw_name) + stats.num("rDamRaw");
     for i in 0..6 {
         let save_obj = save_prop[i];
-        let el = DAMAGE_ELEMENTS[i];
         let mut raw_boost = 0.0;
         if present[i] {
-            raw_boost += stats.num(&format!("{}{}Raw", el, specific)) + stats.num(&format!("{}DamRaw", el));
+            raw_boost += stats.num(&spec_raw[i]) + stats.num(&names.dam_raw[i]);
         }
         let mut min_boost = raw_boost;
         let mut max_boost = raw_boost;
@@ -1035,7 +1074,17 @@ impl Layer2 {
     }
 
     /// Build combo_base for a case's items at the given total_sp.
+    /// Convenience: full leaf assembly (build stats + SP-dependent parts).
     pub fn assemble(&self, item_names: &[&str], total_sp: &[f64], weapon: &Obj) -> Result<Obj, String> {
+        let base = self.build_base(item_names, weapon)?;
+        Ok(self.assemble_from_base(&base, total_sp, weapon))
+    }
+
+    /// Leaf-invariant build stats: base statmap + item/tome/weapon sums +
+    /// set bonuses + finalize. Compute ONCE per leaf; every greedy trial and
+    /// the ceiling gate then reuse it through assemble_from_base — the same
+    /// split the JS worker gets from its incremental running stats.
+    pub fn build_base(&self, item_names: &[&str], weapon: &Obj) -> Result<Obj, String> {
         // createBaseStatmap
         let mut sm = Obj::new();
         for id in self.static_ids.iter().chain(self.must_ids.iter()) {
@@ -1116,9 +1165,14 @@ impl Layer2 {
         heal_mult.insert("item".into(), Value::from(sm.get("healPct").and_then(|v| v.as_f64()).unwrap_or(0.0)));
         sm.insert("healMult".into(), wrap(heal_mult));
         if let Some(spd) = weapon.get("atkSpd") { sm.insert("atkSpd".into(), spd.clone()); }
+        Ok(sm)
+    }
 
+    /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
+    /// atree_raw merge + atree scaling (cached/split) + static boosts.
+    pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
         // assemble_combo_stats: pre_scale = clone + skp + classDef + atree_raw
-        let mut pre_scale = sm;
+        let mut pre_scale = base.clone();
         for (i, skp) in self.skp_order.iter().enumerate() {
             pre_scale.insert(skp.clone(), Value::from(total_sp[i]));
         }
@@ -1162,14 +1216,16 @@ impl Layer2 {
                 var_out = Some(out);
                 self.const_scaled.as_ref()
             }
-            _ => return Err(format!("unsupported scaling plan: {}", self.scaling_kind)),
+            // Callers are gated on scaling_kind at load (ScoringCtx::load /
+            // the validator's layer2_supported check).
+            other => unreachable!("unsupported scaling plan: {}", other),
         };
 
         let mut combo_base = pre_scale;
         merge_into(&mut combo_base, scaled);
         merge_into(&mut combo_base, var_out.as_ref());
         merge_into(&mut combo_base, self.static_boosts.as_ref());
-        Ok(combo_base)
+        combo_base
     }
 }
 
@@ -1564,12 +1620,16 @@ pub fn leaf_pipeline_gated(
     let mut total_sp = total;
     let mut assigned_sp = assigned;
 
+    // Leaf-invariant build stats, computed once; the gate, every greedy
+    // trial, the final assemble, and the rescue all reuse it.
+    let build_base = l2.build_base(item_names, weapon)?;
+
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
         let ceiling_sp = [150f64; 5];
-        let cb150 = l2.assemble(item_names, &ceiling_sp, weapon)?;
+        let cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
         let ceiling = eval_combo_damage(&cb150, weapon, rows, registry, hit_refs, tables);
         if ceiling < cutoff - cutoff.abs() * 1e-9 {
             return Ok(LeafOutcome::Gated);
@@ -1583,18 +1643,16 @@ pub fn leaf_pipeline_gated(
     let mut trial_sp_f = [0f64; 5];
     let mut trial = |sp: &[i32; 5]| -> f64 {
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
-        match l2.assemble(item_names, &trial_sp_f, weapon) {
-            Ok(cb) => eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables),
-            Err(_) => f64::NEG_INFINITY,
-        }
+        let cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
+        eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables)
     };
     assigned_sp += greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial);
 
     // Final assemble + mana check (+ rescue).
     let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-    let mut combo_base = l2.assemble(item_names, &sp_f, weapon)?;
+    let mut combo_base = l2.assemble_from_base(&build_base, &sp_f, weapon);
     if !mana_check_passes(rows, &combo_base, registry, tables, consts) {
-        match mana_rescue(item_names, l2, weapon, &mut base_sp, &mut total_sp,
+        match mana_rescue(&build_base, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts)? {
             Some(rescued) => combo_base = rescued,
             None => return Ok(LeafOutcome::ManaReject),
@@ -1608,7 +1666,7 @@ pub fn leaf_pipeline_gated(
 /// _mana_rescue: shift freely-assigned SP into Int in increasing fractions.
 #[allow(clippy::too_many_arguments)]
 pub fn mana_rescue(
-    item_names: &[&str], l2: &Layer2, weapon: &Obj,
+    build_base: &Obj, l2: &Layer2, weapon: &Obj,
     base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
@@ -1660,7 +1718,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble(item_names, &sp_f, weapon)?;
+        let combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
         if mana_check_passes(rows, &combo_base, registry, tables, consts) {
             return Ok(Some(combo_base));
         }
