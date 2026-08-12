@@ -1141,15 +1141,15 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
  *   3. Every SP provision:          A.skillpoints[i] >= B.skillpoints[i]
  *
  * NONE items are never pruned.
- * Set-bonus interactions are not modelled — this is an approximation, but
- * removing obvious dominatees shrinks pool sizes without meaningfully
- * affecting result quality in practice.
+ * Set items are excluded because standalone stats cannot model bonuses enabled
+ * by equipment in other slots.
  *
  * Complexity: O(n² × |check_stats|) per pool — fine for typical pool sizes.
  *
  * @returns {number} Total items pruned across all pools.
  */
-function _prune_dominated_items(pools, dominance_stats) {
+function _prune_dominated_items(pools, dominance_stats, options = {}) {
+    const preserve_set_items = options.preserve_set_items !== false;
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
 
@@ -1185,9 +1185,14 @@ function _prune_dominated_items(pools, dominance_stats) {
             const a_skp = a_sm.get('skillpoints') ?? [0, 0, 0, 0, 0];
             const a_illegal = real[i]._illegalSet ?? null;
 
+            // Standalone stats cannot prove dominance for an ordinary set item:
+            // either side may enable a bonus with an item in another slot.
+            if (preserve_set_items && a_sm.get('set')) continue;
+
             for (let j = 0; j < real.length; j++) {
                 if (i === j || dominated[j]) continue;
                 const b_sm = real[j].statMap;
+                if (preserve_set_items && b_sm.get('set')) continue;
 
                 // Exclusive set guard: an item from an exclusive set must not
                 // dominate items outside that set (or from a different exclusive

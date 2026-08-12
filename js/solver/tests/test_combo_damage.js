@@ -580,7 +580,7 @@ function runComboTest(snapName) {
 // ── Discover and run test cases ──────────────────────────────────────────────
 
 const snapDir = path.join(__dirname, 'snapshots');
-const comboSnaps = fs.readdirSync(snapDir)
+const comboSnaps = (fs.existsSync(snapDir) ? fs.readdirSync(snapDir) : [])
     .filter(f => f.startsWith('combo_') && f.endsWith('.snap.json'))
     .map(f => f.replace('.snap.json', ''));
 

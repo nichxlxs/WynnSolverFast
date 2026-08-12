@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const os = require('os');
+const { mergeTraceMetrics, summarizeTraceMetrics } = require('../benchmarks/trace_metrics');
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ vm.runInContext(`
     globalThis.build_combo_boost_registry = typeof build_combo_boost_registry !== 'undefined' ? build_combo_boost_registry : null;
     globalThis.node_ref_to_boost_name = typeof node_ref_to_boost_name !== 'undefined' ? node_ref_to_boost_name : null;
     globalThis.node_id_to_spell_value = typeof node_id_to_spell_value !== 'undefined' ? node_id_to_spell_value : null;
+    globalThis.MELEE_TIME_NODE_ID = MELEE_TIME_NODE_ID;
     globalThis.extract_health_config = typeof extract_health_config !== 'undefined' ? extract_health_config : null;
     globalThis.compute_recast_penalties = typeof compute_recast_penalties !== 'undefined' ? compute_recast_penalties : null;
     globalThis.compute_dps_spell_hits_info = typeof compute_dps_spell_hits_info !== 'undefined' ? compute_dps_spell_hits_info : null;
@@ -370,8 +372,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
         spell_base_costs: spellBaseCosts,
         restrictions,
         // Pool building restrictions
-        lvl_min: sp.lvl_min || 1,
-        lvl_max: sp.lvl_max || decoded.level,
+        lvl_min: snap.lvl_min ?? sp.lvl_min ?? 1,
+        lvl_max: snap.lvl_max ?? sp.lvl_max ?? decoded.level,
         no_major_id: sp.nomaj || false,
         dir_enabled: sp.dir_enabled ?? 0x1F,
     };
@@ -381,16 +383,18 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
 
 // ── Run solver with worker_threads ───────────────────────────────────────────
 
-function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs, targetScore) {
+function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs, targetScore, seedResult = null) {
     return new Promise((resolve) => {
         const workers = [];
-        const allTop = [];
+        const allTop = seedResult ? [seedResult] : [];
         const progressTop = [];
         const progressCounts = {};
         let totalChecked = 0, totalFeasible = 0;
+        let totalTrace = {};
         let partitionIdx = 0;
         let doneCount = 0;
         let timedOut = false;
+        let workerError = null;
 
         function dispatchNext(worker, workerId) {
             if (timedOut || partitionIdx >= partitions.length) return false;
@@ -416,6 +420,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             if (!progressCounts[msg.worker_id]) progressCounts[msg.worker_id] = { checked: 0, feasible: 0 };
             progressCounts[msg.worker_id].checked = msg.checked || 0;
             progressCounts[msg.worker_id].feasible = msg.feasible || 0;
+            progressCounts[msg.worker_id].trace = msg.trace || null;
             // Collect top5 from progress (when top5 changes, worker sends top5_names).
             if (msg.top5_names) {
                 for (const entry of msg.top5_names) {
@@ -437,6 +442,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             totalChecked += msg.checked || 0;
             totalFeasible += msg.feasible || 0;
             if (msg.top5) allTop.push(...msg.top5);
+            totalTrace = mergeTraceMetrics(totalTrace, msg.trace);
             // Clear progress counts for this worker (done supersedes progress).
             delete progressCounts[msg.worker_id];
 
@@ -464,6 +470,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             for (const wid in progressCounts) {
                 totalChecked += progressCounts[wid].checked;
                 totalFeasible += progressCounts[wid].feasible;
+                totalTrace = mergeTraceMetrics(totalTrace, progressCounts[wid].trace);
             }
             // Merge top results from done messages + progress messages.
             const merged = [...allTop, ...progressTop];
@@ -473,6 +480,8 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
                 checked: totalChecked,
                 feasible: totalFeasible,
                 timedOut,
+                trace: totalTrace,
+                workerError,
             });
         }
 
@@ -496,7 +505,10 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             w.on('message', (msg) => {
                 if (msg.type === 'done') onDone(msg);
                 else if (msg.type === 'progress') onProgress(msg);
-                else if (msg.type === 'worker_error') console.error(`  Worker ${i} error:`, msg.message);
+                else if (msg.type === 'worker_error') {
+                    workerError = msg.message;
+                    console.error(`  Worker ${i} error:`, msg.message);
+                }
             });
             w.on('error', (err) => {
                 console.error(`  Worker ${i} error:`, err.message);
@@ -610,7 +622,9 @@ async function runSolverTest(snapName) {
     const allPools = ctx._build_item_pools(poolRestrictions);
 
     // 6. Determine locked vs free items from sfree mask (from URL).
-    const sfree = sp.sfree ?? 0;
+    // Benchmarks may deliberately widen a real saved build without rewriting
+    // its encoded solver section. Production URL behavior remains the default.
+    const sfree = snap.free_mask ?? sp.sfree ?? 0;
     const locked = {};
     const freePools = {};
 
@@ -634,6 +648,15 @@ async function runSolverTest(snapName) {
         }
     }
 
+    function countCombinations(poolMap) {
+        let total = 1;
+        const bothRingsFree = !!(sfree & (1 << 4)) && !!(sfree & (1 << 5));
+        for (const [slot, pool] of Object.entries(poolMap)) {
+            const size = pool.length;
+            total *= slot === 'ring' && bothRingsFree ? size * (size + 1) / 2 : size;
+        }
+        return total;
+    }
     // Build free pools: map slot names to their item type pools
     const slotToType = { helmet: 'helmet', chestplate: 'chestplate', leggings: 'leggings',
                          boots: 'boots', ring1: 'ring', ring2: 'ring', bracelet: 'bracelet', necklace: 'necklace' };
@@ -648,12 +671,15 @@ async function runSolverTest(snapName) {
             }
         }
     }
+    const inputCombinations = countCombinations(freePools);
 
     // 7. Sensitivity weights, dominance pruning, priority sorting
     const dmgWeights = ctx._build_dmg_weights(solverSnap, locked, freePools);
     if (dmgWeights) {
         const domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
-        ctx._prune_dominated_items(freePools, domStats);
+        ctx._prune_dominated_items(freePools, domStats, {
+            preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
+        });
         ctx._prioritize_pools(freePools, dmgWeights);
     }
 
@@ -676,6 +702,9 @@ async function runSolverTest(snapName) {
         poolSizes[slot] = pool.length;
     }
     console.log(`  [${snapName}] pool sizes:`, poolSizes);
+    console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
+    const combinations = countCombinations(freePools);
+    console.log(`  [${snapName}] search combinations: ${combinations}`);
 
     // 8. Serialize for worker transfer
     const poolsSer = ctx._serialize_pools(freePools);
@@ -709,6 +738,17 @@ async function runSolverTest(snapName) {
         auto_slider_names: solverSnap.auto_slider_names,
         spell_base_costs: solverSnap.spell_base_costs,
         restrictions: solverSnap.restrictions,
+        benchmark_legacy_top_results: ['original', 'current_without_top_cutoff']
+            .includes(process.env.SOLVER_BENCH_VARIANT),
+        benchmark_trace: process.env.SOLVER_BENCH_TRACE === '1',
+        benchmark_legacy_incremental: process.env.SOLVER_BENCH_VARIANT === 'original',
+        benchmark_nested_incremental: process.env.SOLVER_BENCH_VARIANT === 'current_nested_incremental',
+        benchmark_legacy_running_map: ['original', 'current_running_map']
+            .includes(process.env.SOLVER_BENCH_VARIANT),
+        benchmark_compact_running_object: process.env.SOLVER_BENCH_VARIANT === 'current_compact_object',
+        benchmark_indexed_lookup: process.env.SOLVER_BENCH_VARIANT === 'current_indexed_lookup',
+        benchmark_progress_modulo: process.env.SOLVER_BENCH_VARIANT === 'current_progress_modulo',
+        benchmark_recompute_sp_max: process.env.SOLVER_BENCH_VARIANT === 'current_recompute_sp_max',
         sets_data: [...ctx.sets],
         ring_pool: ringPoolSer,
         ring1_locked: lockedSer.ring1 ?? null,
@@ -719,18 +759,32 @@ async function runSolverTest(snapName) {
 
     // 10. Build partitions and run workers
     // Match the real solver's worker count: min(hardwareConcurrency - 2, 16), at least 1.
-    const numWorkers = snap.num_workers || Math.max(1, Math.min((os.cpus().length || 4) - 2, 16));
-    const timeLimitMs = (snap.time_limit_seconds || 30) * 1000;
+    const numWorkers = Number(process.env.SOLVER_BENCH_WORKERS)
+        || snap.num_workers || Math.max(1, Math.min((os.cpus().length || 4) - 2, 16));
+    const timeLimitMs = (Number(process.env.SOLVER_BENCH_SECONDS)
+        || snap.time_limit_seconds || 30) * 1000;
     // Real solver creates 4× worker count partitions for work-stealing.
     const numPartitions = Math.max(numWorkers * 4, numWorkers);
     const partitions = ctx._partition_work(freePools, locked, numPartitions);
     console.log(`  [${snapName}] ${partitions.length} partitions, ${numWorkers} workers, ${timeLimitMs / 1000}s limit`);
 
     const t0 = Date.now();
-    const result = await runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs, snap.expected_min_score);
+    const seedResult = snap.seed_score == null ? null : {
+        score: snap.seed_score,
+        item_names: snap.seed_item_names,
+        seed: true,
+    };
+    const result = await runSolverWorkers(
+        initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs,
+        snap.expected_min_score, seedResult,
+    );
     const elapsed = Date.now() - t0;
+    if (result.workerError) throw new Error(`solver worker failed: ${result.workerError}`);
 
     console.log(`  [${snapName}] checked: ${result.checked}, feasible: ${result.feasible}, top5: ${result.top5?.length}, time: ${elapsed}ms${result.timedOut ? ' (timed out)' : ''}`);
+    if (process.env.SOLVER_BENCH_TRACE === '1') {
+        console.log(`  [${snapName}] trace: ${JSON.stringify(summarizeTraceMetrics(result.trace))}`);
+    }
 
     // 11. Assert results
     if (result.top5 && result.top5.length > 0) {
@@ -760,7 +814,7 @@ async function runSolverTest(snapName) {
 
 async function main() {
     const snapDir = path.join(__dirname, 'snapshots');
-    const allSnaps = fs.readdirSync(snapDir)
+    const allSnaps = (fs.existsSync(snapDir) ? fs.readdirSync(snapDir) : [])
         .filter(f => f.startsWith('solver_') && f.endsWith('.snap.json'))
         .map(f => f.replace('.snap.json', ''));
 
@@ -777,7 +831,10 @@ async function main() {
         }
         console.log(`Running ${solverSnaps.length}/${allSnaps.length} snapshot(s): ${solverSnaps.join(', ')}`);
     } else {
-        solverSnaps = allSnaps;
+        solverSnaps = allSnaps.filter(name => {
+            const snap = loadSnapshot(name);
+            return !snap.benchmark_only;
+        });
     }
 
     if (solverSnaps.length === 0) {

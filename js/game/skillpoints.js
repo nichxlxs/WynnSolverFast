@@ -8,11 +8,12 @@
 
 
 /**
- * Calculate equipment required skillpoints using bitmask DP for cascade activation.
+ * Calculate equipment required skillpoints using pruned activation-order search.
  *
  * Under cascade mechanics, an item's SP bonus only activates once ALL of its
  * requirements are met by assigned SP + bonuses from already-activated items.
- * The DP finds the activation ordering that minimizes total assigned SP.
+ * A used-item bit mask and lower bounds prune the permutation search for the
+ * activation ordering that minimizes total assigned SP.
  *
  * @param {Map[]} equipment  - equipment statMaps (armor/acc/tomes)
  * @param {Map}   weapon     - weapon statMap
