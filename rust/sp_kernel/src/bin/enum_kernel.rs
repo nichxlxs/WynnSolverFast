@@ -257,6 +257,7 @@ struct Search<'a> {
     shared_checked: Option<&'a AtomicU64>,
     stop_flag: Option<&'a AtomicU64>,
     stop: bool,
+    time_cap: Option<f64>,
     dense_work: sp_kernel::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -466,6 +467,7 @@ impl<'a> Search<'a> {
             shared_checked: None,
             stop_flag: None,
             stop: false,
+            time_cap: std::env::var("ENUM_TIME_CAP_SECS").ok().and_then(|v| v.parse().ok()),
             dense_work: Default::default(),
             thresh_reject: 0,
             cluster_evals: 0,
@@ -567,6 +569,9 @@ impl<'a> Search<'a> {
         if self.report_calls & 0xFFFF != 0 { return; }
         if let Some(f) = self.stop_flag {
             if f.load(Ordering::Relaxed) != 0 { self.stop = true; }
+        } else if let Some(cap) = self.time_cap {
+            // Single-thread mode has no monitor thread; honor the cap here.
+            if self.started.elapsed().as_secs_f64() >= cap { self.stop = true; }
         }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
