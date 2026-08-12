@@ -500,7 +500,7 @@ impl<'a> Search<'a> {
                 let _ = saved;
                 let c = sc.layer2.subtree_ceiling(
                     &names, bt, depth + 1, &sc.weapon, &sc.rows, &sc.registry,
-                    &sc.hit_refs, &sc.tables, &sc.objective,
+                    &sc.hit_refs, &sc.tables, &sc.objective, Some(&sc.compiled_rows),
                 ).expect("bound eval error");
                 self.bound_memo.insert(key, c);
                 c
@@ -734,7 +734,7 @@ impl<'a> Search<'a> {
             match sp_kernel::scoring::leaf_pipeline_gated(
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
-                &sc.tables, &sc.consts, &sc.objective, cutoff,
+                &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
             ).expect("scoring pipeline error") {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }

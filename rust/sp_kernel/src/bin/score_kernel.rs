@@ -144,6 +144,9 @@ fn main() {
         });
     let mut l3_pass = 0u64;
     let mut l3_fail = 0u64;
+    let compiled_rows = compile_rows(&rows, &registry, &hit_refs);
+    let mut lc_pass = 0u64;
+    let mut lc_fail = 0u64;
 
     let cases = fixture["cases"].as_array().expect("cases array");
     let mut pass = 0u64;
@@ -231,7 +234,7 @@ fn main() {
                 let exp_total: Vec<f64> = arr_f64(&case["total_sp"]);
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                     &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                    &objective) {
+                                    &objective, None) {
                     Ok(Some(r)) => {
                         let base_ok = (0..5).all(|j| r.base_sp[j] as f64 == exp_base[j]);
                         let total_ok = (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]);
@@ -256,6 +259,24 @@ fn main() {
                     Err(e) => {
                         l3_fail += 1;
                         if l3_fail <= 3 { eprintln!("case {}: pipeline error: {}", i, e); }
+                    }
+                }
+
+                // Compiled-rows pipeline must be bit-identical to the original.
+                match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
+                                    &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
+                                    &objective, Some(&compiled_rows)) {
+                    Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
+                        && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => lc_pass += 1,
+                    other => {
+                        lc_fail += 1;
+                        if lc_fail <= 3 {
+                            match other {
+                                Ok(Some(r)) => eprintln!("case {}: COMPILED MISMATCH got {:.17e} want {:.17e}", i, r.score, expected),
+                                Ok(None) => eprintln!("case {}: compiled pipeline infeasible", i),
+                                Err(e) => eprintln!("case {}: compiled pipeline error: {}", i, e),
+                            }
+                        }
                     }
                 }
             }
@@ -294,8 +315,11 @@ fn main() {
                 l3_pass, l3_fail,
             );
         }
+        if lc_pass + lc_fail > 0 {
+            println!("pipeline compiled-rows: {} exact / {} diff", lc_pass, lc_fail);
+        }
     } else if layer2.is_some() {
         println!("layer2: scaling plan unsupported (kind=full), skipped");
     }
-    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 || l3_fail > 0 { std::process::exit(1); }
+    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 || l3_fail > 0 || lc_fail > 0 { std::process::exit(1); }
 }

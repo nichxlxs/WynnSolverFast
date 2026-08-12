@@ -1597,10 +1597,10 @@ pub fn leaf_pipeline(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
-    objective: &Objective,
+    objective: &Objective, compiled: Option<&[CompiledRow]>,
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
-                              registry, hit_refs, tables, consts, objective, None)? {
+                              registry, hit_refs, tables, consts, objective, compiled, None)? {
         LeafOutcome::Scored(r) => Ok(Some(r)),
         LeafOutcome::Gated => unreachable!("no cutoff passed"),
         _ => Ok(None),
@@ -1612,8 +1612,14 @@ pub fn leaf_pipeline_gated(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
-    objective: &Objective, gate_cutoff: Option<f64>,
+    objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
 ) -> Result<LeafOutcome, String> {
+    let obj_score = |cb: &Obj| -> f64 {
+        match compiled {
+            Some(c) => objective.score_compiled(cb, weapon, rows, c, tables),
+            None => objective.score(cb, weapon, rows, registry, hit_refs, tables),
+        }
+    };
     // Units in worker order (helmet-first _scratch_sp_input order).
     let unit_of = |sm: &Obj| -> crate::Unit {
         let arr5 = |k: &str| -> [i32; 5] {
@@ -1689,7 +1695,7 @@ pub fn leaf_pipeline_gated(
         if objective.supports_ceiling() {
             let ceiling_sp = [150f64; 5];
             let cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
-            let ceiling = objective.score(&cb150, weapon, rows, registry, hit_refs, tables);
+            let ceiling = obj_score(&cb150);
             if ceiling < cutoff - cutoff.abs() * 1e-9 {
                 return Ok(LeafOutcome::Gated);
             }
@@ -1719,7 +1725,7 @@ pub fn leaf_pipeline_gated(
     let mut trial = |sp: &[i32; 5]| -> f64 {
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         let cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
-        objective.score(&cb, weapon, rows, registry, hit_refs, tables)
+        obj_score(&cb)
     };
     assigned_sp += greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial);
 
@@ -1734,7 +1740,7 @@ pub fn leaf_pipeline_gated(
         }
     }
 
-    let score = objective.score(&combo_base, weapon, rows, registry, hit_refs, tables);
+    let score = obj_score(&combo_base);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
@@ -1810,6 +1816,7 @@ pub fn mana_rescue(
 /// Everything the leaf pipeline needs, loaded from a score-fixture JSON.
 pub struct ScoringCtx {
     pub objective: Objective,
+    pub compiled_rows: Vec<CompiledRow>,
     pub tables: Tables,
     pub weapon: Obj,
     pub rows: Vec<Row>,
@@ -1860,12 +1867,16 @@ impl ScoringCtx {
             .and_then(|t| t.as_str()).unwrap_or("combo_damage").to_string();
         let custom_weights = fixture["layer2"].get("custom_weights").cloned();
         let objective = Objective::parse(&scoring_target, custom_weights.as_ref())?;
+        let rows_parsed = parse_rows(&fixture["parsed_combo"]);
+        let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
+        let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
         Ok(ScoringCtx {
             objective,
+            compiled_rows,
             tables: Tables::parse(&fixture["tables"]),
             weapon: as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone(),
-            rows: parse_rows(&fixture["parsed_combo"]),
-            registry: fixture["boost_registry"].as_array().cloned().unwrap_or_default(),
+            rows: rows_parsed,
+            registry: registry_parsed,
             hit_refs,
             layer2,
             consts,
@@ -1996,7 +2007,7 @@ impl Layer2 {
         &self, prefix_names: &[&str; 8], bounds: &BoundTables, next_depth: usize,
         weapon: &Obj, rows: &[Row], registry: &[Value],
         hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
-        objective: &Objective,
+        objective: &Objective, compiled: Option<&[CompiledRow]>,
     ) -> Result<f64, String> {
         let mut base = self.build_base(prefix_names, weapon)?;
         let add = |base: &mut Obj, delta: &Obj| {
@@ -2011,7 +2022,10 @@ impl Layer2 {
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
         let cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
-        Ok(objective.score(&cb, weapon, rows, registry, hit_refs, tables))
+        Ok(match compiled {
+            Some(c) => objective.score_compiled(&cb, weapon, rows, c, tables),
+            None => objective.score(&cb, weapon, rows, registry, hit_refs, tables),
+        })
     }
 }
 
@@ -2143,6 +2157,33 @@ impl Objective {
         }
     }
 
+    /// Hot-path score over precompiled rows (bit-identical to score()).
+    pub fn score_compiled(
+        &self, combo_base: &Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    ) -> f64 {
+        match self {
+            Objective::ComboDamage =>
+                eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables),
+            Objective::Indirect(stat) =>
+                eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
+            Objective::Custom(weights) => {
+                let mut damage: Option<f64> = None;
+                let stats = StatsView::Borrowed(combo_base);
+                let mut sum = 0.0;
+                for (target, weight) in weights {
+                    let sub = if target == "combo_damage" {
+                        *damage.get_or_insert_with(|| eval_combo_damage_compiled(
+                            combo_base, weapon, rows, compiled, tables))
+                    } else {
+                        eval_indirect_stat(&stats, target, tables)
+                    };
+                    sum += weight * sub;
+                }
+                sum
+            }
+        }
+    }
+
     /// Whether "score at per-stat maxima with SP=150" is an admissible upper
     /// bound for this objective (see module comment).
     pub fn supports_ceiling(&self) -> bool {
@@ -2154,4 +2195,175 @@ impl Objective {
             Objective::Custom(weights) => weights.iter().all(|(_, w)| *w >= 0.0),
         }
     }
+}
+
+// ── Compiled row boosts (P2.4 layer 4, step 1) ──────────────────────────────
+//
+// A combo row's boost tokens, the registry entries they match, every
+// bonus's rounded/capped contribution, and the prop overrides they produce
+// are all CONSTANT per row — only the base stats they apply to vary. This
+// lowers apply_combo_row_boosts + apply_spell_prop_overrides to a
+// precomputed delta list and a pre-patched spell, applied in exactly the
+// original (token, match, bonus) order so the float sequence — and thus
+// every result bit — is unchanged.
+
+pub enum CompiledBonusKind { Stat, DamMult, DefMult }
+
+pub struct CompiledBonus {
+    pub kind: CompiledBonusKind,
+    /// Stat key, or the damMult./defMult. sub-key.
+    pub key: String,
+    /// Fully rounded/capped contribution (constant per row).
+    pub contrib: f64,
+    /// max-merge semantics (mode == "max", or Potion/Vulnerability sub-key).
+    pub use_max: bool,
+}
+
+pub struct CompiledRow {
+    pub bonuses: Vec<CompiledBonus>,
+    /// The spell with prop overrides already applied (or the original).
+    pub mod_spell: Option<Value>,
+    /// DPS analysis of mod_spell (always valid — overrides are constant).
+    pub dps: Option<(String, f64, String)>,
+    pub fallback_root: Option<String>,
+}
+
+pub fn compile_rows(
+    rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>,
+) -> Vec<CompiledRow> {
+    rows.iter().map(|row| {
+        let mut bonuses = Vec::new();
+        let mut prop_overrides: HashMap<String, PropOverride> = HashMap::new();
+        for token in &row.tokens {
+            for (entry, effective_value) in find_all_matching_boosts(token, registry) {
+                for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                    let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
+                    if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
+                        contrib = round_near(contrib).floor();
+                    }
+                    if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
+                        if mx > 0.0 && contrib > mx { contrib = mx; }
+                        else if mx < 0.0 && contrib < mx { contrib = mx; }
+                    }
+                    let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
+                    let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
+                    let (kind, sub) = if let Some(sub) = key.strip_prefix("damMult.") {
+                        (CompiledBonusKind::DamMult, sub)
+                    } else if let Some(sub) = key.strip_prefix("defMult.") {
+                        (CompiledBonusKind::DefMult, sub)
+                    } else {
+                        (CompiledBonusKind::Stat, key)
+                    };
+                    let use_max = match kind {
+                        CompiledBonusKind::Stat => mode_max,
+                        _ => mode_max || sub == "Potion" || sub == "Vulnerability",
+                    };
+                    bonuses.push(CompiledBonus { kind, key: sub.to_string(), contrib, use_max });
+                }
+                for p in entry.get("prop_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                    let vpu = p.get("value_per_unit").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                    let mut contrib = vpu * effective_value;
+                    if p.get("round").and_then(|v| v.as_bool()) == Some(true) {
+                        contrib = round_near(contrib).floor();
+                    }
+                    if let Some(mx) = p.get("max").and_then(|v| v.as_f64()) {
+                        if mx > 0.0 && contrib > mx { contrib = mx; }
+                        else if mx < 0.0 && contrib < mx { contrib = mx; }
+                    }
+                    let rf = p.get("ref").and_then(|r| r.as_str()).unwrap_or("").to_string();
+                    let base_v = p.get("base").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let existing = prop_overrides.entry(rf).or_insert(PropOverride {
+                        replace: None, add: 0.0, base: base_v,
+                    });
+                    if p.get("mode").and_then(|m| m.as_str()) == Some("add") {
+                        existing.add += contrib;
+                    } else {
+                        existing.replace = Some(existing.replace.unwrap_or(0.0) + contrib);
+                    }
+                }
+            }
+        }
+        let mod_spell: Option<Value> = row.spell.as_ref().map(|spell| {
+            apply_spell_prop_overrides(spell, &prop_overrides, hit_refs).into_owned()
+        });
+        let dps = mod_spell.as_ref()
+            .and_then(compute_dps_spell_hits_info)
+            .map(|i| (i.per_hit_name, i.max_hits, i.dps_chain_root));
+        let fallback_root = mod_spell.as_ref().and_then(|s| {
+            if spell_is_dps(s) { find_dps_display_root(s) } else { None }
+        });
+        CompiledRow { bonuses, mod_spell, dps, fallback_root }
+    }).collect()
+}
+
+/// apply_combo_row_boosts with a precompiled delta list — identical float
+/// sequence, no matching or rounding at eval time.
+pub fn apply_compiled_boosts<'a>(base: &'a Obj, compiled: &CompiledRow) -> StatsView<'a> {
+    if compiled.bonuses.is_empty() && base.contains_key("damMult") && base.contains_key("defMult") {
+        return StatsView::Borrowed(base);
+    }
+    let mut stats = base.clone();
+    let mut dam_mult: Obj = base.get("damMult").and_then(as_map).cloned().unwrap_or_default();
+    let mut def_mult: Obj = base.get("defMult").and_then(as_map).cloned().unwrap_or_default();
+    for b in &compiled.bonuses {
+        let target = match b.kind {
+            CompiledBonusKind::Stat => &mut stats,
+            CompiledBonusKind::DamMult => &mut dam_mult,
+            CompiledBonusKind::DefMult => &mut def_mult,
+        };
+        let cur = target.get(&b.key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let nv = if b.use_max { js_max(cur, b.contrib) } else { cur + b.contrib };
+        target.insert(b.key.clone(), Value::from(nv));
+    }
+    let wrap = |m: Obj| { let mut w = Obj::new(); w.insert("__m".into(), Value::Object(m)); Value::Object(w) };
+    stats.insert("damMult".into(), wrap(dam_mult));
+    stats.insert("defMult".into(), wrap(def_mult));
+    StatsView::Owned(stats)
+}
+
+/// eval_combo_damage over precompiled rows — the hot-path variant.
+pub fn eval_combo_damage_compiled(
+    combo_base: &Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+) -> f64 {
+    let base_view = StatsView::Borrowed(combo_base);
+    let dex = base_view.num("dex");
+    let crit = tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex });
+
+    let mut total_damage = 0.0;
+    for (row, comp) in rows.iter().zip(compiled) {
+        let Some(mod_spell) = &comp.mod_spell else { continue };
+        if row.qty <= 0.0 || row.pseudo { continue; }
+
+        let stats = apply_compiled_boosts(combo_base, comp);
+
+        let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
+        let mut eff_dps_hits = row.dps_hits;
+        let mut chain_root: Option<&str> = None;
+        if eff_dps_name.is_none() {
+            if let Some((name, hits, root)) = &comp.dps {
+                eff_dps_name = Some(name);
+                eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
+                chain_root = Some(root);
+            }
+        }
+
+        let per_cast = match eff_dps_name {
+            Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
+            None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
+        };
+
+        let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
+        let mut flat_per_cast = 0.0;
+        if let Some(root) = final_root {
+            flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
+        }
+
+        let eff_qty = if row.is_melee_time {
+            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables)
+        } else { row.qty };
+        let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
+        total_damage += row_damage;
+    }
+    total_damage
 }
