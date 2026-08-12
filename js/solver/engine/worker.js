@@ -44,10 +44,45 @@ let _cancelled = false;
 //   - 'str','dex','int','def','agi': overwritten by total_sp from SP assignment
 const _PRECHECK_EXCLUDED = new Set(INDIRECT_CONSTRAINT_STATS);
 for (const sp of ['str', 'dex', 'int', 'def', 'agi']) _PRECHECK_EXCLUDED.add(sp);
-let _constraint_prechecks = [];  // [{stat, adjusted_threshold}]
+let _constraint_prechecks = [];  // [{stat, stat_idx, adjusted_threshold}]
 let _ehp_precheck = null;        // {threshold, fixed_hp, ehp_divisor} or null
 let _ehp_no_agi_precheck = null; // {threshold, fixed_hp, ehp_divisor} or null
 let _total_hp_precheck = null;   // {threshold, fixed_hp} or null
+
+// Vector indices for the EHP precheck reads (resolved after _vec_build_index).
+let _vec_hp_idx = -1;
+let _vec_hpBonus_idx = -1;
+
+/**
+ * Build the numeric stat index from every item statMap this worker can touch.
+ * Called once at init; 'run' messages reuse the same _cfg pools so the index
+ * stays valid across work-stealing partitions.
+ */
+function _vec_setup() {
+    const lists = [];
+    for (const slot of Object.keys(_cfg.pools ?? {})) {
+        const pool = _cfg.pools[slot];
+        if (pool) lists.push(pool.map(it => it.statMap));
+    }
+    if (_cfg.ring_pool) lists.push(_cfg.ring_pool.map(it => it.statMap));
+    const singles = [];
+    for (const item of Object.values(_cfg.locked ?? {})) {
+        if (item && item.statMap) singles.push(item.statMap);
+    }
+    if (_cfg.ring1_locked?.statMap) singles.push(_cfg.ring1_locked.statMap);
+    if (_cfg.ring2_locked?.statMap) singles.push(_cfg.ring2_locked.statMap);
+    for (const t of _cfg.tome_sms ?? []) singles.push(t);
+    if (_cfg.guild_tome_sm) singles.push(_cfg.guild_tome_sm);
+    if (_cfg.weapon_sm) singles.push(_cfg.weapon_sm);
+    for (const sm of _cfg.none_item_sms ?? []) singles.push(sm);
+    lists.push(singles);
+    _vec_build_index(lists);
+    _vec_hp_idx = _vec_stat_index('hp');
+    _vec_hpBonus_idx = _vec_stat_index('hpBonus');
+    for (const pc of _constraint_prechecks) {
+        pc.stat_idx = _vec_stat_index(pc.stat);
+    }
+}
 
 // ── SP floor/cap constraints (computed once at init) ─────────────────────────
 // Floors: minimum total_sp per attribute (from ge thresholds on SP stats).
@@ -207,6 +242,7 @@ function _build_constraint_prechecks() {
         const fixed_contrib = fixed(stat);
         _constraint_prechecks.push({
             stat,
+            stat_idx: -1,  // resolved by _vec_setup after the stat index exists
             adjusted_threshold: value - fixed_contrib,
         });
     }
@@ -255,6 +291,14 @@ function _build_sp_constraints() {
  * Deferred — current split is correct but redundant.
  */
 function _fast_constraint_precheck(running_sm) {
+    if (running_sm instanceof Float64Array) {
+        for (let i = 0; i < _constraint_prechecks.length; i++) {
+            const pc = _constraint_prechecks[i];
+            const value = pc.stat_idx >= 0 ? running_sm[pc.stat_idx] : 0;
+            if (value < pc.adjusted_threshold) return false;
+        }
+        return true;
+    }
     for (let i = 0; i < _constraint_prechecks.length; i++) {
         const pc = _constraint_prechecks[i];
         const value = running_sm instanceof Map ? running_sm.get(pc.stat) : running_sm[pc.stat];
@@ -274,10 +318,16 @@ function _fast_ehp_precheck(running_sm) {
 
     // running_sm.get('hp') = levelToHPBase + sum of item 'hp' (static ID)
     // running_sm.get('hpBonus') = sum of item hpBonus (from maxRolls)
-    const get = running_sm instanceof Map
-        ? stat => running_sm.get(stat)
-        : stat => running_sm[stat];
-    const raw_hp = (get('hp') ?? 0) + (get('hpBonus') ?? 0);
+    let raw_hp;
+    if (running_sm instanceof Float64Array) {
+        raw_hp = (_vec_hp_idx >= 0 ? running_sm[_vec_hp_idx] : 0)
+            + (_vec_hpBonus_idx >= 0 ? running_sm[_vec_hpBonus_idx] : 0);
+    } else {
+        const get = running_sm instanceof Map
+            ? stat => running_sm.get(stat)
+            : stat => running_sm[stat];
+        raw_hp = (get('hp') ?? 0) + (get('hpBonus') ?? 0);
+    }
 
     if (_ehp_precheck) {
         let totalHp = raw_hp + _ehp_precheck.fixed_hp;
@@ -551,8 +601,15 @@ function _run_level_enum() {
     fixed_item_sms.push(weapon_sm);
 
     const running_sm_map = _init_running_statmap(level, fixed_item_sms);
-    const running_sm = _cfg.benchmark_legacy_running_map
-        ? running_sm_map : _init_running_stats_compact(running_sm_map);
+    let running_sm;
+    if (_cfg.benchmark_legacy_running_map) {
+        running_sm = running_sm_map;
+    } else if (_cfg.benchmark_compact_running) {
+        running_sm = _init_running_stats_compact(running_sm_map);
+    } else {
+        running_sm = _vec_init_running(running_sm_map);
+    }
+    const _running_is_vec = running_sm instanceof Float64Array;
 
     // Size scratch arrays now that tome_sms is known
     _scratch_all_equip = new Array(8 + tome_sms.length + 1);  // 8 equips + tomes + weapon
@@ -851,8 +908,12 @@ function _run_level_enum() {
 
     // ── Stat tracking helpers ────────────────────────────────────────────────
 
-    function _place_item(item_sm) { _incr_add_item(running_sm, item_sm); }
-    function _unplace_item(item_sm) { _incr_remove_item(running_sm, item_sm); }
+    const _place_item = _running_is_vec
+        ? (item_sm) => _vec_add_item(running_sm, item_sm)
+        : (item_sm) => _incr_add_item(running_sm, item_sm);
+    const _unplace_item = _running_is_vec
+        ? (item_sm) => _vec_remove_item(running_sm, item_sm)
+        : (item_sm) => _incr_remove_item(running_sm, item_sm);
 
     // ── Level-based enumeration over free armor/accessory slots ─────────────
     //
@@ -1329,6 +1390,7 @@ self.onmessage = function (e) {
         try {
             _build_constraint_prechecks();
             _build_sp_constraints();
+            _vec_setup();
         } catch (err) {
             console.error('[w] prechecks crashed:', err.message, err.stack);
             postMessage({ type: 'done', worker_id: msg.worker_id, checked: 0, feasible: 0, met_req: 0, top5: [] });

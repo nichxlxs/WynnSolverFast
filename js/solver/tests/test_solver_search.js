@@ -745,6 +745,7 @@ async function runSolverTest(snapName) {
         benchmark_nested_incremental: process.env.SOLVER_BENCH_VARIANT === 'current_nested_incremental',
         benchmark_legacy_running_map: ['original', 'current_running_map']
             .includes(process.env.SOLVER_BENCH_VARIANT),
+        benchmark_compact_running: process.env.SOLVER_BENCH_VARIANT === 'current_compact_object',
         sets_data: [...ctx.sets],
         ring_pool: ringPoolSer,
         ring1_locked: lockedSer.ring1 ?? null,
