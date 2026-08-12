@@ -870,8 +870,62 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
             regAdd(initMsgBase.ring1_locked);
             regAdd(initMsgBase.ring2_locked);
 
+            // Lower the atree scaling plan exactly the way the worker's
+            // _atree_scaling_setup does (const partition + numeric var
+            // effects), so the Rust side ports only atree_eval_stat_effects.
+            // kind 'full' marks scenarios outside the supported subset —
+            // the Rust layer-2 pipeline must refuse those fixtures.
+            const scaling_plan = (() => {
+                const am = initMsgBase.atree_merged;
+                const A = ctx.atree_scaling_analysis(am);
+                const skip_edit = !A.has_prop_outputs;
+                if (!A.stat_dependent) {
+                    const [, scaled] = ctx.atree_compute_scaling(am, new Map(),
+                        initMsgBase.button_states, initMsgBase.slider_states, null, skip_edit);
+                    return { kind: 'cached', scaled: _jser(scaled) };
+                }
+                const plan = ctx.atree_collect_stat_effects(am);
+                if (!plan || plan.var_has_prop_io) return { kind: 'full' };
+                const [, const_scaled] = ctx.atree_compute_scaling(am, new Map(),
+                    initMsgBase.button_states, initMsgBase.slider_states, null, skip_edit, true);
+                for (const key of plan.var_keys) {
+                    if (key.includes('.') || ['damMult', 'defMult', 'healMult', 'manaMult'].includes(key)
+                        || const_scaled.has(key)) {
+                        return { kind: 'full' };
+                    }
+                }
+                const lowered = plan.var_effects.map(effect => {
+                    const scaling = effect.scaling ?? [0];
+                    const inputs = effect.inputs ?? [];
+                    const terms = [];
+                    let const_add = 0;
+                    for (let i = 0; i < Math.min(scaling.length, inputs.length); i++) {
+                        const s = ctx.atree_translate(am, scaling[i]);
+                        if (inputs[i].type === 'stat') {
+                            terms.push({ stat: inputs[i].name, factor: s });
+                        } else if (inputs[i].type === 'prop') {
+                            const abil = am.get(inputs[i].abil);
+                            if (abil) const_add += abil.properties[inputs[i].name] * s;
+                        }
+                    }
+                    const low = {
+                        round: effect.round ?? true,
+                        positive: effect.positive ?? true,
+                        terms,
+                        const_add,
+                        outputs: (Array.isArray(effect.output) ? effect.output : [effect.output])
+                            .filter(o => o && o.type === 'stat').map(o => o.name),
+                    };
+                    if ('max' in effect) low.max = ctx.atree_translate(am, effect.max);
+                    return low;
+                });
+                return { kind: 'split', const_scaled: _jser(const_scaled), var_effects: lowered };
+            })();
+
             const ctxLayer2 = vm.runInContext(`({
                 statmap_static_ids: [...STATMAP_STATIC_IDS],
+                statmap_must_ids: [...STATMAP_MUST_IDS],
+                hp_base_for_level: levelToHPBase(${JSON.stringify(initMsgBase.level)}),
                 class_def: Object.fromEntries(classDefenseMultipliers),
                 base_mana_regen: BASE_MANA_REGEN,
                 mana_tick_seconds: MANA_TICK_SECONDS,
@@ -912,6 +966,7 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
                     static_boosts: _jser(initMsgBase.static_boosts),
                     radiance_boost: _jser(initMsgBase.radiance_boost ?? null),
                     spell_base_costs: _jser(initMsgBase.spell_base_costs ?? null),
+                    scaling_plan,
                     constants: ctxLayer2,
                     item_registry,
                 },
