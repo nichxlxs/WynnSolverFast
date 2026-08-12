@@ -354,5 +354,5 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
         for (let i = 0; i < 5; i++) final_skillpoints[i] += skp[i];
     }
 
-    return [assign, final_skillpoints, total_assigned, set_counts];
+    return [assign, final_skillpoints, total_assigned, set_counts, total_item_skillpoints];
 }
