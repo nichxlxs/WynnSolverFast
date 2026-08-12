@@ -694,6 +694,218 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
     });
 }
 
+// ── Rust score-kernel differential fixture export (P2.4 layer 1) ────────────
+//
+// SOLVER_EXPORT_SCORE=<path> samples K random feasible builds (seeded LCG),
+// evaluates each through the production worker with all slots locked and
+// SOLVER_DEBUG_COMBO capture on, and dumps a JSON fixture containing the
+// exact assembled combo_base stat map + expected combo damage per case,
+// plus everything the Rust damage core needs to recompute it: weapon stats,
+// parsed combo rows (with embedded spell definitions and boost tokens), the
+// boost registry, atree hit-string refs for prop overrides, and the game
+// constant tables. The Rust score kernel must reproduce every expected
+// value bit-for-bit (f64).
+
+function _jser(v) {
+    if (v instanceof Map) {
+        const o = {};
+        for (const [k, x] of v) o[String(k)] = _jser(x);
+        return { __m: o };
+    }
+    if (v instanceof Set) return { __s: [...v].map(_jser) };
+    if (Array.isArray(v)) return v.map(_jser);
+    if (v && typeof v === 'object') {
+        const o = {};
+        for (const [k, x] of Object.entries(v)) if (x !== undefined) o[k] = _jser(x);
+        return o;
+    }
+    return v === undefined ? null : v;
+}
+
+function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
+    return new Promise((resolve, reject) => {
+        process.env.SOLVER_DEBUG_COMBO = '1';
+
+        const freeSlots = ORACLE_ARMOR_SLOTS.filter(s => initMsgBase.pools[s]?.length);
+        const ring1Free = !initMsgBase.ring1_locked && ringPoolSer.length > 0;
+        const ring2Free = !initMsgBase.ring2_locked && ringPoolSer.length > 0;
+        const lockedItems = [
+            ...Object.values(initMsgBase.locked ?? {}),
+            initMsgBase.ring1_locked, initMsgBase.ring2_locked,
+        ].filter(Boolean);
+
+        let seed = 0x5EEDCAFE;
+        const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000;
+        // Pools are priority-ordered, so jointly-feasible builds concentrate
+        // at low offsets; a geometric bias samples realistic builds while
+        // still reaching deep into the pool occasionally.
+        const geoPick = (n) => Math.min(n - 1, Math.floor(-Math.log(1 - rand()) * (n / 6)));
+
+        const cases = [];
+        let attempts = 0;
+        let posted = 0, doneNoTop = 0, doneNoDebug = 0, spFiltered = 0, blocked = 0;
+        const MAX_ATTEMPTS = numCases * 2000;
+
+        const worker = new Worker(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
+
+        const sendNext = () => {
+            while (cases.length < numCases && attempts < MAX_ATTEMPTS) {
+                attempts++;
+                const lockedOverride = { ...initMsgBase.locked };
+                const items = [];
+                for (const s of freeSlots) {
+                    const pool = initMsgBase.pools[s];
+                    const item = pool[geoPick(pool.length)];
+                    lockedOverride[s] = item;
+                    items.push(item);
+                }
+                let ring1_locked = initMsgBase.ring1_locked;
+                let ring2_locked = initMsgBase.ring2_locked;
+                if (ring1Free && ring2Free) {
+                    const i = geoPick(ringPoolSer.length);
+                    const j = Math.min(ringPoolSer.length - 1, i + geoPick(ringPoolSer.length - i));
+                    ring1_locked = ringPoolSer[i];
+                    ring2_locked = ringPoolSer[j];
+                    items.push(ring1_locked, ring2_locked);
+                } else if (ring1Free) {
+                    ring1_locked = ringPoolSer[geoPick(ringPoolSer.length)];
+                    items.push(ring1_locked);
+                } else if (ring2Free) {
+                    ring2_locked = ringPoolSer[geoPick(ringPoolSer.length)];
+                    items.push(ring2_locked);
+                }
+                items.push(...lockedItems);
+                if (_oracleTupleBlocked(items)) { blocked++; continue; }
+
+                // In-process SP prefilter: skip obviously SP-infeasible builds
+                // without a worker round-trip (the worker remains the truth).
+                const bySlot = {
+                    helmet: lockedOverride.helmet, chestplate: lockedOverride.chestplate,
+                    leggings: lockedOverride.leggings, boots: lockedOverride.boots,
+                    ring1: ring1_locked, ring2: ring2_locked,
+                    bracelet: lockedOverride.bracelet, necklace: lockedOverride.necklace,
+                };
+                const wynnSMs = ['boots', 'leggings', 'chestplate', 'helmet',
+                                 'ring1', 'ring2', 'bracelet', 'necklace']
+                    .map(s => bySlot[s]?.statMap ?? initMsgBase.none_item_sms[NONE_IDX[s]]);
+                let spOk = null;
+                try {
+                    spOk = ctx.calculate_skillpoints(
+                        wynnSMs, initMsgBase.weapon_sm, initMsgBase.sp_budget);
+                } catch (e) {
+                    if (spFiltered === 0) console.log('  [score-export] prefilter error:', e.message);
+                }
+                if (spOk === null) { spFiltered++; continue; }
+                posted++;
+
+                worker.postMessage({
+                    ...initMsgBase,
+                    // Restrictions gate which leaves reach scoring but do not
+                    // affect the damage computation these cases validate —
+                    // strip them so random tuples survive to scoring.
+                    restrictions: { stat_thresholds: [] },
+                    pools: {},
+                    ring_pool: [],
+                    locked: lockedOverride,
+                    ring1_locked,
+                    ring2_locked,
+                    partition: { type: 'full' },
+                    worker_id: 0,
+                });
+                return;
+            }
+            worker.terminate();
+            finish();
+        };
+
+        const finish = () => {
+            const ctxTables = vm.runInContext(`({
+                skillpoint_damage_mult: [...skillpoint_damage_mult],
+                skillpoint_final_mult: [...skillpoint_final_mult],
+                baseDamageMultiplier: [...baseDamageMultiplier],
+                attackSpeeds: [...attackSpeeds],
+                damage_keys: [...damage_keys],
+                sp_percentage_rate: SP_PERCENTAGE_RATE,
+                sp_percentage_input_cap: SP_PERCENTAGE_INPUT_CAP,
+                // V8's Math.pow and Rust's powf can differ by 1 ULP; skill
+                // points are integers, so ship the exact JS values instead.
+                sp_pct_table: Array.from({length: SP_PERCENTAGE_INPUT_CAP + 1},
+                    (_, i) => skillPointsToPercentage(i)),
+            })`, ctx);
+
+            // Pre-resolve atree hit-string refs per base_spell (mirrors
+            // apply_spell_prop_overrides's scan of atree_merged).
+            const hit_refs = {};
+            for (const [, abil] of (initMsgBase.atree_merged ?? new Map())) {
+                for (const effect of (abil.effects ?? [])) {
+                    if (effect.type === 'replace_spell') {
+                        const bs = effect.base_spell;
+                        for (const part of (effect.parts ?? [])) {
+                            if (part && typeof part === 'object' && 'hits' in part) {
+                                ((hit_refs[bs] ??= {}))[part.name] = { ...((hit_refs[bs] ?? {})[part.name] ?? {}), ...part.hits };
+                            }
+                        }
+                    } else if (effect.type === 'add_spell_prop'
+                               && effect.target_part && 'hits' in effect) {
+                        const bs = effect.base_spell;
+                        ((hit_refs[bs] ??= {}))[effect.target_part] = { ...((hit_refs[bs] ?? {})[effect.target_part] ?? {}), ...effect.hits };
+                    }
+                }
+            }
+
+            const fixture = {
+                meta: {
+                    generated: 'exportScoreFixture',
+                    cases: cases.length,
+                    attempts,
+                    scoring_target: initMsgBase.scoring_target,
+                },
+                tables: ctxTables,
+                weapon_sm: _jser(initMsgBase.weapon_sm),
+                parsed_combo: _jser(initMsgBase.parsed_combo),
+                boost_registry: _jser(initMsgBase.boost_registry),
+                atree_hit_refs: _jser(hit_refs),
+                cases,
+            };
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+            fs.writeFileSync(outPath, JSON.stringify(fixture));
+            console.log(`  [score-export] wrote ${cases.length} cases (${attempts} attempts, `
+                + `${blocked} blocked, ${spFiltered} sp-filtered, ${posted} posted, `
+                + `${doneNoTop} no-top, ${doneNoDebug} no-debug) to ${outPath}`);
+            resolve(cases.length);
+        };
+
+        worker.on('message', (msg) => {
+            if (msg.type === 'done') {
+                const top = msg.top5?.[0];
+                if (top && top._debug_combo_base) {
+                    cases.push({
+                        item_names: top.item_names,
+                        total_sp: [...top.total_sp],
+                        expected_damage: top.score,
+                        combo_base: _jser(top._debug_combo_base),
+                    });
+                } else if (!top) {
+                    doneNoTop++;
+                    if (doneNoTop === 1 && process.env.SOLVER_EXPORT_SCORE_DEBUG) {
+                        console.log('  [score-export] first no-top done msg:',
+                            JSON.stringify({ ...msg, top5: msg.top5?.length, trace: undefined }));
+                    }
+                } else {
+                    doneNoDebug++;
+                }
+                sendNext();
+            } else if (msg.type === 'worker_error') {
+                worker.terminate();
+                reject(new Error(msg.message));
+            }
+        });
+        worker.on('error', (err) => { worker.terminate(); reject(err); });
+
+        sendNext();
+    });
+}
+
 // ── Rust enumeration-kernel fixture export (P2.3) ────────────────────────────
 //
 // SOLVER_EXPORT_RUST=<path> dumps everything the Rust enumeration kernel
@@ -1101,6 +1313,14 @@ async function runSolverTest(snapName) {
     if (process.env.SOLVER_EXPORT_RUST) {
         exportRustFixture(process.env.SOLVER_EXPORT_RUST, { initMsgBase, ringPoolSer, solverSnap });
         t.assert(true, `${snapName}: exported Rust fixture`);
+        return;
+    }
+
+    // Optional: dump sampled score cases for the Rust damage-core port and stop.
+    if (process.env.SOLVER_EXPORT_SCORE) {
+        const k = parseInt(process.env.SOLVER_EXPORT_SCORE_CASES ?? '96', 10);
+        const n = await exportScoreFixture(process.env.SOLVER_EXPORT_SCORE, initMsgBase, ringPoolSer, k);
+        t.assert(n > 0, `${snapName}: exported ${n} score cases`);
         return;
     }
 

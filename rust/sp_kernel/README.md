@@ -1,6 +1,6 @@
 # sp_kernel — Rust SP kernel prototype (P2.2)
 
-A dependency-free Rust port of `js/game/skillpoints.js::calculate_skillpoints`
+A Rust port of `js/game/skillpoints.js::calculate_skillpoints`
 (classification, post_floor bounds, the Lodestone-style closure fast path, and
 the pruned activation-order backtracking), validated for exact parity against
 fixtures exported from the JS implementation.
@@ -91,3 +91,42 @@ Sizing note: enumeration cost is governed by pruning effectiveness, not
 space size. Lowering the level filter floods the pools with tier-stack
 items, weakening the atkTier suffix bound: lvl_min 100 → 8.4s, 99 → 22.4s,
 98 → 77.1s, 97 → ~3.6h (ETA) despite only ~3x space growth per step.
+
+## score_kernel — combo-damage core (P2.4 layer 1)
+
+`src/bin/score_kernel.rs` ports the combo-damage evaluation pipeline
+(compute_combo_damage_totals → computeSpellDisplayAvg → _eval_spell_parts →
+calculateSpellDamage, plus per-row boost tokens and atree prop overrides)
+and validates it against differential fixtures: sampled builds evaluated by
+the production JS worker, exporting the exact assembled combo_base stat map
+and the expected damage per case.
+
+```bash
+# Export differential fixtures (96 sampled builds each):
+SOLVER_EXPORT_SCORE=rust/sp_kernel/fixtures/score_gaia.json \
+  node js/solver/tests/test_solver_search.js gaia_armor_ring_2m
+SOLVER_EXPORT_SCORE=rust/sp_kernel/fixtures/score_spell.json \
+  node js/solver/tests/test_solver_search.js readme_spell_wide
+
+cargo build --release
+./target/release/score_kernel fixtures/score_gaia.json
+./target/release/score_kernel fixtures/score_spell.json
+```
+
+Measured (2026-08-12, this container): **96/96 bit-exact** on the melee
+(Gaia, one melee-time row) fixture and **96/96 bit-exact** on the spell
+(readme spell combo, 33 rows) fixture — every expected f64 reproduced
+bit-for-bit.
+
+Two parity traps worth remembering:
+- V8's `Math.pow` and Rust's `powf` differ by 1 ULP on some inputs; skill
+  points are integers, so the fixture ships the exact JS
+  `skillPointsToPercentage` table (0–150) instead.
+- serde_json's default float parsing is not correctly rounded — the
+  `float_roundtrip` feature is required for bit-exact fixture comparison.
+
+This implementation is parity-first (dynamic JSON stat maps, per-part
+allocations): ~119K evals/s on the 1-row melee combo, ~1.6K evals/s on the
+33-row spell combo, single-threaded. The compiled-stat-index optimization
+pass comes after greedy SP + mana sim land, turning this into a full leaf
+scorer inside enum_kernel.

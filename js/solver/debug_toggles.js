@@ -40,4 +40,8 @@ const SOLVER_DEBUG_SENSITIVITY = false;
 // the global top-1 solver result on the main thread with full row-by-row output.
 // Covers: sim results, base_stats, weapon, crit chance, per-row boosts,
 // stat deltas, per-cast damage, and totals.  [node.js, search.js, worker.js, pure/engine.js]
-const SOLVER_DEBUG_COMBO = false;
+// Headless runs (worker_thread.js) can enable it via SOLVER_DEBUG_COMBO=1
+// (used by the Rust score-fixture exporter to capture assembled combo_base
+// maps alongside scores).
+const SOLVER_DEBUG_COMBO = (typeof process !== 'undefined'
+    && !!(process.env && process.env.SOLVER_DEBUG_COMBO)) || false;
