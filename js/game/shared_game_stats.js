@@ -82,26 +82,31 @@ function getSpellCost(stats, spell, capped = true) {
  *          [def%, agi%], [edef, tdef, wdef, fdef, adef]]
  */
 function getDefenseStats(stats) {
+    // All reads are null-guarded: solver statmaps only materialize stats an
+    // equipped item actually provides, so absent and zero must be equivalent.
+    // (An unguarded stats.get("hpBonus") here used to turn whole-build scores
+    // into NaN whenever no item granted hpBonus.)
     let defenseStats = [];
-    let def_pct = skillPointsToPercentage(stats.get('def')) * skillpoint_final_mult[3];
-    let agi_pct = skillPointsToPercentage(stats.get('agi')) * skillpoint_final_mult[4];
+    let def_pct = skillPointsToPercentage(stats.get('def') ?? 0) * skillpoint_final_mult[3];
+    let agi_pct = skillPointsToPercentage(stats.get('agi') ?? 0) * skillpoint_final_mult[4];
     // total hp
-    let totalHp = stats.get("hp") + stats.get("hpBonus");
+    let totalHp = (stats.get("hp") ?? 0) + (stats.get("hpBonus") ?? 0);
     if (totalHp < 5) totalHp = 5;
     defenseStats.push(totalHp);
     // EHP
     let ehp = [totalHp, totalHp];
-    let defMult = (2 - stats.get("classDef"));
-    for (const [, v] of stats.get("defMult").entries()) {
+    let defMult = (2 - (stats.get("classDef") ?? 1.0));
+    const defMultMap = stats.get("defMult");
+    if (defMultMap) for (const [, v] of defMultMap.entries()) {
         defMult *= (1 - v/100);
     }
-    let agi_reduction = (100 - stats.get("agiDef")) / 100;
+    let agi_reduction = (100 - (stats.get("agiDef") ?? 0)) / 100;
     ehp[0] = ehp[0] / (agi_reduction*agi_pct + (1-agi_pct) * (1-def_pct));
     ehp[0] /= defMult;
     ehp[1] /= (1-def_pct) * defMult;
     defenseStats.push(ehp);
     // HPR
-    let totalHpr = rawToPct(stats.get("hprRaw"), stats.get("hprPct")/100.);
+    let totalHpr = rawToPct(stats.get("hprRaw") ?? 0, (stats.get("hprPct") ?? 0)/100.);
     defenseStats.push(totalHpr);
     // EHPR
     let ehpr = [totalHpr, totalHpr];
@@ -114,7 +119,8 @@ function getDefenseStats(stats) {
     // elemental defenses
     let eledefs = [0, 0, 0, 0, 0];
     for (const i in skp_elements) {
-        eledefs[i] = rawToPctUncapped(stats.get(skp_elements[i] + "Def"), (stats.get(skp_elements[i] + "DefPct") + stats.get("rDefPct"))/100.);
+        eledefs[i] = rawToPctUncapped(stats.get(skp_elements[i] + "Def") ?? 0,
+            ((stats.get(skp_elements[i] + "DefPct") ?? 0) + (stats.get("rDefPct") ?? 0))/100.);
     }
     defenseStats.push(eledefs);
     return defenseStats;
