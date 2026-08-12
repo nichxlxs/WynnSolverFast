@@ -757,14 +757,16 @@ pub fn apply_combo_row_boosts<'a>(
 }
 
 /// apply_spell_prop_overrides — patch hit counts through atree hit-string refs.
-pub fn apply_spell_prop_overrides(
-    spell: &Value, prop_overrides: &HashMap<String, PropOverride>,
+/// Borrows the spell untouched in the (dominant) no-override case.
+pub fn apply_spell_prop_overrides<'s>(
+    spell: &'s Value, prop_overrides: &HashMap<String, PropOverride>,
     hit_refs: &HashMap<i64, HashMap<String, Obj>>,
-) -> Value {
-    if prop_overrides.is_empty() { return spell.clone(); }
+) -> std::borrow::Cow<'s, Value> {
+    use std::borrow::Cow;
+    if prop_overrides.is_empty() { return Cow::Borrowed(spell); }
     let base_spell = spell.get("base_spell").and_then(|v| v.as_i64()).unwrap_or(0);
-    let Some(orig_part_hits) = hit_refs.get(&base_spell) else { return spell.clone() };
-    if orig_part_hits.is_empty() { return spell.clone(); }
+    let Some(orig_part_hits) = hit_refs.get(&base_spell) else { return Cow::Borrowed(spell) };
+    if orig_part_hits.is_empty() { return Cow::Borrowed(spell); }
 
     let mut needs_clone = false;
     'outer: for (_, orig_hits) in orig_part_hits {
@@ -774,7 +776,7 @@ pub fn apply_spell_prop_overrides(
             }
         }
     }
-    if !needs_clone { return spell.clone(); }
+    if !needs_clone { return Cow::Borrowed(spell); }
 
     let mut clone = spell.clone();
     if let Some(parts) = clone.get_mut("parts").and_then(|p| p.as_array_mut()) {
@@ -795,7 +797,7 @@ pub fn apply_spell_prop_overrides(
             }
         }
     }
-    clone
+    std::borrow::Cow::Owned(clone)
 }
 
 // ── compute_melee_time_hits (pure/utils.js) ──────────────────────────────────
@@ -837,6 +839,10 @@ pub struct Row {
     pub delay: Option<f64>,
     pub recast_penalties: Vec<f64>,
     pub has_loop_marker: bool,
+    // Parse-time DPS analysis of the ORIGINAL spell — valid whenever no
+    // prop override modified the spell for a given evaluation.
+    pub static_dps: Option<(String, f64, String)>, // per_hit_name, max_hits, chain_root
+    pub static_fallback_root: Option<String>,
 }
 
 pub fn parse_rows(v: &Value) -> Vec<Row> {
@@ -849,6 +855,7 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
                 is_pct: t.get("is_pct").and_then(|x| x.as_bool()).unwrap_or(false),
             }).collect())
             .unwrap_or_default();
+        let spell_ref: Option<Value> = r.get("spell").filter(|s| !s.is_null()).cloned();
         rows.push(Row {
             qty: r.get("qty").and_then(|q| q.as_f64()).unwrap_or(0.0),
             dmg_excl: r.get("dmg_excl").and_then(|x| x.as_bool()).unwrap_or(false),
@@ -860,13 +867,19 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
             dps_hits: r.get("dps_hits").and_then(|x| x.as_f64()).unwrap_or(0.0),
             dps_hits_override: r.get("dps_hits_override").and_then(|x| x.as_f64()),
             tokens,
-            spell: r.get("spell").filter(|s| !s.is_null()).cloned(),
+            spell: spell_ref.clone(),
             mana_excl: r.get("mana_excl").and_then(|x| x.as_bool()).unwrap_or(false),
             cast_time: r.get("cast_time").and_then(|x| x.as_f64()),
             delay: r.get("delay").and_then(|x| x.as_f64()),
             recast_penalties: r.get("recast_penalties").map(arr_f64).unwrap_or_default(),
             has_loop_marker: r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false)
                 || r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
+            static_dps: spell_ref.as_ref()
+                .and_then(|s| compute_dps_spell_hits_info(s))
+                .map(|i| (i.per_hit_name, i.max_hits, i.dps_chain_root)),
+            static_fallback_root: spell_ref.as_ref().and_then(|s| {
+                if spell_is_dps(s) { find_dps_display_root(s) } else { None }
+            }),
         });
     }
     rows
@@ -888,30 +901,52 @@ pub fn eval_combo_damage(
         if row.qty <= 0.0 || row.pseudo { continue; }
 
         let (stats, prop_overrides) = apply_combo_row_boosts(combo_base, &row.tokens, registry);
-        let mod_spell = apply_spell_prop_overrides(spell, &prop_overrides, hit_refs);
+        let mod_spell_cow = apply_spell_prop_overrides(spell, &prop_overrides, hit_refs);
+        // Borrowed = no prop overrides fired, so the row's precomputed DPS
+        // analysis (done on the original spell at parse time) applies.
+        let is_unmodified = matches!(mod_spell_cow, std::borrow::Cow::Borrowed(_));
+        let mod_spell: &Value = mod_spell_cow.as_ref();
 
-        let mut eff_dps_name = row.dps_per_hit_name.clone();
+        let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
         let mut eff_dps_hits = row.dps_hits;
-        let mut dps_chain_root: Option<String> = None;
+        let mut chain_root: Option<&str> = None;
+        let dps_info_owned;
         if eff_dps_name.is_none() {
-            if let Some(info) = compute_dps_spell_hits_info(&mod_spell) {
-                eff_dps_name = Some(info.per_hit_name);
-                eff_dps_hits = row.dps_hits_override.unwrap_or(info.max_hits);
-                dps_chain_root = Some(info.dps_chain_root);
+            if is_unmodified {
+                if let Some((name, hits, root)) = &row.static_dps {
+                    eff_dps_name = Some(name);
+                    eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
+                    chain_root = Some(root);
+                }
+            } else {
+                dps_info_owned = compute_dps_spell_hits_info(mod_spell);
+                if let Some(info) = &dps_info_owned {
+                    eff_dps_name = Some(&info.per_hit_name);
+                    eff_dps_hits = row.dps_hits_override.unwrap_or(info.max_hits);
+                    chain_root = Some(&info.dps_chain_root);
+                }
             }
         }
 
-        let per_cast = match &eff_dps_name {
-            Some(name) => compute_spell_display_avg(&stats, weapon, &mod_spell, crit, tables, Some(name)) * eff_dps_hits,
-            None => compute_spell_display_avg(&stats, weapon, &mod_spell, crit, tables, None),
+        let per_cast = match eff_dps_name {
+            Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
+            None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
         };
 
         let mut flat_per_cast = 0.0;
-        let chain_root = dps_chain_root.or_else(|| {
-            if spell_is_dps(&mod_spell) { find_dps_display_root(&mod_spell) } else { None }
-        });
-        if let Some(root) = &chain_root {
-            flat_per_cast = compute_spell_flat_damage(&stats, weapon, &mod_spell, crit, root, tables);
+        let fallback_owned;
+        let final_root: Option<&str> = if chain_root.is_some() {
+            chain_root
+        } else if is_unmodified {
+            row.static_fallback_root.as_deref()
+        } else if spell_is_dps(mod_spell) {
+            fallback_owned = find_dps_display_root(mod_spell);
+            fallback_owned.as_deref()
+        } else {
+            None
+        };
+        if let Some(root) = final_root {
+            flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
         }
 
         let eff_qty = if row.is_melee_time {
@@ -1790,5 +1825,145 @@ impl ScoringCtx {
             consts,
             guild_unit,
         })
+    }
+}
+
+// ── Mid-tree damage ceiling bound (objective branch-and-bound) ──────────────
+//
+// The subtree bound mirrors the leaf ceiling gate one level up: damage is
+// evaluated at all-150 SP on `prefix stats + per-stat maxima over every
+// remaining slot's pool (+ a conservative set-bonus upper bound)`. Combo
+// damage under the gate's verified conditions is non-decreasing in every
+// additive stat it reads (per-element negatives clamp at 0; damMult factors
+// only grow with their entries; atree var-effect factors are >= 0), so this
+// upper-bounds every leaf ceiling in the subtree, which upper-bounds every
+// leaf score. Pruning strictly below the cutoff is therefore admissible.
+
+/// Additive per-stat maxima and set upper bounds for the bound builder.
+pub struct BoundTables {
+    /// suffix_max[d] = per-stat sum over slots d.. of each slot's pool max
+    /// (only stats that appear on some item; damage reads of absent keys are
+    /// 0 in the real assembly and 0 here).
+    pub suffix_max: Vec<Obj>,
+    /// Conservative upper bound on ADDITIONAL set-bonus stats reachable from
+    /// free slots (per stat: sum over sets of the max positive per-count
+    /// bonus). Added at every depth; overestimates, never underestimates.
+    pub set_upper: Obj,
+}
+
+impl Layer2 {
+    fn additive_item_stats(&self, item: &Obj, out: &mut HashMap<String, f64>) {
+        // Mirrors add_item's key set: maxRolls (minus static ids) + static ids.
+        if let Some(mr) = item.get("maxRolls").and_then(as_map) {
+            for (id, value) in mr {
+                if self.static_ids.iter().any(|s| s == id) { continue; }
+                let v = value.as_f64().unwrap_or(0.0);
+                let e = out.entry(id.clone()).or_insert(f64::NEG_INFINITY);
+                if v > *e { *e = v; }
+            }
+        }
+        for id in &self.static_ids {
+            let v = item.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            let e = out.entry(id.clone()).or_insert(f64::NEG_INFINITY);
+            if v > *e { *e = v; }
+        }
+    }
+
+    /// Build the bound tables for an enumeration's slot pools (item names in
+    /// enumeration order, rings included with their shared pool repeated).
+    pub fn build_bound_tables(&self, slot_pools: &[Vec<String>]) -> Result<BoundTables, String> {
+        let n = slot_pools.len();
+        // Per-slot per-stat maxima (missing key on an item counts as 0 —
+        // items without the key contribute 0 in the real sum).
+        let mut per_slot: Vec<HashMap<String, f64>> = Vec::with_capacity(n);
+        for pool in slot_pools {
+            let mut maxima: HashMap<String, f64> = HashMap::new();
+            for name in pool {
+                let item = self.item_registry.get(name)
+                    .ok_or_else(|| format!("bound: item not in registry: {}", name))?;
+                self.additive_item_stats(item, &mut maxima);
+            }
+            // A stat absent on SOME item floors at 0 (choosing that item
+            // contributes 0), so clamp maxima at >= 0 only when any pool item
+            // lacks the key. Conservative shortcut: clamp at 0 always — an
+            // upper bound stays an upper bound.
+            for v in maxima.values_mut() {
+                if *v < 0.0 { *v = 0.0; }
+            }
+            per_slot.push(maxima);
+        }
+        // Suffix sums.
+        let mut suffix_max: Vec<Obj> = vec![Obj::new(); n + 1];
+        for d in (0..n).rev() {
+            let mut acc: Obj = suffix_max[d + 1].clone();
+            for (k, v) in &per_slot[d] {
+                let cur = acc.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                acc.insert(k.clone(), Value::from(cur + v));
+            }
+            suffix_max[d] = acc;
+        }
+
+        // Set-bonus upper bound: for each set reachable from any pool item,
+        // add per-stat the max positive bonus over all counts.
+        let mut set_names: Vec<&str> = Vec::new();
+        for pool in slot_pools {
+            for name in pool {
+                if let Some(item) = self.item_registry.get(name) {
+                    if let Some(s) = item.get("set").and_then(|v| v.as_str()) {
+                        if !set_names.contains(&s) { set_names.push(s); }
+                    }
+                }
+            }
+        }
+        let mut set_upper = Obj::new();
+        for set_name in set_names {
+            let Some(set_data) = self.sets_data.get(set_name) else { continue };
+            let Some(bonuses) = set_data.get("bonuses").and_then(|b| b.as_array()) else { continue };
+            let mut per_stat: HashMap<String, f64> = HashMap::new();
+            for bonus in bonuses {
+                let Some(bonus) = bonus.as_object() else { continue };
+                for (id, v) in bonus {
+                    let v = match v {
+                        Value::Number(n) => n.as_f64().unwrap_or(0.0),
+                        Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+                        _ => 0.0,
+                    };
+                    let e = per_stat.entry(id.clone()).or_insert(0.0);
+                    if v > *e { *e = v; }
+                }
+            }
+            for (id, v) in per_stat {
+                if v <= 0.0 { continue; }
+                let cur = set_upper.get(&id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                set_upper.insert(id, Value::from(cur + v));
+            }
+        }
+
+        Ok(BoundTables { suffix_max, set_upper })
+    }
+
+    /// Subtree damage ceiling: prefix items (by name, 8 slots with none-names
+    /// for unplaced) + suffix maxima for slots `next_depth..` + set upper
+    /// bound, assembled at all-150 SP.
+    #[allow(clippy::too_many_arguments)]
+    pub fn subtree_ceiling(
+        &self, prefix_names: &[&str; 8], bounds: &BoundTables, next_depth: usize,
+        weapon: &Obj, rows: &[Row], registry: &[Value],
+        hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
+    ) -> Result<f64, String> {
+        let mut base = self.build_base(prefix_names, weapon)?;
+        let add = |base: &mut Obj, delta: &Obj| {
+            for (k, v) in delta {
+                let dv = v.as_f64().unwrap_or(0.0);
+                if dv == 0.0 { continue; }
+                let cur = base.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                base.insert(k.clone(), Value::from(cur + dv));
+            }
+        };
+        add(&mut base, &bounds.suffix_max[next_depth]);
+        add(&mut base, &bounds.set_upper);
+        let ceiling_sp = [150f64; 5];
+        let cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
+        Ok(eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables))
     }
 }

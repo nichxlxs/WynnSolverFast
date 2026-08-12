@@ -267,6 +267,16 @@ struct Search<'a> {
     scored: u64,
     gated: u64,
     mana_reject: u64,
+
+    // Mid-tree damage ceiling bound (objective branch-and-bound).
+    bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
+    bound_max_depth: usize,
+    bound_pruned: f64,
+    /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
+    /// the prefix, not the band, and prefixes recur across band sweeps).
+    bound_memo: std::collections::HashMap<u64, f64>,
+    /// Current prefix offsets (by depth) for memo keys.
+    prefix_offsets: [u8; 8],
 }
 
 impl<'a> Search<'a> {
@@ -447,7 +457,56 @@ impl<'a> Search<'a> {
             scored: 0,
             gated: 0,
             mana_reject: 0,
+            bound_tables: None,
+            bound_max_depth: 2,
+            bound_pruned: 0.0,
+            bound_memo: std::collections::HashMap::new(),
+            prefix_offsets: [0; 8],
         }
+    }
+
+    /// Current gate/bound cutoff: local 15th-best exact score or the shared
+    /// floored cutoff, whichever is higher. None until either exists.
+    fn cutoff(&self) -> Option<f64> {
+        let mut cutoff: Option<f64> = None;
+        if self.top_n.len() >= 15 {
+            cutoff = Some(self.top_n[14].0);
+        }
+        if let Some(shared) = self.shared_cutoff {
+            let s = shared.load(Ordering::Relaxed);
+            if s > 0 && (s as f64) > cutoff.unwrap_or(f64::NEG_INFINITY) {
+                cutoff = Some(s as f64);
+            }
+        }
+        cutoff
+    }
+
+    /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
+    /// the packed prefix. Returns true when the subtree CANNOT beat `cutoff`.
+    fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64) -> bool {
+        let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
+        let mut key = (depth as u64) << 56;
+        for d in 0..depth {
+            key |= (self.prefix_offsets[d] as u64) << (d * 7);
+        }
+        key |= (offset as u64) << (depth * 7);
+        let ceiling = match self.bound_memo.get(&key) {
+            Some(&c) => c,
+            None => {
+                let slot = &self.fx.slots[depth];
+                let saved = self.equip_names[slot.pos];
+                let mut names = self.equip_names;
+                names[slot.pos] = &slot.item_names[offset];
+                let _ = saved;
+                let c = sc.layer2.subtree_ceiling(
+                    &names, bt, depth + 1, &sc.weapon, &sc.rows, &sc.registry,
+                    &sc.hit_refs, &sc.tables,
+                ).expect("bound eval error");
+                self.bound_memo.insert(key, c);
+                c
+            }
+        };
+        ceiling < cutoff - cutoff.abs() * 1e-9
     }
 
     /// Initialize equip names: none-item names per position, overridden by
@@ -858,7 +917,25 @@ impl<'a> Search<'a> {
                 offset += 1;
                 continue;
             }
+            // Mid-tree damage ceiling bound (shallow depths only; the eval is
+            // a full damage computation, memoized per prefix).
+            if depth < self.bound_max_depth && self.bound_tables.is_some() {
+                if let Some(cutoff) = self.cutoff() {
+                    if self.bound_prunes(depth, o, cutoff) {
+                        if slot_is_ring1 && self.rings_contiguous {
+                            self.rebuild_ring2_subtree(o);
+                        }
+                        let pruned = self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
+                        self.checked += pruned;
+                        self.bound_pruned += pruned;
+                        self.maybe_report();
+                        offset += 1;
+                        continue;
+                    }
+                }
+            }
             self.place(depth, o);
+            self.prefix_offsets[depth] = o as u8;
             if slot_is_ring1 {
                 self.ring1_placed_offset = o;
                 if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
@@ -906,6 +983,7 @@ struct Totals {
     scored: u64,
     gated: u64,
     mana_reject: u64,
+    bound_pruned: f64,
     top_n: Vec<(f64, Vec<String>)>,
 }
 
@@ -943,12 +1021,29 @@ fn main() {
     let scoring = scoring_ctx.as_ref();
     let shared_cutoff = AtomicU64::new(0);
 
+    // Mid-tree damage ceiling bound tables (objective B&B). Memo keys pack
+    // offsets into 7 bits, so guard on pool sizes.
+    let bound_max_depth: usize = env::var("BOUND_DEPTH").ok()
+        .and_then(|s| s.parse().ok()).unwrap_or(0);
+    let bound_tables: Option<sp_kernel::scoring::BoundTables> = scoring.and_then(|sc| {
+        if bound_max_depth == 0 { return None; }
+        if !fx.slots.iter().all(|s| s.pool.len() < 128) {
+            eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
+            return None;
+        }
+        let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+        Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
+    });
+    let bounds = bound_tables.as_ref();
+
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
         let mut search = Search::new(&fx);
         search.scoring = scoring;
         search.shared_cutoff = Some(&shared_cutoff);
+        search.bound_tables = bounds;
+        search.bound_max_depth = bound_max_depth;
         search.init_equip_names();
         search.run();
         let elapsed = start.elapsed();
@@ -961,6 +1056,7 @@ fn main() {
             scored: search.scored,
             gated: search.gated,
             mana_reject: search.mana_reject,
+            bound_pruned: search.bound_pruned,
             top_n: search.top_n,
         }, elapsed)
     } else {
@@ -989,6 +1085,8 @@ fn main() {
                     search.shared_checked = Some(&shared_checked);
                     search.scoring = scoring;
                     search.shared_cutoff = Some(&shared_cutoff);
+                    search.bound_tables = bounds;
+                    search.bound_max_depth = bound_max_depth;
                     search.init_equip_names();
                     search.started = Instant::now();
                     // Suppress the single-thread report path entirely.
@@ -1018,6 +1116,7 @@ fn main() {
                         scored: search.scored,
                         gated: search.gated,
                         mana_reject: search.mana_reject,
+                        bound_pruned: search.bound_pruned,
                         top_n: search.top_n,
                     }
                 }));
@@ -1057,6 +1156,7 @@ fn main() {
                 totals.scored += t.scored;
                 totals.gated += t.gated;
                 totals.mana_reject += t.mana_reject;
+                totals.bound_pruned += t.bound_pruned;
                 merge_top(&mut totals.top_n, t.top_n);
             }
             done.store(1, Ordering::Relaxed);
@@ -1076,8 +1176,8 @@ fn main() {
     );
     if scoring.is_some() {
         println!(
-            "scoring: scored {} | gated {} | mana_reject {}",
-            totals.scored, totals.gated, totals.mana_reject,
+            "scoring: scored {} | gated {} | mana_reject {} | bound_pruned {}",
+            totals.scored, totals.gated, totals.mana_reject, totals.bound_pruned,
         );
         for (score, names) in &totals.top_n {
             println!("top15: {:.17e} | {}", score,
