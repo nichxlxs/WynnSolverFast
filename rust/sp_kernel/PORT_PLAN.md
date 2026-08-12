@@ -123,3 +123,25 @@ monotonicity (combo_damage, indirect stats, custom blends with all
 weights >= 0). Validated bit-exact on total_hp (readme_armor2) at all
 levels; tie membership at the top-15 boundary may differ from JS
 (insertion-order semantics), score sets are identical.
+
+## Layer 4 progress (2026-08-12, second pass)
+
+- DONE: compiled row boosts + pre-patched mod_spell + compiled mana-cost
+  deltas (all per-row constants hoisted to load; dual-path validator keeps
+  both implementations 200/200 bit-exact).
+- Measured: spell_wide 180s coverage unchanged (~1.38M) — this scenario's
+  rows were already on the no-token borrow fast path, and the per-trial
+  base clone is only ~3% of an eval. The eval cost lives in the damage
+  core's per-part JSON traversal.
+- NEXT (designed): **compiled spell plans.** Per row (on the constant
+  mod_spell): parts lowered to flat structs — Damage{multipliers[6],
+  use_str, ignored_mults, part_id, precomputed part-scoped ConvBase
+  names[6]} / Heal / Total{edges: (part_idx, hits, tick_rounding)} — with
+  part KIND resolved statically (multipliers→damage, heal→heal,
+  total→first sub's kind), so the display-result index and referenced-set
+  are compile-time constants. eval uses an indexed memo (Vec, no HashMap)
+  and ONE parts pass shared by display-avg and flat-damage (JS evaluates
+  parts twice on DPS rows; same inputs → same results, so single-pass is
+  bit-exact). Kills the remaining format!/JSON-get/alloc traffic in the
+  innermost loop. Then: dense stat vectors for combo_base (memcpy clones,
+  index-resolved reads) as the final representation jump.
