@@ -15,7 +15,7 @@ const workers = Math.max(1, Number(process.env.BENCH_WORKERS) || 1);
 const includeIsolation = process.env.BENCH_INCLUDE_ISOLATION !== '0';
 const defaultScenarios = process.env.BENCH_SUITE === 'large'
     ? ['gaia_armor_bracelet_1m', 'gaia_armor_ring_2m', 'gaia_armor_ring_5m',
-        'gaia_armor_bracelet_10m', 'gaia_wide_95m_input']
+        'gaia_armor_bracelet_10m', 'gaia_wide_95m_input', 'gaia_armor4_ring_135m_input']
     : ['readme_rings2', 'readme_armor2', 'readme_armor4'];
 const scenarios = (process.env.BENCH_SCENARIOS
     ? process.env.BENCH_SCENARIOS.split(',')

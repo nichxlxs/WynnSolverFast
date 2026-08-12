@@ -1,0 +1,40 @@
+{
+  "name": "solver_gaia_armor4_ring_135m_input",
+  "description": "Gaia tier-stack: four armor slots + one ring free, 135.5M input combinations",
+  "url_hash": "CZ083Ru0HfXZBn67VDDSKd0tFaEY4EArqGSQ9aB0y-LZ6_GVEZ6DQijvpU088Ef4630GIeiKsZ00484d4WT2Cr0000",
+  "scoring_target": "combo_damage",
+  "free_mask": 47,
+  "lvl_min": 100,
+  "lvl_max": 121,
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "benchmark_only": true,
+  "seed_score": 470163,
+  "seed_item_names": [
+    "Sureshot",
+    "Twilight-Gilded Cloak",
+    "Bull Charge",
+    "Warchief",
+    "Breezehands",
+    "Bygg",
+    "Buzzsaw Bracer",
+    "Recalcitrance"
+  ],
+  "locked_items": {
+    "chestplate": {
+      "name": "Twilight-Gilded Cloak",
+      "stat_hash": "94ca5b9b8f9502b900ca34eda9a7278ce3da0fb1300b3045974d2342bd8a31aa"
+    },
+    "ring1": {
+      "name": "Breezehands",
+      "stat_hash": "d7ff6cf27122a01ee0d97be39018fe1f3d1f5150385ae23898cc926c2c913e65"
+    },
+    "necklace": {
+      "name": "Recalcitrance",
+      "stat_hash": "30f3045d85a52bcf1bac66f3f97a5a0d7b397176e398d983c0a4ee68f1413562"
+    }
+  },
+  "created": "2026-08-12T04:16:56.596Z",
+  "compress_hash": "cdc99a2213d372827a56bb31520f9e0ba0448789a2daba46bcb6c249f98ce65f",
+  "atree_hash": "88657abc7e0cccad546539a7ccfe13796b22a0e35923f4a38e13c4ceb138d24c"
+}
