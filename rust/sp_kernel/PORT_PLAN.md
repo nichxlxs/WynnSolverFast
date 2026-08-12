@@ -133,7 +133,23 @@ levels; tie membership at the top-15 boundary may differ from JS
   rows were already on the no-token borrow fast path, and the per-trial
   base clone is only ~3% of an eval. The eval cost lives in the damage
   core's per-part JSON traversal.
-- NEXT (designed): **compiled spell plans.** Per row (on the constant
+- DONE (2026-08-12, third pass): **compiled spell plans** (structural
+  lowering of mod_spell; single shared parts pass), **in-place row
+  overlays** (undo journals instead of clone-and-extend), **dense stat
+  vectors** (`DenseCtx`/`DenseLeaf`/`DScratch` in scoring.rs — the whole
+  gate+greedy trial pipeline on flat f64 vectors with a presence bitset;
+  per-trial assemble is a memcpy + skp add chains + var-effect programs),
+  **direct dense leaf build** (items/tomes/weapon/sets as indexed add
+  lists; gated leaves never materialize a JSON stat map; Obj base built
+  lazily for survivors), **row-group memoization** (identical rows compute
+  once per eval), **per-thread buffer reuse** and **read-universe write
+  filtering**. Every step is guarded: unsupported shapes fall back to the
+  Obj path per scenario or per leaf; SCORE_DENSE_CHECK=1 asserts every
+  dense score bit-equal to the Obj path; SCORE_DENSE=0 kills the path.
+  Measured (4 threads): dense spell scenario 62.5s JS → 10.2s JS-optimized
+  → 5.1s L3 Rust → 0.10s now; readme_spell_wide 180s coverage 430K JS →
+  1.38M L3 → ~100M now. ENUM_TIME_CAP_SECS caps benchmark runs gracefully.
+- Historical design note (superseded by the above): **compiled spell plans.** Per row (on the constant
   mod_spell): parts lowered to flat structs — Damage{multipliers[6],
   use_str, ignored_mults, part_id, precomputed part-scoped ConvBase
   names[6]} / Heal / Total{edges: (part_idx, hits, tick_rounding)} — with
