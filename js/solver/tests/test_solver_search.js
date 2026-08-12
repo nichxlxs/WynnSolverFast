@@ -853,6 +853,33 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
                 }
             }
 
+            // Layer-2 scenario data: everything the Rust leaf pipeline needs
+            // to reproduce build stats → assemble → greedy → mana → score
+            // from raw items (PORT_PLAN.md). Item registry covers pools,
+            // locked, rings, and none items, keyed by displayName.
+            const item_registry = {};
+            const regAdd = (it) => {
+                const sm = it?.statMap ?? it;
+                if (!sm?.get) return;
+                const name = sm.get('displayName') ?? sm.get('name');
+                if (name && !(name in item_registry)) item_registry[name] = _jser(sm);
+            };
+            for (const pool of Object.values(initMsgBase.pools)) for (const it of pool) regAdd(it);
+            for (const it of ringPoolSer) regAdd(it);
+            for (const it of Object.values(initMsgBase.locked ?? {})) regAdd(it);
+            regAdd(initMsgBase.ring1_locked);
+            regAdd(initMsgBase.ring2_locked);
+
+            const ctxLayer2 = vm.runInContext(`({
+                statmap_static_ids: [...STATMAP_STATIC_IDS],
+                class_def: Object.fromEntries(classDefenseMultipliers),
+                base_mana_regen: BASE_MANA_REGEN,
+                mana_tick_seconds: MANA_TICK_SECONDS,
+                spell_cast_time: SPELL_CAST_TIME,
+                spell_cast_delay: SPELL_CAST_DELAY,
+                skp_order: [...skp_order],
+            })`, ctx);
+
             const fixture = {
                 meta: {
                     generated: 'exportScoreFixture',
@@ -865,6 +892,29 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
                 parsed_combo: _jser(initMsgBase.parsed_combo),
                 boost_registry: _jser(initMsgBase.boost_registry),
                 atree_hit_refs: _jser(hit_refs),
+                // Layer-2 scenario data (see rust/sp_kernel/PORT_PLAN.md)
+                layer2: {
+                    level: initMsgBase.level,
+                    sp_budget: initMsgBase.sp_budget,
+                    combo_time: initMsgBase.combo_time,
+                    allow_downtime: initMsgBase.allow_downtime,
+                    hp_casting: initMsgBase.hp_casting,
+                    health_config: _jser(initMsgBase.health_config),
+                    tome_sms: _jser(initMsgBase.tome_sms),
+                    guild_tome_sm: _jser(initMsgBase.guild_tome_sm),
+                    none_item_sms: _jser(initMsgBase.none_item_sms),
+                    none_idx_map: initMsgBase.none_idx_map,
+                    sets_data: _jser(new Map(initMsgBase.sets_data)),
+                    atree_raw: _jser(initMsgBase.atree_raw),
+                    atree_merged: _jser(initMsgBase.atree_merged),
+                    button_states: _jser(initMsgBase.button_states),
+                    slider_states: _jser(initMsgBase.slider_states),
+                    static_boosts: _jser(initMsgBase.static_boosts),
+                    radiance_boost: _jser(initMsgBase.radiance_boost ?? null),
+                    spell_base_costs: _jser(initMsgBase.spell_base_costs ?? null),
+                    constants: ctxLayer2,
+                    item_registry,
+                },
                 cases,
             };
             fs.mkdirSync(path.dirname(outPath), { recursive: true });
