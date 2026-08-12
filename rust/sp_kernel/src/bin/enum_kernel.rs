@@ -1144,6 +1144,89 @@ fn main() {
     };
     let dense_bound = dense_bound.as_ref();
 
+    // Warm start: solve the elite subspace (top-WARM_K tail of each
+    // level-ordered pool) first, sharing the cutoff atomic. Its top-15 are
+    // real builds, so the seeded cutoff is admissible for the main run —
+    // the gate and cluster bound prune hard from the first node instead of
+    // waiting for the cutoff to warm up. WARM_K=0 disables.
+    let warm_k: usize = env::var("WARM_K").ok()
+        .and_then(|s| s.parse().ok()).unwrap_or(6);
+    if scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k) {
+        // Rank each pool's items by their solo objective ceiling (item alone
+        // on a none-item build at all-150 SP) and keep the top WARM_K per
+        // slot, preserving level order so the band machinery stays valid.
+        // Ranking is a heuristic — cutoff admissibility comes from the warm
+        // builds being real scored builds, not from the selection.
+        let sc = scoring.unwrap();
+        let mut base_names: [&str; 8] = Default::default();
+        if fx.none_names.len() == 8 {
+            for p in 0..8 { base_names[p] = &fx.none_names[p]; }
+        }
+        for (pos, name) in &fx.fixed_names { base_names[*pos] = name; }
+        let mut warm_sel: Vec<Vec<usize>> = Vec::with_capacity(fx.slots.len());
+        {
+            let mut work = sp_kernel::scoring::DenseWork::default();
+            for sl in &fx.slots {
+                let mut ranked: Vec<(usize, f64)> = sl.item_names.iter().enumerate()
+                    .map(|(i, name)| {
+                        let mut names = base_names;
+                        names[sl.pos] = name.as_str();
+                        let c = sc.dense.as_ref().and_then(|d| {
+                            sp_kernel::scoring::dense_ceiling_with(
+                                d, &[], &[], &names, &mut work,
+                                &sc.rows, &sc.compiled_rows, &sc.tables)
+                        }).unwrap_or(f64::NEG_INFINITY);
+                        (i, c)
+                    })
+                    .collect();
+                ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let mut sel: Vec<usize> = ranked.iter().take(warm_k).map(|(i, _)| *i).collect();
+                sel.sort_unstable();
+                warm_sel.push(sel);
+            }
+        }
+        let wfx = Fixture {
+            budget: fx.budget,
+            pc_thresholds: fx.pc_thresholds.clone(),
+            pc_start: fx.pc_start.clone(),
+            ehp: fx.ehp,
+            ehpna: fx.ehpna,
+            thp: fx.thp,
+            hp_start: fx.hp_start,
+            weapon: fx.weapon,
+            guild: fx.guild,
+            fixed: fx.fixed.clone(),
+            slots: fx.slots.iter().zip(&warm_sel).map(|(sl, sel)| Slot {
+                name: sl.name.clone(),
+                pos: sl.pos,
+                is_ring1: sl.is_ring1,
+                is_ring2: sl.is_ring2,
+                pool: sel.iter().map(|&i| sl.pool[i].clone()).collect(),
+                item_names: sel.iter().map(|&i| sl.item_names[i].clone()).collect(),
+            }).collect(),
+            set_table: fx.set_table.clone(),
+            fixed_names: fx.fixed_names.clone(),
+            none_names: fx.none_names.clone(),
+        };
+        let warm_started = Instant::now();
+        let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
+        let wdb = sc.dense.as_ref().and_then(|d| {
+            sp_kernel::scoring::DenseBound::build(&sc.layer2, d, &wpools, bound_cluster)
+        });
+        let mut ws = Search::new(&wfx);
+        ws.scoring = scoring;
+        ws.shared_cutoff = Some(&shared_cutoff);
+        ws.dense_bound = wdb.as_ref();
+        ws.init_equip_names();
+        ws.next_report = f64::INFINITY;
+        ws.run();
+        eprintln!(
+            "warm: {} leaves ({} scored) in {:.2}s | cutoff seeded {:.6e}",
+            ws.checked, ws.scored, warm_started.elapsed().as_secs_f64(),
+            shared_cutoff.load(Ordering::Relaxed) as f64,
+        );
+    }
+
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
