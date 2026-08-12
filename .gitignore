@@ -2,6 +2,7 @@
 *.bat
 *.json
 !data/**/*.json
+!js/solver/tests/**/*.json
 data/temp/
 sets/
 

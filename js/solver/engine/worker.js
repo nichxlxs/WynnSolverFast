@@ -21,6 +21,7 @@ importScripts(
     '../pure/utils.js',
     '../pure/simulate.js',
     '../pure/engine.js',
+    './top_results.js',
     './worker_shims.js'
 );
 
@@ -73,13 +74,45 @@ let _top5_version = 0;
 let _last_sent_top5_version = 0;
 let _checked_at_last_top5_change = 0;
 let _current_L = 0;
+let _trace = null;
+let _trace_started = 0;
 
-function _insert_top5(candidate) {
-    _top5.push(candidate);
-    _top5.sort((a, b) => b.score - a.score);
-    if (_top5.length > 15) _top5.length = 15;
-    _top5_version++;
-    _checked_at_last_top5_change = _checked;
+const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+function _reset_trace() {
+    if (!_cfg?.benchmark_trace) { _trace = null; return; }
+    _trace = { leaf_count: 0 };
+    _trace_started = performance.now();
+    for (const phase of _TRACE_PHASES) {
+        _trace[phase + '_calls'] = 0;
+        _trace[phase + '_ms'] = 0;
+    }
+}
+function _trace_snapshot() {
+    if (!_trace) return null;
+    return { ..._trace, wall_ms: performance.now() - _trace_started };
+}
+function _trace_start(phase) {
+    if (!_trace) return 0;
+    _trace[phase + '_calls']++;
+    return performance.now();
+}
+function _trace_end(phase, start) {
+    if (_trace) _trace[phase + '_ms'] += performance.now() - start;
+}
+
+function _insert_top5(score, candidateFactory) {
+    if (_cfg?.benchmark_legacy_top_results) {
+        _top5.push(candidateFactory());
+        _top5.sort((a, b) => b.score - a.score);
+        if (_top5.length > 15) _top5.length = 15;
+        _top5_version++;
+        _checked_at_last_top5_change = _checked;
+        return;
+    }
+    if (tryInsertTopResult(_top5, score, candidateFactory, 15)) {
+        _top5_version++;
+        _checked_at_last_top5_change = _checked;
+    }
 }
 
 // ── Pre-allocated scratch Maps (reused across leaves to eliminate GC churn) ──
@@ -224,7 +257,8 @@ function _build_sp_constraints() {
 function _fast_constraint_precheck(running_sm) {
     for (let i = 0; i < _constraint_prechecks.length; i++) {
         const pc = _constraint_prechecks[i];
-        if ((running_sm.get(pc.stat) ?? 0) < pc.adjusted_threshold) return false;
+        const value = running_sm instanceof Map ? running_sm.get(pc.stat) : running_sm[pc.stat];
+        if ((value ?? 0) < pc.adjusted_threshold) return false;
     }
     return true;
 }
@@ -240,7 +274,10 @@ function _fast_ehp_precheck(running_sm) {
 
     // running_sm.get('hp') = levelToHPBase + sum of item 'hp' (static ID)
     // running_sm.get('hpBonus') = sum of item hpBonus (from maxRolls)
-    const raw_hp = (running_sm.get('hp') ?? 0) + (running_sm.get('hpBonus') ?? 0);
+    const get = running_sm instanceof Map
+        ? stat => running_sm.get(stat)
+        : stat => running_sm[stat];
+    const raw_hp = (get('hp') ?? 0) + (get('hpBonus') ?? 0);
 
     if (_ehp_precheck) {
         let totalHp = raw_hp + _ehp_precheck.fixed_hp;
@@ -513,7 +550,9 @@ function _run_level_enum() {
     for (const t of tome_sms) fixed_item_sms.push(t);
     fixed_item_sms.push(weapon_sm);
 
-    const running_sm = _init_running_statmap(level, fixed_item_sms);
+    const running_sm_map = _init_running_statmap(level, fixed_item_sms);
+    const running_sm = _cfg.benchmark_legacy_running_map
+        ? running_sm_map : _init_running_stats_compact(running_sm_map);
 
     // Size scratch arrays now that tome_sms is known
     _scratch_all_equip = new Array(8 + tome_sms.length + 1);  // 8 equips + tomes + weapon
@@ -534,6 +573,7 @@ function _run_level_enum() {
                 met_req: _met_req,
                 checked_since_top5: _checked - _checked_at_last_top5_change,
                 L_progress: [_current_L, L_max],
+                trace: _trace_snapshot() ?? undefined,
             };
             // Only include top5 data when it has actually changed
             if (_top5_version !== _last_sent_top5_version) {
@@ -665,23 +705,28 @@ function _run_level_enum() {
 
     function _evaluate_leaf() {
         _checked++;
+        if (_trace) _trace.leaf_count++;
+        const precheck_t0 = _trace_start('precheck');
 
         // Fast constraint precheck: reject builds that can't meet simple
         // additive stat thresholds, before expensive SP solver + stat assembly.
         // running_sm has all item stats accumulated; prechecks account for
         // fixed contributions (atree_raw + static_boosts).
         if (_constraint_prechecks.length > 0 && !_fast_constraint_precheck(running_sm)) {
+            _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
             _maybe_progress();
             return;
         }
         if (!_fast_ehp_precheck(running_sm)) {
+            _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
             _maybe_progress();
             return;
         }
+        _trace_end('precheck', precheck_t0);
         _precheck_pass++;
 
         // Fill scratch arrays (pointer writes only, no allocation)
@@ -699,7 +744,9 @@ function _run_level_enum() {
         _scratch_sp_input[8] = guild_tome_sm;
 
         // Combined SP feasibility check + full calculation (single pass).
+        const sp_t0 = _trace_start('sp');
         const sp_result = calculate_skillpoints(_scratch_sp_input, weapon_sm, sp_budget, _scratch_sp_set_counts, _scratch_sp);
+        _trace_end('sp', sp_t0);
         if (!sp_result) {
             _dbg_sp_reject++;
             _maybe_progress();
@@ -717,30 +764,40 @@ function _run_level_enum() {
         for (let i = 0; i < 8; i++) _scratch_all_equip[i] = _scratch_equip_8[i];
         for (let i = 0; i < tome_sms.length; i++) _scratch_all_equip[8 + i] = tome_sms[i];
         _scratch_all_equip[8 + tome_sms.length] = weapon_sm;
+        const finalize_t0 = _trace_start('finalize');
         const build_sm = _finalize_leaf_statmap(running_sm, weapon_sm, activeSetCounts, sets, _scratch_all_equip, _scratch_finalize, _scratch_finalize_inner);
+        _trace_end('finalize', finalize_t0);
 
         // Greedily assign any remaining SP budget to maximise the scoring target
+        const greedy_t0 = _trace_start('greedy');
         let final_assigned = _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm);
+        _trace_end('greedy', greedy_t0);
 
         // Stat assembly + atree scaling
+        const assemble_t0 = _trace_start('assemble');
         const combo_base = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
+        _trace_end('assemble', assemble_t0);
 
         // Compute thresh_stats once: used for threshold gate and non-damage scoring
         const need_thresh = restrictions.stat_thresholds.length > 0
             || (_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage';
+        const threshold_t0 = _trace_start('threshold');
         let thresh_stats = need_thresh ? _assemble_threshold_stats(combo_base) : null;
 
         // Threshold check
         if (restrictions.stat_thresholds.length > 0) {
             if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
+                _trace_end('threshold', threshold_t0);
                 _dbg_threshold_reject++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
                 return;
             }
         }
+        _trace_end('threshold', threshold_t0);
 
         // Mana / HP constraint check (with rescue attempt on failure)
+        const mana_t0 = _trace_start('mana');
         let mana_hp_result = _eval_combo_mana_check(combo_base);
         if (!mana_hp_result) {
             if (!_cfg.hp_casting && _mana_rescue(build_sm, base_sp, total_sp, _scratch_orig_base_sp, weapon_sm)) {
@@ -749,6 +806,7 @@ function _run_level_enum() {
                 if (restrictions.stat_thresholds.length > 0) {
                     const ts2 = _assemble_threshold_stats(combo_base);
                     if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
+                        _trace_end('mana', mana_t0);
                         _dbg_threshold_reject++;
                         if (_dbg) _dbg_leaf_time += performance.now() - t0;
                         _maybe_progress();
@@ -763,24 +821,31 @@ function _run_level_enum() {
                 mana_hp_result = true;
             }
             if (!mana_hp_result) {
+                _trace_end('mana', mana_t0);
                 if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
                 return;
             }
         }
+        _trace_end('mana', mana_t0);
 
         // Score
+        const score_t0 = _trace_start('score');
         const score = _eval_score(combo_base, thresh_stats);
+        _trace_end('score', score_t0);
         _dbg_scored++;
         _met_req++;
         if (_dbg) _dbg_leaf_time += performance.now() - t0;
-        const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
-        // Clone SP arrays before storing — they may alias scratch buffers
-        const entry = { score, item_names, base_sp: base_sp.slice(), total_sp: total_sp.slice(), assigned_sp: final_assigned };
-        // In debug mode, store a deep clone of combo_base so we can re-evaluate with logging
-        if (SOLVER_DEBUG_COMBO) entry._debug_combo_base = _deep_clone_statmap(combo_base);
-        _insert_top5(entry);
+        const topn_t0 = _trace_start('topn');
+        _insert_top5(score, () => {
+            const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
+            // Clone SP arrays only for competitive results; they alias scratch buffers.
+            const entry = { score, item_names, base_sp: base_sp.slice(), total_sp: total_sp.slice(), assigned_sp: final_assigned };
+            if (SOLVER_DEBUG_COMBO) entry._debug_combo_base = _deep_clone_statmap(combo_base);
+            return entry;
+        });
+        _trace_end('topn', topn_t0);
         _maybe_progress();
     }
 
@@ -1254,6 +1319,8 @@ self.onmessage = function (e) {
         // Heavy one-time initialization: store all shared data
         sets = new Map(msg.sets_data);
         _cfg = msg;
+        _set_incr_cache_enabled(!msg.benchmark_legacy_incremental);
+        _set_incr_parallel_layout(!msg.benchmark_nested_incremental);
         _cancelled = false;
         // Precompute generic slider names for boost token injection
         const _sn = extract_slider_names(_cfg.health_config);
@@ -1292,10 +1359,12 @@ self.onmessage = function (e) {
             _last_sent_top5_version = 0;
             _checked_at_last_top5_change = 0;
             _current_L = 0;
+            _reset_trace();
             try {
                 _run_level_enum();
             } catch (err) {
                 console.error('[w] enum crashed:', err.message, err.stack);
+                postMessage({ type: 'worker_error', worker_id: msg.worker_id, message: err.message, stack: err.stack });
             }
             postMessage({
                 type: 'done',
@@ -1306,6 +1375,7 @@ self.onmessage = function (e) {
                 feasible: _feasible,
                 met_req: _met_req,
                 top5: _top5,
+                trace: _trace_snapshot(),
             });
         }
     } else if (msg.type === 'run') {
@@ -1323,11 +1393,13 @@ self.onmessage = function (e) {
         _checked_at_last_top5_change = 0;
         _current_L = 0;
         _cancelled = false;
+        _reset_trace();
 
         try {
             _run_level_enum();
         } catch (err) {
             console.error('[w] enum crashed:', err.message, err.stack);
+            postMessage({ type: 'worker_error', worker_id: msg.worker_id, message: err.message, stack: err.stack });
         }
         postMessage({
             type: 'done',
@@ -1338,6 +1410,7 @@ self.onmessage = function (e) {
             feasible: _feasible,
             met_req: _met_req,
             top5: _top5,
+            trace: _trace_snapshot(),
         });
     } else if (msg.type === 'cancel') {
         _cancelled = true;

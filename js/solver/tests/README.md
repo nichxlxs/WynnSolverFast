@@ -25,6 +25,11 @@ node js/solver/tests/test_skillpoints.js              # skillpoint calculation
 node js/solver/tests/test_skillpoints.js --update     # mass-update expected values
 ```
 
+Performance measurements are intentionally separate from correctness tests.
+See [`../benchmarks/README.md`](../benchmarks/README.md) for benchmark commands
+and reporting conventions, and [`../ARCHITECTURE_PLAN.md`](../ARCHITECTURE_PLAN.md)
+for the unattended/native search roadmap.
+
 ## Test Files
 
 | File | Tests |

@@ -43,6 +43,7 @@ const WORKER_DEPS = [
     'js/solver/pure/utils.js',
     'js/solver/pure/simulate.js',
     'js/solver/pure/engine.js',
+    'js/solver/engine/top_results.js',
     'js/solver/engine/worker_shims.js',
 ];
 
