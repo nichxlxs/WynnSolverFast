@@ -148,7 +148,7 @@ fn main() {
     let mut lc_pass = 0u64;
     let mut lc_fail = 0u64;
     let dense_ctx = layer2.as_ref().and_then(|l2| {
-        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective)
+        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[], &Default::default())
     });
     let mut ld_pass = 0u64;
     let mut ld_fail = 0u64;
@@ -240,7 +240,7 @@ fn main() {
                 let exp_total: Vec<f64> = arr_f64(&case["total_sp"]);
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                     &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                    &objective, None, None) {
+                                    &objective, None, None, &[], &Default::default()) {
                     Ok(Some(r)) => {
                         let base_ok = (0..5).all(|j| r.base_sp[j] as f64 == exp_base[j]);
                         let total_ok = (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]);
@@ -271,7 +271,7 @@ fn main() {
                 // Compiled-rows pipeline must be bit-identical to the original.
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                     &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                    &objective, Some(&compiled_rows), None) {
+                                    &objective, Some(&compiled_rows), None, &[], &Default::default()) {
                     Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
                         && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => lc_pass += 1,
                     other => {
@@ -293,7 +293,7 @@ fn main() {
                     std::env::set_var("SCORE_DENSE_CHECK", "1");
                     match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                         &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                        &objective, Some(&compiled_rows), Some((dense, &mut dense_work))) {
+                                        &objective, Some(&compiled_rows), Some((dense, &mut dense_work)), &[], &Default::default()) {
                         Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
                             && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => ld_pass += 1,
                         other => {

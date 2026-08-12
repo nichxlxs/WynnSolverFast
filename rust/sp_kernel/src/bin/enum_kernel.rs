@@ -273,6 +273,7 @@ struct Search<'a> {
     scored: u64,
     gated: u64,
     mana_reject: u64,
+    thresh_reject: u64,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
@@ -464,6 +465,7 @@ impl<'a> Search<'a> {
             stop_flag: None,
             stop: false,
             dense_work: Default::default(),
+            thresh_reject: 0,
             bound_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
@@ -773,10 +775,12 @@ impl<'a> Search<'a> {
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
                 &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
                 sc.dense.as_ref().map(|d| (d, &mut self.dense_work)),
+                &sc.thresholds, &sc.spell_base_costs,
             ).expect("scoring pipeline error") {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
+                LeafOutcome::ThresholdReject => { self.feasible += 1; self.thresh_reject += 1; }
                 LeafOutcome::Scored(r) => {
                     self.feasible += 1;
                     self.scored += 1;
@@ -1075,6 +1079,7 @@ struct Totals {
     scored: u64,
     gated: u64,
     mana_reject: u64,
+    thresh_reject: u64,
     bound_pruned: f64,
     top_n: Vec<(f64, Vec<String>)>,
 }
@@ -1249,6 +1254,7 @@ fn main() {
             scored: search.scored,
             gated: search.gated,
             mana_reject: search.mana_reject,
+                thresh_reject: search.thresh_reject,
             bound_pruned: search.bound_pruned,
             top_n: search.top_n,
         }, elapsed)
@@ -1316,6 +1322,7 @@ fn main() {
                         scored: search.scored,
                         gated: search.gated,
                         mana_reject: search.mana_reject,
+                thresh_reject: search.thresh_reject,
                         bound_pruned: search.bound_pruned,
                         top_n: search.top_n,
                     }
@@ -1359,6 +1366,7 @@ fn main() {
                 totals.scored += t.scored;
                 totals.gated += t.gated;
                 totals.mana_reject += t.mana_reject;
+                totals.thresh_reject += t.thresh_reject;
                 totals.bound_pruned += t.bound_pruned;
                 merge_top(&mut totals.top_n, t.top_n);
             }
@@ -1380,8 +1388,8 @@ fn main() {
     sp_kernel::scoring::trace::report();
     if scoring.is_some() {
         println!(
-            "scoring: scored {} | gated {} | mana_reject {} | bound_pruned {}",
-            totals.scored, totals.gated, totals.mana_reject, totals.bound_pruned,
+            "scoring: scored {} | gated {} | mana_reject {} | thresh_reject {} | bound_pruned {}",
+            totals.scored, totals.gated, totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
         );
         for (score, names) in &totals.top_n {
             println!("top15: {:.17e} | {}", score,

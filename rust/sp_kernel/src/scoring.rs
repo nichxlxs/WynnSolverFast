@@ -1636,6 +1636,7 @@ pub struct LeafResult {
 }
 
 pub enum LeafOutcome {
+    ThresholdReject,
     SpInfeasible,
     /// SP-feasible but the all-150-SP damage ceiling cannot beat the cutoff
     /// (counts as feasible; greedy/mana/score skipped — same as the JS gate).
@@ -1651,10 +1652,11 @@ pub fn leaf_pipeline(
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     objective: &Objective, compiled: Option<&[CompiledRow]>,
     dense: Option<(&DenseCtx, &mut DenseWork)>,
+    thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
                               registry, hit_refs, tables, consts, objective, compiled, None,
-                              dense)? {
+                              dense, thresholds, base_costs)? {
         LeafOutcome::Scored(r) => Ok(Some(r)),
         LeafOutcome::Gated => unreachable!("no cutoff passed"),
         _ => Ok(None),
@@ -1714,6 +1716,7 @@ pub fn leaf_pipeline_gated(
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
     dense: Option<(&DenseCtx, &mut DenseWork)>,
+    thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
 ) -> Result<LeafOutcome, String> {
     let obj_score = |cb: &mut Obj| -> f64 {
         match compiled {
@@ -1934,9 +1937,25 @@ pub fn leaf_pipeline_gated(
     let mut sp_f5 = [0f64; 5];
     for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
     if let Some((d, w)) = dwork.as_mut() {
-        let mana_ok = phase!(MANA_NS, {
+        {
             let DenseWork { leaf, scratch } = &mut **w;
             dense_assemble(d, leaf, scratch, &sp_f5);
+            if !d.thresholds.is_empty() && !dense_check_thresholds(d, scratch, tables, consts) {
+                if dense_check {
+                    let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                    let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
+                    assert!(!ov, "dense/obj threshold mismatch (dense rejects)");
+                }
+                return Ok(LeafOutcome::ThresholdReject);
+            }
+            if dense_check && !thresholds.is_empty() {
+                let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
+                assert!(ov, "dense/obj threshold mismatch (dense passes)");
+            }
+        }
+        let mana_ok = phase!(MANA_NS, {
+            let DenseWork { leaf, scratch } = &mut **w;
             let mini = dense_mana_obj(d, leaf, scratch);
             let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
             if dense_check {
@@ -1985,6 +2004,13 @@ pub fn leaf_pipeline_gated(
         });
         if rescued {
             assert!(!doom_reject_expected, "bounded doom would have rejected a rescued leaf");
+            {
+                let (d2, w2) = dwork.as_mut().unwrap();
+                if !d2.thresholds.is_empty()
+                    && !dense_check_thresholds(d2, &w2.scratch, tables, consts) {
+                    return Ok(LeafOutcome::ThresholdReject);
+                }
+            }
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
                 let DenseWork { leaf, scratch } = &mut **w;
@@ -1997,10 +2023,20 @@ pub fn leaf_pipeline_gated(
     let build_base = base_opt.as_ref().unwrap();
     let sp_f: Vec<f64> = sp_f5.to_vec();
     let mut combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
+    if !thresholds.is_empty()
+        && !check_thresholds_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts) {
+        return Ok(LeafOutcome::ThresholdReject);
+    }
     if phase!(MANA_NS, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
-            Some(rescued) => combo_base = rescued,
+            Some(rescued) => {
+                combo_base = rescued;
+                if !thresholds.is_empty()
+                    && !check_thresholds_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts) {
+                    return Ok(LeafOutcome::ThresholdReject);
+                }
+            }
             None => return Ok(LeafOutcome::ManaReject),
         }
     }
@@ -2093,6 +2129,8 @@ pub struct ScoringCtx {
     pub guild_unit: Option<crate::Unit>,
     /// Dense hot-path lowering; None when the scenario needs the Obj path.
     pub dense: Option<DenseCtx>,
+    pub thresholds: Vec<Threshold>,
+    pub spell_base_costs: HashMap<i64, f64>,
 }
 
 impl ScoringCtx {
@@ -2140,8 +2178,11 @@ impl ScoringCtx {
         let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
         let tables = Tables::parse(&fixture["tables"]);
         let weapon = as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone();
+        let thresholds = parse_thresholds(fixture);
+        let spell_base_costs = parse_spell_base_costs(fixture);
         let dense = if std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
-            DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective)
+            DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective,
+                            &thresholds, &spell_base_costs)
         };
         Ok(ScoringCtx {
             objective,
@@ -2155,6 +2196,8 @@ impl ScoringCtx {
             consts,
             guild_unit,
             dense,
+            thresholds,
+            spell_base_costs,
         })
     }
 }
@@ -3108,6 +3151,8 @@ pub struct DenseCtx {
     pub doom_couples_start: bool,
     /// Var outputs couple into atkTier — bounded doom unavailable.
     pub doom_couples_tier: bool,
+    /// Restriction thresholds lowered onto the read universe: (kind, ge, value).
+    pub thresholds: Vec<(DThresh, bool, f64)>,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -3182,6 +3227,7 @@ impl DenseCtx {
     pub fn build(
         l2: &Layer2, tables: &Tables, weapon: &Obj, rows: &[Row],
         compiled: &[CompiledRow], objective: &Objective,
+        raw_thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
     ) -> Option<DenseCtx> {
         // Guard: every row the compiled eval would score must have a plan.
         for (row, comp) in rows.iter().zip(compiled) {
@@ -3340,6 +3386,34 @@ impl DenseCtx {
                 max: eff.get("max").and_then(|v| v.as_f64()),
                 out_slots,
             });
+        }
+
+        // Threshold lowering (read-universe interning happens here so item
+        // writes to threshold stats survive the dead-write filter).
+        let mut thresholds: Vec<(DThresh, bool, f64)> = Vec::new();
+        for t in raw_thresholds {
+            let kind = match t.stat.as_str() {
+                "ehp" => DThresh::Ehp,
+                "ehp_no_agi" => DThresh::EhpNoAgi,
+                "total_hp" => DThresh::TotalHp,
+                "ehpr" => DThresh::Ehpr,
+                "hpr" => DThresh::Hpr,
+                "total_mana" => DThresh::TotalMana,
+                st if st.starts_with("finalSpellCost") => {
+                    let n: i64 = st[st.len() - 1..].parse().unwrap_or(-1);
+                    match base_costs.get(&n) {
+                        Some(&base) => DThresh::SpellCost {
+                            raw: intern(&format!("spRaw{}", n), &mut idx, &mut keys),
+                            pct: intern(&format!("spPct{}", n), &mut idx, &mut keys),
+                            fin: intern(&format!("spPct{}Final", n), &mut idx, &mut keys),
+                            base,
+                        },
+                        None => DThresh::Skip,
+                    }
+                }
+                st => DThresh::Plain(intern(st, &mut idx, &mut keys)),
+            };
+            thresholds.push((kind, t.ge, t.value));
         }
 
         // Bounded-doom classification of var output slots.
@@ -3629,7 +3703,7 @@ impl DenseCtx {
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
             s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, atk_spd_str,
-            var_slot_mana_dir, doom_couples_start, doom_couples_tier,
+            var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -4825,4 +4899,122 @@ pub fn dense_subtree_ceiling(
     let h = hi_rem.clamp(0, db.h_max) as usize;
     dense_ceiling_with(d, &db.table[next_depth][h], &db.term_table[next_depth][h],
                        prefix_names, work, rows, compiled, tables)
+}
+
+// ── check_thresholds (pure/engine.js) ────────────────────────────────────────
+//
+// The exact post-assemble restriction check the worker runs after greedy SP
+// (and again after a successful mana rescue). Evaluated on the fully
+// assembled stats; ge/le against the configured value.
+
+pub struct Threshold {
+    pub stat: String,
+    pub ge: bool,
+    pub value: f64,
+}
+
+pub fn parse_thresholds(fixture: &Value) -> Vec<Threshold> {
+    fixture["layer2"]["restrictions"]["stat_thresholds"].as_array()
+        .map(|a| a.iter().filter_map(|t| {
+            Some(Threshold {
+                stat: t.get("stat")?.as_str()?.to_string(),
+                ge: t.get("op")?.as_str()? == "ge",
+                value: t.get("value")?.as_f64()?,
+            })
+        }).collect())
+        .unwrap_or_default()
+}
+
+pub fn parse_spell_base_costs(fixture: &Value) -> HashMap<i64, f64> {
+    let mut out = HashMap::new();
+    if let Some(m) = fixture["layer2"]["spell_base_costs"].as_object() {
+        for (k, v) in m {
+            if let (Ok(n), Some(c)) = (k.parse::<i64>(), v.as_f64()) {
+                out.insert(n, c);
+            }
+        }
+    }
+    out
+}
+
+fn spell_cost_capped(int_v: f64, raw: f64, pct: f64, fin: f64, base_cost: f64,
+                     tables: &Tables, consts: &L2Consts) -> f64 {
+    let int_reduction = tables.sp_to_pct(int_v) * consts.skillpoint_final_mult_2;
+    let mut cost = base_cost * (1.0 - int_reduction);
+    cost += raw;
+    cost *= 1.0 + pct / 100.0;
+    cost *= 1.0 + fin / 100.0;
+    js_max(1.0, cost)
+}
+
+pub fn check_thresholds_obj(
+    stats: &StatsView, th: &[Threshold], base_costs: &HashMap<i64, f64>,
+    tables: &Tables, consts: &L2Consts,
+) -> bool {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    for t in th {
+        let v = match t.stat.as_str() {
+            "ehp" => def.get_or_insert_with(|| defense_stats(stats, tables)).1,
+            "ehp_no_agi" => def.get_or_insert_with(|| defense_stats(stats, tables)).2,
+            "total_hp" => def.get_or_insert_with(|| defense_stats(stats, tables)).0,
+            "ehpr" => def.get_or_insert_with(|| defense_stats(stats, tables)).4,
+            "hpr" => def.get_or_insert_with(|| defense_stats(stats, tables)).3,
+            "total_mana" => {
+                let mm = stats.num_or0("maxMana");
+                let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
+                100.0 + mm + int_mana
+            }
+            s if s.starts_with("finalSpellCost") => {
+                let n: i64 = s[s.len() - 1..].parse().unwrap_or(-1);
+                let Some(&base) = base_costs.get(&n) else { continue };
+                spell_cost_capped(
+                    stats.num_or0("int"),
+                    stats.num_or0(&format!("spRaw{}", n)),
+                    stats.num_or0(&format!("spPct{}", n)),
+                    stats.num_or0(&format!("spPct{}Final", n)),
+                    base, tables, consts)
+            }
+            s => stats.num_or0(s),
+        };
+        if t.ge && v < t.value { return false; }
+        if !t.ge && v > t.value { return false; }
+    }
+    true
+}
+
+/// Threshold kinds lowered onto the dense read universe.
+pub enum DThresh {
+    Ehp, EhpNoAgi, TotalHp, Ehpr, Hpr, TotalMana,
+    SpellCost { raw: u32, pct: u32, fin: u32, base: f64 },
+    Plain(u32),
+    /// finalSpellCost with no configured base cost — JS `continue`s.
+    Skip,
+}
+
+pub fn dense_check_thresholds(
+    d: &DenseCtx, s: &DScratch, tables: &Tables, consts: &L2Consts,
+) -> bool {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    for (kind, ge, value) in &d.thresholds {
+        let v = match kind {
+            DThresh::Ehp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).1,
+            DThresh::EhpNoAgi => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).2,
+            DThresh::TotalHp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).0,
+            DThresh::Ehpr => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).4,
+            DThresh::Hpr => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).3,
+            DThresh::TotalMana => {
+                let mm = s.num_or0(d.s_max_mana);
+                let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
+                100.0 + mm + int_mana
+            }
+            DThresh::SpellCost { raw, pct, fin, base } => spell_cost_capped(
+                s.num_or0(d.s_int), s.num_or0(*raw), s.num_or0(*pct), s.num_or0(*fin),
+                *base, tables, consts),
+            DThresh::Plain(i) => s.num_or0(*i),
+            DThresh::Skip => continue,
+        };
+        if *ge && v < *value { return false; }
+        if !*ge && v > *value { return false; }
+    }
+    true
 }
