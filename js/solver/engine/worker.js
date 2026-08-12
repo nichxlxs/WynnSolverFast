@@ -1158,9 +1158,11 @@ function _run_level_enum() {
     const _sp_fixed_max_eff_req = [0, 0, 0, 0, 0];
     const _sp_fixed_sum_prov = [0, 0, 0, 0, 0];
 
-    // Per-depth effective requirement from each placed free item.
-    const _sp_slot_eff_req = [];
-    for (let d = 0; d < N_free; d++) _sp_slot_eff_req.push([0, 0, 0, 0, 0]);
+    // Per-depth snapshot of the running max taken just before placing at
+    // that depth, so unplace is an O(5) restore instead of an O(depth*5)
+    // recompute from the fixed baseline.
+    const _sp_max_save = [];
+    for (let d = 0; d < N_free; d++) _sp_max_save.push([0, 0, 0, 0, 0]);
 
     // Running max eff req (fixed + placed free) and running free provisions.
     const _sp_running_max_eff_req = [0, 0, 0, 0, 0];
@@ -1244,20 +1246,19 @@ function _run_level_enum() {
             }
         }
 
-        // Raw requirements (cascade: no self-contribution undoing)
-        const eff = _sp_slot_eff_req[depth];
+        // Snapshot the running max, then fold in this item's raw requirements
+        // (cascade: no self-contribution undoing).
+        const save = _sp_max_save[depth];
         for (let i = 0; i < 5; i++) {
-            eff[i] = req[i];
-        }
-
-        for (let i = 0; i < 5; i++) {
-            if (eff[i] > _sp_running_max_eff_req[i])
-                _sp_running_max_eff_req[i] = eff[i];
+            save[i] = _sp_running_max_eff_req[i];
+            if (req[i] > _sp_running_max_eff_req[i])
+                _sp_running_max_eff_req[i] = req[i];
         }
     }
 
     /**
      * Restore running SP state when unplacing a free item at a given depth.
+     * Placement is strictly LIFO, so restoring the pre-place snapshot is exact.
      */
     function _sp_unplace_free_item(sm, depth) {
         if (!sm.get('crafted')) {
@@ -1267,14 +1268,8 @@ function _run_level_enum() {
             }
         }
 
-        // Recompute running max from fixed baseline + slots 0..depth-1
-        for (let i = 0; i < 5; i++) _sp_running_max_eff_req[i] = _sp_fixed_max_eff_req[i];
-        for (let d = 0; d < depth; d++) {
-            for (let i = 0; i < 5; i++) {
-                if (_sp_slot_eff_req[d][i] > _sp_running_max_eff_req[i])
-                    _sp_running_max_eff_req[i] = _sp_slot_eff_req[d][i];
-            }
-        }
+        const save = _sp_max_save[depth];
+        for (let i = 0; i < 5; i++) _sp_running_max_eff_req[i] = save[i];
     }
 
     /**
