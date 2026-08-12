@@ -133,7 +133,7 @@ let _current_L = 0;
 let _trace = null;
 let _trace_started = 0;
 
-const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
 function _reset_trace() {
     if (!_cfg?.benchmark_trace) { _trace = null; return; }
     _trace = { leaf_count: 0 };
@@ -424,6 +424,56 @@ function _atree_scaling_setup() {
     _ATREE_SCALING_OPTS.split = _atree_split;
     _ATREE_SCALING_OPTS.scratch_var = _scratch_var_scaled;
     _ATREE_SCALING_OPTS.skip_edit = _atree_skip_edit;
+    _ceiling_gate_setup(a);
+}
+
+// ── Score-ceiling gate (combo_damage only) ───────────────────────────────────
+//
+// Combo damage is monotone non-decreasing in every total_sp dimension when:
+//   - skill boosts: skillPointsToPercentage is nondecreasing, damage mults >= 0;
+//   - crit: avg = normal + crit_chance * (crit - normal), crit >= normal, and
+//     crit_chance = skillPointsToPercentage(dex);
+//   - atree stat-input effects: their outputs are monotone in the inputs when
+//     every resolved stat scaling factor is >= 0 (floor/clamp/cap steps are
+//     monotone), and the output keys feed damage non-negatively (plain
+//     additive boost/raw stats; atkTier and ConvBase keys are excluded
+//     because attack-speed and conversion effects are not monotone).
+// Under those conditions the damage evaluated at total_sp = [150]*5 is an
+// upper bound on any allocation the greedy could reach, so a leaf whose
+// ceiling cannot beat the current top-N cutoff can skip greedy + mana +
+// score entirely with an identical top-N. Sim-coupled damage (Blood Pact,
+// dynamic sliders) is excluded. met_req no longer counts gated leaves
+// (diagnostic-only change).
+let _ceiling_gate_ok = false;
+const _SP_CEILING = new Int32Array([150, 150, 150, 150, 150]);
+
+function _ceiling_gate_setup(analysis) {
+    _ceiling_gate_ok = false;
+    if ((_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage') return;
+    if (_cfg.hp_casting || _cfg.has_dynamic_sliders) return;
+    if (_cfg.custom_weights?.length) return;
+    if (analysis.stat_dependent) {
+        // Only reason about stat-input effects through the split plan.
+        if (!_atree_split) return;
+        for (const effect of _atree_split.var_effects) {
+            const scaling = effect.scaling ?? [0];
+            const inputs = effect.inputs ?? [];
+            const n = Math.min(scaling.length, inputs.length);
+            for (let i = 0; i < n; i++) {
+                if (inputs[i].type !== 'stat') continue;
+                const factor = atree_translate(_cfg.atree_merged, scaling[i]);
+                if (!(typeof factor === 'number' && factor >= 0)) return;
+            }
+            if ('output' in effect) {
+                const outputs = Array.isArray(effect.output) ? effect.output : [effect.output];
+                for (const o of outputs) {
+                    if (o.type !== 'stat') return;
+                    if (o.name === 'atkTier' || o.name.includes('ConvBase')) return;
+                }
+            }
+        }
+    }
+    _ceiling_gate_ok = true;
 }
 
 function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
@@ -570,6 +620,7 @@ function _run_level_enum() {
     let _dbg_mana_rescued = 0;
     let _dbg_hp_reject = 0;
     let _dbg_scored = 0;
+    let _dbg_ceiling_skip = 0;
     let _dbg_leaf_time = 0;  // cumulative ms for feasible leaf processing
 
     const tracker = _make_illegal_tracker();
@@ -1234,6 +1285,28 @@ function _run_level_enum() {
         const build_sm = _finalize_leaf_statmap(running_sm, weapon_sm, activeSetCounts, sets, _scratch_all_equip, _scratch_finalize, _scratch_finalize_inner);
         _trace_end('finalize', finalize_t0);
 
+        // Score-ceiling gate: when combo damage is provably monotone in SP,
+        // one damage evaluation at all-150 SP upper-bounds anything the
+        // greedy allocator can reach. If even that ceiling cannot beat the
+        // current top-N cutoff, the leaf's final score would be rejected at
+        // insertion — skip greedy + mana + score with an identical top-N.
+        if (_ceiling_gate_ok && _top5.length >= 15) {
+            const ceiling_t0 = _trace_start('ceiling');
+            const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm);
+            _cached_hp_sim = null;
+            const ceiling = _eval_combo_damage(cb150);
+            _trace_end('ceiling', ceiling_t0);
+            const cutoff = _top5[14].score;
+            // Strict margin: a float-ulp monotonicity wobble must never gate
+            // a genuine top-N candidate.
+            if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
+                _dbg_ceiling_skip++;
+                if (_dbg) _dbg_leaf_time += performance.now() - t0;
+                _maybe_progress();
+                return;
+            }
+        }
+
         // Greedily assign any remaining SP budget to maximise the scoring target
         const greedy_t0 = _trace_start('greedy');
         let final_assigned = _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm);
@@ -1892,6 +1965,7 @@ function _run_level_enum() {
             '| threshold_reject:', _dbg_threshold_reject,
             '| mana_reject:', _dbg_mana_reject,
             '| mana_rescued:', _dbg_mana_rescued,
+            '| ceiling_skip:', _dbg_ceiling_skip,
             '| hp_reject:', _dbg_hp_reject,
             '| scored:', _dbg_scored);
         if (_feasible > 0) {

@@ -94,6 +94,7 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Bands cumulative, full run | Colossal 4.52T input, 2 workers, 180s cap | completes 31.2s (147.8B legacy space) | **completes 32.9s** (334,843,891,200 = full space) | — | 10.17B/s | was timeout @ 90.1% | feasible 329,883 identical to Rust; 470,163 |
 | 2026-08-12 | Rust enum_kernel with bands | all fixtures, 1 thread | — | — | 77.1s (colossal) | **4.33s**; all-free 8.4→0.85s; 1.9B 0.33→0.06s | 17.8x | Funnel counters bit-identical pre/post bands |
 | 2026-08-12 | New spell-spam benchmark (`readme_spell_wide`) | 350.6B input / 20.07B search, combo_damage, no restrictions | — | 35,000 checked @ 180s timeout | — | ~194 leaves/s | feasibility-dense: 17,433/35,000 feasible — leaf pipeline dominates | best 7,832,627; the anti-Gaia workload |
+| 2026-08-12 | Score-ceiling gate (one damage eval at all-150 SP bounds greedy) | Dense combo_damage (readme armor2 pools, 3,712 search) | — | 3,712 | wall 62.5s | wall **18.0s** (3.5x) | 1,798/3,542 feasible leaves gated at 1.0ms vs greedy 17.4ms | Oracle fixture `solver_oracle_spell_cd`: gated top-N exactly equals ungated Cartesian ground truth; suite 253/253 |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -255,12 +256,20 @@ will be used by both JS reference and future Rust core.
    space reducer for tight-bound scenarios; deprioritized after bands made
    those scenarios fast. Revisit if a tight-bound trillion-scale case shows
    up.
-10. The spell-spam workload (`readme_spell_wide`) is leaf-bound: ~194
-   leaves/s, feasible ratio ~50%, no restrictions to prune with. Next lever
-   is the greedy-trial damage evaluation itself (incremental damage w.r.t.
-   SP changes, or gradient-guided trial ordering with exact re-verification);
-   all five skills can affect damage through elemental skill boosts, so
-   naive trial skipping is not exact.
+10. PARTIAL 2026-08-12: the spell-spam workload (`readme_spell_wide`) is
+   leaf-bound: no restrictions to prune with, ~50% of checked leaves
+   feasible, and greedy trials (a full 33-row damage eval each) took ~95%
+   of wall. The score-ceiling gate now bounds each leaf with ONE damage
+   eval at all-150 SP before running greedy: combo damage is provably
+   monotone in each SP dimension when the gate's setup conditions hold
+   (combo_damage target, no hp_casting/dynamic sliders/custom weights, and
+   any stat-input atree scaling has non-negative factors into plain stats).
+   Leaves whose ceiling cannot beat the top-15 cutoff skip greedy+mana+
+   score with an identical top-N (validated by oracle fixture
+   `solver_oracle_spell_cd`). Dense scenario: 62.5s → 18.0s. Remaining
+   lever for leaves that pass the gate: incremental damage evaluation
+   w.r.t. SP changes inside greedy; all five skills can affect damage
+   through elemental skill boosts, so naive trial skipping is not exact.
 
 ## Update protocol
 
