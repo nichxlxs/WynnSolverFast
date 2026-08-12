@@ -1858,17 +1858,33 @@ pub fn leaf_pipeline_gated(
     // spells), so a single sim at Int=150 upper-bounds every greedy/rescue
     // outcome. Admissible only when no atree var effect couples stats into
     // the mana-relevant set (l2.mana_doom_ok).
-    if l2.mana_doom_ok && (consts.combo_time != 0.0 || consts.hp_casting) {
+    let mut doom_reject_expected = false;
+    // Bounded doom availability: sound whenever var effects don't couple
+    // into atkTier, and start-mana couplings (maxMana/int) only under
+    // allow_downtime (raising start can raise start-minus-end in the <=5
+    // sustain mode).
+    let bounded_doom_ok = match dwork.as_ref() {
+        Some((dctx, _)) if !l2.mana_doom_ok =>
+            !dctx.doom_couples_tier && (consts.allow_downtime || !dctx.doom_couples_start)
+            && std::env::var("SCORE_BOUNDED_DOOM").as_deref() != Ok("0"),
+        _ => false,
+    };
+    if (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
         let doomed = phase!(DOOM_NS, {
             let mut doom_sp = [0f64; 5];
-            for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
+            let mut sp_lo = [0f64; 5];
+            for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
             doom_sp[2] = 150.0;
             if let Some((d, w)) = dwork.as_mut() {
                 let DenseWork { leaf, scratch } = &mut **w;
-                dense_assemble(d, leaf, scratch, &doom_sp);
+                if l2.mana_doom_ok {
+                    dense_assemble(d, leaf, scratch, &doom_sp);
+                } else {
+                    dense_assemble_doom(d, leaf, scratch, &doom_sp, &sp_lo);
+                }
                 let mini = dense_mana_obj(d, leaf, scratch);
                 let doomed = !mana_check_passes(rows, &mini, registry, tables, consts, compiled);
-                if dense_check {
+                if dense_check && l2.mana_doom_ok {
                     let cb_doom = l2.assemble_from_base(base_opt.as_ref().unwrap(), &doom_sp, weapon);
                     let od = !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled);
                     assert_eq!(doomed, od, "dense/obj doom mismatch");
@@ -1879,7 +1895,14 @@ pub fn leaf_pipeline_gated(
                 !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled)
             }
         });
-        if doomed { return Ok(LeafOutcome::ManaReject); }
+        if doomed {
+            // Tripwire: under check mode a bounded-doom reject falls through
+            // to the full pipeline, which must also reject (asserted below).
+            if !(dense_check && bounded_doom_ok && !l2.mana_doom_ok) {
+                return Ok(LeafOutcome::ManaReject);
+            }
+            doom_reject_expected = true;
+        }
     }
 
     // Greedy allocation with objective-scored trials.
@@ -1927,6 +1950,7 @@ pub fn leaf_pipeline_gated(
         let saved_rescue_total = total_sp;
         let _ = (saved_rescue_base, saved_rescue_total);
         if mana_ok {
+            assert!(!doom_reject_expected, "bounded doom would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
                 let DenseWork { leaf, scratch } = &mut **w;
                 let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
@@ -1960,6 +1984,7 @@ pub fn leaf_pipeline_gated(
             ok
         });
         if rescued {
+            assert!(!doom_reject_expected, "bounded doom would have rejected a rescued leaf");
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
                 let DenseWork { leaf, scratch } = &mut **w;
@@ -3074,6 +3099,15 @@ pub struct DenseCtx {
     /// stat map materialized from the dense assembled state.
     pub mana_keys: Vec<(String, u32)>,
     pub atk_spd_str: Option<String>,
+    /// Per var slot: mana direction for the bounded doom precheck.
+    /// +1 = favorable-if-higher (credit t_max), -1 = favorable-if-lower
+    /// (credit t_min), 0 = irrelevant to the mana sim.
+    pub var_slot_mana_dir: Vec<i8>,
+    /// Var outputs couple into start-mana stats (maxMana/int) — bounded
+    /// doom is only sound then under allow_downtime.
+    pub doom_couples_start: bool,
+    /// Var outputs couple into atkTier — bounded doom unavailable.
+    pub doom_couples_tier: bool,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -3306,6 +3340,22 @@ impl DenseCtx {
                 max: eff.get("max").and_then(|v| v.as_f64()),
                 out_slots,
             });
+        }
+
+        // Bounded-doom classification of var output slots.
+        let mut var_slot_mana_dir: Vec<i8> = Vec::with_capacity(var_slots.len());
+        let mut doom_couples_start = false;
+        let mut doom_couples_tier = false;
+        for &ki in &var_slots {
+            let name = keys[ki as usize].as_str();
+            let dir: i8 = match name {
+                "mr" | "ms" | "hp" | "hpBonus" => 1,
+                "maxMana" | "int" => { doom_couples_start = true; 1 }
+                "atkTier" => { doom_couples_tier = true; 0 }
+                _ if name.starts_with("spRaw") || name.starts_with("spPct") => -1,
+                _ => 0,
+            };
+            var_slot_mana_dir.push(dir);
         }
 
         // Rows: bonus deltas + plan ConvBase indices.
@@ -3579,6 +3629,7 @@ impl DenseCtx {
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
             s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, atk_spd_str,
+            var_slot_mana_dir, doom_couples_start, doom_couples_tier,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -4598,6 +4649,72 @@ pub fn dense_mana_rescue(
     *base_sp = saved_base;
     *total_sp = saved_total;
     false
+}
+
+/// Best-case doom assemble: like dense_assemble at `doom_sp`, but each var
+/// effect is evaluated at its extremum over the reachable SP box
+/// [sp_lo, 150] per attribute (term-sign-wise), and each output slot is
+/// credited at t_max when higher is mana-favorable and t_min when lower is
+/// (irrelevant slots take t_max — the mana mini never reads them). The
+/// round/positive/max clamps are monotone, so extremal inputs stay
+/// extremal. The resulting mini map upper-bounds mana feasibility for
+/// every greedy/rescue outcome of this leaf.
+pub fn dense_assemble_doom(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, doom_sp: &[f64; 5], sp_lo: &[f64; 5],
+) {
+    s.vals.copy_from_slice(&leaf.lc_vals);
+    let mut pre_lo = [0.0f64; 5];
+    let mut pre_hi = [0.0f64; 5];
+    for i in 0..5 {
+        let mut v = doom_sp[i];
+        let mut lo = sp_lo[i];
+        let mut hi = 150.0f64;
+        for a in &d.skp_atree_adds[i] { v += a; lo += a; hi += a; }
+        pre_lo[i] = lo;
+        pre_hi[i] = hi;
+        for a in &d.skp_const_adds[i] { v += a; }
+        for a in &d.skp_static_adds[i] { v += a; }
+        s.vals[d.skp_idx[i] as usize] = v;
+    }
+    for eff in &d.var_effects {
+        let mut t_lo = 0.0;
+        t_lo += eff.const_add;
+        let mut t_hi = 0.0;
+        t_hi += eff.const_add;
+        for term in &eff.terms {
+            match term {
+                DTerm::Skp(i, f) => {
+                    if *f >= 0.0 { t_lo += pre_lo[*i] * f; t_hi += pre_hi[*i] * f; }
+                    else { t_lo += pre_hi[*i] * f; t_hi += pre_lo[*i] * f; }
+                }
+                DTerm::Const(slot, f) => {
+                    let c = leaf.const_term_vals[*slot] * f;
+                    t_lo += c;
+                    t_hi += c;
+                }
+            }
+        }
+        let clamp = |mut t: f64| -> f64 {
+            if eff.round { t = round_near(t).floor(); }
+            if eff.positive && t < 0.0 { t = 0.0; }
+            if let Some(mx) = eff.max {
+                if mx > 0.0 && t > mx { t = mx; }
+                if mx < 0.0 && t < mx { t = mx; }
+            }
+            t
+        };
+        let t_lo = clamp(t_lo);
+        let t_hi = clamp(t_hi);
+        for (slot, first) in &eff.out_slots {
+            let t = if d.var_slot_mana_dir[*slot] < 0 { t_lo } else { t_hi };
+            if *first { s.var_acc[*slot] = t; } else { s.var_acc[*slot] += t; }
+        }
+    }
+    for (slot, &ki) in d.var_slots.iter().enumerate() {
+        let acc = s.var_acc[slot];
+        if leaf.var_out_absent[slot] { s.vals[ki as usize] = acc; }
+        else { s.vals[ki as usize] += acc; }
+    }
 }
 
 /// Mini stat map for the fast mana sim, materialized from the dense
