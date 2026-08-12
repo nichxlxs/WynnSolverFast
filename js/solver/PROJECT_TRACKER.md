@@ -79,6 +79,12 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Restriction suffix bounds (P1.5) | Gaia 2M, 1 worker | 1,543,104 | 2,025,400 | 569,621/s | 4,857,074/s | **+373.6%** | 470,163; oracle-exact funnel counts |
 | 2026-08-12 | Cumulative second wave | Gaia 95M input, 2 workers | 9,938,880 | 16,007,310 | 122,733/s | 904,163/s | completes in 17.7s (was 80.4s) | 470,163 both; original also completes now (81.0s) |
 | 2026-08-12 | Rust SP kernel prototype (P2.2) | 500 seeded SP fixtures | — | — | 192,466 calls/s (JS) | 1,638,372 calls/s | **8.5x kernel-level** | Exact parity, 0 mismatches |
+| 2026-08-12 | Cost-only mana-sim boosts + atree scaling reuse | Two-armor dense trace | — | 1,872 | — | — | mana 260→23µs/leaf; wall 1957→640ms | 15,095 unchanged; mana divergence suite green |
+| 2026-08-12 | Same, Gaia 2M | Gaia 2M, 1 worker | 1,543,104 | 2,025,400 | 600,897/s | 5,904,956/s | 343ms completion | 470,163 both |
+| 2026-08-12 | New 135M benchmark (`gaia_armor4_ring_135m_input`) | 135.5M input / 22.97M search, 2 workers | 18,123,840 | 22,967,010 | 944,196/s (19.2s) | 12,210,000/s (**1.88s**) | — | 470,163 both |
+| 2026-08-12 | New 1.9B benchmark (`gaia_ultra_1900m_input`) | 1.898B input / 229.7M search, 2 workers | 172,176,480 | 229,670,100 | 10.1M/s (17.0s) | 166.9M/s (**1.38s**) | — | 470,163 both; pruning proves most subtrees |
+| 2026-08-12 | Rust enum_kernel (P2.3 prototype, 1 thread, no scoring) | 135M scenario | — | 22,967,010 | JS 1.881s | Rust **0.342s** | 5.5x vs 2-worker JS | Exact funnel parity: feasible 10,313 both |
+| 2026-08-12 | Rust enum_kernel, 1.9B scenario | 1.9B scenario | — | 229,670,100 | JS 1.376s | Rust **0.332s** | 4.1x vs 2-worker JS | Exact funnel parity: feasible 4,017 both |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -183,8 +189,8 @@ will be used by both JS reference and future Rust core.
 | ID | Status | Deliverable | Go/no-go criterion |
 |---|---|---|---|
 | P2.1 | BACKLOG | Versioned `SearchJob`/`SearchResult` schema | Round trip plus data/engine version rejection tests |
-| P2.2 | IN PROGRESS | Compact Rust item and SP kernel | SP kernel done: exact parity on 500 fixtures, 8.5x; item/enumeration kernel remains |
-| P2.3 | BACKLOG | Canonical single-thread enumerator | Exact counts and top-N across small exhaustive corpus |
+| P2.2 | DONE | Compact Rust item and SP kernel | SP kernel exact parity on 500 fixtures, 8.5x kernel-level |
+| P2.3 | IN PROGRESS | Canonical single-thread enumerator | enum_kernel: exact checked/feasible parity on 135M and 1.9B scenarios; scoring/top-N layer absent |
 | P2.4 | BACKLOG | Stateless objective prototype | At least 1.5x end-to-end speedup, or decisive memory benefit |
 
 ## Phase 3 — unattended local engine
@@ -207,9 +213,10 @@ will be used by both JS reference and future Rust core.
 
 ## Immediate work queue
 
-1. Post-suffix-bound trace: mana simulation is now the top cost in
-   feasibility-dense scenarios (~45% of wall); profile simulate_combo_mana_fast
-   before choosing the next optimization.
+1. DONE 2026-08-12: mana sim optimized (cost-only boost application, 260→23µs
+   per leaf); greedy trials are again the dense-scenario top cost (~250µs),
+   now dominated by per-trial atree scaling + score eval on stat-dependent
+   trees. Next lever there: incremental scaling for the three stat inputs.
 2. The leaf precheck (and therefore the suffix bounds that mirror it) ignores
    set bonuses, radiance scaling, and atree scaling on ge-restricted stats;
    running underestimates the final stat, so a build whose set/radiance bonus
@@ -220,8 +227,13 @@ will be used by both JS reference and future Rust core.
    restriction-heavy and one SP-heavy scenario as oracle fixtures.
 4. P1.6 objective branch-and-bound (score upper bounds per remaining slot) is
    the next algorithmic lever for the sparse case; validate against the oracle.
-5. Extend the Rust prototype toward P2.3 (canonical enumerator) reusing the
-   fixture-parity methodology.
+5. P2.3: enum_kernel replays full scenarios with exact funnel parity at
+   5.5x/4.1x vs the 2-worker JS engine single-threaded. Next: multithread it,
+   port the top-N/score layer for at least one scoring target, and wire a
+   checkpoint cursor (P3.2 shape) to justify the native go decision.
+6. Both new large benchmarks (135M and 1.9B input) complete in ~2s; the next
+   benchmark tier should either widen pools past level filters or disable
+   restrictions to stress raw enumeration rather than pruning.
 
 ## Update protocol
 
