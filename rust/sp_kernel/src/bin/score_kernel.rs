@@ -152,6 +152,7 @@ fn main() {
     });
     let mut ld_pass = 0u64;
     let mut ld_fail = 0u64;
+    let mut dense_work = DenseWork::default();
 
     let cases = fixture["cases"].as_array().expect("cases array");
     let mut pass = 0u64;
@@ -292,7 +293,7 @@ fn main() {
                     std::env::set_var("SCORE_DENSE_CHECK", "1");
                     match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                         &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                        &objective, Some(&compiled_rows), Some(dense)) {
+                                        &objective, Some(&compiled_rows), Some((dense, &mut dense_work))) {
                         Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
                             && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => ld_pass += 1,
                         other => {

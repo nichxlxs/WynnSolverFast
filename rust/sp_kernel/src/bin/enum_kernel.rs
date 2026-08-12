@@ -255,6 +255,9 @@ struct Search<'a> {
     part_lo: i64,
     part_hi: i64,
     shared_checked: Option<&'a AtomicU64>,
+    stop_flag: Option<&'a AtomicU64>,
+    stop: bool,
+    dense_work: sp_kernel::scoring::DenseWork,
     checked_flushed: f64,
 
     // Scoring integration (P2.4 layer 3): current equip names by position,
@@ -449,6 +452,9 @@ impl<'a> Search<'a> {
             part_lo: 0,
             part_hi: i64::MAX,
             shared_checked: None,
+            stop_flag: None,
+            stop: false,
+            dense_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
             scoring: None,
@@ -525,6 +531,9 @@ impl<'a> Search<'a> {
     fn maybe_report(&mut self) {
         self.report_calls += 1;
         if self.report_calls & 0xFFFF != 0 { return; }
+        if let Some(f) = self.stop_flag {
+            if f.load(Ordering::Relaxed) != 0 { self.stop = true; }
+        }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
             let delta = self.checked - self.checked_flushed;
@@ -735,7 +744,7 @@ impl<'a> Search<'a> {
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
                 &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
-                sc.dense.as_ref(),
+                sc.dense.as_ref().map(|d| (d, &mut self.dense_work)),
             ).expect("scoring pipeline error") {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
@@ -827,6 +836,7 @@ impl<'a> Search<'a> {
 
     // Visit every completion whose remaining rank sum lies in [lo_rem, hi_rem].
     fn enumerate(&mut self, depth: usize, lo_rem: i64, hi_rem: i64) {
+        if self.stop { return; }
         if depth == self.n_free {
             self.evaluate_leaf();
             return;
@@ -1069,6 +1079,9 @@ fn main() {
         let first_pool_len = fx.slots[0].pool.len();
         let next_offset = AtomicUsize::new(0);
         let shared_checked = AtomicU64::new(0);
+        let stop_flag = AtomicU64::new(0);
+        let time_cap: Option<f64> = std::env::var("ENUM_TIME_CAP_SECS").ok()
+            .and_then(|v| v.parse().ok());
         let done = AtomicU64::new(0);
 
         // Full-space total for the monitor line.
@@ -1085,6 +1098,7 @@ fn main() {
                 handles.push(scope.spawn(|| {
                     let mut search = Search::new(&fx);
                     search.shared_checked = Some(&shared_checked);
+                    search.stop_flag = Some(&stop_flag);
                     search.scoring = scoring;
                     search.shared_cutoff = Some(&shared_cutoff);
                     search.bound_tables = bounds;
@@ -1095,6 +1109,7 @@ fn main() {
                     search.next_report = f64::INFINITY;
                     let l_max = search.l_max as i64;
                     loop {
+                        if search.stop { break; }
                         let o = next_offset.fetch_add(1, Ordering::Relaxed);
                         if o >= first_pool_len { break; }
                         search.part_lo = o as i64;
@@ -1133,6 +1148,9 @@ fn main() {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     if done.load(Ordering::Relaxed) != 0 { break; }
                     let elapsed = started.elapsed().as_secs_f64();
+                    if let Some(cap) = time_cap {
+                        if elapsed >= cap { stop_flag.store(1, Ordering::Relaxed); }
+                    }
                     if elapsed < next_report { continue; }
                     next_report = elapsed + 5.0;
                     let checked = shared_checked.load(Ordering::Relaxed) as f64;

@@ -1616,7 +1616,8 @@ pub fn leaf_pipeline(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
-    objective: &Objective, compiled: Option<&[CompiledRow]>, dense: Option<&DenseCtx>,
+    objective: &Objective, compiled: Option<&[CompiledRow]>,
+    dense: Option<(&DenseCtx, &mut DenseWork)>,
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
                               registry, hit_refs, tables, consts, objective, compiled, None,
@@ -1679,7 +1680,7 @@ pub fn leaf_pipeline_gated(
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
-    dense: Option<&DenseCtx>,
+    dense: Option<(&DenseCtx, &mut DenseWork)>,
 ) -> Result<LeafOutcome, String> {
     let obj_score = |cb: &mut Obj| -> f64 {
         match compiled {
@@ -1759,35 +1760,41 @@ pub fn leaf_pipeline_gated(
     let dense_check = std::env::var("SCORE_DENSE_CHECK").as_deref() == Ok("1");
     let compiled_rows = compiled.unwrap_or(&[]);
     let mut base_opt: Option<Obj> = None;
-    let mut dense_state: Option<(&DenseCtx, DenseLeaf)> = None;
-    if let Some(d) = dense {
-        let mut leaf = match &d.direct {
-            Some(dd) => phase!(BASE_NS, DenseLeaf::build_direct(d, dd, item_names)),
-            None => None,
+    let mut dwork: Option<(&DenseCtx, &mut DenseWork)> = None;
+    if let Some((d, w)) = dense {
+        let mut ok = match &d.direct {
+            Some(dd) => phase!(BASE_NS, w.leaf.fill_direct(d, dd, item_names)),
+            None => false,
         };
-        if leaf.is_none() {
+        if !ok {
             if base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
-            leaf = DenseLeaf::build(d, l2, base_opt.as_ref().unwrap(), tables);
+            if let Some(l) = DenseLeaf::build(d, l2, base_opt.as_ref().unwrap(), tables) {
+                w.leaf = l;
+                ok = true;
+            }
         }
-        dense_state = leaf.map(|l| (d, l));
+        if ok {
+            w.scratch.reset(&w.leaf, d);
+            dwork = Some((d, w));
+        }
     }
-    let mut dense_scratch = dense_state.as_ref().map(|(d, leaf)| DScratch::new(leaf, d));
 
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
         if objective.supports_ceiling() {
-            if (dense_state.is_none() || dense_check) && base_opt.is_none() {
+            if (dwork.is_none() || dense_check) && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE_NS, {
                 let ceiling_sp = [150f64; 5];
-                let ceiling = if let (Some((d, leaf)), Some(s)) = (&dense_state, &mut dense_scratch) {
-                    dense_assemble(d, leaf, s, &ceiling_sp);
-                    let v = dense_score(d, leaf, s, rows, compiled_rows, tables);
+                let ceiling = if let Some((d, w)) = dwork.as_mut() {
+                    let DenseWork { leaf, scratch } = &mut **w;
+                    dense_assemble(d, leaf, scratch, &ceiling_sp);
+                    let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
                     if dense_check {
                         let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                         let o = obj_score(&mut cb150);
@@ -1836,9 +1843,10 @@ pub fn leaf_pipeline_gated(
     let mut trial = |sp: &[i32; 5]| -> f64 {
         if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
-        if let (Some((d, leaf)), Some(s)) = (&dense_state, &mut dense_scratch) {
-            phase!(ASM_NS, dense_assemble(d, leaf, s, &trial_sp_f));
-            let v = phase!(DMG_NS, dense_score(d, leaf, s, rows, compiled_rows, tables));
+        if let Some((d, w)) = dwork.as_mut() {
+            let DenseWork { leaf, scratch } = &mut **w;
+            phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
+            let v = phase!(DMG_NS, dense_score(d, leaf, scratch, rows, compiled_rows, tables));
             if dense_check {
                 let mut cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
                 let o = obj_score(&mut cb);
@@ -2865,6 +2873,7 @@ pub fn eval_spell_plan(
 // bit-identical; SCORE_DENSE_CHECK=1 asserts that per trial at runtime, and
 // score_kernel validates it per fixture case.
 
+#[derive(Clone, Copy)]
 pub enum MultTarget {
     All,
     MeleeOnly, // ";m" — damage_mult only when !use_spell_damage
@@ -2872,14 +2881,15 @@ pub enum MultTarget {
     Inert, // parse matched nothing → entry never applies
 }
 
+#[derive(Clone)]
 pub struct DMultEntry {
-    pub key: String,
-    pub spell_match: Option<String>,
+    pub key: std::sync::Arc<str>,
+    pub spell_match: Option<std::sync::Arc<str>>,
     pub target: MultTarget,
 }
 
 pub fn parse_mult_entry(key: &str) -> DMultEntry {
-    let spell_match = key.find(':').map(|c| key[c + 1..].to_string());
+    let spell_match = key.find(':').map(|c| std::sync::Arc::<str>::from(&key[c + 1..]));
     let target = match key.find(';') {
         Some(semi) => {
             let tail = &key[semi + 1..];
@@ -2889,7 +2899,7 @@ pub fn parse_mult_entry(key: &str) -> DMultEntry {
         }
         None => MultTarget::All,
     };
-    DMultEntry { key: key.to_string(), spell_match, target }
+    DMultEntry { key: std::sync::Arc::from(key), spell_match, target }
 }
 
 pub enum DTerm {
@@ -2975,6 +2985,7 @@ pub struct DenseCtx {
     pub row_canon: Vec<usize>,
 }
 
+#[derive(Default)]
 pub struct DenseLeaf {
     pub lc_vals: Vec<f64>,
     pub present: Vec<u64>,
@@ -2989,6 +3000,7 @@ pub struct DenseLeaf {
 
 /// Mutable trial state; dam/def lists are journaled per row and end each
 /// row eval back in their leaf state.
+#[derive(Default)]
 pub struct DScratch {
     pub vals: Vec<f64>,
     pub present: Vec<u64>,
@@ -3299,26 +3311,32 @@ impl DenseCtx {
             }
             let [atree_prog, const_prog, static_prog] = progs;
 
-            // Template: static/must id zeros + hp + agiDef.
-            let mut template_zero_idxs = Vec::new();
-            for id in l2.static_ids.iter().chain(l2.must_ids.iter()) {
-                template_zero_idxs.push(intern(id, &mut idx, &mut keys));
-            }
+            // Complete the read universe before lowering writes.
             let hp_idx = intern("hp", &mut idx, &mut keys);
             let agi_def_idx = intern("agiDef", &mut idx, &mut keys);
+            let dam_mobs_idx = intern("damMobs", &mut idx, &mut keys);
+            let def_mobs_idx = intern("defMobs", &mut idx, &mut keys);
+            let term_capture: Vec<u32> = const_term_keys.iter()
+                .map(|k| intern(k, &mut idx, &mut keys)).collect();
 
-            // Items, tomes, weapon lowered to indexed adds.
+            // Template: static/must id zeros + hp + agiDef (read keys only).
+            let mut template_zero_idxs = Vec::new();
+            for id in l2.static_ids.iter().chain(l2.must_ids.iter()) {
+                if let Some(&i) = idx.get(id) { template_zero_idxs.push(i); }
+            }
+
+            // Items, tomes, weapon lowered to indexed adds (read keys only).
             let mut items = HashMap::new();
             for (name, item) in &l2.item_registry {
-                let di = DenseDirect::lower_item(l2, item, |k| intern(k, &mut idx, &mut keys))?;
+                let di = DenseDirect::lower_item(l2, item, |k| idx.get(k).copied())?;
                 items.insert(name.clone(), di);
             }
             let mut post_item_adds = Vec::new();
             for tome in &l2.tome_sms {
-                let di = DenseDirect::lower_item(l2, tome, |k| intern(k, &mut idx, &mut keys))?;
+                let di = DenseDirect::lower_item(l2, tome, |k| idx.get(k).copied())?;
                 post_item_adds.extend(di.adds);
             }
-            let wdi = DenseDirect::lower_item(l2, weapon, |k| intern(k, &mut idx, &mut keys))?;
+            let wdi = DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied())?;
             post_item_adds.extend(wdi.adds);
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
@@ -3338,17 +3356,13 @@ impl DenseCtx {
                     per_count.push(bonus.as_object().map(|bo| {
                         bo.iter()
                             .filter(|(id, _)| !l2.skp_order.iter().any(|s| s == *id))
-                            .map(|(id, v)| (intern(id, &mut idx, &mut keys), js_num(v)))
+                            .filter_map(|(id, v)| idx.get(id).map(|&i| (i, js_num(v))))
                             .collect::<Vec<_>>()
                     }));
                 }
                 sets.insert(set_name.clone(), per_count);
             }
 
-            let dam_mobs_idx = intern("damMobs", &mut idx, &mut keys);
-            let def_mobs_idx = intern("defMobs", &mut idx, &mut keys);
-            let term_capture: Vec<u32> = const_term_keys.iter()
-                .map(|k| intern(k, &mut idx, &mut keys)).collect();
             let parse_tail = |sim: &MultSim| -> Vec<(DMultEntry, f64)> {
                 sim.tail.iter().map(|(k, v)| (parse_mult_entry(k), *v)).collect()
             };
@@ -3511,32 +3525,20 @@ impl DenseLeaf {
 }
 
 impl DScratch {
-    pub fn new(leaf: &DenseLeaf, d: &DenseCtx) -> DScratch {
-        DScratch {
-            vals: leaf.lc_vals.clone(),
-            present: leaf.present.clone(),
-            dam_entries: leaf.dam_entries.iter().map(|e| DMultEntry {
-                key: e.key.clone(), spell_match: e.spell_match.clone(),
-                target: match e.target {
-                    MultTarget::All => MultTarget::All,
-                    MultTarget::MeleeOnly => MultTarget::MeleeOnly,
-                    MultTarget::Ele(i) => MultTarget::Ele(i),
-                    MultTarget::Inert => MultTarget::Inert,
-                },
-            }).collect(),
-            dam_vals: leaf.dam_vals.clone(),
-            def_entries: leaf.def_entries.iter().map(|e| DMultEntry {
-                key: e.key.clone(), spell_match: e.spell_match.clone(),
-                target: match e.target {
-                    MultTarget::All => MultTarget::All,
-                    MultTarget::MeleeOnly => MultTarget::MeleeOnly,
-                    MultTarget::Ele(i) => MultTarget::Ele(i),
-                    MultTarget::Inert => MultTarget::Inert,
-                },
-            }).collect(),
-            def_vals: leaf.def_vals.clone(),
-            var_acc: vec![0.0; d.var_slots.len()],
-        }
+    pub fn reset(&mut self, leaf: &DenseLeaf, d: &DenseCtx) {
+        self.vals.resize(leaf.lc_vals.len(), f64::NAN);
+        self.present.clear();
+        self.present.extend_from_slice(&leaf.present);
+        self.dam_entries.clear();
+        self.dam_entries.extend(leaf.dam_entries.iter().cloned());
+        self.dam_vals.clear();
+        self.dam_vals.extend_from_slice(&leaf.dam_vals);
+        self.def_entries.clear();
+        self.def_entries.extend(leaf.def_entries.iter().cloned());
+        self.def_vals.clear();
+        self.def_vals.extend_from_slice(&leaf.def_vals);
+        self.var_acc.clear();
+        self.var_acc.resize(d.var_slots.len(), 0.0);
     }
 
     #[inline]
@@ -3548,6 +3550,14 @@ impl DScratch {
     }
     #[inline]
     pub fn has(&self, i: u32) -> bool { bit_get(&self.present, i) }
+}
+
+/// Per-thread reusable dense buffers (leaf + trial scratch); one leaf's
+/// state fully overwrites the previous leaf's.
+#[derive(Default)]
+pub struct DenseWork {
+    pub leaf: DenseLeaf,
+    pub scratch: DScratch,
 }
 
 /// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
@@ -3700,9 +3710,9 @@ fn dense_spell_damage(
     let mut ele_damage_mult = [1.0f64; 6];
     for (e, v) in s.dam_entries.iter().zip(&s.dam_vals) {
         if let Some(sm) = &e.spell_match {
-            if Some(sm.as_str()) != part_filter { continue; }
+            if Some(&**sm) != part_filter { continue; }
         }
-        if ignored.iter().any(|m| m == &e.key) { continue; }
+        if ignored.iter().any(|m| m.as_str() == &*e.key) { continue; }
         match e.target {
             MultTarget::All => damage_mult *= 1.0 + v / 100.0,
             MultTarget::MeleeOnly => { if !use_spell { damage_mult *= 1.0 + v / 100.0; } }
@@ -3821,15 +3831,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
                 journal.push(DenseUndo::DamVal(p, old));
             }
             None => {
-                s.dam_entries.push(DMultEntry {
-                    key: tmpl.key.clone(), spell_match: tmpl.spell_match.clone(),
-                    target: match tmpl.target {
-                        MultTarget::All => MultTarget::All,
-                        MultTarget::MeleeOnly => MultTarget::MeleeOnly,
-                        MultTarget::Ele(i) => MultTarget::Ele(i),
-                        MultTarget::Inert => MultTarget::Inert,
-                    },
-                });
+                s.dam_entries.push(tmpl.clone());
                 s.dam_vals.push(if *use_max { js_max(0.0, *contrib) } else { *contrib });
                 journal.push(DenseUndo::DamAppend);
             }
@@ -3844,15 +3846,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
                 journal.push(DenseUndo::DefVal(p, old));
             }
             None => {
-                s.def_entries.push(DMultEntry {
-                    key: tmpl.key.clone(), spell_match: tmpl.spell_match.clone(),
-                    target: match tmpl.target {
-                        MultTarget::All => MultTarget::All,
-                        MultTarget::MeleeOnly => MultTarget::MeleeOnly,
-                        MultTarget::Ele(i) => MultTarget::Ele(i),
-                        MultTarget::Inert => MultTarget::Inert,
-                    },
-                });
+                s.def_entries.push(tmpl.clone());
                 s.def_vals.push(if *use_max { js_max(0.0, *contrib) } else { *contrib });
                 journal.push(DenseUndo::DefAppend);
             }
@@ -4052,21 +4046,22 @@ pub struct DenseDirect {
 }
 
 impl DenseDirect {
-    /// Lower a stat map to (idx, value) adds, mirroring add_item.
-    fn lower_item(l2: &Layer2, item: &Obj, mut it: impl FnMut(&str) -> u32) -> Option<DItem> {
+    /// Lower a stat map to (idx, value) adds, mirroring add_item. Writes to
+    /// keys outside the read universe are dropped — nothing dense reads them.
+    fn lower_item(l2: &Layer2, item: &Obj, it: impl Fn(&str) -> Option<u32>) -> Option<DItem> {
         let mut adds = Vec::new();
         if let Some(mr) = item.get("maxRolls").and_then(as_map) {
             for (id, value) in mr {
                 if l2.static_ids.iter().any(|s| s == id) { continue; }
                 let v = value.as_f64().unwrap_or(f64::NAN);
                 if v == 0.0 { continue; }
-                adds.push((it(id), v));
+                if let Some(i) = it(id) { adds.push((i, v)); }
             }
         }
         for id in &l2.static_ids {
             let v = item.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
             if v == 0.0 { continue; }
-            adds.push((it(id), v));
+            if let Some(i) = it(id) { adds.push((i, v)); }
         }
         Some(DItem {
             adds,
@@ -4082,28 +4077,41 @@ impl DenseLeaf {
     pub fn build_direct(
         d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
     ) -> Option<DenseLeaf> {
-        let mut vals = dd.template_vals.clone();
-        let mut present = dd.template_present.clone();
+        let mut leaf = DenseLeaf::default();
+        if leaf.fill_direct(d, dd, item_names) { Some(leaf) } else { None }
+    }
+
+    /// build_direct into reused buffers; false → unknown item (caller falls
+    /// back to the Obj path). Every field is fully overwritten.
+    pub fn fill_direct(
+        &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
+    ) -> bool {
+        self.lc_vals.clear();
+        self.lc_vals.extend_from_slice(&dd.template_vals);
+        self.present.clear();
+        self.present.extend_from_slice(&dd.template_present);
+        let vals = &mut self.lc_vals;
+        let present = &mut self.present;
 
         // add_item semantics: previous Null/non-numeric reads as 0.
         macro_rules! add_item_ops {
             ($ops:expr) => {
                 for &(i, v) in $ops {
                     let iu = i as usize;
-                    if bit_get(&present, i) {
+                    if bit_get(present, i) {
                         let cur = vals[iu];
                         let cur = if cur.is_nan() { 0.0 } else { cur };
                         vals[iu] = cur + v;
                     } else {
                         vals[iu] = 0.0 + v;
-                        bit_set(&mut present, i);
+                        bit_set(present, i);
                     }
                 }
             };
         }
         let mut set_counts: Vec<(&str, i64)> = Vec::new();
         for name in item_names {
-            let item = dd.items.get(*name)?;
+            let Some(item) = dd.items.get(*name) else { return false };
             add_item_ops!(&item.adds);
             if !item.crafted {
                 if let Some(set_name) = &item.set_name {
@@ -4129,63 +4137,54 @@ impl DenseLeaf {
                 if v.is_nan() { 0.0 } else { v }
             } else { 0.0 }
         };
-        let mut dam_tome = read0(&vals, &present, dd.dam_mobs_idx);
-        let mut def_tome = read0(&vals, &present, dd.def_mobs_idx);
+        let mut dam_tome = read0(vals, present, dd.dam_mobs_idx);
+        let mut def_tome = read0(vals, present, dd.def_mobs_idx);
         for a in &dd.dam_tome_adds { dam_tome += a; }
         for a in &dd.def_tome_adds { def_tome += a; }
 
         // classDef insert, then the constant merge stages (merge_plain
         // semantics: previous non-numeric reads as NaN).
         vals[dd.class_def_idx as usize] = dd.class_def_val;
-        bit_set(&mut present, dd.class_def_idx);
+        bit_set(present, dd.class_def_idx);
         macro_rules! merge_ops {
             ($ops:expr) => {
                 for &(i, v) in $ops {
                     let iu = i as usize;
-                    if bit_get(&present, i) {
+                    if bit_get(present, i) {
                         vals[iu] += v;
                     } else {
                         vals[iu] = v;
-                        bit_set(&mut present, i);
+                        bit_set(present, i);
                     }
                 }
             };
         }
         merge_ops!(&dd.atree_prog);
-        let const_term_vals: Vec<f64> = dd.term_capture.iter()
-            .map(|&i| read0(&vals, &present, i)).collect();
+        self.const_term_vals.clear();
+        for &i in &dd.term_capture { self.const_term_vals.push(read0(vals, present, i)); }
         merge_ops!(&dd.const_prog);
         merge_ops!(&dd.static_prog);
 
         // Mult entry lists: tome first, then the constant tail.
-        let clone_entry = |e: &DMultEntry| DMultEntry {
-            key: e.key.clone(), spell_match: e.spell_match.clone(),
-            target: match e.target {
-                MultTarget::All => MultTarget::All,
-                MultTarget::MeleeOnly => MultTarget::MeleeOnly,
-                MultTarget::Ele(i) => MultTarget::Ele(i),
-                MultTarget::Inert => MultTarget::Inert,
-            },
-        };
-        let mut dam_entries = vec![parse_mult_entry("tome")];
-        let mut dam_vals = vec![dam_tome];
-        for (e, v) in &dd.dam_tail { dam_entries.push(clone_entry(e)); dam_vals.push(*v); }
-        let mut def_entries = vec![parse_mult_entry("tome")];
-        let mut def_vals = vec![def_tome];
-        for (e, v) in &dd.def_tail { def_entries.push(clone_entry(e)); def_vals.push(*v); }
+        self.dam_entries.clear();
+        self.dam_entries.push(parse_mult_entry("tome"));
+        self.dam_vals.clear();
+        self.dam_vals.push(dam_tome);
+        for (e, v) in &dd.dam_tail { self.dam_entries.push(e.clone()); self.dam_vals.push(*v); }
+        self.def_entries.clear();
+        self.def_entries.push(parse_mult_entry("tome"));
+        self.def_vals.clear();
+        self.def_vals.push(def_tome);
+        for (e, v) in &dd.def_tail { self.def_entries.push(e.clone()); self.def_vals.push(*v); }
 
-        for &i in &d.skp_idx { bit_set(&mut present, i); }
-        let mut var_out_absent = Vec::with_capacity(d.var_slots.len());
+        for &i in &d.skp_idx { bit_set(present, i); }
+        self.var_out_absent.clear();
         for &ki in &d.var_slots {
-            let absent = !bit_get(&present, ki);
-            var_out_absent.push(absent);
-            if absent { bit_set(&mut present, ki); }
+            let absent = !bit_get(present, ki);
+            self.var_out_absent.push(absent);
+            if absent { bit_set(present, ki); }
         }
-
-        Some(DenseLeaf {
-            lc_vals: vals, present, var_out_absent, const_term_vals,
-            dam_entries, dam_vals, def_entries, def_vals,
-            atk_spd_idx: dd.atk_spd_idx,
-        })
+        self.atk_spd_idx = dd.atk_spd_idx;
+        true
     }
 }
