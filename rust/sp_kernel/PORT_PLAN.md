@@ -161,3 +161,26 @@ levels; tie membership at the top-15 boundary may differ from JS
   bit-exact). Kills the remaining format!/JSON-get/alloc traffic in the
   innermost loop. Then: dense stat vectors for combo_base (memcpy clones,
   index-resolved reads) as the final representation jump.
+
+## Search-space round (2026-08-12, fourth pass)
+
+- **Last-slot cluster bound (DEFAULT ON, BOUND_CLUSTER=4)**: the innermost
+  loop tests one dense ceiling per cluster of 4 level-adjacent items and
+  skips whole clusters below the shared cutoff; prefix state cached per
+  node in a dedicated buffer, verdicts memoized per (prefix, cluster)
+  across level bands. Whole-pool and banded suffix bounds (BOUND_DEPTH /
+  BOUND_TAIL, default off) exist but rarely fire — per-stat pool maxima
+  form a "super-item" ~2x above real ceilings. Two fixes made bounds bite:
+  level-banded suffix maxima (pool[0..=h] per band budget h) and
+  set-transition deltas replacing the global set_upper (which alone
+  inflated every ceiling ~2x and had silently neutered the bound).
+- **Warm start (WARM_K=6)**: pools ranked by solo objective ceiling, the
+  top-6-per-slot subspace solved first with the same Search sharing the
+  cutoff atomic. Real builds → admissible seed; ranking only affects speed.
+- readme_spell_wide 180s: 95.2M → 335.4M leaves (organic best now 8.192M,
+  above the JS engine's all-time 8.119M). xpb objective: 6.3M leaves/s
+  (99.9% cluster-pruned). ehp objective: gate/bound discriminate poorly
+  (many near-cutoff leaves run the full pipeline; mana sim dominates) —
+  future: indirect-objective mana/pipeline specialization.
+- New benchmark fixtures (validated 96/96 bit-exact incl. dense per-trial):
+  spell_8free (all 8 slots free), spell_ehp, spell_xpb.
