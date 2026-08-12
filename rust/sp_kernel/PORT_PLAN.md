@@ -216,3 +216,22 @@ credits). The melee gap is correctness scope, not speed: scored parity on
 restriction scenarios still needs the check_thresholds port (task #23).
 Spell review: BOUND_TAIL=1 now default (+13% — the set-transition fix made
 depth-(n-2) ceilings straddle the cutoff).
+
+## Final round (2026-08-12, sixth pass)
+
+- **check_thresholds ported** (task #23): exact post-assemble restriction
+  check (ehp family, total_mana, finalSpellCost{n}, plain stats; ge/le) at
+  the worker's exact call sites (post-greedy, and re-checked after mana
+  rescue), dense + Obj mirrors cross-asserted. Restricted melee top-15
+  entries match JS bit-exact on the shared partition; multi-partition
+  replay is a fixture-format extension, tracked separately.
+- **Bounded-coupling mana doom** (task #28): doom precheck extended to
+  var-coupled scenarios via per-effect extremal evaluation over the
+  reachable SP box; direction-classified outputs; start-mana couplings
+  gated on allow_downtime; tripwire re-runs every bounded reject through
+  the full pipeline. ehp 45.2K -> 406K leaves/s overall (9x).
+- **Cluster-eval reset hoist + memo cap**: the per-eval scratch rebuild
+  (entry list clones) eliminated — rollbacks already restore the scratch;
+  the (prefix, cluster) memo clears at 4M entries to bound memory.
+  readme_spell_wide 180s: 335M -> 671.7M leaves (3.73M/s avg,
+  ~1,560x the JS engine); full 20.07B space extrapolates to ~90 minutes.

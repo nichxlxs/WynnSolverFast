@@ -274,6 +274,8 @@ struct Search<'a> {
     gated: u64,
     mana_reject: u64,
     thresh_reject: u64,
+    cluster_evals: u64,
+    cluster_memo_hits: u64,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
@@ -466,6 +468,8 @@ impl<'a> Search<'a> {
             stop: false,
             dense_work: Default::default(),
             thresh_reject: 0,
+            cluster_evals: 0,
+            cluster_memo_hits: 0,
             bound_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
@@ -913,8 +917,9 @@ impl<'a> Search<'a> {
                                 key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
                             }
                             let ceiling = match self.bound_memo.get(&key) {
-                                Some(&v) => v,
+                                Some(&v) => { self.cluster_memo_hits += 1; v }
                                 None => {
+                                    self.cluster_evals += 1;
                                     if prefix_state == 0 {
                                         prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                             Some((d, dd)) => {
@@ -930,6 +935,12 @@ impl<'a> Search<'a> {
                                             &db.last_clusters[c], &db.last_cluster_terms[c],
                                             &sc.rows, &sc.compiled_rows, &sc.tables)
                                     } else { f64::INFINITY };
+                                    // Bound the memo's memory: recent
+                                    // prefixes dominate hits, so a periodic
+                                    // clear costs little and caps growth.
+                                    if self.bound_memo.len() >= 4_000_000 {
+                                        self.bound_memo.clear();
+                                    }
                                     self.bound_memo.insert(key, v);
                                     v
                                 }
@@ -1313,6 +1324,10 @@ fn main() {
                         }
                     }
                     search.flush_checked();
+                    if std::env::var("CLUSTER_STATS").as_deref() == Ok("1") {
+                        eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {}",
+                                  search.cluster_evals, search.cluster_memo_hits, search.bound_memo.len());
+                    }
                     Totals {
                         checked: search.checked,
                         precheck_reject: search.precheck_reject,

@@ -4840,7 +4840,18 @@ pub fn dense_ceiling_cached(
     }
     {
         let DenseWork { leaf, scratch } = work;
-        scratch.reset(leaf, d);
+        // Row-op journals rolled back after each eval, so the scratch still
+        // mirrors the leaf except vals (fully overwritten by the assemble);
+        // it only needs (re)sizing against this leaf.
+        if scratch.vals.len() != leaf.lc_vals.len() || scratch.present.len() != leaf.present.len() {
+            scratch.reset(leaf, d);
+        } else {
+            scratch.present.copy_from_slice(&leaf.present);
+            scratch.dam_vals.clear();
+            scratch.dam_vals.extend_from_slice(&leaf.dam_vals);
+            scratch.def_vals.clear();
+            scratch.def_vals.extend_from_slice(&leaf.def_vals);
+        }
         let ceiling_sp = [150f64; 5];
         dense_assemble(d, leaf, scratch, &ceiling_sp);
     }
