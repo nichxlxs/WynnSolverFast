@@ -98,6 +98,7 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Ceiling gate, spell-spam workload | `readme_spell_wide`, 2 workers, 180s cap | — | 35,000 → 380,000 checked @ timeout | ~194 leaves/s | **~2,111 leaves/s (10.9x)** | leaf pipeline was 95% greedy; gate skips most of it | best improved 7,832,627 → 8,119,340 (more space covered) |
 | 2026-08-12 | Ceiling gate, colossal | 4.52T input / 334.8B search, 2 workers | — | 334,843,891,200 (full space) | completes 32.9s | **completes 19.97s (1.65x)**, 16.76B/s | 329,883 feasible leaves now mostly gate before greedy | feasible 329,883 and best 470,163 unchanged |
 | 2026-08-12 | Re-baseline post-dominance-fix + gate (queue item 7) | 2M / 95M / 135M / 1.9B, 2 workers | 2,486,862 / 13.4M / 25.2M / 239.0M (original variant) | 3,100,680 / 21.3M / 31.5M / 314.7M | 515ms / 8.88s / 1.82s / 1.08s (original) | **437ms / 8.76s / 1.39s / 0.93s** | current beats original despite 25-59% larger post-dominance space | 470,163 on all eight runs |
+| 2026-08-12 | Cross-worker shared cutoff (SAB) for the ceiling gate | Dense combo_damage (readme armor2 pools, 3,712 search) | — | 3,712 | wall 18.0s (local-only gate) | wall **7.54s** (2.4x; 8.3x vs ungated) | greedy calls 1,744 → 521; gate armed from partition start via global 15th-best distinct score | best 8,110,465 unchanged; suite 253/253 |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were

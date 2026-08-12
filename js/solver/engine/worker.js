@@ -126,6 +126,19 @@ let _precheck_reject = 0;
 let _feasible = 0;
 let _met_req = 0;
 let _top5 = [];
+// Global top-N cutoff broadcast by the coordinator (15th-best distinct score
+// across all workers + the incumbent seed). Monotone non-decreasing within a
+// search, so it persists across partitions; reset only on 'init'. A leaf
+// scoring below it can never enter the final merged top-N, which makes it a
+// valid ceiling-gate cutoff even while this worker's own _top5 is still
+// filling after a partition reset.
+let _shared_cutoff = -Infinity;
+// Optional SharedArrayBuffer mirror of the same cutoff (Int32, floor()ed by
+// the coordinator — flooring only lowers the cutoff, which stays admissible).
+// postMessage-based 'cutoff' broadcasts are only seen between partitions
+// (the enumeration loop is synchronous); the SAB is visible mid-partition.
+let _shared_cutoff_i32 = null;
+const _CUTOFF_SENTINEL = -0x80000000;
 let _top5_version = 0;
 let _last_sent_top5_version = 0;
 let _checked_at_last_top5_change = 0;
@@ -1290,13 +1303,19 @@ function _run_level_enum() {
         // greedy allocator can reach. If even that ceiling cannot beat the
         // current top-N cutoff, the leaf's final score would be rejected at
         // insertion — skip greedy + mana + score with an identical top-N.
-        if (_ceiling_gate_ok && _top5.length >= 15) {
+        let _gate_cutoff = _shared_cutoff;
+        if (_shared_cutoff_i32 !== null) {
+            const sc = Atomics.load(_shared_cutoff_i32, 0);
+            if (sc !== _CUTOFF_SENTINEL && sc > _gate_cutoff) _gate_cutoff = sc;
+        }
+        if (_top5.length >= 15 && _top5[14].score > _gate_cutoff) _gate_cutoff = _top5[14].score;
+        if (_ceiling_gate_ok && _gate_cutoff > -Infinity) {
             const ceiling_t0 = _trace_start('ceiling');
             const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm);
             _cached_hp_sim = null;
             const ceiling = _eval_combo_damage(cb150);
             _trace_end('ceiling', ceiling_t0);
-            const cutoff = _top5[14].score;
+            const cutoff = _gate_cutoff;
             // Strict margin: a float-ulp monotonicity wobble must never gate
             // a genuine top-N candidate.
             if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
@@ -1989,6 +2008,8 @@ self.onmessage = function (e) {
         // Heavy one-time initialization: store all shared data
         sets = new Map(msg.sets_data);
         _cfg = msg;
+        _shared_cutoff = -Infinity;
+        _shared_cutoff_i32 = msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null;
         _set_incr_cache_enabled(!msg.benchmark_legacy_incremental);
         _set_incr_parallel_layout(!msg.benchmark_nested_incremental);
         _cancelled = false;
@@ -2086,6 +2107,11 @@ self.onmessage = function (e) {
             top5: _top5,
             trace: _trace_snapshot(),
         });
+    } else if (msg.type === 'cutoff') {
+        // Coordinator broadcast of the global top-N cutoff. Only ever raise it.
+        if (typeof msg.value === 'number' && msg.value > _shared_cutoff) {
+            _shared_cutoff = msg.value;
+        }
     } else if (msg.type === 'cancel') {
         _cancelled = true;
     }

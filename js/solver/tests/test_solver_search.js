@@ -401,13 +401,51 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
         let timedOut = false;
         let workerError = null;
 
+        // ── Shared global top-N cutoff ─────────────────────────────────────
+        // The 15th-best distinct score reported by any worker (or the seed) is
+        // a lower bound on the final merged top-N cutoff: every reported build
+        // either survives to the final merge or was displaced by 15 higher-
+        // scoring builds from its own partition. Workers read it mid-partition
+        // through a SharedArrayBuffer (Int32, floored — flooring only lowers
+        // the cutoff, which keeps it admissible for the ceiling gate).
+        const CUTOFF_SENTINEL = -0x80000000;
+        const cutoffSab = typeof SharedArrayBuffer !== 'undefined' ? new SharedArrayBuffer(4) : null;
+        const cutoffView = cutoffSab ? new Int32Array(cutoffSab) : null;
+        if (cutoffView) Atomics.store(cutoffView, 0, CUTOFF_SENTINEL);
+        const cutoffScores = new Map();  // item_names key -> best score seen
+        let lastCutoff = -Infinity;
+        if (seedResult?.item_names) {
+            cutoffScores.set(seedResult.item_names.join(' '), seedResult.score);
+        }
+        function updateCutoff(entries) {
+            if (!entries) return;
+            for (const r of entries) {
+                if (!r || typeof r.score !== 'number' || !r.item_names) continue;
+                const key = r.item_names.join(' ');
+                const prev = cutoffScores.get(key);
+                if (prev === undefined || r.score > prev) cutoffScores.set(key, r.score);
+            }
+            if (cutoffScores.size < 15) return;
+            const scores = [...cutoffScores.values()].sort((a, b) => b - a);
+            const cutoff = scores[14];
+            if (cutoff <= lastCutoff) return;
+            lastCutoff = cutoff;
+            if (cutoffView) {
+                const floored = Math.max(CUTOFF_SENTINEL + 1, Math.min(0x7FFFFFFF, Math.floor(cutoff)));
+                Atomics.store(cutoffView, 0, floored);
+            }
+            for (const w of workers) {
+                try { w.postMessage({ type: 'cutoff', value: cutoff }); } catch (e) {}
+            }
+        }
+
         function dispatchNext(worker, workerId) {
             if (timedOut || partitionIdx >= partitions.length) return false;
             const partition = partitions[partitionIdx++];
             try {
                 if (workerId === -1) {
                     // First init message
-                    const msg = { ...initMsgBase, partition, worker_id: worker._workerId };
+                    const msg = { ...initMsgBase, partition, worker_id: worker._workerId, cutoff_sab: cutoffSab };
                     worker.postMessage(msg);
                 } else {
                     worker.postMessage({ type: 'run', partition, worker_id: workerId });
@@ -431,6 +469,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
                 for (const entry of msg.top5_names) {
                     progressTop.push(entry);
                 }
+                updateCutoff(msg.top5_names);
                 // Early termination: if any worker found a build meeting the target,
                 // stop all workers immediately instead of waiting for the full timeout.
                 if (targetScore != null && !timedOut) {
@@ -447,6 +486,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             totalChecked += msg.checked || 0;
             totalFeasible += msg.feasible || 0;
             if (msg.top5) allTop.push(...msg.top5);
+            updateCutoff(msg.top5);
             totalTrace = mergeTraceMetrics(totalTrace, msg.trace);
             // Clear progress counts for this worker (done supersedes progress).
             delete progressCounts[msg.worker_id];
