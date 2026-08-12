@@ -373,9 +373,12 @@ function _fast_ehp_precheck(running_sm) {
 // When no effect produces a 'prop'-type bonus, the per-call ability clone in
 // atree_compute_scaling is skipped (skip_edit).
 let _atree_scaling_ready = false;
-let _atree_scaled_cache = null;   // Map | null
+let _atree_scaled_cache = null;   // Map | null — whole output constant
+let _atree_split = null;          // { const_scaled: Map, var_effects: [] } | null
 let _atree_skip_edit = false;
-const _ATREE_SCALING_OPTS = { cached: null, skip_edit: false };
+const _scratch_var_scaled = new Map();
+const _ATREE_SCALING_OPTS = { cached: null, split: null, scratch_var: null, skip_edit: false };
+const _MULT_PREFIXES = new Set(['damMult', 'defMult', 'healMult', 'manaMult']);
 
 function _atree_scaling_setup() {
     if (_atree_scaling_ready) return;
@@ -387,8 +390,33 @@ function _atree_scaling_setup() {
             _cfg.atree_merged, new Map(), _cfg.button_states, _cfg.slider_states,
             null, _atree_skip_edit);
         _atree_scaled_cache = scaled;
+    } else {
+        // Stat-dependent: split the scaling into a constant partition
+        // (computed once, including any prop mutations — legal because no
+        // VARIABLE effect reads or writes props) and the stat-input effects
+        // (re-evaluated per candidate). Exact only when the two partitions
+        // write disjoint plain (non-Mult, non-nested) keys — per-key merge
+        // order is then preserved within each partition.
+        const plan = atree_collect_stat_effects(_cfg.atree_merged);
+        if (plan && !plan.var_has_prop_io) {
+            const [, const_scaled] = atree_compute_scaling(
+                _cfg.atree_merged, new Map(), _cfg.button_states, _cfg.slider_states,
+                null, _atree_skip_edit, /* skip_stat_inputs */ true);
+            let ok = true;
+            for (const key of plan.var_keys) {
+                if (key.includes('.') || _MULT_PREFIXES.has(key) || const_scaled.has(key)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                _atree_split = { const_scaled, var_effects: plan.var_effects };
+            }
+        }
     }
     _ATREE_SCALING_OPTS.cached = _atree_scaled_cache;
+    _ATREE_SCALING_OPTS.split = _atree_split;
+    _ATREE_SCALING_OPTS.scratch_var = _scratch_var_scaled;
     _ATREE_SCALING_OPTS.skip_edit = _atree_skip_edit;
 }
 
@@ -904,14 +932,20 @@ function _run_level_enum() {
                 P.set(skp_order[i], total_sp[i] + _trial_raw_skp[i]);
             }
             let atree_scaled_stats;
+            let atree_var_stats = null;
             if (_atree_scaled_cache) {
                 atree_scaled_stats = _atree_scaled_cache;
+            } else if (_atree_split) {
+                atree_scaled_stats = _atree_split.const_scaled;
+                atree_var_stats = atree_eval_stat_effects(
+                    _cfg.atree_merged, _atree_split.var_effects, P, _scratch_var_scaled);
             } else {
                 [, atree_scaled_stats] = atree_compute_scaling(
                     _cfg.atree_merged, P, _cfg.button_states, _cfg.slider_states,
                     _scratch_atree, _atree_skip_edit);
             }
             _merge_into_undo(P, atree_scaled_stats);
+            if (atree_var_stats) _merge_into_undo(P, atree_var_stats);
             _merge_into_undo(P, _cfg.static_boosts);
             const s = _eval_score(P, P);
             _undo_rollback();
