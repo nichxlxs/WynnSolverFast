@@ -28,24 +28,36 @@ bounds may remove search space from a run advertised as exhaustive.
 - **DONE** The supplied tier-stack Gaia build now has 0.84M, 3.19M, and 8.14M
   combination variants with 30-second original/current anytime baselines.
 - **IN PROGRESS** The first search fixtures exist, but combo snapshots and wider
-  class/target coverage are still absent. The suite passes 196 assertions with
+  class/target coverage are still absent. The suite passes 236 assertions with
   two missing-combo-fixture warnings; regression coverage is not complete.
-- **BLOCKED** Direct review of SP Algorithm Bounty PR 1: GitHub returned HTTP 403
-  through both HTTPS and Git transports on 2026-08-12. Retry from an environment
-  with GitHub access; do not infer its behavior from its title.
-- **DONE** The local side of the SP review confirms exact calculation is required
-  at qualifying leaves and identifies the current algorithm as factorial
-  activation-order search, with an explicit external adoption gate.
+- **DONE** The SP-Algorithm-Bounty archive was supplied as a ZIP in the repo
+  root and fully reviewed on 2026-08-12; see the Lodestone section below. Its
+  worst-case-greedy insight is now adopted as an exact closure fast path in
+  `calculate_skillpoints`, guarded by a 300-build differential test.
+- **DONE** Two latent correctness bugs found and fixed on 2026-08-12:
+  `calculate_skillpoints` dropped `total_item_skillpoints` from its k>0 return
+  (silently disabling Radiance item-SP scaling), and `getDefenseStats` read
+  hp/hpBonus/hprRaw/hprPct without null guards, turning EHP-family scores into
+  NaN for any build without an hpBonus item ("best score: NaN"). With the fix,
+  every running-stat variant agrees at the historical 15,095 two-armor score.
 - **DONE** A 90-second phase trace and V8 CPU profile identified incremental
   stat add/remove as 87.75% of pre-change worker samples.
 - **DONE** Per-item compiled additive-stat caching raises the 2M long benchmark
   from 27K to 215K checked/s; original completes in 57s, current in 9.4s.
 - **DONE** Parallel cached stat arrays and compact running stats add another
   +29.3% and +19.1% respectively on the 2M completion benchmark.
-- **DONE** A 95.17M-input benchmark now completes current mode in 80.39s while
-  original mode reaches 4.82M checked tuples and times out at 120s.
-- **BLOCKED** The user-mentioned ZIP containing lodestone/lodestone swift is not
-  present under the repo, workspace, or `/tmp`; source-level review awaits it.
+- **DONE** 2026-08-12 (second wave, fresh container baseline 290,713 checked/s
+  on the 2M scenario): numeric-index running vector (P1.3), in-place greedy
+  trial evaluation, O(5) SP unplace restore, and mid-tree restriction suffix
+  bounds (P1.5) raise the 2M scenario to 4,857,074 checked/s (417ms
+  completion) and complete the 95.17M-input case in 17.7s (was 80.4s; original
+  now completes in 81.0s on this machine). Best scores unchanged everywhere.
+- **DONE** P0.4 exhaustive Cartesian oracle: three fixtures re-enumerate the
+  canonical tuple space independently and require exact checked/feasible/top-N
+  equality plus partition-count invariance.
+- **DONE** P2.2 Rust SP kernel prototype (`rust/sp_kernel`): exact parity on
+  500 seeded fixtures, 8.5x kernel-level speedup over warmed JS (0.61 vs 5.20
+  µs/call).
 
 ## Optimization ledger
 
@@ -61,6 +73,12 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Parallel cached stat arrays (`8f294c8`) | Gaia 2M, same current space | 2,025,400 | 2,025,400 | 152,137/s | 196,679/s | **+29.28%** | Same 470,163 incumbent |
 | 2026-08-12 | Compact running stat object (`95231ae`) | Gaia 2M, same current space | 2,025,400 | 2,025,400 | 190,018/s | 226,226/s | **+19.06%** | Same 470,163 incumbent |
 | 2026-08-12 | Current cumulative | Gaia 95M input / two-minute cap | 9,938,880 | 16,007,310 | 40,021/s | 199,113/s | **+397.52%** | Original timed out; current completed in 80.39s; both retain 470,163 |
+| 2026-08-12 | New container baseline (all rows below share it) | Gaia 2M, 1 worker | 1,543,104 | 2,025,400 | 38,897/s | 290,713/s | — | 470,163 both |
+| 2026-08-12 | Numeric-index stat vector (P1.3) | Gaia 2M, 1 worker | — | 2,025,400 | — | 818,674/s | **+181.6%** | 470,163; 15,095 on two-armor across variants |
+| 2026-08-12 | In-place greedy trials + O(5) SP restore | Gaia 2M, 1 worker | — | 2,025,400 | — | 1,025,519/s | **+25.3%** | 470,163; greedy phase 678→231µs/leaf on two-armor |
+| 2026-08-12 | Restriction suffix bounds (P1.5) | Gaia 2M, 1 worker | 1,543,104 | 2,025,400 | 569,621/s | 4,857,074/s | **+373.6%** | 470,163; oracle-exact funnel counts |
+| 2026-08-12 | Cumulative second wave | Gaia 95M input, 2 workers | 9,938,880 | 16,007,310 | 122,733/s | 904,163/s | completes in 17.7s (was 80.4s) | 470,163 both; original also completes now (81.0s) |
+| 2026-08-12 | Rust SP kernel prototype (P2.2) | 500 seeded SP fixtures | — | — | 192,466 calls/s (JS) | 1,638,372 calls/s | **8.5x kernel-level** | Exact parity, 0 mismatches |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -80,14 +98,34 @@ permanent report.
 
 ## SP algorithm / Lodestone status
 
-Exact SP calculation is required for candidate legality, but it is not currently
-the Gaia bottleneck. Full-build result caching is unlikely to hit because each
-canonical tuple is visited once; bounded subset-state or compiled-vector caches
-may help SP-heavy cases. Lodestone and Lodestone Swift must be differential-tested
-for negative SP, self-exclusion, intermediate sustainability, crafted/weapon/set
-rules, caps, budget, and returned metadata before adoption. As of 2026-08-12 the
-referenced ZIP is not present in this checkout and no Git remote is configured,
-so source-level review remains blocked until the archive is available locally.
+The SP-Algorithm-Bounty archive was reviewed in full on 2026-08-12. Findings:
+
+- The bounty solves the **dual** problem — given *fixed* allocated SP, find the
+  maximum-cardinality valid item subset — not our minimize-assigned-SP problem.
+  Its differential fuzz test proves set-feasibility is order-independent under
+  the cascade rule, which licenses subset-mask search instead of permutation
+  search.
+- **LodestoneAlgorithm / LodestoneSwiftAlgorithm** share one engine: a
+  worst-case greedy fixpoint (items whose requirements hold even with every
+  negative bonus applied are unconditionally safe) settles nearly everything on
+  real builds; only the undecided + negative-bonus remainder (usually 0–3
+  items) needs an exact bounded subset search. Swift only moves per-item
+  normalization to equip time. LodestoneFallback contributes the cleanest
+  cascade invariant (`need[s] = max(req[s] + bonus[s])`) and an admissible
+  count/weight bound.
+- **Adopted**: the greedy-fixpoint insight, transposed to minimization, is now
+  an exact closure fast path in `calculate_skillpoints` — when no ordering item
+  has a negative SP bonus lane and the closure at `assign = post_floor`
+  activates everything, `post_floor` is optimal and the activation-order
+  backtracking is skipped (O(k²) vs pruned k!). A differential test runs 300
+  seeded real-item builds against a backtracking-only copy and requires
+  identical outputs. The k==0/tiny-k structure, caps, budget, crafted/weapon/
+  set handling are unchanged.
+- **Not adopted**: the max-valid-subset objective, node caps, and the fallback
+  repair heuristic — they answer a different question than build legality.
+
+Exact SP remains <1% of Gaia wall time; the fast path mainly hardens SP-heavy
+workloads (many ordering items) and simplified the Rust kernel port.
 
 ## Gaia incumbent clarification
 
@@ -120,7 +158,7 @@ will be used by both JS reference and future Rust core.
 | P0.1 | DONE | Statistical benchmark utilities | Unit-tested median, p90, mean, deviation, comparison |
 | P0.2 | DONE | SP microbenchmark | 0/4/8 cascade cases, allocating/scratch, JSON output |
 | P0.3 | DONE | Top-N old/new benchmark | Exact-output check plus runtime/allocation comparison |
-| P0.4 | NEXT | Small exhaustive search oracle | Exact top-N and funnel counts independent of production enumeration |
+| P0.4 | DONE | Small exhaustive search oracle | Three fixtures assert exact top-N/funnel equality and partition invariance |
 | P0.5 | DONE | Real-world end-to-end benchmark | Original/current comparison over complete and time-bounded searches |
 | P0.6 | IN PROGRESS | Real snapshot corpus | README and Gaia builds cover 0.8M-8.1M spaces; every class, mana/HP, crafted, and other targets remain |
 | P0.7 | BACKLOG | Controlled-machine baseline | Store artifact outside Git; document hardware and runtime settings |
@@ -132,11 +170,11 @@ will be used by both JS reference and future Rust core.
 |---|---|---|---|
 | P1.1 | DONE | Allocation-free top-N cutoff | Deterministic unit test and equality with legacy algorithm |
 | P1.2 | DONE | Set-safe dominance pruning | Set-piece survival regression; all set items conservatively excluded |
-| P1.3 | IN PROGRESS | Indexed item/stat vectors | Parallel item arrays and compact object landed; numeric-index vector remains |
+| P1.3 | DONE | Indexed item/stat vectors | Float64Array running vector + compiled index/value entries; leaf materialization boundary |
 | P1.4 | BACKLOG | Compiled combo plan | General/compiled differential tests for every combo fixture |
-| P1.5 | BACKLOG | Direct restriction suffix bounds | Exact oracle equality and prune-reason counters |
-| P1.6 | BACKLOG | Objective branch-and-bound | Formal admissible bound per supported target |
-| P1.7 | BACKLOG | SP/greedy allocation reduction | Identical allocation, score and mana behavior |
+| P1.5 | DONE | Direct restriction suffix bounds | Oracle-exact equality; prunes credited to checked/precheck_reject |
+| P1.6 | BACKLOG | Objective branch-and-bound | Formal admissible bound per supported target (suffix bounds cover restrictions only) |
+| P1.7 | DONE | SP/greedy allocation reduction | In-place trial eval (bit-identical scores) + O(5) SP restore + closure fast path |
 | P1.8 | BACKLOG | Adaptive prefix task scheduler | Complete partition coverage and deterministic single-thread mode |
 | P1.9 | BACKLOG | Shared immutable worker data | Clone/shared paths produce identical results |
 
@@ -145,7 +183,7 @@ will be used by both JS reference and future Rust core.
 | ID | Status | Deliverable | Go/no-go criterion |
 |---|---|---|---|
 | P2.1 | BACKLOG | Versioned `SearchJob`/`SearchResult` schema | Round trip plus data/engine version rejection tests |
-| P2.2 | BACKLOG | Compact Rust item and SP kernel | Exact JS/oracle parity on generated cases |
+| P2.2 | IN PROGRESS | Compact Rust item and SP kernel | SP kernel done: exact parity on 500 fixtures, 8.5x; item/enumeration kernel remains |
 | P2.3 | BACKLOG | Canonical single-thread enumerator | Exact counts and top-N across small exhaustive corpus |
 | P2.4 | BACKLOG | Stateless objective prototype | At least 1.5x end-to-end speedup, or decisive memory benefit |
 
@@ -169,14 +207,21 @@ will be used by both JS reference and future Rust core.
 
 ## Immediate work queue
 
-1. Build P0.4 using tiny numeric pools and a deliberately simple Cartesian
-   oracle; cover ring canonicalization and partition completeness.
-2. Recover or recreate more real snapshots for P0.6. Check upstream WynnBuilder test
-   history and port only fixtures whose inputs and expected semantics are clear.
-3. Continue P1.3 with an indexed numeric running-stat vector; profiling shows
-   cached string-Map add/remove still consumes ~59% of worker CPU samples.
-4. Add an SP-heavy benchmark before evaluating lodestone swift; exact SP is
-   under 1% on the traced Gaia workload and is not currently the main target.
+1. Post-suffix-bound trace: mana simulation is now the top cost in
+   feasibility-dense scenarios (~45% of wall); profile simulate_combo_mana_fast
+   before choosing the next optimization.
+2. The leaf precheck (and therefore the suffix bounds that mirror it) ignores
+   set bonuses, radiance scaling, and atree scaling on ge-restricted stats;
+   running underestimates the final stat, so a build whose set/radiance bonus
+   would satisfy a threshold can be rejected. Pre-existing behavior — decide
+   whether to accept (document) or account for those contributions in
+   adjusted_threshold.
+3. Recover or recreate more real snapshots for P0.6, including at least one
+   restriction-heavy and one SP-heavy scenario as oracle fixtures.
+4. P1.6 objective branch-and-bound (score upper bounds per remaining slot) is
+   the next algorithmic lever for the sparse case; validate against the oracle.
+5. Extend the Rust prototype toward P2.3 (canonical enumerator) reusing the
+   fixture-parity methodology.
 
 ## Update protocol
 
