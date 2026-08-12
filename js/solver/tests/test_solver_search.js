@@ -966,6 +966,7 @@ function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
                     static_boosts: _jser(initMsgBase.static_boosts),
                     radiance_boost: _jser(initMsgBase.radiance_boost ?? null),
                     spell_base_costs: _jser(initMsgBase.spell_base_costs ?? null),
+                    custom_weights: _jser(initMsgBase.custom_weights ?? null),
                     scaling_plan,
                     constants: ctxLayer2,
                     item_registry,

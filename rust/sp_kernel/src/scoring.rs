@@ -94,6 +94,8 @@ pub struct Tables {
     pub sp_rate: f64,
     pub sp_cap: f64,
     pub sp_pct_table: Vec<f64>,
+    pub skillpoint_final_mult_3: f64,
+    pub skillpoint_final_mult_4: f64,
     /// Precomputed per-element stat key names (hot-path format! hoist).
     pub names: ElemNames,
 }
@@ -141,6 +143,10 @@ impl Tables {
             sp_rate: v["sp_percentage_rate"].as_f64().unwrap(),
             sp_cap: v["sp_percentage_input_cap"].as_f64().unwrap(),
             sp_pct_table: v.get("sp_pct_table").map(arr_f64).unwrap_or_default(),
+            skillpoint_final_mult_3: v.get("skillpoint_final_mult")
+                .and_then(|a| a.get(3)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
+            skillpoint_final_mult_4: v.get("skillpoint_final_mult")
+                .and_then(|a| a.get(4)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
             names: ElemNames::build(),
         }
     }
@@ -1575,9 +1581,10 @@ pub fn leaf_pipeline(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+    objective: &Objective,
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
-                              registry, hit_refs, tables, consts, None)? {
+                              registry, hit_refs, tables, consts, objective, None)? {
         LeafOutcome::Scored(r) => Ok(Some(r)),
         LeafOutcome::Gated => unreachable!("no cutoff passed"),
         _ => Ok(None),
@@ -1589,7 +1596,7 @@ pub fn leaf_pipeline_gated(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
-    gate_cutoff: Option<f64>,
+    objective: &Objective, gate_cutoff: Option<f64>,
 ) -> Result<LeafOutcome, String> {
     // Units in worker order (helmet-first _scratch_sp_input order).
     let unit_of = |sm: &Obj| -> crate::Unit {
@@ -1663,11 +1670,13 @@ pub fn leaf_pipeline_gated(
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
-        let ceiling_sp = [150f64; 5];
-        let cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
-        let ceiling = eval_combo_damage(&cb150, weapon, rows, registry, hit_refs, tables);
-        if ceiling < cutoff - cutoff.abs() * 1e-9 {
-            return Ok(LeafOutcome::Gated);
+        if objective.supports_ceiling() {
+            let ceiling_sp = [150f64; 5];
+            let cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+            let ceiling = objective.score(&cb150, weapon, rows, registry, hit_refs, tables);
+            if ceiling < cutoff - cutoff.abs() * 1e-9 {
+                return Ok(LeafOutcome::Gated);
+            }
         }
     }
 
@@ -1679,7 +1688,7 @@ pub fn leaf_pipeline_gated(
     let mut trial = |sp: &[i32; 5]| -> f64 {
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         let cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
-        eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables)
+        objective.score(&cb, weapon, rows, registry, hit_refs, tables)
     };
     assigned_sp += greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial);
 
@@ -1694,7 +1703,7 @@ pub fn leaf_pipeline_gated(
         }
     }
 
-    let score = eval_combo_damage(&combo_base, weapon, rows, registry, hit_refs, tables);
+    let score = objective.score(&combo_base, weapon, rows, registry, hit_refs, tables);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
@@ -1769,6 +1778,7 @@ pub fn mana_rescue(
 
 /// Everything the leaf pipeline needs, loaded from a score-fixture JSON.
 pub struct ScoringCtx {
+    pub objective: Objective,
     pub tables: Tables,
     pub weapon: Obj,
     pub rows: Vec<Row>,
@@ -1815,7 +1825,12 @@ impl ScoringCtx {
                 skp: arr5("skillpoints"),
             }
         });
+        let scoring_target = fixture["meta"].get("scoring_target")
+            .and_then(|t| t.as_str()).unwrap_or("combo_damage").to_string();
+        let custom_weights = fixture["layer2"].get("custom_weights").cloned();
+        let objective = Objective::parse(&scoring_target, custom_weights.as_ref())?;
         Ok(ScoringCtx {
+            objective,
             tables: Tables::parse(&fixture["tables"]),
             weapon: as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone(),
             rows: parse_rows(&fixture["parsed_combo"]),
@@ -1950,6 +1965,7 @@ impl Layer2 {
         &self, prefix_names: &[&str; 8], bounds: &BoundTables, next_depth: usize,
         weapon: &Obj, rows: &[Row], registry: &[Value],
         hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
+        objective: &Objective,
     ) -> Result<f64, String> {
         let mut base = self.build_base(prefix_names, weapon)?;
         let add = |base: &mut Obj, delta: &Obj| {
@@ -1964,6 +1980,147 @@ impl Layer2 {
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
         let cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
-        Ok(eval_combo_damage(&cb, weapon, rows, registry, hit_refs, tables))
+        Ok(objective.score(&cb, weapon, rows, registry, hit_refs, tables))
+    }
+}
+
+// ── Generic scoring objectives ───────────────────────────────────────────────
+//
+// The solver optimizes whatever the scenario asks for — combo damage, an
+// EHP-family stat, total mana, a plain stat, or a weighted custom blend.
+// Every optimization that removes work (the leaf ceiling gate, the mid-tree
+// bound, greedy trials) dispatches through this enum so nothing is
+// hardcoded to damage. `supports_ceiling` marks objectives whose value is
+// non-decreasing in every stat it reads (with SP at the 150 cap), which is
+// what makes "evaluate at per-stat maxima" an admissible upper bound; the
+// gate and bound simply stay off for objectives without that proof
+// (correct, just unpruned).
+
+pub enum Objective {
+    ComboDamage,
+    /// ehp / ehp_no_agi / total_hp / hpr / ehpr / total_mana / plain stat.
+    Indirect(String),
+    /// Weighted blend; ceiling only when every weight is >= 0 and every
+    /// sub-target supports a ceiling.
+    Custom(Vec<(String, f64)>),
+}
+
+fn raw_to_pct(raw: f64, pct: f64) -> f64 {
+    if raw < 0.0 {
+        js_min(0.0, raw - raw * pct)
+    } else if raw > 0.0 {
+        raw + raw * pct
+    } else {
+        0.0
+    }
+}
+
+fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() { f64::NAN } else if a < b { a } else { b }
+}
+
+/// getDefenseStats subset: (total_hp, ehp, ehp_no_agi, hpr, ehpr).
+pub fn defense_stats(stats: &StatsView, tables: &Tables) -> (f64, f64, f64, f64, f64) {
+    let fm3 = tables.skillpoint_final_mult_3;
+    let fm4 = tables.skillpoint_final_mult_4;
+    let def_pct = tables.sp_to_pct(stats.num_or0("def")) * fm3;
+    let agi_pct = tables.sp_to_pct(stats.num_or0("agi")) * fm4;
+    let mut total_hp = stats.num_or0("hp") + stats.num_or0("hpBonus");
+    if total_hp < 5.0 { total_hp = 5.0; }
+    let mut def_mult = 2.0 - if stats.num("classDef").is_nan() { 1.0 } else { stats.num("classDef") };
+    if let Some(dm) = stats.nested("defMult") {
+        for (_, v) in dm {
+            def_mult *= 1.0 - v.as_f64().unwrap_or(f64::NAN) / 100.0;
+        }
+    }
+    let agi_reduction = (100.0 - stats.num_or0("agiDef")) / 100.0;
+    let denom_full = agi_reduction * agi_pct + (1.0 - agi_pct) * (1.0 - def_pct);
+    let ehp = total_hp / denom_full / def_mult;
+    let ehp_no_agi = total_hp / ((1.0 - def_pct) * def_mult);
+    let hpr = raw_to_pct(stats.num_or0("hprRaw"), stats.num_or0("hprPct") / 100.0);
+    let ehpr = hpr / denom_full / def_mult;
+    (total_hp, ehp, ehp_no_agi, hpr, ehpr)
+}
+
+pub fn eval_indirect_stat(stats: &StatsView, stat: &str, tables: &Tables) -> f64 {
+    match stat {
+        "ehp" => defense_stats(stats, tables).1,
+        "ehp_no_agi" => defense_stats(stats, tables).2,
+        "total_hp" => defense_stats(stats, tables).0,
+        "hpr" => defense_stats(stats, tables).3,
+        "ehpr" => defense_stats(stats, tables).4,
+        "total_mana" => {
+            let mm = stats.num_or0("maxMana");
+            let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
+            100.0 + mm + int_mana
+        }
+        other => stats.num_or0(other),
+    }
+}
+
+impl Objective {
+    pub fn parse(scoring_target: &str, custom_weights: Option<&Value>) -> Result<Objective, String> {
+        match scoring_target {
+            "combo_damage" => Ok(Objective::ComboDamage),
+            "total_healing" => Err("total_healing objective not ported".into()),
+            "custom" => {
+                let weights = custom_weights.and_then(|v| v.as_array())
+                    .ok_or("custom objective without custom_weights")?;
+                let mut out = Vec::new();
+                for w in weights {
+                    let target = w.get("target").and_then(|t| t.as_str())
+                        .ok_or("custom weight missing target")?;
+                    if target == "total_healing" {
+                        return Err("total_healing sub-target not ported".into());
+                    }
+                    let weight = w.get("weight").and_then(|x| x.as_f64())
+                        .ok_or("custom weight missing weight")?;
+                    out.push((target.to_string(), weight));
+                }
+                Ok(Objective::Custom(out))
+            }
+            other => Ok(Objective::Indirect(other.to_string())),
+        }
+    }
+
+    /// Leaf score — mirrors eval_score_dispatch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn score(
+        &self, combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+        hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
+    ) -> f64 {
+        match self {
+            Objective::ComboDamage =>
+                eval_combo_damage(combo_base, weapon, rows, registry, hit_refs, tables),
+            Objective::Indirect(stat) =>
+                eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
+            Objective::Custom(weights) => {
+                let mut damage: Option<f64> = None;
+                let stats = StatsView::Borrowed(combo_base);
+                let mut sum = 0.0;
+                for (target, weight) in weights {
+                    let sub = if target == "combo_damage" {
+                        *damage.get_or_insert_with(|| eval_combo_damage(
+                            combo_base, weapon, rows, registry, hit_refs, tables))
+                    } else {
+                        eval_indirect_stat(&stats, target, tables)
+                    };
+                    sum += weight * sub;
+                }
+                sum
+            }
+        }
+    }
+
+    /// Whether "score at per-stat maxima with SP=150" is an admissible upper
+    /// bound for this objective (see module comment).
+    pub fn supports_ceiling(&self) -> bool {
+        match self {
+            Objective::ComboDamage => true,
+            // All indirect stats are non-decreasing in the stats they read
+            // (negative raw values are still bounded above by per-stat maxima).
+            Objective::Indirect(_) => true,
+            Objective::Custom(weights) => weights.iter().all(|(_, w)| *w >= 0.0),
+        }
     }
 }

@@ -119,6 +119,10 @@ fn main() {
 
     // Layer 2 full-pipeline state (greedy + mana): SP kernel + guild unit.
     let l2consts = L2Consts::parse(&fixture);
+    let objective = Objective::parse(
+        fixture["meta"].get("scoring_target").and_then(|t| t.as_str()).unwrap_or("combo_damage"),
+        fixture["layer2"].get("custom_weights"),
+    ).expect("objective");
     let mut kernel = sp_kernel::Kernel::new();
     let guild_unit: Option<sp_kernel::Unit> = fixture["layer2"].get("guild_tome_sm")
         .and_then(as_map)
@@ -203,7 +207,7 @@ fn main() {
                         }
                     }
                     // End-to-end: score the rebuilt map.
-                    let got2 = eval_combo_damage(&assembled, &weapon, &rows, &registry, &hit_refs, &tables);
+                    let got2 = objective.score(&assembled, &weapon, &rows, &registry, &hit_refs, &tables);
                     if got2.to_bits() == expected.to_bits() { l2_score_pass += 1; } else {
                         l2_score_fail += 1;
                         if l2_score_fail <= 3 {
@@ -226,7 +230,8 @@ fn main() {
             ) {
                 let exp_total: Vec<f64> = arr_f64(&case["total_sp"]);
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
-                                    &mut kernel, &rows, &registry, &hit_refs, &tables, consts) {
+                                    &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
+                                    &objective) {
                     Ok(Some(r)) => {
                         let base_ok = (0..5).all(|j| r.base_sp[j] as f64 == exp_base[j]);
                         let total_ok = (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]);
@@ -256,7 +261,7 @@ fn main() {
             }
         }
 
-        let got = eval_combo_damage(combo_base, &weapon, &rows, &registry, &hit_refs, &tables);
+        let got = objective.score(combo_base, &weapon, &rows, &registry, &hit_refs, &tables);
         if got.to_bits() == expected.to_bits() {
             pass += 1;
         } else {
