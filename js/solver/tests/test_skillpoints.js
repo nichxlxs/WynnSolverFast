@@ -94,9 +94,7 @@ const data = JSON.parse(fs.readFileSync(CASES_PATH, 'utf8'));
 const cases = data.cases;
 
 if (cases.length === 0 && !isUpdate) {
-    console.log('No test cases in test_skillpoints.json. Use gen_sp_cases.js to generate some.');
-    console.log('\n[Skillpoints] 0 passed, 0 failed, 0 warnings');
-    process.exit(0);
+    console.log('No test cases in test_skillpoints.json (closure differential still runs). Use gen_sp_cases.js to generate some.');
 }
 
 if (isUpdate) {
@@ -180,6 +178,86 @@ for (const tc of cases) {
         `${label}: total_assigned = ${total_assigned}, expected ${tc.expected.total_assigned}`
     );
 }
+
+// ── Closure fast-path differential ──────────────────────────────────────────
+//
+// calculate_skillpoints has a Lodestone-style closure fast path that skips
+// the activation-order backtracking when every ordering item has nonnegative
+// SP bonuses and the closure activates everything at assign = post_floor.
+// Verify it against a second sandbox whose skillpoints.js has the fast path
+// disabled (pure backtracking) over seeded random builds from real items.
+
+(function closureDifferential() {
+    const vm = require('vm');
+    const REPO = path.join(__dirname, '..', '..', '..');
+    const spPath = path.join(REPO, 'js', 'game', 'skillpoints.js');
+    const src = fs.readFileSync(spPath, 'utf8');
+    const GUARD = 'if (!closure_solved) _bt(0, 0, 0);';
+    if (!src.includes(GUARD)) {
+        t.assert(false, 'closure differential: guard line not found in skillpoints.js');
+        return;
+    }
+    // Re-evaluate a backtracking-only copy inside the same sandbox under a
+    // different name so it shares game data (sets, SP_PER_ATTR_CAP, ...).
+    const patched = src
+        .replace(GUARD, '_bt(0, 0, 0);')
+        .replace('function calculate_skillpoints(', 'function calculate_skillpoints_bt_only(');
+    vm.runInContext(patched, ctx, { filename: 'skillpoints_bt_only.js' });
+    const calc_bt_only = ctx.calculate_skillpoints_bt_only;
+
+    // Deterministic LCG so failures are reproducible.
+    let seed = 0xC0FFEE;
+    const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000;
+    const pickR = (arr) => arr[Math.floor(rand() * arr.length)];
+
+    // Per-slot pools of real items (SP-relevant items favored: keep items
+    // with any req or skillpoint, plus the NONE item).
+    const poolByType = {};
+    for (const [name, item] of itemMap) {
+        if (item.category === 'weapon') continue;
+        const hasSP = (item.reqs ?? []).some(r => r > 0) || (item.skillpoints ?? []).some(s => s !== 0);
+        if (!hasSP) continue;
+        (poolByType[item.type] ??= []).push(name);
+    }
+    const weaponPool = [];
+    for (const [name, item] of itemMap) {
+        if (['bow', 'wand', 'dagger', 'spear', 'relik'].includes(item.type)) weaponPool.push(name);
+    }
+
+    const CASES = 300;
+    let mismatches = 0;
+    let closure_cases = 0;
+    for (let c = 0; c < CASES; c++) {
+        const names = [];
+        for (let s = 0; s < 8; s++) {
+            const pool = poolByType[SLOT_TYPES[s]] ?? [];
+            // ~20% NONE to vary k.
+            names.push(rand() < 0.2 || pool.length === 0 ? NONE_NAMES[s] : pickR(pool));
+        }
+        const weaponName = pickR(weaponPool);
+        const tc = { items: names, weapon: weaponName };
+        const resolved = buildStatMaps(tc);
+        if (resolved.error) continue;
+
+        const budget = 200;
+        const a = calculate_skillpoints(resolved.equipSMs, resolved.weaponSM, budget);
+        const b = calc_bt_only(resolved.equipSMs, resolved.weaponSM, budget);
+
+        const aKey = a === null ? 'null' : JSON.stringify([Array.from(a[0]), Array.from(a[1]), a[2]]);
+        const bKey = b === null ? 'null' : JSON.stringify([Array.from(b[0]), Array.from(b[1]), b[2]]);
+        if (aKey !== bKey) {
+            mismatches++;
+            if (mismatches <= 3) {
+                console.error(`  DIFF case ${c}: items=${JSON.stringify(names)} weapon=${weaponName}`);
+                console.error(`    fast=${aKey}`);
+                console.error(`    bt  =${bKey}`);
+            }
+        }
+        if (a !== null) closure_cases++;
+    }
+    t.assert(mismatches === 0,
+        `closure differential: ${CASES} seeded builds, ${mismatches} mismatches (${closure_cases} feasible)`);
+})();
 
 const { fail } = t.summary();
 if (fail > 0) process.exit(1);

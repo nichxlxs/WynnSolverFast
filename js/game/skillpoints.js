@@ -238,6 +238,62 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
     for (let i = 0; i < 5; i++) { running_bonus[i] = 0; assign[i] = 0; }
     let best_total = Infinity;
 
+    // ── Lodestone-style closure fast path ───────────────────────────────────
+    //
+    // When no ordering item has a negative SP bonus lane, activation is
+    // monotone: activating an item can only raise the available SP, so a
+    // greedy closure at assign = post_floor is order-independent and
+    // complete, and intermediate sustainability holds automatically
+    // (avail' = avail + skp_n >= req_n + skp_n right after activation, and
+    // avail never decreases afterwards). If the closure activates every
+    // ordering item, assign = post_floor is feasible — and post_floor is
+    // already a lower bound, so it is optimal and the ordering search can be
+    // skipped entirely. (Adapted from the Lodestone algorithm's worst-case
+    // greedy fixpoint, SP-Algorithm-Bounty.)
+    let closure_solved = false;
+    {
+        let has_neg_ord = false;
+        for (let n = 0; n < k && !has_neg_ord; n++) {
+            const skp_n = ord_skp[n];
+            for (let j = 0; j < 5; j++) {
+                if (skp_n[j] < 0) { has_neg_ord = true; break; }
+            }
+        }
+        if (!has_neg_ord) {
+            let activated_count = 0;
+            let activated_mask = 0;
+            let progress = true;
+            while (progress && activated_count < k) {
+                progress = false;
+                for (let n = 0; n < k; n++) {
+                    if (activated_mask & (1 << n)) continue;
+                    const req_n = ord_reqs[n];
+                    let ok = true;
+                    for (let j = 0; j < 5; j++) {
+                        if (req_n[j] > 0
+                            && req_n[j] > post_floor[j] + free_bonus[j] + running_bonus[j]) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (ok) {
+                        const skp_n = ord_skp[n];
+                        for (let j = 0; j < 5; j++) running_bonus[j] += skp_n[j];
+                        activated_mask |= 1 << n;
+                        activated_count++;
+                        progress = true;
+                    }
+                }
+            }
+            for (let j = 0; j < 5; j++) running_bonus[j] = 0;
+            if (activated_count === k) {
+                closure_solved = true;
+                best_total = lb_total;
+                for (let j = 0; j < 5; j++) best_assign[j] = post_floor[j];
+            }
+        }
+    }
+
     function _bt(depth, used, running_total) {
         if (depth === k) {
             // Apply post_floor constraints at leaf
@@ -319,7 +375,7 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
         }
     }
 
-    _bt(0, 0, 0);
+    if (!closure_solved) _bt(0, 0, 0);
 
     if (best_total === Infinity) return null;
 
