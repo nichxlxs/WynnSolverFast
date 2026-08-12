@@ -910,6 +910,52 @@ impl<'a> Search<'a> {
                 if let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) {
                     if db.cluster_size > 0 {
                         if let Some(cutoff) = self.cutoff() {
+                            // Coarse level first: one eval covers 4 fine
+                            // clusters; only surviving regions descend.
+                            if db.super_size > 0
+                                && env::var("SUPER_CLUSTER").as_deref() != Ok("0") {
+                                let sci = o / db.super_size;
+                                let mut skey = 0xEu64 << 60;
+                                skey |= (sci as u64) << 49;
+                                for dd in 0..depth {
+                                    skey |= (self.prefix_offsets[dd] as u64) << (dd * 7);
+                                }
+                                let sceiling = match self.bound_memo.get(&skey) {
+                                    Some(&v) => { self.cluster_memo_hits += 1; v }
+                                    None => {
+                                        self.cluster_evals += 1;
+                                        if prefix_state == 0 {
+                                            prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
+                                                Some((d, dd)) => {
+                                                    if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                }
+                                                None => -1,
+                                            };
+                                        }
+                                        let v = if prefix_state == 1 {
+                                            let d = sc.dense.as_ref().unwrap();
+                                            sp_kernel::scoring::dense_ceiling_cached(
+                                                d, &mut self.bound_work,
+                                                &db.super_clusters[sci], &db.super_cluster_terms[sci],
+                                                &sc.rows, &sc.compiled_rows, &sc.tables)
+                                        } else { f64::INFINITY };
+                                        if self.bound_memo.len() >= 4_000_000 {
+                                            self.bound_memo.clear();
+                                        }
+                                        self.bound_memo.insert(skey, v);
+                                        v
+                                    }
+                                };
+                                if sceiling < cutoff - cutoff.abs() * 1e-9 {
+                                    let end = to.min(((sci + 1) * db.super_size) as i64 - 1);
+                                    let skipped = (end - offset + 1) as f64;
+                                    self.checked += skipped;
+                                    self.bound_pruned += skipped;
+                                    self.maybe_report();
+                                    offset = end + 1;
+                                    continue;
+                                }
+                            }
                             let c = o / db.cluster_size;
                             let mut key = 0xFu64 << 60;
                             key |= (c as u64) << 49;

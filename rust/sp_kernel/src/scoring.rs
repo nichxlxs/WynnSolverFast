@@ -4513,6 +4513,11 @@ pub struct DenseBound {
     pub last_clusters: Vec<Vec<(u32, f64)>>,
     pub last_cluster_terms: Vec<Vec<(usize, f64)>>,
     pub cluster_size: usize,
+    /// Coarse level: 4x-wider clusters tested first — one eval can skip
+    /// four fine clusters (16 leaves) in dead regions.
+    pub super_clusters: Vec<Vec<(u32, f64)>>,
+    pub super_cluster_terms: Vec<Vec<(usize, f64)>>,
+    pub super_size: usize,
 }
 
 impl DenseBound {
@@ -4628,14 +4633,15 @@ impl DenseBound {
             term_table.push(term_rows);
         }
 
-        // Last-slot clusters.
-        let mut last_clusters = Vec::new();
-        let mut last_cluster_terms = Vec::new();
-        if cluster_size > 0 && n > 0 {
+        // Last-slot clusters, fine and coarse.
+        let build_clusters = |chunk: usize| -> Option<(Vec<Vec<(u32, f64)>>, Vec<Vec<(usize, f64)>>)> {
+            let mut clusters = Vec::new();
+            let mut terms_out = Vec::new();
+            if chunk == 0 || n == 0 { return Some((clusters, terms_out)); }
             let pool = &slot_pools[n - 1];
             let mut c0 = 0usize;
             while c0 < pool.len() {
-                let c1 = (c0 + cluster_size).min(pool.len());
+                let c1 = (c0 + chunk).min(pool.len());
                 let mut acc: HashMap<u32, f64> = HashMap::new();
                 let mut set_acc: HashMap<u32, f64> = HashMap::new();
                 for name in &pool[c0..c1] {
@@ -4668,12 +4674,17 @@ impl DenseBound {
                         list.iter().find(|(j, _)| *j == i).map(|(_, dv)| (slot, *dv))
                     })
                     .collect();
-                last_clusters.push(list);
-                last_cluster_terms.push(terms);
+                clusters.push(list);
+                terms_out.push(terms);
                 c0 = c1;
             }
-        }
-        Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size })
+            Some((clusters, terms_out))
+        };
+        let (last_clusters, last_cluster_terms) = build_clusters(cluster_size)?;
+        let super_size = if cluster_size > 0 { cluster_size * 4 } else { 0 };
+        let (super_clusters, super_cluster_terms) = build_clusters(super_size)?;
+        Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size,
+                          super_clusters, super_cluster_terms, super_size })
     }
 }
 
