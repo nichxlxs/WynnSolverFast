@@ -1751,40 +1751,52 @@ pub fn leaf_pipeline_gated(
     let mut total_sp = total;
     let mut assigned_sp = assigned;
 
-    // Leaf-invariant build stats, computed once; the gate, every greedy
-    // trial, the final assemble, and the rescue all reuse it.
-    let build_base = phase!(BASE_NS, l2.build_base(item_names, weapon))?;
-
     // Dense hot path: per-leaf lowered stats for the gate + greedy trials.
-    // Any shape the lowering can't hold bit-exactly falls back to the Obj
-    // path (DenseLeaf::build → None). SCORE_DENSE_CHECK=1 runs both paths
-    // per evaluation and panics on any bit difference.
-    let dense_state: Option<(&DenseCtx, DenseLeaf)> = dense.and_then(|d| {
-        DenseLeaf::build(d, l2, &build_base, tables).map(|leaf| (d, leaf))
-    });
-    let mut dense_scratch = dense_state.as_ref().map(|(d, leaf)| DScratch::new(leaf, d));
+    // The direct build skips the Obj base entirely; any shape the lowering
+    // can't hold bit-exactly falls back to lowering from the Obj base, or to
+    // the Obj path outright. SCORE_DENSE_CHECK=1 runs both paths per
+    // evaluation and panics on any bit difference.
     let dense_check = std::env::var("SCORE_DENSE_CHECK").as_deref() == Ok("1");
     let compiled_rows = compiled.unwrap_or(&[]);
+    let mut base_opt: Option<Obj> = None;
+    let mut dense_state: Option<(&DenseCtx, DenseLeaf)> = None;
+    if let Some(d) = dense {
+        let mut leaf = match &d.direct {
+            Some(dd) => phase!(BASE_NS, DenseLeaf::build_direct(d, dd, item_names)),
+            None => None,
+        };
+        if leaf.is_none() {
+            if base_opt.is_none() {
+                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+            }
+            leaf = DenseLeaf::build(d, l2, base_opt.as_ref().unwrap(), tables);
+        }
+        dense_state = leaf.map(|l| (d, l));
+    }
+    let mut dense_scratch = dense_state.as_ref().map(|(d, leaf)| DScratch::new(leaf, d));
 
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
         if objective.supports_ceiling() {
+            if (dense_state.is_none() || dense_check) && base_opt.is_none() {
+                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+            }
             let gated = phase!(GATE_NS, {
                 let ceiling_sp = [150f64; 5];
                 let ceiling = if let (Some((d, leaf)), Some(s)) = (&dense_state, &mut dense_scratch) {
                     dense_assemble(d, leaf, s, &ceiling_sp);
                     let v = dense_score(d, leaf, s, rows, compiled_rows, tables);
                     if dense_check {
-                        let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+                        let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
                     v
                 } else {
-                    let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+                    let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                     obj_score(&mut cb150)
                 };
                 ceiling < cutoff - cutoff.abs() * 1e-9
@@ -1792,6 +1804,13 @@ pub fn leaf_pipeline_gated(
             if gated { return Ok(LeafOutcome::Gated); }
         }
     }
+
+    // Leaf-invariant build stats for the surviving-leaf pipeline (doom
+    // precheck, mana checks, rescue, final assemble).
+    let build_base = match base_opt {
+        Some(b) => b,
+        None => phase!(BASE_NS, l2.build_base(item_names, weapon))?,
+    };
 
     // Mana-doom precheck: mana feasibility depends on the greedy SP only
     // through Int (monotone — more Int means more starting mana and cheaper
@@ -2945,6 +2964,9 @@ pub struct DenseCtx {
     pub const_term_keys: Vec<String>,     // leaf-resolved var term inputs
     pub rows: Vec<DRow>,
     pub obj: DObjective,
+    /// Direct leaf build (no Obj base for gated leaves); None → build the
+    /// Obj base and lower it per leaf instead.
+    pub direct: Option<DenseDirect>,
 }
 
 pub struct DenseLeaf {
@@ -3199,8 +3221,169 @@ impl DenseCtx {
             }
         };
 
+        // ── Direct leaf-build lowering ──
+        let direct = (|| -> Option<DenseDirect> {
+            // Scalar merge value with merge_plain/num-compatible semantics;
+            // Bool is rejected (num() would read 1, an overlay would read 0).
+            let scalar_val = |v: &Value| -> Option<f64> {
+                match v {
+                    Value::Number(n) => Some(n.as_f64().unwrap_or(f64::NAN)),
+                    Value::Bool(_) => None,
+                    _ => Some(f64::NAN),
+                }
+            };
+            const NONSTACKING: [&str; 3] = ["Potion", "Vulnerability", "Mask"];
+            // damMult/defMult tail simulation across the three stages.
+            struct MultSim { tome_adds: Vec<f64>, tail: Vec<(String, f64)> }
+            impl MultSim {
+                fn apply(&mut self, name: &str, v: f64) {
+                    if name == "tome" { self.tome_adds.push(v); return; }
+                    match self.tail.iter_mut().find(|(k, _)| k == name) {
+                        Some((k, cur)) => {
+                            if NONSTACKING.contains(&k.as_str()) && !cur.is_nan() {
+                                if v > *cur { *cur = v; }
+                                return;
+                            }
+                            *cur += v;
+                        }
+                        None => self.tail.push((name.to_string(), v)),
+                    }
+                }
+            }
+            let mut dam_sim = MultSim { tome_adds: Vec::new(), tail: Vec::new() };
+            let mut def_sim = MultSim { tome_adds: Vec::new(), tail: Vec::new() };
+            let mut progs: [Vec<(u32, f64)>; 3] = Default::default();
+            let stages: [Option<&Obj>; 3] = [
+                l2.atree_raw.as_ref(),
+                match l2.scaling_kind.as_str() {
+                    "cached" => l2.scaled_cached.as_ref(),
+                    _ => l2.const_scaled.as_ref(),
+                },
+                l2.static_boosts.as_ref(),
+            ];
+            for (si, stage) in stages.iter().enumerate() {
+                let Some(stage) = stage else { continue };
+                // Expand __m wraps exactly like merge_into.
+                let mut flat: Vec<(String, &Value)> = Vec::new();
+                for (k, v) in *stage {
+                    if let Some(m) = v.get("__m").and_then(|x| x.as_object()) {
+                        for (mk, mv) in m { flat.push((format!("{}.{}", k, mk), mv)); }
+                    } else {
+                        flat.push((k.clone(), v));
+                    }
+                }
+                for (name, v) in flat {
+                    let start = name.split('.').next().unwrap_or(&name);
+                    match start {
+                        "atkSpd" => return None,
+                        "damMult" | "defMult" => {
+                            let rest = &name[name.find('.').map(|i| i + 1).unwrap_or(name.len())..];
+                            let f = v.as_f64().unwrap_or(f64::NAN);
+                            if start == "damMult" { dam_sim.apply(rest, f); }
+                            else { def_sim.apply(rest, f); }
+                        }
+                        "healMult" | "manaMult" => {} // never read by the dense paths
+                        _ => {
+                            if SKP_ORDER.contains(&name.as_str()) { continue; } // skp chains
+                            let f = scalar_val(v)?;
+                            progs[si].push((intern(&name, &mut idx, &mut keys), f));
+                        }
+                    }
+                }
+            }
+            let [atree_prog, const_prog, static_prog] = progs;
+
+            // Template: static/must id zeros + hp + agiDef.
+            let mut template_zero_idxs = Vec::new();
+            for id in l2.static_ids.iter().chain(l2.must_ids.iter()) {
+                template_zero_idxs.push(intern(id, &mut idx, &mut keys));
+            }
+            let hp_idx = intern("hp", &mut idx, &mut keys);
+            let agi_def_idx = intern("agiDef", &mut idx, &mut keys);
+
+            // Items, tomes, weapon lowered to indexed adds.
+            let mut items = HashMap::new();
+            for (name, item) in &l2.item_registry {
+                let di = DenseDirect::lower_item(l2, item, |k| intern(k, &mut idx, &mut keys))?;
+                items.insert(name.clone(), di);
+            }
+            let mut post_item_adds = Vec::new();
+            for tome in &l2.tome_sms {
+                let di = DenseDirect::lower_item(l2, tome, |k| intern(k, &mut idx, &mut keys))?;
+                post_item_adds.extend(di.adds);
+            }
+            let wdi = DenseDirect::lower_item(l2, weapon, |k| intern(k, &mut idx, &mut keys))?;
+            post_item_adds.extend(wdi.adds);
+
+            // Set bonuses (skp keys excluded, js coercion prebaked).
+            let js_num = |v: &Value| -> f64 {
+                match v {
+                    Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+                    Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+                    Value::Null => 0.0,
+                    _ => f64::NAN,
+                }
+            };
+            let mut sets = HashMap::new();
+            for (set_name, set_data) in &l2.sets_data {
+                let Some(bonuses) = set_data.get("bonuses").and_then(|b| b.as_array()) else { continue };
+                let mut per_count = Vec::with_capacity(bonuses.len());
+                for bonus in bonuses {
+                    per_count.push(bonus.as_object().map(|bo| {
+                        bo.iter()
+                            .filter(|(id, _)| !l2.skp_order.iter().any(|s| s == *id))
+                            .map(|(id, v)| (intern(id, &mut idx, &mut keys), js_num(v)))
+                            .collect::<Vec<_>>()
+                    }));
+                }
+                sets.insert(set_name.clone(), per_count);
+            }
+
+            let dam_mobs_idx = intern("damMobs", &mut idx, &mut keys);
+            let def_mobs_idx = intern("defMobs", &mut idx, &mut keys);
+            let term_capture: Vec<u32> = const_term_keys.iter()
+                .map(|k| intern(k, &mut idx, &mut keys)).collect();
+            let parse_tail = |sim: &MultSim| -> Vec<(DMultEntry, f64)> {
+                sim.tail.iter().map(|(k, v)| (parse_mult_entry(k), *v)).collect()
+            };
+
+            Some(DenseDirect {
+                template_vals: Vec::new(),      // sized after interning settles
+                template_present: Vec::new(),
+                items, post_item_adds, sets,
+                atree_prog, const_prog, static_prog,
+                term_capture, dam_mobs_idx, def_mobs_idx,
+                dam_tail: parse_tail(&dam_sim),
+                def_tail: parse_tail(&def_sim),
+                dam_tome_adds: dam_sim.tome_adds,
+                def_tome_adds: def_sim.tome_adds,
+                atk_spd_idx: tables.atk_spd_index(weapon.get("atkSpd").and_then(|v| v.as_str())),
+                template_zero_idxs, hp_idx, agi_def_idx,
+                hp_base: l2.hp_base,
+                class_def_idx: 0,               // filled below
+                class_def_val,
+            })
+        })();
+        // Size the template against the final key universe.
+        let direct = direct.map(|mut dd| {
+            dd.class_def_idx = class_def_idx;
+            let n = keys.len();
+            dd.template_vals = vec![f64::NAN; n];
+            dd.template_present = vec![0u64; n.div_ceil(64)];
+            for &i in &dd.template_zero_idxs {
+                dd.template_vals[i as usize] = 0.0;
+                bit_set(&mut dd.template_present, i);
+            }
+            dd.template_vals[dd.hp_idx as usize] = dd.hp_base;
+            bit_set(&mut dd.template_present, dd.hp_idx);
+            dd.template_vals[dd.agi_def_idx as usize] = 90.0;
+            bit_set(&mut dd.template_present, dd.agi_def_idx);
+            dd
+        });
+
         let n = keys.len();
         Some(DenseCtx {
+            direct,
             idx, n, skp_idx, class_def_idx, dex_idx, atk_tier_idx,
             conv_base_idx, dam_add_min_idx, dam_add_max_idx,
             sd_pct_idx, md_pct_idx, dam_pct_idx, sd_raw_idx, md_raw_idx, dam_raw_idx,
@@ -3769,5 +3952,190 @@ pub fn dense_score(
             }
             sum
         }
+    }
+}
+
+// ── Dense direct leaf build (no Obj intermediate) ────────────────────────────
+//
+// build_base + the constant merge stages, lowered to indexed add programs so
+// a gated leaf never materializes a JSON stat map at all. Two add semantics
+// are mirrored exactly: item/tome/weapon/set sums read a Null/non-numeric
+// previous value as 0 (add_item), the atree/const/static merge stages read
+// it as NaN (merge_plain). The Obj base is built lazily, only for leaves
+// that survive the ceiling gate.
+
+pub struct DItem {
+    pub adds: Vec<(u32, f64)>,
+    pub set_name: Option<String>,
+    pub crafted: bool,
+}
+
+pub struct DenseDirect {
+    pub template_vals: Vec<f64>,
+    pub template_present: Vec<u64>,
+    pub items: HashMap<String, DItem>,
+    /// tome sums + weapon sums, applied after the per-leaf items (add_item order).
+    pub post_item_adds: Vec<(u32, f64)>,
+    /// set name → per-(count-1) bonus adds (skp keys excluded).
+    pub sets: HashMap<String, Vec<Option<Vec<(u32, f64)>>>>,
+    /// atree_raw / const_scaled / static_boosts scalar merge programs.
+    pub atree_prog: Vec<(u32, f64)>,
+    pub const_prog: Vec<(u32, f64)>,
+    pub static_prog: Vec<(u32, f64)>,
+    /// var-effect const term captures (read after the atree stage).
+    pub term_capture: Vec<u32>,
+    pub dam_mobs_idx: u32,
+    pub def_mobs_idx: u32,
+    /// constant adds applied to the damMult/defMult "tome" entry, then the
+    /// constant tail entries, from the atree/const/static merges in order.
+    pub dam_tome_adds: Vec<f64>,
+    pub def_tome_adds: Vec<f64>,
+    pub dam_tail: Vec<(DMultEntry, f64)>,
+    pub def_tail: Vec<(DMultEntry, f64)>,
+    pub atk_spd_idx: i64,
+    pub template_zero_idxs: Vec<u32>,
+    pub hp_idx: u32,
+    pub agi_def_idx: u32,
+    pub hp_base: f64,
+    pub class_def_idx: u32,
+    pub class_def_val: f64,
+}
+
+impl DenseDirect {
+    /// Lower a stat map to (idx, value) adds, mirroring add_item.
+    fn lower_item(l2: &Layer2, item: &Obj, mut it: impl FnMut(&str) -> u32) -> Option<DItem> {
+        let mut adds = Vec::new();
+        if let Some(mr) = item.get("maxRolls").and_then(as_map) {
+            for (id, value) in mr {
+                if l2.static_ids.iter().any(|s| s == id) { continue; }
+                let v = value.as_f64().unwrap_or(f64::NAN);
+                if v == 0.0 { continue; }
+                adds.push((it(id), v));
+            }
+        }
+        for id in &l2.static_ids {
+            let v = item.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            if v == 0.0 { continue; }
+            adds.push((it(id), v));
+        }
+        Some(DItem {
+            adds,
+            set_name: item.get("set").and_then(|v| v.as_str()).map(String::from),
+            crafted: item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+        })
+    }
+}
+
+/// Mutable direct-build state; the working vectors live in DScratch, this
+/// carries the leaf-constant results the trial pipeline reads.
+impl DenseLeaf {
+    pub fn build_direct(
+        d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
+    ) -> Option<DenseLeaf> {
+        let mut vals = dd.template_vals.clone();
+        let mut present = dd.template_present.clone();
+
+        // add_item semantics: previous Null/non-numeric reads as 0.
+        macro_rules! add_item_ops {
+            ($ops:expr) => {
+                for &(i, v) in $ops {
+                    let iu = i as usize;
+                    if bit_get(&present, i) {
+                        let cur = vals[iu];
+                        let cur = if cur.is_nan() { 0.0 } else { cur };
+                        vals[iu] = cur + v;
+                    } else {
+                        vals[iu] = 0.0 + v;
+                        bit_set(&mut present, i);
+                    }
+                }
+            };
+        }
+        let mut set_counts: Vec<(&str, i64)> = Vec::new();
+        for name in item_names {
+            let item = dd.items.get(*name)?;
+            add_item_ops!(&item.adds);
+            if !item.crafted {
+                if let Some(set_name) = &item.set_name {
+                    match set_counts.iter_mut().find(|(n, _)| *n == set_name.as_str()) {
+                        Some((_, c)) => *c += 1,
+                        None => set_counts.push((set_name.as_str(), 1)),
+                    }
+                }
+            }
+        }
+        add_item_ops!(&dd.post_item_adds);
+        for (set_name, count) in &set_counts {
+            let Some(per_count) = dd.sets.get(*set_name) else { continue };
+            let Some(Some(adds)) = per_count.get((*count - 1) as usize) else { continue };
+            add_item_ops!(adds);
+        }
+
+        // damMult/defMult tome entries capture damMobs/defMobs here
+        // (finalizeStatmap reads them before the assemble-stage merges).
+        let read0 = |vals: &[f64], present: &[u64], i: u32| -> f64 {
+            if bit_get(present, i) {
+                let v = vals[i as usize];
+                if v.is_nan() { 0.0 } else { v }
+            } else { 0.0 }
+        };
+        let mut dam_tome = read0(&vals, &present, dd.dam_mobs_idx);
+        let mut def_tome = read0(&vals, &present, dd.def_mobs_idx);
+        for a in &dd.dam_tome_adds { dam_tome += a; }
+        for a in &dd.def_tome_adds { def_tome += a; }
+
+        // classDef insert, then the constant merge stages (merge_plain
+        // semantics: previous non-numeric reads as NaN).
+        vals[dd.class_def_idx as usize] = dd.class_def_val;
+        bit_set(&mut present, dd.class_def_idx);
+        macro_rules! merge_ops {
+            ($ops:expr) => {
+                for &(i, v) in $ops {
+                    let iu = i as usize;
+                    if bit_get(&present, i) {
+                        vals[iu] += v;
+                    } else {
+                        vals[iu] = v;
+                        bit_set(&mut present, i);
+                    }
+                }
+            };
+        }
+        merge_ops!(&dd.atree_prog);
+        let const_term_vals: Vec<f64> = dd.term_capture.iter()
+            .map(|&i| read0(&vals, &present, i)).collect();
+        merge_ops!(&dd.const_prog);
+        merge_ops!(&dd.static_prog);
+
+        // Mult entry lists: tome first, then the constant tail.
+        let clone_entry = |e: &DMultEntry| DMultEntry {
+            key: e.key.clone(), spell_match: e.spell_match.clone(),
+            target: match e.target {
+                MultTarget::All => MultTarget::All,
+                MultTarget::MeleeOnly => MultTarget::MeleeOnly,
+                MultTarget::Ele(i) => MultTarget::Ele(i),
+                MultTarget::Inert => MultTarget::Inert,
+            },
+        };
+        let mut dam_entries = vec![parse_mult_entry("tome")];
+        let mut dam_vals = vec![dam_tome];
+        for (e, v) in &dd.dam_tail { dam_entries.push(clone_entry(e)); dam_vals.push(*v); }
+        let mut def_entries = vec![parse_mult_entry("tome")];
+        let mut def_vals = vec![def_tome];
+        for (e, v) in &dd.def_tail { def_entries.push(clone_entry(e)); def_vals.push(*v); }
+
+        for &i in &d.skp_idx { bit_set(&mut present, i); }
+        let mut var_out_absent = Vec::with_capacity(d.var_slots.len());
+        for &ki in &d.var_slots {
+            let absent = !bit_get(&present, ki);
+            var_out_absent.push(absent);
+            if absent { bit_set(&mut present, ki); }
+        }
+
+        Some(DenseLeaf {
+            lc_vals: vals, present, var_out_absent, const_term_vals,
+            dam_entries, dam_vals, def_entries, def_vals,
+            atk_spd_idx: dd.atk_spd_idx,
+        })
     }
 }
