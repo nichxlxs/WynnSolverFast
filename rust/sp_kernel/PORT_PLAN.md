@@ -53,12 +53,19 @@ search, JS covers ~430K in 180s).
      assert on export).
   5. Scoring dispatch for combo_damage = total_damage (done in layer 1).
 
-- **Layer 3 — enum_kernel integration (NEXT):** replace `feasible += 1`
-  with the layer-2 leaf pipeline; add per-thread top-N (15), the
-  score-ceiling gate (one damage eval at all-150 SP vs cutoff), and a
-  shared AtomicU64 cutoff across threads (floor(score) ≥ 0 is admissible;
-  0 = unset). Validate: top-N score-set equality vs JS on completing
-  scenarios (oracle-style), then benchmark spell_wide end-to-end.
+- **Layer 3 — enum_kernel integration: DONE (2026-08-12).** Scored leaves
+  via the layer-2 pipeline with the ceiling gate + shared AtomicU64
+  cutoff and per-thread top-15 merge. Validated on the dense combo_damage
+  scenario (readme armor2 pools, 3,712 search, no restrictions): top-15
+  scores and item lists bit-identical to the JS 2-worker run; wall 5.1s
+  (4 threads) vs 10.2s (JS). Caveats:
+  - Scenarios WITH stat restrictions need a `check_thresholds` port (the
+    exact assembled-stat threshold check that runs after the additive
+    prechecks) before their scored top-N matches JS — the melee 2M probe
+    over-included builds for exactly this reason.
+  - Per-leaf scoring is parity-first slow (~1.4ms avg incl. gate): Rust
+    covers fewer leaves/s than the compiled-vector JS engine (~0.7K vs
+    ~2.4K), so the spell_wide coverage benchmark waits for layer 4.
   Design decisions (2026-08-12):
   - Move the scoring code from `bin/score_kernel.rs` into the lib
     (`src/scoring.rs`) so enum_kernel can use it; score_kernel stays as
