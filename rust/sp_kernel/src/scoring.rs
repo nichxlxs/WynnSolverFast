@@ -1616,10 +1616,11 @@ pub fn leaf_pipeline(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
-    objective: &Objective, compiled: Option<&[CompiledRow]>,
+    objective: &Objective, compiled: Option<&[CompiledRow]>, dense: Option<&DenseCtx>,
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
-                              registry, hit_refs, tables, consts, objective, compiled, None)? {
+                              registry, hit_refs, tables, consts, objective, compiled, None,
+                              dense)? {
         LeafOutcome::Scored(r) => Ok(Some(r)),
         LeafOutcome::Gated => unreachable!("no cutoff passed"),
         _ => Ok(None),
@@ -1639,6 +1640,8 @@ pub mod trace {
     pub static MANA_NS: AtomicU64 = AtomicU64::new(0);
     pub static FINAL_NS: AtomicU64 = AtomicU64::new(0);
     pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
+    pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
+    pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
 
     pub fn init_from_env() {
         if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
@@ -1656,6 +1659,7 @@ pub mod trace {
             f(&SP_NS), f(&BASE_NS), f(&GATE_NS), f(&DOOM_NS), f(&GREEDY_NS),
             GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
         );
+        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s", f(&ASM_NS), f(&DMG_NS));
     }
 }
 
@@ -1675,6 +1679,7 @@ pub fn leaf_pipeline_gated(
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
+    dense: Option<&DenseCtx>,
 ) -> Result<LeafOutcome, String> {
     let obj_score = |cb: &mut Obj| -> f64 {
         match compiled {
@@ -1750,6 +1755,17 @@ pub fn leaf_pipeline_gated(
     // trial, the final assemble, and the rescue all reuse it.
     let build_base = phase!(BASE_NS, l2.build_base(item_names, weapon))?;
 
+    // Dense hot path: per-leaf lowered stats for the gate + greedy trials.
+    // Any shape the lowering can't hold bit-exactly falls back to the Obj
+    // path (DenseLeaf::build → None). SCORE_DENSE_CHECK=1 runs both paths
+    // per evaluation and panics on any bit difference.
+    let dense_state: Option<(&DenseCtx, DenseLeaf)> = dense.and_then(|d| {
+        DenseLeaf::build(d, l2, &build_base, tables).map(|leaf| (d, leaf))
+    });
+    let mut dense_scratch = dense_state.as_ref().map(|(d, leaf)| DScratch::new(leaf, d));
+    let dense_check = std::env::var("SCORE_DENSE_CHECK").as_deref() == Ok("1");
+    let compiled_rows = compiled.unwrap_or(&[]);
+
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
@@ -1757,8 +1773,20 @@ pub fn leaf_pipeline_gated(
         if objective.supports_ceiling() {
             let gated = phase!(GATE_NS, {
                 let ceiling_sp = [150f64; 5];
-                let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
-                let ceiling = obj_score(&mut cb150);
+                let ceiling = if let (Some((d, leaf)), Some(s)) = (&dense_state, &mut dense_scratch) {
+                    dense_assemble(d, leaf, s, &ceiling_sp);
+                    let v = dense_score(d, leaf, s, rows, compiled_rows, tables);
+                    if dense_check {
+                        let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+                        let o = obj_score(&mut cb150);
+                        assert!(v == o || (v.is_nan() && o.is_nan()),
+                                "dense/obj gate mismatch: {v:?} vs {o:?}");
+                    }
+                    v
+                } else {
+                    let mut cb150 = l2.assemble_from_base(&build_base, &ceiling_sp, weapon);
+                    obj_score(&mut cb150)
+                };
                 ceiling < cutoff - cutoff.abs() * 1e-9
             });
             if gated { return Ok(LeafOutcome::Gated); }
@@ -1789,8 +1817,19 @@ pub fn leaf_pipeline_gated(
     let mut trial = |sp: &[i32; 5]| -> f64 {
         if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
-        let mut cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
-        obj_score(&mut cb)
+        if let (Some((d, leaf)), Some(s)) = (&dense_state, &mut dense_scratch) {
+            phase!(ASM_NS, dense_assemble(d, leaf, s, &trial_sp_f));
+            let v = phase!(DMG_NS, dense_score(d, leaf, s, rows, compiled_rows, tables));
+            if dense_check {
+                let mut cb = l2.assemble_from_base(&build_base, &trial_sp_f, weapon);
+                let o = obj_score(&mut cb);
+                assert!(v == o || (v.is_nan() && o.is_nan()),
+                        "dense/obj trial mismatch at {sp:?}: {v:?} vs {o:?}");
+            }
+            return v;
+        }
+        let mut cb = phase!(ASM_NS, l2.assemble_from_base(&build_base, &trial_sp_f, weapon));
+        phase!(DMG_NS, obj_score(&mut cb))
     };
     assigned_sp += phase!(GREEDY_NS, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
 
@@ -1891,6 +1930,8 @@ pub struct ScoringCtx {
     pub layer2: Layer2,
     pub consts: L2Consts,
     pub guild_unit: Option<crate::Unit>,
+    /// Dense hot-path lowering; None when the scenario needs the Obj path.
+    pub dense: Option<DenseCtx>,
 }
 
 impl ScoringCtx {
@@ -1936,17 +1977,23 @@ impl ScoringCtx {
         let rows_parsed = parse_rows(&fixture["parsed_combo"]);
         let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
         let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
+        let tables = Tables::parse(&fixture["tables"]);
+        let weapon = as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone();
+        let dense = if std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
+            DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective)
+        };
         Ok(ScoringCtx {
             objective,
             compiled_rows,
-            tables: Tables::parse(&fixture["tables"]),
-            weapon: as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone(),
+            tables,
+            weapon,
             rows: rows_parsed,
             registry: registry_parsed,
             hit_refs,
             layer2,
             consts,
             guild_unit,
+            dense,
         })
     }
 }
@@ -2775,4 +2822,952 @@ pub fn eval_spell_plan(
         flat += (1.0 - crit) * non_crit_avg + crit * crit_avg;
     }
     (per_cast, flat)
+}
+
+// ── Dense stat vectors (P2.4 layer 4, final step) ────────────────────────────
+//
+// The hot path (ceiling gate + greedy trials) spends its time in string-keyed
+// IndexMap lookups and per-trial clones of the JSON stat map. This module
+// lowers the whole trial pipeline onto a flat f64 vector:
+//   - load time (DenseCtx): a key→index universe over every stat name the
+//     scoring path can read or write, weapon constants hoisted, var effects
+//     lowered to index programs, row bonus deltas and plan ConvBase names
+//     index-resolved;
+//   - per leaf (DenseLeaf): base + classDef + atree_raw + const_scaled +
+//     static_boosts folded into one dense vector (constant merges keep their
+//     per-key addition order, so folding is bit-exact; the one order-breaking
+//     case — a key written by both a var effect and static_boosts — is
+//     rejected at load and falls back to the Obj path);
+//   - per trial: memcpy the leaf vector, write the five skillpoint values
+//     through their ordered add chains, run var effects as pure arithmetic,
+//     and score with an index-resolved mirror of the damage core.
+// Every float operation replays the Obj path in the same order, so scores are
+// bit-identical; SCORE_DENSE_CHECK=1 asserts that per trial at runtime, and
+// score_kernel validates it per fixture case.
+
+pub enum MultTarget {
+    All,
+    MeleeOnly, // ";m" — damage_mult only when !use_spell_damage
+    Ele(usize),
+    Inert, // parse matched nothing → entry never applies
+}
+
+pub struct DMultEntry {
+    pub key: String,
+    pub spell_match: Option<String>,
+    pub target: MultTarget,
+}
+
+pub fn parse_mult_entry(key: &str) -> DMultEntry {
+    let spell_match = key.find(':').map(|c| key[c + 1..].to_string());
+    let target = match key.find(';') {
+        Some(semi) => {
+            let tail = &key[semi + 1..];
+            if tail == "m" { MultTarget::MeleeOnly }
+            else if let Some(i) = DAMAGE_ELEMENTS.iter().position(|e| *e == tail) { MultTarget::Ele(i) }
+            else { MultTarget::Inert }
+        }
+        None => MultTarget::All,
+    };
+    DMultEntry { key: key.to_string(), spell_match, target }
+}
+
+pub enum DTerm {
+    Skp(usize, f64),       // (skp index, factor) — reads the pre-const value
+    Const(usize, f64),     // (leaf const slot, factor)
+}
+
+pub struct DVarEffect {
+    pub const_add: f64,
+    pub terms: Vec<DTerm>,
+    pub round: bool,
+    pub positive: bool,
+    pub max: Option<f64>,
+    /// (var slot, first write for that slot this trial)
+    pub out_slots: Vec<(usize, bool)>,
+}
+
+pub enum DInd {
+    Ehp, EhpNoAgi, TotalHp, Hpr, Ehpr, TotalMana, Plain(u32),
+}
+
+pub enum DObjective {
+    Damage,
+    Indirect(DInd),
+    Custom(Vec<(Option<DInd>, f64)>), // None → combo_damage
+}
+
+pub struct DRow {
+    pub stat_ops: Vec<(u32, f64, bool)>,          // (idx, contrib, use_max)
+    pub dam_ops: Vec<(DMultEntry, f64, bool)>,    // key resolved at apply time
+    pub def_ops: Vec<(DMultEntry, f64, bool)>,
+    /// Per plan part: resolved part-scoped ConvBase indices (Damage parts).
+    pub parts_conv: Vec<Option<[u32; 6]>>,
+}
+
+pub struct DenseCtx {
+    pub idx: HashMap<String, u32>,
+    pub n: usize,
+    pub skp_idx: [u32; 5],
+    pub class_def_idx: u32,
+    pub dex_idx: u32,
+    pub atk_tier_idx: u32,
+    pub conv_base_idx: [u32; 6],
+    pub dam_add_min_idx: [u32; 6],
+    pub dam_add_max_idx: [u32; 6],
+    pub sd_pct_idx: [u32; 6],
+    pub md_pct_idx: [u32; 6],
+    pub dam_pct_idx: [u32; 6],
+    pub sd_raw_idx: [u32; 6],
+    pub md_raw_idx: [u32; 6],
+    pub dam_raw_idx: [u32; 6],
+    // scalar ids (sdPct/damPct/... variants used by the ID-bonus step)
+    pub s_sd_pct: u32, pub s_md_pct: u32, pub s_dam_pct: u32,
+    pub s_r_sd_pct: u32, pub s_r_md_pct: u32, pub s_r_dam_pct: u32,
+    pub s_sd_raw: u32, pub s_md_raw: u32, pub s_dam_raw: u32,
+    pub s_r_sd_raw: u32, pub s_r_md_raw: u32, pub s_r_dam_raw: u32,
+    pub s_crit_dam_pct: u32,
+    // defense / indirect ids
+    pub s_def: u32, pub s_agi: u32, pub s_hp: u32, pub s_hp_bonus: u32,
+    pub s_agi_def: u32, pub s_hpr_raw: u32, pub s_hpr_pct: u32,
+    pub s_max_mana: u32, pub s_int: u32,
+    // weapon constants
+    pub w_damages: [[f64; 2]; 6],
+    pub w_present: [bool; 6],
+    pub w_spd_mult: f64,
+    // assemble program
+    pub class_def_val: f64,
+    pub skp_atree_adds: [Vec<f64>; 5],
+    pub skp_const_adds: [Vec<f64>; 5],
+    pub skp_static_adds: [Vec<f64>; 5],
+    pub var_effects: Vec<DVarEffect>,
+    pub var_slots: Vec<u32>,              // vals index per slot
+    pub const_term_keys: Vec<String>,     // leaf-resolved var term inputs
+    pub rows: Vec<DRow>,
+    pub obj: DObjective,
+}
+
+pub struct DenseLeaf {
+    pub lc_vals: Vec<f64>,
+    pub present: Vec<u64>,
+    pub var_out_absent: Vec<bool>,        // per var slot: key absent in LC
+    pub const_term_vals: Vec<f64>,
+    pub dam_entries: Vec<DMultEntry>,
+    pub dam_vals: Vec<f64>,
+    pub def_entries: Vec<DMultEntry>,
+    pub def_vals: Vec<f64>,
+    pub atk_spd_idx: i64,
+}
+
+/// Mutable trial state; dam/def lists are journaled per row and end each
+/// row eval back in their leaf state.
+pub struct DScratch {
+    pub vals: Vec<f64>,
+    pub present: Vec<u64>,
+    pub dam_entries: Vec<DMultEntry>,
+    pub dam_vals: Vec<f64>,
+    pub def_entries: Vec<DMultEntry>,
+    pub def_vals: Vec<f64>,
+    pub var_acc: Vec<f64>,
+}
+
+#[inline]
+fn bit_get(words: &[u64], i: u32) -> bool {
+    words[(i / 64) as usize] & (1u64 << (i % 64)) != 0
+}
+#[inline]
+fn bit_set(words: &mut [u64], i: u32) {
+    words[(i / 64) as usize] |= 1u64 << (i % 64);
+}
+
+impl DenseCtx {
+    /// Numeric read with StatsView::num semantics: present Number → f64,
+    /// Bool → 0/1, anything else (or absent) → NaN.
+    fn dense_num(v: Option<&Value>) -> f64 {
+        match v {
+            Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
+            Some(Value::Bool(b)) => if *b { 1.0 } else { 0.0 },
+            _ => f64::NAN,
+        }
+    }
+
+    pub fn build(
+        l2: &Layer2, tables: &Tables, weapon: &Obj, rows: &[Row],
+        compiled: &[CompiledRow], objective: &Objective,
+    ) -> Option<DenseCtx> {
+        // Guard: every row the compiled eval would score must have a plan.
+        for (row, comp) in rows.iter().zip(compiled) {
+            if comp.mod_spell.is_none() || row.qty <= 0.0 || row.pseudo { continue; }
+            comp.plan.as_ref()?;
+        }
+
+        let mut idx: HashMap<String, u32> = HashMap::new();
+        let mut keys: Vec<String> = Vec::new();
+        let mut intern = |k: &str, idx: &mut HashMap<String, u32>, keys: &mut Vec<String>| -> u32 {
+            if let Some(&i) = idx.get(k) { return i; }
+            let i = keys.len() as u32;
+            idx.insert(k.to_string(), i);
+            keys.push(k.to_string());
+            i
+        };
+        macro_rules! it { ($k:expr) => { intern($k, &mut idx, &mut keys) } }
+
+        let skp_idx = std::array::from_fn(|i| it!(SKP_ORDER[i]));
+        let names = &tables.names;
+        let arr6 = |a: &[String; 6], idx: &mut HashMap<String, u32>, keys: &mut Vec<String>| -> [u32; 6] {
+            std::array::from_fn(|i| intern(&a[i], idx, keys))
+        };
+        let conv_base_idx = arr6(&names.conv_base, &mut idx, &mut keys);
+        let dam_add_min_idx = arr6(&names.dam_add_min, &mut idx, &mut keys);
+        let dam_add_max_idx = arr6(&names.dam_add_max, &mut idx, &mut keys);
+        let sd_pct_idx = arr6(&names.sd_pct, &mut idx, &mut keys);
+        let md_pct_idx = arr6(&names.md_pct, &mut idx, &mut keys);
+        let dam_pct_idx = arr6(&names.dam_pct, &mut idx, &mut keys);
+        let sd_raw_idx = arr6(&names.sd_raw, &mut idx, &mut keys);
+        let md_raw_idx = arr6(&names.md_raw, &mut idx, &mut keys);
+        let dam_raw_idx = arr6(&names.dam_raw, &mut idx, &mut keys);
+
+        let s_sd_pct = it!("sdPct"); let s_md_pct = it!("mdPct"); let s_dam_pct = it!("damPct");
+        let s_r_sd_pct = it!("rSdPct"); let s_r_md_pct = it!("rMdPct"); let s_r_dam_pct = it!("rDamPct");
+        let s_sd_raw = it!("sdRaw"); let s_md_raw = it!("mdRaw"); let s_dam_raw = it!("damRaw");
+        let s_r_sd_raw = it!("rSdRaw"); let s_r_md_raw = it!("rMdRaw"); let s_r_dam_raw = it!("rDamRaw");
+        let s_crit_dam_pct = it!("critDamPct");
+        let s_def = it!("def"); let s_agi = it!("agi"); let s_hp = it!("hp");
+        let s_hp_bonus = it!("hpBonus"); let s_agi_def = it!("agiDef");
+        let s_hpr_raw = it!("hprRaw"); let s_hpr_pct = it!("hprPct");
+        let s_max_mana = it!("maxMana"); let s_int = it!("int");
+        let class_def_idx = it!("classDef");
+        let dex_idx = it!("dex");
+        let atk_tier_idx = it!("atkTier");
+
+        // Weapon constants (weapon is scenario-constant).
+        let wview = StatsView::Borrowed(weapon);
+        let crafted = wview.str_of("tier") == Some("Crafted");
+        let mut w_damages = [[f64::NAN; 2]; 6];
+        for (i, k) in tables.damage_keys.iter().enumerate().take(6) {
+            let v = weapon.get(k).cloned().unwrap_or(Value::Null);
+            let a = if crafted {
+                v.as_array().and_then(|a| a.get(1)).cloned().unwrap_or(Value::Null)
+            } else { v };
+            let d = arr_f64(&a);
+            w_damages[i] = [d.first().copied().unwrap_or(f64::NAN), d.get(1).copied().unwrap_or(f64::NAN)];
+        }
+        let mut w_present = [false; 6];
+        if let Some(p) = weapon.get("damagePresent").map(arr_bool) {
+            for i in 0..6.min(p.len()) { w_present[i] = p[i]; }
+        }
+        let w_spd_i = tables.atk_spd_index(wview.str_of("atkSpd"));
+        let w_spd_mult = if w_spd_i >= 0 { tables.base_damage_multiplier[w_spd_i as usize] } else { f64::NAN };
+        let class_def_val = weapon.get("type").and_then(|v| v.as_str())
+            .map(|wt| l2.class_def.get(wt).copied().unwrap_or(1.0)).unwrap_or(1.0);
+        // assemble_from_base only inserts classDef when weapon.type is a
+        // string; scenarios always have it — otherwise fall back.
+        weapon.get("type").and_then(|v| v.as_str())?;
+
+        // skp add chains from the constant merge stages, in merge order.
+        let nested_prefix = |k: &str| -> bool {
+            let start = k.split('.').next().unwrap_or(k);
+            matches!(start, "damMult" | "defMult" | "healMult" | "manaMult")
+        };
+        let stage_adds = |src: Option<&Obj>| -> [Vec<f64>; 5] {
+            let mut out: [Vec<f64>; 5] = Default::default();
+            if let Some(src) = src {
+                for (k, v) in src {
+                    if let Some(i) = SKP_ORDER.iter().position(|s| s == k) {
+                        out[i].push(v.as_f64().unwrap_or(f64::NAN));
+                    }
+                }
+            }
+            out
+        };
+        let const_stage: Option<&Obj> = match l2.scaling_kind.as_str() {
+            "cached" => l2.scaled_cached.as_ref(),
+            _ => l2.const_scaled.as_ref(),
+        };
+        let skp_atree_adds = stage_adds(l2.atree_raw.as_ref());
+        let skp_const_adds = stage_adds(const_stage);
+        let skp_static_adds = stage_adds(l2.static_boosts.as_ref());
+
+        // Var effects → index programs. Guards: outputs must be plain scalar
+        // keys, and must not collide with static_boosts (fold-order).
+        let mut var_slots: Vec<u32> = Vec::new();
+        let mut const_term_keys: Vec<String> = Vec::new();
+        let mut var_effects: Vec<DVarEffect> = Vec::new();
+        let mut seen_slots: Vec<u32> = Vec::new();
+        for eff in &l2.var_effects {
+            let const_add = eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let mut terms = Vec::new();
+            for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
+                let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
+                match SKP_ORDER.iter().position(|s| *s == stat) {
+                    Some(i) => terms.push(DTerm::Skp(i, factor)),
+                    None => {
+                        let slot = match const_term_keys.iter().position(|k| k == stat) {
+                            Some(p) => p,
+                            None => { const_term_keys.push(stat.to_string()); const_term_keys.len() - 1 }
+                        };
+                        terms.push(DTerm::Const(slot, factor));
+                    }
+                }
+            }
+            let mut out_slots = Vec::new();
+            for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                let name = output.as_str()?;
+                if nested_prefix(name) || name == "atkSpd" { return None; }
+                if l2.static_boosts.as_ref().map(|s| s.contains_key(name)).unwrap_or(false) {
+                    return None; // fold-order guard
+                }
+                let ki = intern(name, &mut idx, &mut keys);
+                let slot = match var_slots.iter().position(|&s| s == ki) {
+                    Some(p) => p,
+                    None => { var_slots.push(ki); var_slots.len() - 1 }
+                };
+                let first = !seen_slots.contains(&ki);
+                if first { seen_slots.push(ki); }
+                out_slots.push((slot, first));
+            }
+            var_effects.push(DVarEffect {
+                const_add, terms,
+                round: eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true),
+                positive: eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true),
+                max: eff.get("max").and_then(|v| v.as_f64()),
+                out_slots,
+            });
+        }
+
+        // Rows: bonus deltas + plan ConvBase indices.
+        let mut drows = Vec::with_capacity(compiled.len());
+        for comp in compiled {
+            let mut stat_ops = Vec::new();
+            let mut dam_ops = Vec::new();
+            let mut def_ops = Vec::new();
+            for b in &comp.bonuses {
+                match b.kind {
+                    CompiledBonusKind::Stat => {
+                        if b.key == "atkSpd" || nested_prefix(&b.key) { return None; }
+                        stat_ops.push((intern(&b.key, &mut idx, &mut keys), b.contrib, b.use_max));
+                    }
+                    CompiledBonusKind::DamMult =>
+                        dam_ops.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+                    CompiledBonusKind::DefMult =>
+                        def_ops.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+                }
+            }
+            let mut parts_conv = Vec::new();
+            if let Some(plan) = &comp.plan {
+                for part in &plan.parts {
+                    parts_conv.push(match &part.kind {
+                        PartKindPlan::Damage(d) => Some(std::array::from_fn(|i| {
+                            intern(&d.conv_names[i], &mut idx, &mut keys)
+                        })),
+                        _ => None,
+                    });
+                }
+            }
+            drows.push(DRow { stat_ops, dam_ops, def_ops, parts_conv });
+        }
+
+        // Objective lowering.
+        let lower_ind = |stat: &str, idx: &mut HashMap<String, u32>, keys: &mut Vec<String>| -> DInd {
+            match stat {
+                "ehp" => DInd::Ehp,
+                "ehp_no_agi" => DInd::EhpNoAgi,
+                "total_hp" => DInd::TotalHp,
+                "hpr" => DInd::Hpr,
+                "ehpr" => DInd::Ehpr,
+                "total_mana" => DInd::TotalMana,
+                other => DInd::Plain(intern(other, idx, keys)),
+            }
+        };
+        let obj = match objective {
+            Objective::ComboDamage => DObjective::Damage,
+            Objective::Indirect(stat) => {
+                if nested_prefix(stat) { return None; }
+                DObjective::Indirect(lower_ind(stat, &mut idx, &mut keys))
+            }
+            Objective::Custom(weights) => {
+                let mut out = Vec::new();
+                for (target, w) in weights {
+                    if target == "combo_damage" { out.push((None, *w)); }
+                    else {
+                        if nested_prefix(target) { return None; }
+                        out.push((Some(lower_ind(target, &mut idx, &mut keys)), *w));
+                    }
+                }
+                DObjective::Custom(out)
+            }
+        };
+
+        let n = keys.len();
+        Some(DenseCtx {
+            idx, n, skp_idx, class_def_idx, dex_idx, atk_tier_idx,
+            conv_base_idx, dam_add_min_idx, dam_add_max_idx,
+            sd_pct_idx, md_pct_idx, dam_pct_idx, sd_raw_idx, md_raw_idx, dam_raw_idx,
+            s_sd_pct, s_md_pct, s_dam_pct, s_r_sd_pct, s_r_md_pct, s_r_dam_pct,
+            s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
+            s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
+            s_hpr_raw, s_hpr_pct, s_max_mana, s_int,
+            w_damages, w_present, w_spd_mult, class_def_val,
+            skp_atree_adds, skp_const_adds, skp_static_adds,
+            var_effects, var_slots, const_term_keys, rows: drows, obj,
+        })
+    }
+}
+
+impl DenseLeaf {
+    pub fn build(d: &DenseCtx, l2: &Layer2, base: &Obj, tables: &Tables) -> Option<DenseLeaf> {
+        // lc_pre: base + classDef + atree_raw — var effect terms read this.
+        let mut lc = base.clone();
+        lc.insert("classDef".into(), Value::from(d.class_def_val));
+        merge_into(&mut lc, l2.atree_raw.as_ref());
+        let const_term_vals: Vec<f64> = d.const_term_keys.iter()
+            .map(|k| lc.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0))
+            .collect();
+        // lc_full: + const_scaled/cached + static_boosts (constant folds).
+        let const_stage: Option<&Obj> = match l2.scaling_kind.as_str() {
+            "cached" => l2.scaled_cached.as_ref(),
+            _ => l2.const_scaled.as_ref(),
+        };
+        merge_into(&mut lc, const_stage);
+        merge_into(&mut lc, l2.static_boosts.as_ref());
+
+        let mut lc_vals = vec![f64::NAN; d.n];
+        let mut present = vec![0u64; d.n.div_ceil(64)];
+        for (k, &i) in &d.idx {
+            if let Some(v) = lc.get(k) {
+                lc_vals[i as usize] = DenseCtx::dense_num(Some(v));
+                bit_set(&mut present, i);
+            }
+        }
+        // skp keys are overwritten every trial; mark present.
+        for &i in &d.skp_idx { bit_set(&mut present, i); }
+        // var-out keys become present on the first trial write.
+        let mut var_out_absent = Vec::with_capacity(d.var_slots.len());
+        for &ki in &d.var_slots {
+            let absent = !bit_get(&present, ki);
+            var_out_absent.push(absent);
+            if absent { bit_set(&mut present, ki); }
+        }
+        // Row stat ops read `prev.as_f64() or 0` — a present non-Number LC
+        // value would diverge from num() semantics; fall back on that leaf.
+        for dr in &d.rows {
+            for &(i, _, _) in &dr.stat_ops {
+                if bit_get(&present, i) && lc_vals[i as usize].is_nan() {
+                    if let Some(k) = d.idx.iter().find(|(_, &v)| v == i).map(|(k, _)| k) {
+                        match lc.get(k) {
+                            None | Some(Value::Number(_)) => {}
+                            _ => return None,
+                        }
+                    }
+                }
+            }
+        }
+
+        let parse_mult_map = |key: &str| -> Option<(Vec<DMultEntry>, Vec<f64>)> {
+            let mut entries = Vec::new();
+            let mut vals = Vec::new();
+            if let Some(m) = lc.get(key).and_then(as_map) {
+                for (k, v) in m {
+                    entries.push(parse_mult_entry(k));
+                    vals.push(v.as_f64().unwrap_or(f64::NAN));
+                }
+            }
+            Some((entries, vals))
+        };
+        let (dam_entries, dam_vals) = parse_mult_map("damMult")?;
+        let (def_entries, def_vals) = parse_mult_map("defMult")?;
+        let atk_spd_idx = tables.atk_spd_index(lc.get("atkSpd").and_then(|v| v.as_str()));
+
+        Some(DenseLeaf {
+            lc_vals, present, var_out_absent, const_term_vals,
+            dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx,
+        })
+    }
+}
+
+impl DScratch {
+    pub fn new(leaf: &DenseLeaf, d: &DenseCtx) -> DScratch {
+        DScratch {
+            vals: leaf.lc_vals.clone(),
+            present: leaf.present.clone(),
+            dam_entries: leaf.dam_entries.iter().map(|e| DMultEntry {
+                key: e.key.clone(), spell_match: e.spell_match.clone(),
+                target: match e.target {
+                    MultTarget::All => MultTarget::All,
+                    MultTarget::MeleeOnly => MultTarget::MeleeOnly,
+                    MultTarget::Ele(i) => MultTarget::Ele(i),
+                    MultTarget::Inert => MultTarget::Inert,
+                },
+            }).collect(),
+            dam_vals: leaf.dam_vals.clone(),
+            def_entries: leaf.def_entries.iter().map(|e| DMultEntry {
+                key: e.key.clone(), spell_match: e.spell_match.clone(),
+                target: match e.target {
+                    MultTarget::All => MultTarget::All,
+                    MultTarget::MeleeOnly => MultTarget::MeleeOnly,
+                    MultTarget::Ele(i) => MultTarget::Ele(i),
+                    MultTarget::Inert => MultTarget::Inert,
+                },
+            }).collect(),
+            def_vals: leaf.def_vals.clone(),
+            var_acc: vec![0.0; d.var_slots.len()],
+        }
+    }
+
+    #[inline]
+    pub fn num(&self, i: u32) -> f64 { self.vals[i as usize] }
+    #[inline]
+    pub fn num_or0(&self, i: u32) -> f64 {
+        let v = self.vals[i as usize];
+        if v.is_nan() { 0.0 } else { v }
+    }
+    #[inline]
+    pub fn has(&self, i: u32) -> bool { bit_get(&self.present, i) }
+}
+
+/// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
+pub fn dense_assemble(d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, total_sp: &[f64]) {
+    s.vals.copy_from_slice(&leaf.lc_vals);
+    let mut skp_pre = [0.0f64; 5]; // value var terms see (before const stage)
+    for i in 0..5 {
+        let mut v = total_sp[i];
+        for a in &d.skp_atree_adds[i] { v += a; }
+        skp_pre[i] = v;
+        for a in &d.skp_const_adds[i] { v += a; }
+        for a in &d.skp_static_adds[i] { v += a; }
+        s.vals[d.skp_idx[i] as usize] = v;
+    }
+    for eff in &d.var_effects {
+        let mut total = 0.0;
+        total += eff.const_add;
+        for term in &eff.terms {
+            total += match term {
+                DTerm::Skp(i, f) => skp_pre[*i] * f,
+                DTerm::Const(slot, f) => leaf.const_term_vals[*slot] * f,
+            };
+        }
+        let mut t = total;
+        if eff.round { t = round_near(t).floor(); }
+        if eff.positive && t < 0.0 { t = 0.0; }
+        if let Some(mx) = eff.max {
+            if mx > 0.0 && t > mx { t = mx; }
+            if mx < 0.0 && t < mx { t = mx; }
+        }
+        for (slot, first) in &eff.out_slots {
+            if *first { s.var_acc[*slot] = t; } else { s.var_acc[*slot] += t; }
+        }
+    }
+    for (slot, &ki) in d.var_slots.iter().enumerate() {
+        let acc = s.var_acc[slot];
+        if leaf.var_out_absent[slot] { s.vals[ki as usize] = acc; }
+        else { s.vals[ki as usize] += acc; }
+    }
+}
+
+/// calculate_spell_damage_pc over the dense vector — same float sequence.
+#[allow(clippy::too_many_arguments)]
+fn dense_spell_damage(
+    d: &DenseCtx, s: &DScratch, mults: &[f64], use_spell: bool, ignore_speed: bool,
+    part_filter: Option<&str>, ignore_str: bool, ignored: &[String],
+    conv_idx: &[u32; 6], tables: &Tables,
+) -> ([f64; 2], [f64; 2]) {
+    let mut present = d.w_present;
+    let mut conversions = [0.0f64; 6];
+    for i in 0..mults.len().min(6) { conversions[i] = mults[i]; }
+    for i in 0..6 {
+        let ci = conv_idx[i];
+        if s.has(ci) { conversions[i] += s.num(ci); }
+    }
+    for i in 0..6 {
+        let ci = d.conv_base_idx[i];
+        if s.has(ci) { conversions[i] += s.num(ci); }
+    }
+
+    let neutral_convert = conversions[0] / 100.0;
+    if neutral_convert == 0.0 { present = [false; 6]; }
+    let mut damages = [[0.0f64; 2]; 6];
+    let mut weapon_min = 0.0;
+    let mut weapon_max = 0.0;
+    for i in 0..6 {
+        damages[i] = [d.w_damages[i][0] * neutral_convert, d.w_damages[i][1] * neutral_convert];
+        weapon_min += d.w_damages[i][0];
+        weapon_max += d.w_damages[i][1];
+    }
+    let mut total_convert = 0.0;
+    for i in 1..=5 {
+        if conversions[i] > 0.0 {
+            let f = conversions[i] / 100.0;
+            damages[i][0] += f * weapon_min;
+            damages[i][1] += f * weapon_max;
+            present[i] = true;
+            total_convert += f;
+        }
+    }
+    total_convert += conversions[0] / 100.0;
+
+    if !ignore_speed {
+        let m = d.w_spd_mult;
+        for dmg in damages.iter_mut() { dmg[0] *= m; dmg[1] *= m; }
+    }
+
+    for i in 0..6 {
+        if present[i] {
+            damages[i][0] += s.num(d.dam_add_min_idx[i]);
+            damages[i][1] += s.num(d.dam_add_max_idx[i]);
+        }
+    }
+
+    let (spec_pct, spec_raw, spec_pct_s, spec_raw_s, r_pct_s, r_raw_s) = if use_spell {
+        (&d.sd_pct_idx, &d.sd_raw_idx, d.s_sd_pct, d.s_sd_raw, d.s_r_sd_pct, d.s_r_sd_raw)
+    } else {
+        (&d.md_pct_idx, &d.md_raw_idx, d.s_md_pct, d.s_md_raw, d.s_r_md_pct, d.s_r_md_raw)
+    };
+    let mut skill_boost = [0.0f64; 6];
+    for i in 0..5 {
+        skill_boost[i + 1] = tables.sp_to_pct(s.num(d.skp_idx[i])) * tables.skillpoint_damage_mult[i];
+    }
+    let static_boost = (s.num(spec_pct_s) + s.num(d.s_dam_pct)) / 100.0;
+
+    let mut total_min = 0.0;
+    let mut total_max = 0.0;
+    let mut save_prop = [[0.0f64; 2]; 6];
+    let r_pct = (s.num(r_pct_s) + s.num(d.s_r_dam_pct)) / 100.0;
+    for i in 0..6 {
+        save_prop[i] = damages[i];
+        total_min += damages[i][0];
+        total_max += damages[i][1];
+        let mut boost = 1.0 + skill_boost[i] + static_boost
+            + (s.num(spec_pct[i]) + s.num(d.dam_pct_idx[i])) / 100.0;
+        if i > 0 { boost += r_pct; }
+        damages[i][0] *= boost;
+        damages[i][1] *= boost;
+    }
+
+    let total_elem_min = total_min - save_prop[0][0];
+    let total_elem_max = total_max - save_prop[0][1];
+
+    let prop_raw = s.num(spec_raw_s) + s.num(d.s_dam_raw);
+    let rainbow_raw = s.num(r_raw_s) + s.num(d.s_r_dam_raw);
+    for i in 0..6 {
+        let save_obj = save_prop[i];
+        let mut raw_boost = 0.0;
+        if present[i] {
+            raw_boost += s.num(spec_raw[i]) + s.num(d.dam_raw_idx[i]);
+        }
+        let mut min_boost = raw_boost;
+        let mut max_boost = raw_boost;
+        if total_max > 0.0 {
+            if total_min == 0.0 { min_boost += (save_obj[1] / total_max) * prop_raw; }
+            else { min_boost += (save_obj[0] / total_min) * prop_raw; }
+            max_boost += (save_obj[1] / total_max) * prop_raw;
+        }
+        if i != 0 && total_elem_max > 0.0 {
+            if total_elem_min == 0.0 { min_boost += (save_obj[1] / total_elem_max) * rainbow_raw; }
+            else { min_boost += (save_obj[0] / total_elem_min) * rainbow_raw; }
+            max_boost += (save_obj[1] / total_elem_max) * rainbow_raw;
+        }
+        damages[i][0] += min_boost * total_convert;
+        damages[i][1] += max_boost * total_convert;
+    }
+
+    let str_boost = if ignore_str { 1.0 } else { 1.0 + skill_boost[1] };
+    let mut damage_mult = 1.0f64;
+    let mut ele_damage_mult = [1.0f64; 6];
+    for (e, v) in s.dam_entries.iter().zip(&s.dam_vals) {
+        if let Some(sm) = &e.spell_match {
+            if Some(sm.as_str()) != part_filter { continue; }
+        }
+        if ignored.iter().any(|m| m == &e.key) { continue; }
+        match e.target {
+            MultTarget::All => damage_mult *= 1.0 + v / 100.0,
+            MultTarget::MeleeOnly => { if !use_spell { damage_mult *= 1.0 + v / 100.0; } }
+            MultTarget::Ele(i) => ele_damage_mult[i] *= 1.0 + v / 100.0,
+            MultTarget::Inert => {}
+        }
+    }
+    let crit_mult = if ignore_str { 0.0 } else { 1.0 + s.num(d.s_crit_dam_pct) / 100.0 };
+
+    for i in 0..6 {
+        damages[i][0] *= ele_damage_mult[i];
+        damages[i][1] *= ele_damage_mult[i];
+    }
+
+    let mut total_dam_norm = [0.0f64; 2];
+    let mut total_dam_crit = [0.0f64; 2];
+    for dmg in damages.iter_mut() {
+        if dmg[0] < 0.0 { dmg[0] = 0.0; }
+        if dmg[1] < 0.0 { dmg[1] = 0.0; }
+        let res = [
+            dmg[0] * str_boost * damage_mult,
+            dmg[1] * str_boost * damage_mult,
+            dmg[0] * (str_boost + crit_mult) * damage_mult,
+            dmg[1] * (str_boost + crit_mult) * damage_mult,
+        ];
+        total_dam_norm[0] += res[0];
+        total_dam_norm[1] += res[1];
+        total_dam_crit[0] += res[2];
+        total_dam_crit[1] += res[3];
+    }
+    (total_dam_norm, total_dam_crit)
+}
+
+/// eval_spell_plan over the dense vector.
+fn dense_spell_plan(
+    d: &DenseCtx, s: &DScratch, plan: &SpellPlan, drow: &DRow, crit: f64,
+    tables: &Tables, use_dps_display: bool,
+) -> (f64, f64) {
+    let n = plan.parts.len();
+    let mut memo: Vec<Option<[f64; 4]>> = vec![None; n];
+
+    fn eval(i: usize, plan: &SpellPlan, drow: &DRow, memo: &mut Vec<Option<[f64; 4]>>,
+            d: &DenseCtx, s: &DScratch, tables: &Tables) -> [f64; 4] {
+        if let Some(r) = memo[i] { return r; }
+        let r = match &plan.parts[i].kind {
+            PartKindPlan::Damage(dp) => {
+                let conv_idx = drow.parts_conv[i].as_ref().expect("damage part conv idx");
+                let (norm, crit_t) = dense_spell_damage(
+                    d, s, &dp.multipliers, plan.use_spell, !plan.use_speed,
+                    Some(&dp.part_id), !dp.use_str, &dp.ignored_mults, conv_idx, tables);
+                [norm[0], norm[1], crit_t[0], crit_t[1]]
+            }
+            PartKindPlan::Heal => [0.0; 4],
+            PartKindPlan::Total(edges) => {
+                let mut acc = [0.0f64; 4];
+                for (j, hits, tick_rounding) in edges {
+                    let sub = eval(*j, plan, drow, memo, d, s, tables);
+                    if plan.parts[*j].static_kind == Some("damage") {
+                        let eff = if *tick_rounding {
+                            1.0 / ((1.0 / hits * 20.0).floor() * 0.05)
+                        } else { *hits };
+                        for k in 0..4 { acc[k] += sub[k] * eff; }
+                    }
+                }
+                acc
+            }
+        };
+        memo[i] = Some(r);
+        r
+    }
+
+    let display = if use_dps_display { plan.dps_display_idx } else { plan.display_idx };
+    let per_cast = match display {
+        Some(i) if plan.parts[i].static_kind == Some("damage") => {
+            let r = eval(i, plan, drow, &mut memo, d, s, tables);
+            let non_crit_avg = (r[0] + r[1]) / 2.0;
+            let crit_avg = (r[2] + r[3]) / 2.0;
+            (1.0 - crit) * non_crit_avg + crit * crit_avg
+        }
+        _ => 0.0,
+    };
+    let mut flat = 0.0;
+    for &i in &plan.flat_idxs {
+        let r = eval(i, plan, drow, &mut memo, d, s, tables);
+        let non_crit_avg = (r[0] + r[1]) / 2.0;
+        let crit_avg = (r[2] + r[3]) / 2.0;
+        flat += (1.0 - crit) * non_crit_avg + crit * crit_avg;
+    }
+    (per_cast, flat)
+}
+
+enum DenseUndo {
+    Val(u32, f64, bool),           // idx, old val, old present bit
+    DamVal(usize, f64),
+    DamAppend,
+    DefVal(usize, f64),
+    DefAppend,
+}
+
+/// with_row_overlay over the dense scratch.
+fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) {
+    for &(i, contrib, use_max) in &drow.stat_ops {
+        let old = s.vals[i as usize];
+        let was = bit_get(&s.present, i);
+        let cur = if was && !old.is_nan() { old } else { 0.0 };
+        s.vals[i as usize] = if use_max { js_max(cur, contrib) } else { cur + contrib };
+        bit_set(&mut s.present, i);
+        journal.push(DenseUndo::Val(i, old, was));
+    }
+    for (tmpl, contrib, use_max) in &drow.dam_ops {
+        match s.dam_entries.iter().position(|e| e.key == tmpl.key) {
+            Some(p) => {
+                let old = s.dam_vals[p];
+                let cur = if old.is_nan() { 0.0 } else { old };
+                s.dam_vals[p] = if *use_max { js_max(cur, *contrib) } else { cur + *contrib };
+                journal.push(DenseUndo::DamVal(p, old));
+            }
+            None => {
+                s.dam_entries.push(DMultEntry {
+                    key: tmpl.key.clone(), spell_match: tmpl.spell_match.clone(),
+                    target: match tmpl.target {
+                        MultTarget::All => MultTarget::All,
+                        MultTarget::MeleeOnly => MultTarget::MeleeOnly,
+                        MultTarget::Ele(i) => MultTarget::Ele(i),
+                        MultTarget::Inert => MultTarget::Inert,
+                    },
+                });
+                s.dam_vals.push(if *use_max { js_max(0.0, *contrib) } else { *contrib });
+                journal.push(DenseUndo::DamAppend);
+            }
+        }
+    }
+    for (tmpl, contrib, use_max) in &drow.def_ops {
+        match s.def_entries.iter().position(|e| e.key == tmpl.key) {
+            Some(p) => {
+                let old = s.def_vals[p];
+                let cur = if old.is_nan() { 0.0 } else { old };
+                s.def_vals[p] = if *use_max { js_max(cur, *contrib) } else { cur + *contrib };
+                journal.push(DenseUndo::DefVal(p, old));
+            }
+            None => {
+                s.def_entries.push(DMultEntry {
+                    key: tmpl.key.clone(), spell_match: tmpl.spell_match.clone(),
+                    target: match tmpl.target {
+                        MultTarget::All => MultTarget::All,
+                        MultTarget::MeleeOnly => MultTarget::MeleeOnly,
+                        MultTarget::Ele(i) => MultTarget::Ele(i),
+                        MultTarget::Inert => MultTarget::Inert,
+                    },
+                });
+                s.def_vals.push(if *use_max { js_max(0.0, *contrib) } else { *contrib });
+                journal.push(DenseUndo::DefAppend);
+            }
+        }
+    }
+}
+
+fn dense_undo_row(s: &mut DScratch, journal: &mut Vec<DenseUndo>) {
+    while let Some(u) = journal.pop() {
+        match u {
+            DenseUndo::Val(i, old, was) => {
+                s.vals[i as usize] = old;
+                if !was { s.present[(i / 64) as usize] &= !(1u64 << (i % 64)); }
+            }
+            DenseUndo::DamVal(p, old) => { s.dam_vals[p] = old; }
+            DenseUndo::DamAppend => { s.dam_entries.pop(); s.dam_vals.pop(); }
+            DenseUndo::DefVal(p, old) => { s.def_vals[p] = old; }
+            DenseUndo::DefAppend => { s.def_entries.pop(); s.def_vals.pop(); }
+        }
+    }
+}
+
+/// eval_combo_damage_compiled over the dense scratch.
+pub fn dense_combo_damage(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables,
+) -> f64 {
+    let crit = {
+        let dex = s.num(d.dex_idx);
+        tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex })
+    };
+    let mut journal: Vec<DenseUndo> = Vec::new();
+    let mut total_damage = 0.0;
+    for ((row, comp), drow) in rows.iter().zip(compiled).zip(&d.rows) {
+        if comp.mod_spell.is_none() { continue; }
+        if row.qty <= 0.0 || row.pseudo { continue; }
+
+        let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
+        let mut eff_dps_hits = row.dps_hits;
+        let mut chain_root: Option<&str> = None;
+        if eff_dps_name.is_none() {
+            if let Some((name, hits, root)) = &comp.dps {
+                eff_dps_name = Some(name);
+                eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
+                chain_root = Some(root);
+            }
+        }
+        let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
+        let plan = comp.plan.as_ref().expect("dense requires plans");
+
+        dense_apply_row(s, drow, &mut journal);
+        let (mut per_cast, flat) = dense_spell_plan(
+            d, s, plan, drow, crit, tables, eff_dps_name.is_some());
+        dense_undo_row(s, &mut journal);
+        if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
+        let flat_per_cast = if final_root.is_some() { flat } else { 0.0 };
+
+        let eff_qty = if row.is_melee_time {
+            let melee_period = match row.melee_cd_override {
+                Some(p) => p,
+                None => {
+                    let tier = s.num_or0(d.atk_tier_idx);
+                    let mut adj = leaf.atk_spd_idx as f64 + tier;
+                    if adj < 0.0 { adj = 0.0; }
+                    if adj > 6.0 { adj = 6.0; }
+                    1.0 / tables.base_damage_multiplier[adj as usize]
+                }
+            };
+            row.qty / melee_period.max(SPELL_CAST_DELAY)
+        } else { row.qty };
+        let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
+        total_damage += row_damage;
+    }
+    total_damage
+}
+
+fn dense_defense_stats(d: &DenseCtx, s: &DScratch, tables: &Tables) -> (f64, f64, f64, f64, f64) {
+    let fm3 = tables.skillpoint_final_mult_3;
+    let fm4 = tables.skillpoint_final_mult_4;
+    let def_pct = tables.sp_to_pct(s.num_or0(d.s_def)) * fm3;
+    let agi_pct = tables.sp_to_pct(s.num_or0(d.s_agi)) * fm4;
+    let mut total_hp = s.num_or0(d.s_hp) + s.num_or0(d.s_hp_bonus);
+    if total_hp < 5.0 { total_hp = 5.0; }
+    let cd = s.num(d.class_def_idx);
+    let mut def_mult = 2.0 - if cd.is_nan() { 1.0 } else { cd };
+    for v in &s.def_vals {
+        def_mult *= 1.0 - v / 100.0;
+    }
+    let agi_reduction = (100.0 - s.num_or0(d.s_agi_def)) / 100.0;
+    let denom_full = agi_reduction * agi_pct + (1.0 - agi_pct) * (1.0 - def_pct);
+    let ehp = total_hp / denom_full / def_mult;
+    let ehp_no_agi = total_hp / ((1.0 - def_pct) * def_mult);
+    let hpr = raw_to_pct(s.num_or0(d.s_hpr_raw), s.num_or0(d.s_hpr_pct) / 100.0);
+    let ehpr = hpr / denom_full / def_mult;
+    (total_hp, ehp, ehp_no_agi, hpr, ehpr)
+}
+
+fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f64 {
+    match ind {
+        DInd::Ehp => dense_defense_stats(d, s, tables).1,
+        DInd::EhpNoAgi => dense_defense_stats(d, s, tables).2,
+        DInd::TotalHp => dense_defense_stats(d, s, tables).0,
+        DInd::Hpr => dense_defense_stats(d, s, tables).3,
+        DInd::Ehpr => dense_defense_stats(d, s, tables).4,
+        DInd::TotalMana => {
+            let mm = s.num_or0(d.s_max_mana);
+            let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
+            100.0 + mm + int_mana
+        }
+        DInd::Plain(i) => s.num_or0(*i),
+    }
+}
+
+/// Objective::score over the dense trial state (bit-identical to the Obj path).
+pub fn dense_score(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables,
+) -> f64 {
+    match &d.obj {
+        DObjective::Damage => dense_combo_damage(d, leaf, s, rows, compiled, tables),
+        DObjective::Indirect(ind) => dense_indirect(d, s, ind, tables),
+        DObjective::Custom(weights) => {
+            let mut damage: Option<f64> = None;
+            let mut sum = 0.0;
+            for (ind, weight) in weights {
+                let sub = match ind {
+                    None => match damage {
+                        Some(dv) => dv,
+                        None => {
+                            let dv = dense_combo_damage(d, leaf, s, rows, compiled, tables);
+                            damage = Some(dv);
+                            dv
+                        }
+                    },
+                    Some(ind) => dense_indirect(d, s, ind, tables),
+                };
+                sum += weight * sub;
+            }
+            sum
+        }
+    }
 }

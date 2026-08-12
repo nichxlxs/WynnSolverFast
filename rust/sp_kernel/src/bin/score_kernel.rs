@@ -147,6 +147,11 @@ fn main() {
     let compiled_rows = compile_rows(&rows, &registry, &hit_refs);
     let mut lc_pass = 0u64;
     let mut lc_fail = 0u64;
+    let dense_ctx = layer2.as_ref().and_then(|l2| {
+        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective)
+    });
+    let mut ld_pass = 0u64;
+    let mut ld_fail = 0u64;
 
     let cases = fixture["cases"].as_array().expect("cases array");
     let mut pass = 0u64;
@@ -234,7 +239,7 @@ fn main() {
                 let exp_total: Vec<f64> = arr_f64(&case["total_sp"]);
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                     &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                    &objective, None) {
+                                    &objective, None, None) {
                     Ok(Some(r)) => {
                         let base_ok = (0..5).all(|j| r.base_sp[j] as f64 == exp_base[j]);
                         let total_ok = (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]);
@@ -265,7 +270,7 @@ fn main() {
                 // Compiled-rows pipeline must be bit-identical to the original.
                 match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                     &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
-                                    &objective, Some(&compiled_rows)) {
+                                    &objective, Some(&compiled_rows), None) {
                     Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
                         && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => lc_pass += 1,
                     other => {
@@ -275,6 +280,29 @@ fn main() {
                                 Ok(Some(r)) => eprintln!("case {}: COMPILED MISMATCH got {:.17e} want {:.17e}", i, r.score, expected),
                                 Ok(None) => eprintln!("case {}: compiled pipeline infeasible", i),
                                 Err(e) => eprintln!("case {}: compiled pipeline error: {}", i, e),
+                            }
+                        }
+                    }
+                }
+
+                // Dense-vector pipeline: greedy trials and the ceiling gate
+                // run on the dense representation with the check tripwire on
+                // (every dense score asserted bit-equal to the Obj path).
+                if let Some(dense) = dense_ctx.as_ref() {
+                    std::env::set_var("SCORE_DENSE_CHECK", "1");
+                    match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
+                                        &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
+                                        &objective, Some(&compiled_rows), Some(dense)) {
+                        Ok(Some(r)) if r.score.to_bits() == expected.to_bits()
+                            && (0..5).all(|j| r.total_sp[j] as f64 == exp_total[j]) => ld_pass += 1,
+                        other => {
+                            ld_fail += 1;
+                            if ld_fail <= 3 {
+                                match other {
+                                    Ok(Some(r)) => eprintln!("case {}: DENSE MISMATCH got {:.17e} want {:.17e}", i, r.score, expected),
+                                    Ok(None) => eprintln!("case {}: dense pipeline infeasible", i),
+                                    Err(e) => eprintln!("case {}: dense pipeline error: {}", i, e),
+                                }
                             }
                         }
                     }
@@ -318,8 +346,13 @@ fn main() {
         if lc_pass + lc_fail > 0 {
             println!("pipeline compiled-rows: {} exact / {} diff", lc_pass, lc_fail);
         }
+        if dense_ctx.is_some() {
+            println!("pipeline dense (per-trial checked): {} exact / {} diff", ld_pass, ld_fail);
+        } else {
+            println!("pipeline dense: unsupported scenario shape, Obj fallback");
+        }
     } else if layer2.is_some() {
         println!("layer2: scaling plan unsupported (kind=full), skipped");
     }
-    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 || l3_fail > 0 || lc_fail > 0 { std::process::exit(1); }
+    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 || l3_fail > 0 || lc_fail > 0 || ld_fail > 0 { std::process::exit(1); }
 }

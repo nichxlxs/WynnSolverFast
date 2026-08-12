@@ -735,6 +735,7 @@ impl<'a> Search<'a> {
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
                 &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
+                sc.dense.as_ref(),
             ).expect("scoring pipeline error") {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
