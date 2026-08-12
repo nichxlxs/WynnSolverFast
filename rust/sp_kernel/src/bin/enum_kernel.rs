@@ -1,0 +1,649 @@
+//! Enumeration-kernel replay (P2.3 prototype).
+//!
+//! Replays a solver scenario exported by test_solver_search.js
+//! (SOLVER_EXPORT_RUST=<path>): level-based enumeration over free slots with
+//! ring canonicalization, illegal-set blocking, mid-tree SP feasibility
+//! pruning, restriction/EHP suffix-bound pruning, leaf prechecks, and the
+//! exact SP kernel at surviving leaves. Reports the same funnel counters as
+//! the JS worker (checked / precheck_reject / feasible) and wall time.
+//!
+//! Scoring (greedy SP, mana sim, damage) is intentionally absent: feasible
+//! leaves are counted, not scored, so compare against the JS run's funnel
+//! and treat the time as the enumeration+SP engine cost.
+//!
+//! Usage: enum_kernel <fixture.txt>
+
+use sp_kernel::{Case, Kernel, Unit, SP_PER_ATTR_CAP};
+use std::env;
+use std::fs;
+use std::time::Instant;
+
+#[derive(Clone)]
+struct PoolItem {
+    crafted: bool,
+    reqs: [i32; 5],
+    skp: [i32; 5],
+    set_id: i32,
+    illegal_id: i32,
+    hp: f64,
+    pc: Vec<f64>,
+}
+
+struct Slot {
+    #[allow(dead_code)]
+    name: String,
+    pos: usize,
+    is_ring1: bool,
+    is_ring2: bool,
+    pool: Vec<PoolItem>,
+}
+
+struct Fixture {
+    budget: i32,
+    pc_thresholds: Vec<f64>,
+    pc_start: Vec<f64>,
+    ehp: Option<(f64, f64, f64)>,   // threshold, fixed_hp, divisor
+    ehpna: Option<(f64, f64, f64)>,
+    thp: Option<(f64, f64)>,        // threshold, fixed_hp
+    hp_start: f64,
+    weapon: Unit,
+    guild: Option<(Unit, i32)>,     // unit, set_id
+    fixed: Vec<(usize, Unit, i32, i32)>, // pos, unit, set_id, illegal_id
+    slots: Vec<Slot>,
+    set_table: Vec<Vec<[i32; 5]>>,  // set_id -> bonuses per count (count-1 indexed)
+}
+
+fn parse_fixture(text: &str) -> Fixture {
+    let mut lines = text.lines();
+    let mut next = || lines.next().expect("truncated fixture");
+    let toks = |l: &str| l.split_ascii_whitespace().map(String::from).collect::<Vec<_>>();
+
+    let budget: i32 = toks(next())[1].parse().unwrap();
+    let n_pc: usize = toks(next())[1].parse().unwrap();
+    let mut pc_thresholds = Vec::new();
+    let mut pc_start = Vec::new();
+    for _ in 0..n_pc {
+        let t = toks(next());
+        pc_thresholds.push(t[2].parse().unwrap());
+        pc_start.push(t[3].parse().unwrap());
+    }
+    let parse_gate3 = |t: &[String]| -> Option<(f64, f64, f64)> {
+        if t[1] == "1" { Some((t[2].parse().unwrap(), t[3].parse().unwrap(), t[4].parse().unwrap())) } else { None }
+    };
+    let ehp = parse_gate3(&toks(next()));
+    let ehpna = parse_gate3(&toks(next()));
+    let thp_t = toks(next());
+    let thp = if thp_t[1] == "1" { Some((thp_t[2].parse().unwrap(), thp_t[3].parse().unwrap())) } else { None };
+    let hp_start: f64 = toks(next())[1].parse().unwrap();
+
+    let unit_from = |t: &[String], off: usize| -> Unit {
+        let mut reqs = [0i32; 5];
+        let mut skp = [0i32; 5];
+        for j in 0..5 { reqs[j] = t[off + j].parse().unwrap(); }
+        for j in 0..5 { skp[j] = t[off + 5 + j].parse().unwrap(); }
+        Unit { crafted: false, reqs, skp }
+    };
+
+    let wt = toks(next());
+    let weapon = unit_from(&wt, 1);
+
+    let gt = toks(next());
+    let guild = if gt[1] == "1" {
+        let mut u = unit_from(&gt, 2);
+        u.crafted = gt[2] == "1";
+        // fields: GUILD present crafted reqs5 skp5 set_id → set at index 13
+        let set_id: i32 = gt[13].parse().unwrap();
+        Some((u, set_id))
+    } else { None };
+
+    let n_fixed: usize = toks(next())[1].parse().unwrap();
+    let mut fixed = Vec::new();
+    for _ in 0..n_fixed {
+        let t = toks(next());
+        // FIXED pos crafted reqs5 skp5 set_id illegal_id
+        let pos: usize = t[1].parse().unwrap();
+        let mut u = unit_from(&t, 3);
+        u.crafted = t[2] == "1";
+        let set_id: i32 = t[13].parse().unwrap();
+        let illegal_id: i32 = t[14].parse().unwrap();
+        fixed.push((pos, u, set_id, illegal_id));
+    }
+
+    let n_slots: usize = toks(next())[1].parse().unwrap();
+    let mut slots = Vec::new();
+    for _ in 0..n_slots {
+        let t = toks(next());
+        // SLOT name pos is_ring1 is_ring2 npool
+        let name = t[1].clone();
+        let pos: usize = t[2].parse().unwrap();
+        let is_ring1 = t[3] == "1";
+        let is_ring2 = t[4] == "1";
+        let npool: usize = t[5].parse().unwrap();
+        let mut pool = Vec::with_capacity(npool);
+        for _ in 0..npool {
+            let it = toks(next());
+            // ITEM crafted reqs5 skp5 set_id illegal_id hp pc...
+            let mut u = unit_from(&it, 2);
+            u.crafted = it[1] == "1";
+            let set_id: i32 = it[12].parse().unwrap();
+            let illegal_id: i32 = it[13].parse().unwrap();
+            let hp: f64 = it[14].parse().unwrap();
+            let mut pc = Vec::with_capacity(n_pc);
+            for k in 0..n_pc { pc.push(it[15 + k].parse().unwrap()); }
+            pool.push(PoolItem { crafted: u.crafted, reqs: u.reqs, skp: u.skp, set_id, illegal_id, hp, pc });
+        }
+        slots.push(Slot { name, pos, is_ring1, is_ring2, pool });
+    }
+
+    let n_sets: usize = toks(next())[1].parse().unwrap();
+    let mut set_table: Vec<Vec<[i32; 5]>> = vec![Vec::new(); n_sets];
+    for _ in 0..n_sets {
+        let t = toks(next());
+        // SET id ncounts (skp5)*ncounts
+        let id: usize = t[1].parse().unwrap();
+        let ncounts: usize = t[2].parse().unwrap();
+        let mut rows = Vec::with_capacity(ncounts);
+        for c in 0..ncounts {
+            let mut row = [0i32; 5];
+            for j in 0..5 { row[j] = t[3 + c * 5 + j].parse().unwrap(); }
+            rows.push(row);
+        }
+        set_table[id] = rows;
+    }
+
+    Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
+              weapon, guild, fixed, slots, set_table }
+}
+
+struct Search<'a> {
+    fx: &'a Fixture,
+    n_free: usize,
+    l_max: usize,
+    ring1_depth: isize,
+    ring2_depth: isize,
+    rings_contiguous: bool,
+
+    // Suffix bounds
+    sp_suffix_max_prov: Vec<[i32; 5]>,   // [n_free+1][5]
+    pc_suffix: Vec<f64>,                 // [(n_free+1) * n_pc]
+    hp_suffix: Vec<f64>,                 // [n_free+1]
+
+    // Subtree leaf counts
+    subtree: Vec<Vec<f64>>,              // [n_free+1][l_max+1]
+    ring_pair_count: Vec<f64>,
+
+    // Running state
+    pc_running: Vec<f64>,
+    hp_running: f64,
+    sp_fixed_max_req: [i32; 5],
+    sp_fixed_prov: [i32; 5],
+    sp_free_prov: [i32; 5],
+    sp_max_req: [i32; 5],
+    sp_max_save: Vec<[i32; 5]>,
+    set_counts: Vec<i32>,
+    illegal_counts: Vec<i32>,
+    equips: [Unit; 8],
+    equip_set: [i32; 8],
+    ring1_placed_offset: usize,
+
+    // Funnel
+    checked: f64,
+    precheck_reject: f64,
+    precheck_pass: u64,
+    feasible: u64,
+    sp_leaf_reject: u64,
+    kernel: Kernel,
+
+    // Progress reporting
+    total_space: f64,
+    started: Instant,
+    next_report: f64,
+    report_every: f64,
+    report_calls: u64,
+}
+
+impl<'a> Search<'a> {
+    fn new(fx: &'a Fixture) -> Self {
+        let n_free = fx.slots.len();
+        let n_pc = fx.pc_thresholds.len();
+        let mut ring1_depth = -1isize;
+        let mut ring2_depth = -1isize;
+        for (d, s) in fx.slots.iter().enumerate() {
+            if s.is_ring1 { ring1_depth = d as isize; }
+            if s.is_ring2 { ring2_depth = d as isize; }
+        }
+        let both = ring1_depth >= 0 && ring2_depth >= 0;
+        let rings_contiguous = both && ring2_depth == ring1_depth + 1;
+
+        let l_max: usize = fx.slots.iter()
+            .map(|s| s.pool.len().saturating_sub(1))
+            .filter(|&ub| ub > 0)
+            .sum();
+
+        // SP max provisions per slot + suffix
+        let mut sp_suffix_max_prov = vec![[0i32; 5]; n_free + 1];
+        for d in (0..n_free).rev() {
+            let mut maxp = [0i32; 5];
+            for it in &fx.slots[d].pool {
+                for j in 0..5 {
+                    if it.skp[j] > maxp[j] { maxp[j] = it.skp[j]; }
+                }
+            }
+            for j in 0..5 {
+                sp_suffix_max_prov[d][j] = sp_suffix_max_prov[d + 1][j] + maxp[j];
+            }
+        }
+
+        // Restriction suffix bounds
+        let mut pc_suffix = vec![0f64; (n_free + 1) * n_pc];
+        for d in (0..n_free).rev() {
+            for i in 0..n_pc {
+                let mut slot_max = f64::NEG_INFINITY;
+                if fx.slots[d].pool.is_empty() { slot_max = 0.0; }
+                for it in &fx.slots[d].pool {
+                    if it.pc[i] > slot_max { slot_max = it.pc[i]; }
+                }
+                pc_suffix[d * n_pc + i] = pc_suffix[(d + 1) * n_pc + i] + slot_max;
+            }
+        }
+        let mut hp_suffix = vec![0f64; n_free + 1];
+        for d in (0..n_free).rev() {
+            let mut slot_max = f64::NEG_INFINITY;
+            if fx.slots[d].pool.is_empty() { slot_max = 0.0; }
+            for it in &fx.slots[d].pool {
+                if it.hp > slot_max { slot_max = it.hp; }
+            }
+            hp_suffix[d] = hp_suffix[d + 1] + slot_max;
+        }
+
+        // Ring pair count (contiguous case)
+        let mut ring_pair_count = vec![0f64; l_max + 1];
+        if rings_contiguous {
+            let n = fx.slots[ring1_depth as usize].pool.len();
+            for a in 0..n {
+                for b in a..n {
+                    if a + b <= l_max { ring_pair_count[a + b] += 1.0; }
+                }
+            }
+        }
+
+        // Subtree leaf counts
+        let mut subtree = vec![vec![0f64; l_max + 1]; n_free + 1];
+        subtree[n_free][0] = 1.0;
+        for d in (0..n_free).rev() {
+            if rings_contiguous && d as isize == ring2_depth {
+                continue; // rebuilt per ring1 placement
+            }
+            if rings_contiguous && d as isize == ring1_depth {
+                let tail = subtree[d + 2].clone();
+                for lp in 0..=l_max {
+                    let c = ring_pair_count[lp];
+                    if c == 0.0 { continue; }
+                    for lt in 0..=(l_max - lp) {
+                        let t = tail[lt];
+                        if t != 0.0 { subtree[d][lp + lt] += c * t; }
+                    }
+                }
+                continue;
+            }
+            let ub = fx.slots[d].pool.len().saturating_sub(1);
+            if fx.slots[d].pool.is_empty() { continue; }
+            let tail = subtree[d + 1].clone();
+            let mut prefix = vec![0f64; l_max + 2];
+            for l in 0..=l_max { prefix[l + 1] = prefix[l] + tail[l]; }
+            for l in 0..=l_max {
+                let lo = l.saturating_sub(ub);
+                let hi = l.min(l_max);
+                if hi + 1 > lo { subtree[d][l] = prefix[hi + 1] - prefix[lo]; }
+            }
+        }
+
+        // Fixed SP baseline
+        let mut sp_fixed_max_req = [0i32; 5];
+        let mut sp_fixed_prov = [0i32; 5];
+        let mut set_counts = vec![0i32; fx.set_table.len()];
+        let mut illegal_counts = vec![0i32; 64];
+        let mut equips: [Unit; 8] = Default::default();
+        let mut equip_set = [-1i32; 8];
+        for (pos, u, set_id, illegal_id) in &fx.fixed {
+            equips[*pos] = *u;
+            equip_set[*pos] = *set_id;
+            if !u.crafted {
+                for j in 0..5 {
+                    if u.skp[j] > 0 { sp_fixed_prov[j] += u.skp[j]; }
+                }
+            }
+            for j in 0..5 {
+                if u.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = u.reqs[j]; }
+            }
+            if *set_id >= 0 && !u.crafted { set_counts[*set_id as usize] += 1; }
+            if *illegal_id >= 0 { illegal_counts[*illegal_id as usize] += 1; }
+        }
+        if let Some((g, gset)) = &fx.guild {
+            for j in 0..5 {
+                if g.skp[j] > 0 { sp_fixed_prov[j] += g.skp[j]; }
+            }
+            for j in 0..5 {
+                if g.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = g.reqs[j]; }
+            }
+            if *gset >= 0 && !g.crafted { set_counts[*gset as usize] += 1; }
+        }
+        for j in 0..5 {
+            if fx.weapon.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = fx.weapon.reqs[j]; }
+        }
+
+        Search {
+            fx, n_free, l_max, ring1_depth, ring2_depth, rings_contiguous,
+            sp_suffix_max_prov, pc_suffix, hp_suffix, subtree, ring_pair_count,
+            pc_running: fx.pc_start.clone(),
+            hp_running: fx.hp_start,
+            sp_fixed_max_req,
+            sp_fixed_prov,
+            sp_free_prov: [0; 5],
+            sp_max_req: sp_fixed_max_req,
+            sp_max_save: vec![[0i32; 5]; n_free],
+            set_counts,
+            illegal_counts,
+            equips,
+            equip_set,
+            ring1_placed_offset: 0,
+            checked: 0.0, precheck_reject: 0.0, precheck_pass: 0,
+            feasible: 0, sp_leaf_reject: 0,
+            kernel: Kernel::new(),
+            total_space: 0.0,
+            started: Instant::now(),
+            next_report: 0.0,
+            report_every: 0.0,
+            report_calls: 0,
+        }
+    }
+
+    /// Progress line with rate + ETA, every ~5 seconds (time check amortized
+    /// over 65k credit/leaf events so Instant::now() stays off the hot path).
+    fn maybe_report(&mut self) {
+        self.report_calls += 1;
+        if self.report_calls & 0xFFFF != 0 { return; }
+        let elapsed = self.started.elapsed().as_secs_f64();
+        if elapsed < self.next_report { return; }
+        self.next_report = elapsed + 5.0;
+        let rate = self.checked / elapsed;
+        let remaining = (self.total_space - self.checked).max(0.0);
+        eprintln!(
+            "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s",
+            self.checked / self.total_space * 100.0,
+            self.checked, self.total_space, rate, elapsed, remaining / rate,
+        );
+    }
+
+    fn rebuild_ring2_subtree(&mut self, ring1_offset: usize) {
+        if !self.rings_contiguous { return; }
+        let d = self.ring2_depth as usize;
+        let ub = self.fx.slots[d].pool.len() - 1;
+        let lb = ring1_offset;
+        let tail = self.subtree[d + 1].clone();
+        let l_max = self.l_max;
+        let mut prefix = vec![0f64; l_max + 2];
+        for l in 0..=l_max { prefix[l + 1] = prefix[l] + tail[l]; }
+        let row = &mut self.subtree[d];
+        for l in 0..=l_max { row[l] = 0.0; }
+        if lb > ub { return; }
+        for l in 0..=l_max {
+            let lo = l.saturating_sub(ub);
+            if l < lb { continue; }
+            let hi_incl = l - lb;
+            if hi_incl < lo { continue; }
+            let hi = hi_incl.min(l_max);
+            row[l] = prefix[hi + 1] - prefix[lo];
+        }
+    }
+
+    fn sp_mid_tree_feasible(&self, next_depth: usize) -> bool {
+        if next_depth >= self.n_free { return true; }
+        let mut total_deficit = 0i32;
+        for j in 0..5 {
+            if self.sp_max_req[j] == 0 { continue; }
+            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j]
+                + self.sp_suffix_max_prov[next_depth][j];
+            if self.sp_max_req[j] <= prov { continue; }
+            let deficit = self.sp_max_req[j] - prov;
+            if deficit > SP_PER_ATTR_CAP { return false; }
+            total_deficit += deficit;
+            if total_deficit > self.fx.budget { return false; }
+        }
+        true
+    }
+
+    fn sp_leaf_feasible(&self) -> bool {
+        let mut total_deficit = 0i32;
+        for j in 0..5 {
+            if self.sp_max_req[j] == 0 { continue; }
+            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j];
+            if self.sp_max_req[j] <= prov { continue; }
+            let deficit = self.sp_max_req[j] - prov;
+            if deficit > SP_PER_ATTR_CAP { return false; }
+            total_deficit += deficit;
+            if total_deficit > self.fx.budget { return false; }
+        }
+        true
+    }
+
+    fn hp_gates_ok(&self, raw_hp: f64) -> bool {
+        if let Some((thr, fixed_hp, div)) = self.fx.ehp {
+            let mut total = raw_hp + fixed_hp;
+            if total < 5.0 { total = 5.0; }
+            if total / div < thr { return false; }
+        }
+        if let Some((thr, fixed_hp, div)) = self.fx.ehpna {
+            let mut total = raw_hp + fixed_hp;
+            if total < 5.0 { total = 5.0; }
+            if total / div < thr { return false; }
+        }
+        if let Some((thr, fixed_hp)) = self.fx.thp {
+            let mut total = raw_hp + fixed_hp;
+            if total < 5.0 { total = 5.0; }
+            if total < thr { return false; }
+        }
+        true
+    }
+
+    fn restr_mid_tree_feasible(&self, next_depth: usize) -> bool {
+        let n_pc = self.fx.pc_thresholds.len();
+        for i in 0..n_pc {
+            if self.pc_running[i] + self.pc_suffix[next_depth * n_pc + i]
+                < self.fx.pc_thresholds[i] { return false; }
+        }
+        self.hp_gates_ok(self.hp_running + self.hp_suffix[next_depth])
+    }
+
+    fn evaluate_leaf(&mut self) {
+        self.checked += 1.0;
+        self.maybe_report();
+        // Leaf prechecks (constraint + EHP family)
+        let n_pc = self.fx.pc_thresholds.len();
+        for i in 0..n_pc {
+            if self.pc_running[i] < self.fx.pc_thresholds[i] {
+                self.precheck_reject += 1.0;
+                return;
+            }
+        }
+        if !self.hp_gates_ok(self.hp_running) {
+            self.precheck_reject += 1.0;
+            return;
+        }
+        self.precheck_pass += 1;
+
+        // Exact SP with set bonuses folded into the free pool.
+        let mut set_free = [0i32; 5];
+        for (sid, &cnt) in self.set_counts.iter().enumerate() {
+            if cnt <= 0 { continue; }
+            let rows = &self.fx.set_table[sid];
+            let idx = (cnt as usize).min(rows.len());
+            if idx == 0 { continue; }
+            let row = rows[idx - 1];
+            for j in 0..5 { set_free[j] += row[j]; }
+        }
+        let case = Case {
+            budget: self.fx.budget,
+            equipment: self.equips,
+            weapon: self.fx.weapon,
+            set_free,
+            expected: None,
+        };
+        let guild_unit = self.fx.guild.as_ref().map(|(g, _)| *g);
+        if self.kernel.calculate_with_extra(&case, guild_unit.as_ref()).is_some() {
+            self.feasible += 1;
+        }
+    }
+
+    fn place(&mut self, depth: usize, item_idx: usize) {
+        let slot = &self.fx.slots[depth];
+        let it = slot.pool[item_idx].clone();
+        let n_pc = it.pc.len();
+        for i in 0..n_pc { self.pc_running[i] += it.pc[i]; }
+        self.hp_running += it.hp;
+        if !it.crafted {
+            for j in 0..5 {
+                if it.skp[j] > 0 { self.sp_free_prov[j] += it.skp[j]; }
+            }
+            if it.set_id >= 0 { self.set_counts[it.set_id as usize] += 1; }
+        }
+        self.sp_max_save[depth] = self.sp_max_req;
+        for j in 0..5 {
+            if it.reqs[j] > self.sp_max_req[j] { self.sp_max_req[j] = it.reqs[j]; }
+        }
+        self.equips[slot.pos] = Unit { crafted: it.crafted, reqs: it.reqs, skp: it.skp };
+        self.equip_set[slot.pos] = it.set_id;
+        if it.illegal_id >= 0 { self.illegal_counts[it.illegal_id as usize] += 1; }
+    }
+
+    fn unplace(&mut self, depth: usize, item_idx: usize) {
+        let slot = &self.fx.slots[depth];
+        let it = slot.pool[item_idx].clone();
+        let n_pc = it.pc.len();
+        for i in 0..n_pc { self.pc_running[i] -= it.pc[i]; }
+        self.hp_running -= it.hp;
+        if !it.crafted {
+            for j in 0..5 {
+                if it.skp[j] > 0 { self.sp_free_prov[j] -= it.skp[j]; }
+            }
+            if it.set_id >= 0 { self.set_counts[it.set_id as usize] -= 1; }
+        }
+        self.sp_max_req = self.sp_max_save[depth];
+        self.equips[slot.pos] = Unit::default();
+        self.equip_set[slot.pos] = -1;
+        if it.illegal_id >= 0 { self.illegal_counts[it.illegal_id as usize] -= 1; }
+    }
+
+    fn blocks(&self, illegal_id: i32) -> bool {
+        illegal_id >= 0 && self.illegal_counts[illegal_id as usize] > 0
+    }
+
+    fn enumerate(&mut self, depth: usize, remaining_l: usize) {
+        if depth == self.n_free {
+            self.evaluate_leaf();
+            return;
+        }
+        let slot_is_ring1 = depth as isize == self.ring1_depth;
+        let slot_is_ring2 = depth as isize == self.ring2_depth;
+        let pool_len = self.fx.slots[depth].pool.len();
+        if pool_len == 0 {
+            self.enumerate(depth + 1, remaining_l);
+            return;
+        }
+        let pool_max = pool_len - 1;
+        let min_offset = if slot_is_ring2 && self.ring1_depth >= 0 {
+            self.ring1_placed_offset
+        } else { 0 };
+
+        if depth == self.n_free - 1 {
+            // Last slot: place exactly offset = remaining_l.
+            if remaining_l >= min_offset && remaining_l <= pool_max {
+                let illegal = self.fx.slots[depth].pool[remaining_l].illegal_id;
+                if !self.blocks(illegal) {
+                    self.place(depth, remaining_l);
+                    if self.sp_leaf_feasible() {
+                        self.evaluate_leaf();
+                    } else {
+                        self.checked += 1.0;
+                        self.sp_leaf_reject += 1;
+                    }
+                    self.unplace(depth, remaining_l);
+                } else {
+                    self.checked += 1.0;
+                }
+            }
+            return;
+        }
+
+        let max_offset = remaining_l.min(pool_max);
+        let mut offset = min_offset;
+        while offset <= max_offset {
+            let illegal = self.fx.slots[depth].pool[offset].illegal_id;
+            if self.blocks(illegal) {
+                if slot_is_ring1 && self.rings_contiguous {
+                    self.rebuild_ring2_subtree(offset);
+                }
+                self.checked += self.subtree[depth + 1][remaining_l - offset];
+                self.maybe_report();
+                offset += 1;
+                continue;
+            }
+            self.place(depth, offset);
+            if slot_is_ring1 {
+                self.ring1_placed_offset = offset;
+                if self.rings_contiguous { self.rebuild_ring2_subtree(offset); }
+            }
+            if !self.sp_mid_tree_feasible(depth + 1) {
+                self.checked += self.subtree[depth + 1][remaining_l - offset];
+                self.maybe_report();
+            } else if !self.restr_mid_tree_feasible(depth + 1) {
+                let pruned = self.subtree[depth + 1][remaining_l - offset];
+                self.checked += pruned;
+                self.precheck_reject += pruned;
+                self.maybe_report();
+            } else {
+                self.enumerate(depth + 1, remaining_l - offset);
+            }
+            self.unplace(depth, offset);
+            offset += 1;
+        }
+    }
+
+    fn run(&mut self) {
+        // Total canonical space = sum over L of the root subtree counts.
+        let mut total = 0.0;
+        for l in 0..=self.l_max { total += self.subtree[0][l]; }
+        self.total_space = total.max(1.0);
+        self.started = Instant::now();
+        self.report_every = 1.0;
+        self.next_report = 5.0;
+
+        if self.n_free == 0 {
+            self.evaluate_leaf();
+            return;
+        }
+        for l in 0..=self.l_max {
+            self.enumerate(0, l);
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let fixture_path = args.get(1).map(String::as_str).expect("usage: enum_kernel <fixture>");
+    let text = fs::read_to_string(fixture_path).expect("cannot read fixture");
+    let fx = parse_fixture(&text);
+
+    let start = Instant::now();
+    let mut search = Search::new(&fx);
+    search.run();
+    let elapsed = start.elapsed();
+
+    println!(
+        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | feasible {} | elapsed {:.3}s | {:.0} checked/s",
+        search.checked, search.precheck_reject, search.precheck_pass,
+        search.sp_leaf_reject, search.feasible,
+        elapsed.as_secs_f64(),
+        search.checked / elapsed.as_secs_f64(),
+    );
+}

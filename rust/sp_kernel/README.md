@@ -55,10 +55,23 @@ cargo build --release
 ./target/release/enum_kernel fixtures/enum_gaia_135m.txt
 ```
 
-Measured (2026-08-12, this container) — funnel parity is exact in both
-scenarios (identical checked and feasible):
+The binary prints a progress/rate/ETA line to stderr every ~5 seconds on
+long runs.
+
+Measured (2026-08-12, this container) — funnel parity is exact wherever both
+engines completed (identical checked and feasible):
 
 | Scenario | JS (2 workers, full leaf pipeline) | Rust (1 thread, no scoring) |
 |---|---:|---:|
 | Gaia 135.5M input / 22.97M search, 10,313 feasible | 1.881s | 0.342s |
 | Gaia 1.898B input / 229.7M search, 4,017 feasible | 1.376s | 0.332s |
+| Gaia colossal 4.52T input / 334.8B search (lvl 98-121, all slots free), 329,883 feasible | 180s cap | 77.1s |
+
+(The first two rows predate the dominance equality-set fix, which grows
+those scenarios' post-dominance spaces; regenerate fixtures before
+comparing against them.)
+
+Sizing note: enumeration cost is governed by pruning effectiveness, not
+space size. Lowering the level filter floods the pools with tier-stack
+items, weakening the atkTier suffix bound: lvl_min 100 → 8.4s, 99 → 22.4s,
+98 → 77.1s, 97 → ~3.6h (ETA) despite only ~3x space growth per step.

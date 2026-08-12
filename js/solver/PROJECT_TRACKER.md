@@ -85,6 +85,10 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | New 1.9B benchmark (`gaia_ultra_1900m_input`) | 1.898B input / 229.7M search, 2 workers | 172,176,480 | 229,670,100 | 10.1M/s (17.0s) | 166.9M/s (**1.38s**) | — | 470,163 both; pruning proves most subtrees |
 | 2026-08-12 | Rust enum_kernel (P2.3 prototype, 1 thread, no scoring) | 135M scenario | — | 22,967,010 | JS 1.881s | Rust **0.342s** | 5.5x vs 2-worker JS | Exact funnel parity: feasible 10,313 both |
 | 2026-08-12 | Rust enum_kernel, 1.9B scenario | 1.9B scenario | — | 229,670,100 | JS 1.376s | Rust **0.332s** | 4.1x vs 2-worker JS | Exact funnel parity: feasible 4,017 both |
+| 2026-08-12 | PR #3 absorption: progress checkpoint + precompiled entries | 135M scenario | — | 22,967,010 | 221 progress msgs (modulo) | 1,545 progress msgs (checkpoint) | anytime top-5 no longer starved | Gaia 2M median 366ms over 3 samples, 470,163 |
+| 2026-08-12 | Dominance equality-set fix | All-free Gaia, 8 slots, lvl 100+ | — | 100.4B → 144.7B | feasible 0 (atkTier items wrongly pruned) | feasible 81,616 | correctness fix | Recalcitrance/Buzzsaw Bracer restored; Test 19 guards |
+| 2026-08-12 | Split atree scaling (const cache + per-trial stat effects) | Two-armor dense trace | — | 1,872 | wall 640ms | wall **330ms** | greedy 254→97µs/leaf | 15,095 unchanged; oracle-exact on all fixtures |
+| 2026-08-12 | New colossal benchmark (`gaia_colossal_4_5t_input`) | 4.52T input / 334.8B search, lvl 98-121, all slots free, 180s cap | 8,206,486,035 @ timeout (2.5%) | 301,683,889,228 @ timeout (90.1%) | 45.5M/s | 1.67B/s | Rust 1 thread completes in **77.1s** (feasible 329,883) | Both JS variants time out at 180s holding 470,163 |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -231,9 +235,16 @@ will be used by both JS reference and future Rust core.
    5.5x/4.1x vs the 2-worker JS engine single-threaded. Next: multithread it,
    port the top-N/score layer for at least one scoring target, and wire a
    checkpoint cursor (P3.2 shape) to justify the native go decision.
-6. Both new large benchmarks (135M and 1.9B input) complete in ~2s; the next
-   benchmark tier should either widen pools past level filters or disable
-   restrictions to stress raw enumeration rather than pruning.
+6. DONE 2026-08-12: `gaia_colossal_4_5t_input` (all slots free, lvl 98-121,
+   4.52T input / 334.8B search) sized so the Rust kernel needs ~77s.
+   Enumeration cost tracks pruning effectiveness, not space size: each level
+   step below 100 floods pools with tier-stack items and weakens the atkTier
+   suffix bound (100→8.4s, 99→22.4s, 98→77s, 97→~3.6h single-thread).
+7. The dominance equality fix grows every scenario's post-dominance space;
+   earlier ledger rows' "current space" values predate it. Re-baseline the
+   standing scenarios (2M/95M/135M/1.9B) in the next benchmarking pass.
+8. PR #3 reviewed and closed: progress checkpoint + precompiled item entries
+   absorbed; the rest duplicated master or this branch.
 
 ## Update protocol
 
