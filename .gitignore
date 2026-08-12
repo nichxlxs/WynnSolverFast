@@ -13,5 +13,6 @@ sets/
 bin/
 lib/
 pyvenv.cfg
+!rust/**/src/bin/
 
 __pycache__

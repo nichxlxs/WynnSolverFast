@@ -36,19 +36,26 @@ function atree_translate(atree_merged, v) {
  * @param {Map<string, number>}  slider_states  - slider name → integer value
  * @returns {[Map, Map]} [atree_edit, ret_effects]
  */
-function atree_compute_scaling(atree_merged, pre_scale_stats, button_states, slider_states, scratch) {
+function atree_compute_scaling(atree_merged, pre_scale_stats, button_states, slider_states, scratch, skip_edit = false, skip_stat_inputs = false) {
     // Shallow-clone each ability, deep-copying only `properties` (the only
-    // object mutated during scaling).
+    // object mutated during scaling). When the caller has proven no effect
+    // produces a 'prop'-type bonus (see atree_scaling_analysis), nothing is
+    // ever written to atree_edit, so the clone can be skipped and reads can
+    // go straight to atree_merged.
     let atree_edit, ret_effects;
     if (scratch) {
-        atree_edit = scratch.atree_edit; atree_edit.clear();
         ret_effects = scratch.ret_effects; ret_effects.clear();
     } else {
-        atree_edit = new Map();
         ret_effects = new Map();
     }
-    for (const [abil_id, abil] of atree_merged.entries()) {
-        atree_edit.set(abil_id, { ...abil, properties: { ...(abil.properties ?? {}) } });
+    if (skip_edit) {
+        atree_edit = atree_merged;
+    } else {
+        atree_edit = scratch ? scratch.atree_edit : new Map();
+        if (scratch) atree_edit.clear();
+        for (const [abil_id, abil] of atree_merged.entries()) {
+            atree_edit.set(abil_id, { ...abil, properties: { ...(abil.properties ?? {}) } });
+        }
     }
 
     function apply_bonus(bonus_info, value) {
@@ -84,6 +91,13 @@ function atree_compute_scaling(atree_merged, pre_scale_stats, button_states, sli
                 let total = 0;
                 const { slider = false, scaling = [0], behavior = "merge", multiplicative = false, requirement = 0 } = effect;
                 let { positive = true, round = true } = effect;
+                // Split-scaling support: the caller evaluates stat-input
+                // effects separately (atree_eval_stat_effects) and only wants
+                // the constant partition here.
+                if (skip_stat_inputs && !slider
+                    && (effect.inputs ?? []).some(i => i.type === 'stat')) {
+                    continue;
+                }
                 if (slider) {
                     if (behavior == "modify" && !slider_states.has(effect.slider_name)) continue;
                     // combo_only sliders have no DOM input on the atree page, so
@@ -129,6 +143,126 @@ function atree_compute_scaling(atree_merged, pre_scale_stats, button_states, sli
         }
     }
     return [atree_edit, ret_effects];
+}
+
+/**
+ * Evaluate only the stat-input scaling effects against pre_scale_stats.
+ * This is the variable partition of the split-scaling optimization: valid
+ * only when the atree has no 'prop'-type outputs (nothing mutates ability
+ * properties, so effects are order-independent across the two partitions)
+ * and the caller has verified the partitions write disjoint output keys.
+ * Mirrors atree_compute_scaling's non-slider branch exactly, including the
+ * `total = effect.max` clamp quirk.
+ *
+ * @param {Map} atree_merged
+ * @param {Array} var_effects - non-slider stat_scaling effects with a stat
+ *   input, in the same ability/effect iteration order as the full pass
+ * @param {Map} pre_scale_stats
+ * @param {Map} out - cleared and filled
+ */
+function atree_eval_stat_effects(atree_merged, var_effects, pre_scale_stats, out) {
+    out.clear();
+    for (const effect of var_effects) {
+        let total = 0;
+        const scaling = effect.scaling ?? [0];
+        const positive = effect.positive ?? true;
+        const round = effect.round ?? true;
+        for (const [_scaling, input] of zip2(scaling, effect.inputs)) {
+            if (input.type === 'stat') {
+                total += (pre_scale_stats.get(input.name) || 0) * atree_translate(atree_merged, _scaling);
+            } else if (input.type === 'prop') {
+                const merge_abil = atree_merged.get(input.abil);
+                if (merge_abil) total += merge_abil.properties[input.name] * atree_translate(atree_merged, _scaling);
+            }
+        }
+        if ('output' in effect) {
+            let t = total;
+            if (round) t = Math.floor(round_near(t));
+            if (positive && t < 0) t = 0;
+            if ('max' in effect) {
+                const effect_max = atree_translate(atree_merged, effect.max);
+                if (effect_max > 0 && t > effect_max) t = effect.max;
+                if (effect_max < 0 && t < effect_max) t = effect.max;
+            }
+            const outputs = Array.isArray(effect.output) ? effect.output : [effect.output];
+            for (const output of outputs) {
+                if (output.type === 'stat') {
+                    merge_stat(out, output.name, atree_translate(atree_merged, t));
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Build the split-scaling plan for a stat-dependent atree: the variable
+ * effect list (non-slider stat_scaling with a stat input, in full-pass
+ * iteration order), the set of output keys they write, and whether any
+ * variable effect touches ability properties (prop input or prop output).
+ * When var_has_prop_io is false, every property mutation belongs to the
+ * constant partition, so the variable effects see the same values whether
+ * evaluated inline or separately.
+ */
+function atree_collect_stat_effects(atree_merged) {
+    const var_effects = [];
+    const var_keys = new Set();
+    let var_has_prop_io = false;
+    for (const [, abil] of atree_merged.entries()) {
+        if ((abil.effects ?? []).length === 0) continue;
+        for (const effect of abil.effects) {
+            if (effect.type !== 'stat_scaling' || effect.slider) continue;
+            if (!(effect.inputs ?? []).some(i => i.type === 'stat')) continue;
+            var_effects.push(effect);
+            if ((effect.inputs ?? []).some(i => i.type === 'prop')) var_has_prop_io = true;
+            if ('output' in effect) {
+                const outputs = Array.isArray(effect.output) ? effect.output : [effect.output];
+                for (const output of outputs) {
+                    if (output.type !== 'stat') var_has_prop_io = true;
+                    else var_keys.add(output.name);
+                }
+            }
+        }
+    }
+    return { var_effects, var_keys, var_has_prop_io };
+}
+
+/**
+ * Analyze a merged atree for scaling-related optimizations.
+ *
+ * Returns { stat_dependent, has_prop_outputs }:
+ *  - stat_dependent: some non-slider stat_scaling reads a build stat, so
+ *    atree_compute_scaling's output varies with pre_scale_stats. When false,
+ *    the output is constant for fixed button/slider states and can be
+ *    computed once per search.
+ *  - has_prop_outputs: some bonus/output is of type 'prop' (mutates ability
+ *    properties). When false, atree_compute_scaling never writes to
+ *    atree_edit and may be called with skip_edit=true.
+ */
+function atree_scaling_analysis(atree_merged) {
+    let stat_dependent = false;
+    let has_prop_outputs = false;
+    const check_output = (out) => {
+        if (out && out.type === 'prop') has_prop_outputs = true;
+    };
+    for (const [, abil] of atree_merged.entries()) {
+        for (const effect of abil.effects ?? []) {
+            if (effect.type === 'raw_stat') {
+                for (const bonus of effect.bonuses ?? []) check_output(bonus);
+            } else if (effect.type === 'stat_scaling') {
+                if (!effect.slider) {
+                    for (const input of effect.inputs ?? []) {
+                        if (input.type === 'stat') stat_dependent = true;
+                    }
+                }
+                if ('output' in effect) {
+                    if (Array.isArray(effect.output)) effect.output.forEach(check_output);
+                    else check_output(effect.output);
+                }
+            }
+        }
+    }
+    return { stat_dependent, has_prop_outputs };
 }
 
 // ── Worker search helpers ────────────────────────────────────────────────────

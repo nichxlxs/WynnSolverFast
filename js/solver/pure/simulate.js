@@ -515,9 +515,11 @@ function simulate_combo_mana_hp(rows, base_stats, health_config, has_transcenden
             continue;
         }
 
-        // Get spell cost using boosted stats (matching main thread behavior)
-        const { stats: row_stats } = apply_combo_row_boosts(base_stats, boost_tokens, boost_registry, scratch_row);
-        const unclamped_cost = spell.cost != null ? getUnclampedSpellCost(row_stats, spell) : 0;
+        // Get spell cost using boosted stats (matching main thread behavior).
+        // row_unclamped_spell_cost applies boost tokens to only the four
+        // cost-relevant stats instead of copying the whole statMap per row.
+        const unclamped_cost = spell.cost != null
+            ? row_unclamped_spell_cost(base_stats, spell, boost_tokens, boost_registry) : 0;
         const cost_per = Math.max(1, unclamped_cost);
         const is_spell = spell.cost != null;
         const is_melee_scaling = spell.scaling === 'melee';
@@ -881,6 +883,55 @@ function simulate_combo_mana_fast(rows, base_stats, health_config, has_transcend
     let _fast_loop_mana_warn = false;
     let _fast_loop_hp_warn = false;
 
+    // ── Advance wall-clock time by `advance_dt` seconds ──
+    // Hoisted out of the row loop so the closure is allocated once per sim,
+    // not once per row. Mirrors simulate_combo_mana_hp's _advance_time.
+    const _no_buff_states = health_config.buff_states.length === 0;
+    function _advance_time_fast(advance_dt) {
+        if (advance_dt <= 0) return;
+        const prev_time = elapsed_time;
+        elapsed_time += advance_dt;
+
+        let mana_regen_dt = advance_dt;
+
+        if (!_no_buff_states) {
+            for (const bs of health_config.buff_states) {
+                const st = _fast_states[bs.state_name];
+                if (!st?.active) continue;
+
+                let active_dt = advance_dt;
+                if (bs.duration != null) {
+                    const elapsed_in_state = prev_time - st.activated_at;
+                    const remaining = bs.duration - elapsed_in_state;
+                    if (remaining <= 0) { st.active = false; continue; }
+                    active_dt = Math.min(advance_dt, remaining);
+                    if (active_dt < advance_dt) st.active = false;
+                }
+
+                if (bs.suppress_mana_regen) {
+                    mana_regen_dt = Math.min(mana_regen_dt, advance_dt - active_dt);
+                }
+
+                // Continuous drain (skip for compute_delay states — those drain in one shot at activation)
+                if (!bs.compute_delay && bs.drain_pct_per_second) {
+                    const drain_pct = bs.drain_pct_per_second.mana ?? 0;
+                    if (drain_pct > 0) {
+                        const drain = drain_pct / 100 * max_mana * active_dt;
+                        const actual = Math.min(mana, drain);
+                        mana -= actual;
+                        total_mana_drain += actual;
+                    }
+                }
+            }
+        }
+
+        if (mana_regen_dt > 0) {
+            const uncapped_mr = mana + mr_per_sec * mana_regen_dt;
+            if (uncapped_mr > max_mana) mana_wasted += uncapped_mr - max_mana;
+            mana = Math.min(max_mana, uncapped_mr);
+        }
+    }
+
     for (let _fi = 0; _fi < rows.length; _fi++) {
         const row = rows[_fi];
 
@@ -928,8 +979,9 @@ function simulate_combo_mana_fast(rows, base_stats, health_config, has_transcend
         if (pseudo || qty <= 0 || !spell) continue;
         if (mana_excl) continue;
 
-        const { stats: row_stats } = apply_combo_row_boosts(base_stats, boost_tokens, boost_registry, scratch_row);
-        const unclamped_cost = spell.cost != null ? getUnclampedSpellCost(row_stats, spell) : 0;
+        // See simulate_combo_mana_hp: cost-only boost application, no row copy.
+        const unclamped_cost = spell.cost != null
+            ? row_unclamped_spell_cost(base_stats, spell, boost_tokens, boost_registry) : 0;
         const is_spell = spell.cost != null;
         const is_melee_scaling = spell.scaling === 'melee';
         const recast_base = spell.mana_derived_from ?? spell.base_spell;
@@ -941,50 +993,6 @@ function simulate_combo_mana_fast(rows, base_stats, health_config, has_transcend
         const sim_qty = row.is_melee_time
             ? Math.round(compute_melee_time_hits(qty, base_stats, eff_delay, melee_cd_override))
             : Math.round(qty);
-
-        // ── Local helper: advance wall-clock time by `advance_dt` seconds ──
-        function _advance_time_fast(advance_dt) {
-            if (advance_dt <= 0) return;
-            const prev_time = elapsed_time;
-            elapsed_time += advance_dt;
-
-            let mana_regen_dt = advance_dt;
-
-            for (const bs of health_config.buff_states) {
-                const st = _fast_states[bs.state_name];
-                if (!st?.active) continue;
-
-                let active_dt = advance_dt;
-                if (bs.duration != null) {
-                    const elapsed_in_state = prev_time - st.activated_at;
-                    const remaining = bs.duration - elapsed_in_state;
-                    if (remaining <= 0) { st.active = false; continue; }
-                    active_dt = Math.min(advance_dt, remaining);
-                    if (active_dt < advance_dt) st.active = false;
-                }
-
-                if (bs.suppress_mana_regen) {
-                    mana_regen_dt = Math.min(mana_regen_dt, advance_dt - active_dt);
-                }
-
-                // Continuous drain (skip for compute_delay states — those drain in one shot at activation)
-                if (!bs.compute_delay && bs.drain_pct_per_second) {
-                    const drain_pct = bs.drain_pct_per_second.mana ?? 0;
-                    if (drain_pct > 0) {
-                        const drain = drain_pct / 100 * max_mana * active_dt;
-                        const actual = Math.min(mana, drain);
-                        mana -= actual;
-                        total_mana_drain += actual;
-                    }
-                }
-            }
-
-            if (mana_regen_dt > 0) {
-                const uncapped_mr = mana + mr_per_sec * mana_regen_dt;
-                if (uncapped_mr > max_mana) mana_wasted += uncapped_mr - max_mana;
-                mana = Math.min(max_mana, uncapped_mr);
-            }
-        }
 
         let fast_post_override = null;
         const eff_melee_period = melee_cd_override ?? melee_period;

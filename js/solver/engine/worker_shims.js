@@ -46,6 +46,122 @@ function _materialize_running_statmap(compact, target) {
     return target;
 }
 
+// ── Numeric-index running stat vector (P1.3) ────────────────────────────────
+// Replaces string-keyed running-stat storage with a Float64Array addressed by
+// a fixed stat_id → index table built once per worker from the full item
+// universe (pools, ring pool, locked, tomes, weapon, NONE items).
+//
+// The first _VEC_BASE_LEN indices are the base statmap keys (STATMAP_STATIC_IDS
+// + STATMAP_MUST_IDS + agiDef) and are always materialized at leaves; the
+// remaining indices are item-provided stats and are materialized only when
+// nonzero (zero and absent are semantically identical to every consumer:
+// all downstream reads are `get(id) ?? 0` / `get(id) || 0`).
+
+let _VEC_INDEX = null;    // Map<stat_id, index>
+let _VEC_NAMES = null;    // string[] index → stat_id
+let _VEC_BASE_LEN = 0;    // count of always-materialized base keys
+const _VEC_ENTRY_CACHE = new WeakMap();  // item_sm → {idxs: Int32Array, vals: Float64Array}
+
+/**
+ * Build the stat index from every item statMap the search can touch.
+ * Must be called before _vec_init_running/_vec_add_item.
+ */
+function _vec_build_index(item_sm_lists) {
+    _VEC_INDEX = new Map();
+    _VEC_NAMES = [];
+    const add = (id) => {
+        if (!_VEC_INDEX.has(id)) {
+            _VEC_INDEX.set(id, _VEC_NAMES.length);
+            _VEC_NAMES.push(id);
+        }
+    };
+    for (const id of STATMAP_STATIC_IDS) add(id);
+    for (const id of STATMAP_MUST_IDS) add(id);
+    add('agiDef');
+    _VEC_BASE_LEN = _VEC_NAMES.length;
+    for (const list of item_sm_lists) {
+        if (!list) continue;
+        for (const item_sm of list) {
+            if (!item_sm) continue;
+            const entries = _get_incr_entries(item_sm);
+            for (let i = 0; i < entries.keys.length; i++) add(entries.keys[i]);
+        }
+    }
+}
+
+/** Resolve a stat name to its vector index, or -1 when no item can provide it. */
+function _vec_stat_index(id) {
+    return _VEC_INDEX ? (_VEC_INDEX.get(id) ?? -1) : -1;
+}
+
+/** Initialize the running vector from a fully-populated running statMap. */
+function _vec_init_running(statmap) {
+    const vec = new Float64Array(_VEC_NAMES.length);
+    for (const [id, value] of statmap) {
+        const idx = _VEC_INDEX.get(id);
+        if (idx === undefined) {
+            throw new Error(`_vec_init_running: unindexed stat "${id}"`);
+        }
+        vec[idx] = value;
+    }
+    return vec;
+}
+
+/** Compile an item's additive stats to index/value arrays (cached per item). */
+function _vec_entries(item_sm) {
+    let entries = _VEC_ENTRY_CACHE.get(item_sm);
+    if (entries) return entries;
+    const base = _get_incr_entries(item_sm);
+    const n = base.keys.length;
+    const idxs = new Int32Array(n);
+    const vals = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+        const idx = _VEC_INDEX.get(base.keys[i]);
+        if (idx === undefined) {
+            throw new Error(`_vec_entries: unindexed stat "${base.keys[i]}"`);
+        }
+        idxs[i] = idx;
+        vals[i] = base.values[i];
+    }
+    entries = { idxs, vals };
+    _VEC_ENTRY_CACHE.set(item_sm, entries);
+    return entries;
+}
+
+function _vec_add_item(vec, item_sm) {
+    const { idxs, vals } = _vec_entries(item_sm);
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] += vals[i];
+}
+
+function _vec_remove_item(vec, item_sm) {
+    const { idxs, vals } = _vec_entries(item_sm);
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] -= vals[i];
+}
+
+// Entry-based variants: the worker precompiles each pool item's entries onto
+// the pool wrapper at enumeration setup, skipping the per-call WeakMap lookup
+// on the hot place/unplace path. (Shape adopted from PR #3.)
+function _vec_add_entries(vec, entries) {
+    const idxs = entries.idxs, vals = entries.vals;
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] += vals[i];
+}
+
+function _vec_remove_entries(vec, entries) {
+    const idxs = entries.idxs, vals = entries.vals;
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] -= vals[i];
+}
+
+/** Materialize the running vector into a statMap (base keys + nonzero rest). */
+function _vec_materialize(vec, target) {
+    target.clear();
+    for (let i = 0; i < _VEC_BASE_LEN; i++) target.set(_VEC_NAMES[i], vec[i]);
+    for (let i = _VEC_BASE_LEN; i < vec.length; i++) {
+        const v = vec[i];
+        if (v !== 0) target.set(_VEC_NAMES[i], v);
+    }
+    return target;
+}
+
 /** Compile the additive portion of an immutable item statMap once. */
 function _get_incr_entries(item_sm) {
     let entries = _INCR_ENTRY_CACHE.get(item_sm);
@@ -175,7 +291,9 @@ function _init_running_statmap(level, fixed_item_sms) {
  */
 function _finalize_leaf_statmap(running_sm, weapon_sm, activeSetCounts, sets_map, all_equip_sms, target, inner_scratch) {
     let sm;
-    if (target) {
+    if (running_sm instanceof Float64Array) {
+        sm = _vec_materialize(running_sm, target ?? new Map());
+    } else if (target) {
         sm = target;
         if (running_sm instanceof Map) {
             sm.clear();

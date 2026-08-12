@@ -268,6 +268,41 @@ function makeNoneItem() {
         'Test 18: benchmark-only legacy mode reproduces original set pruning');
 }
 
+// Test 19: relevant-but-non-monotonic stats require equality for dominance.
+// An atkTier >= N restriction combined with melee + ls-constraint used to
+// DELETE atkTier from the comparison, letting an atkTier-0 item dominate the
+// only atkTier item in the pool and making the restriction unsatisfiable
+// (observed: Recalcitrance pruned from the all-slots-free Gaia scenario).
+{
+    const snap = {
+        combo_time: 0, hp_casting: false,
+        parsed_combo: [{ spell: { base_spell: 0, scaling: 'melee' }, mana_excl: false }],
+    };
+    const restrictions = { stat_thresholds: [
+        { stat: 'atkTier', op: 'ge', value: 6 },
+        { stat: 'ls', op: 'ge', value: 0 },
+    ] };
+    const ds = _build_dominance_stats(snap, new Map(), restrictions);
+    t.assert(!ds.higher.has('atkTier') && !ds.lower.has('atkTier'),
+        'Test 19: atkTier leaves higher/lower under melee + ls constraint');
+    t.assert(ds.equal.has('atkTier'),
+        'Test 19: atkTier moves to the must-be-equal set instead of vanishing');
+
+    const strong = makeItem({ damPct: 20 });
+    const tierItem = makeItem({ damPct: 5, atkTier: 1 });
+    const pools = { necklace: [strong, tierItem] };
+    _prune_dominated_items(pools, ds);
+    t.assert(pools.necklace.includes(tierItem),
+        'Test 19: unique atkTier item survives dominance pruning');
+
+    // Equal atkTier values still allow normal dominance.
+    const weakSameTier = makeItem({ damPct: 1, atkTier: 1 });
+    const pools2 = { necklace: [tierItem, weakSameTier] };
+    _prune_dominated_items(pools2, { higher: new Set(['damPct']), lower: new Set(), equal: new Set(['atkTier']) });
+    t.assert(!pools2.necklace.includes(weakSameTier),
+        'Test 19: equal-stat items still prune on monotonic stats');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 const summary = t.summary();

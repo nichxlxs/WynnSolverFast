@@ -44,10 +44,45 @@ let _cancelled = false;
 //   - 'str','dex','int','def','agi': overwritten by total_sp from SP assignment
 const _PRECHECK_EXCLUDED = new Set(INDIRECT_CONSTRAINT_STATS);
 for (const sp of ['str', 'dex', 'int', 'def', 'agi']) _PRECHECK_EXCLUDED.add(sp);
-let _constraint_prechecks = [];  // [{stat, adjusted_threshold}]
+let _constraint_prechecks = [];  // [{stat, stat_idx, adjusted_threshold}]
 let _ehp_precheck = null;        // {threshold, fixed_hp, ehp_divisor} or null
 let _ehp_no_agi_precheck = null; // {threshold, fixed_hp, ehp_divisor} or null
 let _total_hp_precheck = null;   // {threshold, fixed_hp} or null
+
+// Vector indices for the EHP precheck reads (resolved after _vec_build_index).
+let _vec_hp_idx = -1;
+let _vec_hpBonus_idx = -1;
+
+/**
+ * Build the numeric stat index from every item statMap this worker can touch.
+ * Called once at init; 'run' messages reuse the same _cfg pools so the index
+ * stays valid across work-stealing partitions.
+ */
+function _vec_setup() {
+    const lists = [];
+    for (const slot of Object.keys(_cfg.pools ?? {})) {
+        const pool = _cfg.pools[slot];
+        if (pool) lists.push(pool.map(it => it.statMap));
+    }
+    if (_cfg.ring_pool) lists.push(_cfg.ring_pool.map(it => it.statMap));
+    const singles = [];
+    for (const item of Object.values(_cfg.locked ?? {})) {
+        if (item && item.statMap) singles.push(item.statMap);
+    }
+    if (_cfg.ring1_locked?.statMap) singles.push(_cfg.ring1_locked.statMap);
+    if (_cfg.ring2_locked?.statMap) singles.push(_cfg.ring2_locked.statMap);
+    for (const t of _cfg.tome_sms ?? []) singles.push(t);
+    if (_cfg.guild_tome_sm) singles.push(_cfg.guild_tome_sm);
+    if (_cfg.weapon_sm) singles.push(_cfg.weapon_sm);
+    for (const sm of _cfg.none_item_sms ?? []) singles.push(sm);
+    lists.push(singles);
+    _vec_build_index(lists);
+    _vec_hp_idx = _vec_stat_index('hp');
+    _vec_hpBonus_idx = _vec_stat_index('hpBonus');
+    for (const pc of _constraint_prechecks) {
+        pc.stat_idx = _vec_stat_index(pc.stat);
+    }
+}
 
 // ── SP floor/cap constraints (computed once at init) ─────────────────────────
 // Floors: minimum total_sp per attribute (from ge thresholds on SP stats).
@@ -64,12 +99,46 @@ const _default_sp_caps = new Int32Array([150, 150, 150, 150, 150]);
 
 const PROGRESS_INTERVAL = 5000;
 const PROGRESS_INTERVAL_LONG = 50000;
+
+// Progress reporting is checkpoint-based rather than modulo-based: subtree
+// crediting (illegal-set skips, SP/restriction pruning) advances _checked in
+// large jumps that step over interval multiples, which silently starved the
+// modulo check of progress (and therefore anytime top-5) messages.
+// (Adopted from PR #3's _take_progress_checkpoint.)
+const _progress_checkpoint = { next: PROGRESS_INTERVAL };
+function _take_progress_checkpoint(checked) {
+    if (checked < _progress_checkpoint.next) return false;
+    // Adaptive step: fixed intervals early, then ~0.4% of the current count.
+    // Subtree crediting can advance checked by billions — a fixed 50K step
+    // would flood postMessage/structuredClone (measured ~15% of worker CPU
+    // on the 4.5T scenario).
+    const step = checked < 1_000_000
+        ? PROGRESS_INTERVAL
+        : Math.max(PROGRESS_INTERVAL_LONG, Math.floor(checked / 256));
+    do {
+        _progress_checkpoint.next += step;
+    } while (_progress_checkpoint.next <= checked);
+    return true;
+}
 let _checked = 0;
 let _precheck_pass = 0;
 let _precheck_reject = 0;
 let _feasible = 0;
 let _met_req = 0;
 let _top5 = [];
+// Global top-N cutoff broadcast by the coordinator (15th-best distinct score
+// across all workers + the incumbent seed). Monotone non-decreasing within a
+// search, so it persists across partitions; reset only on 'init'. A leaf
+// scoring below it can never enter the final merged top-N, which makes it a
+// valid ceiling-gate cutoff even while this worker's own _top5 is still
+// filling after a partition reset.
+let _shared_cutoff = -Infinity;
+// Optional SharedArrayBuffer mirror of the same cutoff (Int32, floor()ed by
+// the coordinator — flooring only lowers the cutoff, which stays admissible).
+// postMessage-based 'cutoff' broadcasts are only seen between partitions
+// (the enumeration loop is synchronous); the SAB is visible mid-partition.
+let _shared_cutoff_i32 = null;
+const _CUTOFF_SENTINEL = -0x80000000;
 let _top5_version = 0;
 let _last_sent_top5_version = 0;
 let _checked_at_last_top5_change = 0;
@@ -77,7 +146,7 @@ let _current_L = 0;
 let _trace = null;
 let _trace_started = 0;
 
-const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
 function _reset_trace() {
     if (!_cfg?.benchmark_trace) { _trace = null; return; }
     _trace = { leaf_count: 0 };
@@ -207,6 +276,7 @@ function _build_constraint_prechecks() {
         const fixed_contrib = fixed(stat);
         _constraint_prechecks.push({
             stat,
+            stat_idx: -1,  // resolved by _vec_setup after the stat index exists
             adjusted_threshold: value - fixed_contrib,
         });
     }
@@ -255,6 +325,14 @@ function _build_sp_constraints() {
  * Deferred — current split is correct but redundant.
  */
 function _fast_constraint_precheck(running_sm) {
+    if (running_sm instanceof Float64Array) {
+        for (let i = 0; i < _constraint_prechecks.length; i++) {
+            const pc = _constraint_prechecks[i];
+            const value = pc.stat_idx >= 0 ? running_sm[pc.stat_idx] : 0;
+            if (value < pc.adjusted_threshold) return false;
+        }
+        return true;
+    }
     for (let i = 0; i < _constraint_prechecks.length; i++) {
         const pc = _constraint_prechecks[i];
         const value = running_sm instanceof Map ? running_sm.get(pc.stat) : running_sm[pc.stat];
@@ -274,10 +352,16 @@ function _fast_ehp_precheck(running_sm) {
 
     // running_sm.get('hp') = levelToHPBase + sum of item 'hp' (static ID)
     // running_sm.get('hpBonus') = sum of item hpBonus (from maxRolls)
-    const get = running_sm instanceof Map
-        ? stat => running_sm.get(stat)
-        : stat => running_sm[stat];
-    const raw_hp = (get('hp') ?? 0) + (get('hpBonus') ?? 0);
+    let raw_hp;
+    if (running_sm instanceof Float64Array) {
+        raw_hp = (_vec_hp_idx >= 0 ? running_sm[_vec_hp_idx] : 0)
+            + (_vec_hpBonus_idx >= 0 ? running_sm[_vec_hpBonus_idx] : 0);
+    } else {
+        const get = running_sm instanceof Map
+            ? stat => running_sm.get(stat)
+            : stat => running_sm[stat];
+        raw_hp = (get('hp') ?? 0) + (get('hpBonus') ?? 0);
+    }
 
     if (_ehp_precheck) {
         let totalHp = raw_hp + _ehp_precheck.fixed_hp;
@@ -302,13 +386,117 @@ function _fast_ehp_precheck(running_sm) {
 
 // ── Per-candidate stat assembly ─────────────────────────────────────────────
 
+// ── Atree scaling optimization state (computed once per worker) ─────────────
+// When no non-slider stat_scaling reads a build stat, the scaling output is
+// constant for this search's fixed button/slider states and is computed once.
+// When no effect produces a 'prop'-type bonus, the per-call ability clone in
+// atree_compute_scaling is skipped (skip_edit).
+let _atree_scaling_ready = false;
+let _atree_scaled_cache = null;   // Map | null — whole output constant
+let _atree_split = null;          // { const_scaled: Map, var_effects: [] } | null
+let _atree_skip_edit = false;
+const _scratch_var_scaled = new Map();
+const _ATREE_SCALING_OPTS = { cached: null, split: null, scratch_var: null, skip_edit: false };
+const _MULT_PREFIXES = new Set(['damMult', 'defMult', 'healMult', 'manaMult']);
+
+function _atree_scaling_setup() {
+    if (_atree_scaling_ready) return;
+    _atree_scaling_ready = true;
+    const a = atree_scaling_analysis(_cfg.atree_merged);
+    _atree_skip_edit = !a.has_prop_outputs;
+    if (!a.stat_dependent) {
+        const [, scaled] = atree_compute_scaling(
+            _cfg.atree_merged, new Map(), _cfg.button_states, _cfg.slider_states,
+            null, _atree_skip_edit);
+        _atree_scaled_cache = scaled;
+    } else {
+        // Stat-dependent: split the scaling into a constant partition
+        // (computed once, including any prop mutations — legal because no
+        // VARIABLE effect reads or writes props) and the stat-input effects
+        // (re-evaluated per candidate). Exact only when the two partitions
+        // write disjoint plain (non-Mult, non-nested) keys — per-key merge
+        // order is then preserved within each partition.
+        const plan = atree_collect_stat_effects(_cfg.atree_merged);
+        if (plan && !plan.var_has_prop_io) {
+            const [, const_scaled] = atree_compute_scaling(
+                _cfg.atree_merged, new Map(), _cfg.button_states, _cfg.slider_states,
+                null, _atree_skip_edit, /* skip_stat_inputs */ true);
+            let ok = true;
+            for (const key of plan.var_keys) {
+                if (key.includes('.') || _MULT_PREFIXES.has(key) || const_scaled.has(key)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                _atree_split = { const_scaled, var_effects: plan.var_effects };
+            }
+        }
+    }
+    _ATREE_SCALING_OPTS.cached = _atree_scaled_cache;
+    _ATREE_SCALING_OPTS.split = _atree_split;
+    _ATREE_SCALING_OPTS.scratch_var = _scratch_var_scaled;
+    _ATREE_SCALING_OPTS.skip_edit = _atree_skip_edit;
+    _ceiling_gate_setup(a);
+}
+
+// ── Score-ceiling gate (combo_damage only) ───────────────────────────────────
+//
+// Combo damage is monotone non-decreasing in every total_sp dimension when:
+//   - skill boosts: skillPointsToPercentage is nondecreasing, damage mults >= 0;
+//   - crit: avg = normal + crit_chance * (crit - normal), crit >= normal, and
+//     crit_chance = skillPointsToPercentage(dex);
+//   - atree stat-input effects: their outputs are monotone in the inputs when
+//     every resolved stat scaling factor is >= 0 (floor/clamp/cap steps are
+//     monotone), and the output keys feed damage non-negatively (plain
+//     additive boost/raw stats; atkTier and ConvBase keys are excluded
+//     because attack-speed and conversion effects are not monotone).
+// Under those conditions the damage evaluated at total_sp = [150]*5 is an
+// upper bound on any allocation the greedy could reach, so a leaf whose
+// ceiling cannot beat the current top-N cutoff can skip greedy + mana +
+// score entirely with an identical top-N. Sim-coupled damage (Blood Pact,
+// dynamic sliders) is excluded. met_req no longer counts gated leaves
+// (diagnostic-only change).
+let _ceiling_gate_ok = false;
+const _SP_CEILING = new Int32Array([150, 150, 150, 150, 150]);
+
+function _ceiling_gate_setup(analysis) {
+    _ceiling_gate_ok = false;
+    if ((_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage') return;
+    if (_cfg.hp_casting || _cfg.has_dynamic_sliders) return;
+    if (_cfg.custom_weights?.length) return;
+    if (analysis.stat_dependent) {
+        // Only reason about stat-input effects through the split plan.
+        if (!_atree_split) return;
+        for (const effect of _atree_split.var_effects) {
+            const scaling = effect.scaling ?? [0];
+            const inputs = effect.inputs ?? [];
+            const n = Math.min(scaling.length, inputs.length);
+            for (let i = 0; i < n; i++) {
+                if (inputs[i].type !== 'stat') continue;
+                const factor = atree_translate(_cfg.atree_merged, scaling[i]);
+                if (!(typeof factor === 'number' && factor >= 0)) return;
+            }
+            if ('output' in effect) {
+                const outputs = Array.isArray(effect.output) ? effect.output : [effect.output];
+                for (const o of outputs) {
+                    if (o.type !== 'stat') return;
+                    if (o.name === 'atkTier' || o.name.includes('ConvBase')) return;
+                }
+            }
+        }
+    }
+    _ceiling_gate_ok = true;
+}
+
 function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
         { pre_scale: _scratch_pre_scale, pre_scale_nested: _scratch_pre_scale_nested,
           combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
-          atree: _scratch_atree });
+          atree: _scratch_atree },
+        _ATREE_SCALING_OPTS);
 }
 
 function _assemble_threshold_stats(combo_base) {
@@ -435,6 +623,7 @@ function _run_level_enum() {
     const pools = { ..._cfg.pools };
     const _dbg = SOLVER_DEBUG_WORKER && _cfg.worker_id === 0;
     let _dbg_sp_prune_count = 0;
+    let _dbg_restr_prune_count = 0;
     let _dbg_sp_leaf_reject = 0;
     let _dbg_precheck_reject = 0;
     let _dbg_ehp_reject = 0;
@@ -444,6 +633,7 @@ function _run_level_enum() {
     let _dbg_mana_rescued = 0;
     let _dbg_hp_reject = 0;
     let _dbg_scored = 0;
+    let _dbg_ceiling_skip = 0;
     let _dbg_leaf_time = 0;  // cumulative ms for feasible leaf processing
 
     const tracker = _make_illegal_tracker();
@@ -538,6 +728,218 @@ function _run_level_enum() {
         }
     }
 
+    // ── Mid-tree restriction suffix bounds (P1.5) ───────────────────────────
+    //
+    // For each direct ge-precheck stat (and the hp+hpBonus base of the
+    // EHP-family prechecks), precompute per-depth suffix sums of the maximum
+    // contribution any item in each remaining slot's pool can add. A subtree
+    // is pruned only when even that optimistic completion fails the exact
+    // check the leaf precheck would apply, so pruning removes only leaves the
+    // precheck would reject: checked/feasible/top-N are unchanged.
+
+    const _item_stat_value = (sm, stat) => {
+        if (STATMAP_STATIC_ID_SET.has(stat)) return sm.get(stat) || 0;
+        return sm.get('maxRolls')?.get(stat) || 0;
+    };
+
+    const _n_pc = _constraint_prechecks.length;
+    const _hp_prechecks_active = !!(_ehp_precheck || _ehp_no_agi_precheck || _total_hp_precheck);
+    let _pc_suffix = null;   // Float64Array[(N_free+1) * _n_pc], row-major by depth
+    let _hp_suffix = null;   // Float64Array[N_free+1] for hp + hpBonus
+
+    if (_n_pc > 0 && N_free > 0) {
+        _pc_suffix = new Float64Array((N_free + 1) * _n_pc);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            for (let i = 0; i < _n_pc; i++) {
+                let slot_max = -Infinity;
+                if (pool && pool.length) {
+                    for (const item of pool) {
+                        const v = _item_stat_value(item.statMap, _constraint_prechecks[i].stat);
+                        if (v > slot_max) slot_max = v;
+                    }
+                } else {
+                    slot_max = 0;
+                }
+                _pc_suffix[d * _n_pc + i] = _pc_suffix[(d + 1) * _n_pc + i] + slot_max;
+            }
+        }
+    }
+    if (_hp_prechecks_active && N_free > 0) {
+        _hp_suffix = new Float64Array(N_free + 1);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            let slot_max = -Infinity;
+            if (pool && pool.length) {
+                for (const item of pool) {
+                    const sm = item.statMap;
+                    const v = (sm.get('hp') || 0) + (sm.get('maxRolls')?.get('hpBonus') || 0);
+                    if (v > slot_max) slot_max = v;
+                }
+            } else {
+                slot_max = 0;
+            }
+            _hp_suffix[d] = _hp_suffix[d + 1] + slot_max;
+        }
+    }
+
+    // Current-value getters that work for every running-store variant.
+    const _running_get = (stat, idx) => {
+        if (_running_is_vec) return idx >= 0 ? running_sm[idx] : 0;
+        if (running_sm instanceof Map) return running_sm.get(stat) ?? 0;
+        return running_sm[stat] ?? 0;
+    };
+
+    /**
+     * Returns false when no completion of the current prefix can pass the
+     * leaf constraint/EHP prechecks (same math, optimistic suffix added).
+     */
+    function _restr_mid_tree_feasible(next_depth) {
+        if (_pc_suffix) {
+            const row = next_depth * _n_pc;
+            for (let i = 0; i < _n_pc; i++) {
+                const pc = _constraint_prechecks[i];
+                const cur = _running_get(pc.stat, pc.stat_idx);
+                if (cur + _pc_suffix[row + i] < pc.adjusted_threshold) return false;
+            }
+        }
+        if (_hp_suffix) {
+            const raw_hp = _running_get('hp', _vec_hp_idx)
+                + _running_get('hpBonus', _vec_hpBonus_idx)
+                + _hp_suffix[next_depth];
+            if (_ehp_precheck) {
+                let totalHp = raw_hp + _ehp_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if ((totalHp / _ehp_precheck.ehp_divisor) < _ehp_precheck.threshold) return false;
+            }
+            if (_ehp_no_agi_precheck) {
+                let totalHp = raw_hp + _ehp_no_agi_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if ((totalHp / _ehp_no_agi_precheck.ehp_divisor) < _ehp_no_agi_precheck.threshold) return false;
+            }
+            if (_total_hp_precheck) {
+                let totalHp = raw_hp + _total_hp_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if (totalHp < _total_hp_precheck.threshold) return false;
+            }
+        }
+        return true;
+    }
+    const _restr_pruning_active = !!(_pc_suffix || _hp_suffix);
+
+    // ── Pre-placement bound columns ─────────────────────────────────────────
+    //
+    // Flat per-slot columns of every pool item's bound-relevant values, so
+    // enumerate() can test the SP and restriction suffix bounds for a child
+    // BEFORE paying placement (identical math to the post-placement checks:
+    // running-after-place equals running-before + the column value). At
+    // trillion scale most children are pruned, so skipping place/unplace for
+    // them dominates the enumeration cost.
+
+    const _col_pc = new Array(N_free);    // Float64Array [offset*_n_pc + i] | null
+    const _col_hp = new Array(N_free);    // Float64Array [offset] | null
+    const _col_req = new Array(N_free);   // Int32Array [offset*5 + j]
+    const _col_prov = new Array(N_free);  // Int32Array [offset*5 + j], non-crafted positive skp
+    for (let d = 0; d < N_free; d++) {
+        const pool = _get_pool(free_slots[d]) ?? [];
+        const n = pool.length;
+        const pcs = _n_pc > 0 ? new Float64Array(n * _n_pc) : null;
+        const hps = _hp_prechecks_active ? new Float64Array(n) : null;
+        const reqs = new Int32Array(n * 5);
+        const provs = new Int32Array(n * 5);
+        for (let o = 0; o < n; o++) {
+            const sm = pool[o].statMap;
+            if (pcs) {
+                for (let i = 0; i < _n_pc; i++) {
+                    pcs[o * _n_pc + i] = _item_stat_value(sm, _constraint_prechecks[i].stat);
+                }
+            }
+            if (hps) {
+                hps[o] = (sm.get('hp') || 0) + (sm.get('maxRolls')?.get('hpBonus') || 0);
+            }
+            const req = sm.get('reqs');
+            const skp = sm.get('skillpoints');
+            const crafted = sm.get('crafted');
+            for (let j = 0; j < 5; j++) {
+                reqs[o * 5 + j] = req[j];
+                provs[o * 5 + j] = (!crafted && skp[j] > 0) ? skp[j] : 0;
+            }
+        }
+        _col_pc[d] = pcs;
+        _col_hp[d] = hps;
+        _col_req[d] = reqs;
+        _col_prov[d] = provs;
+    }
+
+    // Per-depth hoist buffers (recursion-safe: one set per depth).
+    const _hoist_prov_sfx = [];   // Int32Array(5): fixed+free prov + suffix at child depth
+    const _hoist_pc_base = [];    // Float64Array(_n_pc): running pc + suffix at child depth
+    const _hoist_hp_base = new Float64Array(N_free || 1);
+    for (let d = 0; d < N_free; d++) {
+        _hoist_prov_sfx.push(new Int32Array(5));
+        _hoist_pc_base.push(_n_pc > 0 ? new Float64Array(_n_pc) : null);
+    }
+    const _pc_thresholds_flat = new Float64Array(_n_pc);
+    for (let i = 0; i < _n_pc; i++) _pc_thresholds_flat[i] = _constraint_prechecks[i].adjusted_threshold;
+
+    /** SP bound for placing pool[offset] at slot_idx (bases pre-hoisted). */
+    function _sp_bound_ok(slot_idx, offset) {
+        const req_col = _col_req[slot_idx];
+        const prov_col = _col_prov[slot_idx];
+        const prov_sfx = _hoist_prov_sfx[slot_idx];
+        const ro = offset * 5;
+        let total_deficit = 0;
+        for (let j = 0; j < 5; j++) {
+            const r = req_col[ro + j];
+            const m = r > _sp_running_max_eff_req[j] ? r : _sp_running_max_eff_req[j];
+            if (m === 0) continue;
+            const prov = prov_sfx[j] + prov_col[ro + j];
+            if (m <= prov) continue;
+            const deficit = m - prov;
+            if (deficit > SP_PER_ATTR_CAP) return false;
+            total_deficit += deficit;
+            if (total_deficit > sp_budget) return false;
+        }
+        return true;
+    }
+
+    /** Restriction/EHP bound for placing pool[offset] at slot_idx. */
+    function _restr_bound_ok(slot_idx, offset) {
+        const pc_col = _col_pc[slot_idx];
+        if (pc_col) {
+            const pc_base = _hoist_pc_base[slot_idx];
+            const po = offset * _n_pc;
+            for (let i = 0; i < _n_pc; i++) {
+                if (pc_base[i] + pc_col[po + i] < _pc_thresholds_flat[i]) return false;
+            }
+        }
+        const hp_col = _col_hp[slot_idx];
+        if (hp_col) {
+            if (!_hp_gates_ok(_hoist_hp_base[slot_idx] + hp_col[offset])) return false;
+        }
+        return true;
+    }
+
+    /** EHP-family gate on an optimistic raw hp value (mirrors _fast_ehp_precheck). */
+    function _hp_gates_ok(raw_hp) {
+        if (_ehp_precheck) {
+            let totalHp = raw_hp + _ehp_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if ((totalHp / _ehp_precheck.ehp_divisor) < _ehp_precheck.threshold) return false;
+        }
+        if (_ehp_no_agi_precheck) {
+            let totalHp = raw_hp + _ehp_no_agi_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if ((totalHp / _ehp_no_agi_precheck.ehp_divisor) < _ehp_no_agi_precheck.threshold) return false;
+        }
+        if (_total_hp_precheck) {
+            let totalHp = raw_hp + _total_hp_precheck.fixed_hp;
+            if (totalHp < 5) totalHp = 5;
+            if (totalHp < _total_hp_precheck.threshold) return false;
+        }
+        return true;
+    }
+
     // ── Incremental stat accumulation ───────────────────────────────────────
     // Build base statMap from locked items + tomes + weapon. Free items are added/removed during search.
 
@@ -551,8 +953,15 @@ function _run_level_enum() {
     fixed_item_sms.push(weapon_sm);
 
     const running_sm_map = _init_running_statmap(level, fixed_item_sms);
-    const running_sm = _cfg.benchmark_legacy_running_map
-        ? running_sm_map : _init_running_stats_compact(running_sm_map);
+    let running_sm;
+    if (_cfg.benchmark_legacy_running_map) {
+        running_sm = running_sm_map;
+    } else if (_cfg.benchmark_compact_running) {
+        running_sm = _init_running_stats_compact(running_sm_map);
+    } else {
+        running_sm = _vec_init_running(running_sm_map);
+    }
+    const _running_is_vec = running_sm instanceof Float64Array;
 
     // Size scratch arrays now that tome_sms is known
     _scratch_all_equip = new Array(8 + tome_sms.length + 1);  // 8 equips + tomes + weapon
@@ -561,8 +970,7 @@ function _run_level_enum() {
     // ── Progress reporting ──────────────────────────────────────────────────
 
     function _maybe_progress() {
-        const interval = _checked < 1_000_000 ? PROGRESS_INTERVAL : PROGRESS_INTERVAL_LONG;
-        if (_checked % interval === 0) {
+        if (_take_progress_checkpoint(_checked)) {
             const msg = {
                 type: 'progress',
                 worker_id: _cfg.worker_id,
@@ -593,16 +1001,138 @@ function _run_level_enum() {
     // remaining budget is greedily distributed to maximise the scoring target.
     // Uses geometric step-down (20 → 4 → 1) for O(50-95) trials worst case.
 
+    // ── In-place greedy trial evaluation ───────────────────────────────────
+    //
+    // assemble_combo_stats deep-clones two ~170-entry Maps per call, and the
+    // greedy loop calls it up to ~95 times per feasible leaf. Between trials
+    // only the five skill-point entries change, so instead we build the
+    // trial base once per leaf (clone + classDef + atree_raw + radiance —
+    // radiance_affected excludes the SP stats, so its floors are independent
+    // of the per-trial SP values) and per trial: overwrite the five SP keys,
+    // run atree scaling, merge the scaled + static stats in place with an
+    // undo journal, score, and roll the journal back. Addition order matches
+    // assemble_combo_stats exactly, so trial scores are bit-identical.
+
+    const _scratch_trial_pre = new Map();
+    const _scratch_trial_pre_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
+    const _trial_raw_skp = [0, 0, 0, 0, 0];
+    const _UNDO_ABSENT = Symbol('absent');
+    const _undo_maps = [];
+    const _undo_keys = [];
+    const _undo_vals = [];
+    let _undo_len = 0;
+
+    function _undo_record(map, key) {
+        _undo_maps[_undo_len] = map;
+        _undo_keys[_undo_len] = key;
+        _undo_vals[_undo_len] = map.has(key) ? map.get(key) : _UNDO_ABSENT;
+        _undo_len++;
+    }
+
+    function _undo_rollback() {
+        for (let j = _undo_len - 1; j >= 0; j--) {
+            const m = _undo_maps[j], k = _undo_keys[j], v = _undo_vals[j];
+            if (v === _UNDO_ABSENT) m.delete(k); else m.set(k, v);
+            _undo_maps[j] = null;  // release references
+        }
+        _undo_len = 0;
+    }
+
+    /** merge_stat (build_utils.js) with every mutation journaled for undo. */
+    function _merge_stat_undo(stats, name, value) {
+        const [start, end] = name.split('.', 2);
+        if (start === 'damMult' || start === 'defMult' || start === 'healMult' || start === 'manaMult') {
+            if (!stats.has(start)) {
+                _undo_record(stats, start);
+                stats.set(start, new Map());
+            }
+            const map = stats.get(start);
+            if (value instanceof Map) {
+                for (const [k, v] of value.entries()) {
+                    _merge_stat_undo(map, k, v);
+                }
+                return;
+            }
+            if (nonstacking_stats.includes(end)) {
+                let highest = stats.get(start).get(end);
+                if (highest !== undefined) {
+                    if (value > highest) {
+                        _undo_record(map, end);
+                        map.set(end, value);
+                        stats.set(start, map);
+                    }
+                    return;
+                }
+            }
+            _merge_stat_undo(map, name.slice(name.indexOf('.') + 1), value);
+            return;
+        }
+        _undo_record(stats, name);
+        if (stats.has(name)) {
+            stats.set(name, stats.get(name) + value);
+        }
+        else { stats.set(name, value); }
+    }
+
+    /** _merge_into (pure/utils.js) with journaling. */
+    function _merge_into_undo(target, source) {
+        if (!source) return;
+        for (const [k, v] of source) {
+            if (v instanceof Map) {
+                for (const [mk, mv] of v) _merge_stat_undo(target, k + '.' + mk, mv);
+            } else {
+                _merge_stat_undo(target, k, v);
+            }
+        }
+    }
+
     function _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm) {
         const remaining = sp_budget - assigned_sp;
 
         const target = _cfg.scoring_target ?? 'combo_damage';
         const need_thresh = (target !== 'combo_damage' && target !== 'total_healing');
 
+        // Trial base is built lazily: greedy_sp_allocate can return without
+        // ever scoring (no remaining budget / no room).
+        let trial_ready = false;
+        let P = null;
+
         function _trial_score() {
-            const cb = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
-            const ts = need_thresh ? _assemble_threshold_stats(cb) : null;
-            return _eval_score(cb, ts);
+            if (!trial_ready) {
+                P = _deep_clone_statmap_into(_scratch_trial_pre, build_sm, _scratch_trial_pre_nested);
+                const weaponType = weapon_sm.get('type');
+                if (weaponType) P.set('classDef', classDefenseMultipliers.get(weaponType) || 1.0);
+                _merge_into(P, _cfg.atree_raw);
+                _apply_radiance_scale_inplace(P, _cfg.radiance_boost);
+                for (let i = 0; i < 5; i++) {
+                    _trial_raw_skp[i] = _cfg.atree_raw?.get(skp_order[i]) ?? 0;
+                }
+                trial_ready = true;
+            }
+            // assemble_combo_stats sets skp to total_sp then adds atree_raw;
+            // writing the sum directly is the same two-operand addition.
+            for (let i = 0; i < 5; i++) {
+                P.set(skp_order[i], total_sp[i] + _trial_raw_skp[i]);
+            }
+            let atree_scaled_stats;
+            let atree_var_stats = null;
+            if (_atree_scaled_cache) {
+                atree_scaled_stats = _atree_scaled_cache;
+            } else if (_atree_split) {
+                atree_scaled_stats = _atree_split.const_scaled;
+                atree_var_stats = atree_eval_stat_effects(
+                    _cfg.atree_merged, _atree_split.var_effects, P, _scratch_var_scaled);
+            } else {
+                [, atree_scaled_stats] = atree_compute_scaling(
+                    _cfg.atree_merged, P, _cfg.button_states, _cfg.slider_states,
+                    _scratch_atree, _atree_skip_edit);
+            }
+            _merge_into_undo(P, atree_scaled_stats);
+            if (atree_var_stats) _merge_into_undo(P, atree_var_stats);
+            _merge_into_undo(P, _cfg.static_boosts);
+            const s = _eval_score(P, P);
+            _undo_rollback();
+            return s;
         }
 
         const cap_total = _sp_caps ?? _default_sp_caps;
@@ -768,6 +1298,34 @@ function _run_level_enum() {
         const build_sm = _finalize_leaf_statmap(running_sm, weapon_sm, activeSetCounts, sets, _scratch_all_equip, _scratch_finalize, _scratch_finalize_inner);
         _trace_end('finalize', finalize_t0);
 
+        // Score-ceiling gate: when combo damage is provably monotone in SP,
+        // one damage evaluation at all-150 SP upper-bounds anything the
+        // greedy allocator can reach. If even that ceiling cannot beat the
+        // current top-N cutoff, the leaf's final score would be rejected at
+        // insertion — skip greedy + mana + score with an identical top-N.
+        let _gate_cutoff = _shared_cutoff;
+        if (_shared_cutoff_i32 !== null) {
+            const sc = Atomics.load(_shared_cutoff_i32, 0);
+            if (sc !== _CUTOFF_SENTINEL && sc > _gate_cutoff) _gate_cutoff = sc;
+        }
+        if (_top5.length >= 15 && _top5[14].score > _gate_cutoff) _gate_cutoff = _top5[14].score;
+        if (_ceiling_gate_ok && _gate_cutoff > -Infinity) {
+            const ceiling_t0 = _trace_start('ceiling');
+            const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm);
+            _cached_hp_sim = null;
+            const ceiling = _eval_combo_damage(cb150);
+            _trace_end('ceiling', ceiling_t0);
+            const cutoff = _gate_cutoff;
+            // Strict margin: a float-ulp monotonicity wobble must never gate
+            // a genuine top-N candidate.
+            if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
+                _dbg_ceiling_skip++;
+                if (_dbg) _dbg_leaf_time += performance.now() - t0;
+                _maybe_progress();
+                return;
+            }
+        }
+
         // Greedily assign any remaining SP budget to maximise the scoring target
         const greedy_t0 = _trace_start('greedy');
         let final_assigned = _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm);
@@ -851,8 +1409,22 @@ function _run_level_enum() {
 
     // ── Stat tracking helpers ────────────────────────────────────────────────
 
-    function _place_item(item_sm) { _incr_add_item(running_sm, item_sm); }
-    function _unplace_item(item_sm) { _incr_remove_item(running_sm, item_sm); }
+    // Precompile each pool item's vector entries onto its wrapper so the hot
+    // place/unplace path reads a plain property instead of a WeakMap.
+    if (_running_is_vec) {
+        for (const pool of [...Object.values(pools), ring_pool ?? []]) {
+            if (!pool) continue;
+            for (const item of pool) {
+                if (!item._vec_entries) item._vec_entries = _vec_entries(item.statMap);
+            }
+        }
+    }
+    const _place_item = _running_is_vec
+        ? (item) => _vec_add_entries(running_sm, item._vec_entries)
+        : (item) => _incr_add_item(running_sm, item.statMap);
+    const _unplace_item = _running_is_vec
+        ? (item) => _vec_remove_entries(running_sm, item._vec_entries)
+        : (item) => _incr_remove_item(running_sm, item.statMap);
 
     // ── Level-based enumeration over free armor/accessory slots ─────────────
     //
@@ -956,6 +1528,46 @@ function _run_level_enum() {
         }
     }
 
+    // ── Band accounting ──────────────────────────────────────────────────────
+    //
+    // The enumeration visits leaves in geometric LEVEL BANDS [lo, hi] instead
+    // of one level at a time: band widths double (1, 2, 4, ...) so the early,
+    // quality-critical ordering stays fine-grained while deep-tail prefixes
+    // are re-walked O(log L_max) times instead of O(L_max). Each tuple's
+    // level falls in exactly one band, so the visited set and all funnel
+    // totals are unchanged; only the within-band visit order differs from the
+    // strict per-level ordering.
+    //
+    // _subtree_prefix[d][t+1] = Σ_{u<=t} _subtree_leaf_count[d][u], so a
+    // pruned child subtree's in-band leaves are credited with one prefix
+    // difference.
+
+    const _subtree_prefix = new Array(N_free + 1);
+    function _rebuild_subtree_prefix(d) {
+        let p = _subtree_prefix[d];
+        if (!p) p = _subtree_prefix[d] = new Float64Array(L_max + 2);
+        const row = _subtree_leaf_count[d];
+        for (let t = 0; t <= L_max; t++) p[t + 1] = p[t] + row[t];
+    }
+    for (let d = 0; d <= N_free; d++) _rebuild_subtree_prefix(d);
+
+    /** Leaves below depth d with remaining rank sum in [lo, hi]. */
+    function _band_credit(d, lo, hi) {
+        if (hi < 0) return 0;
+        const p = _subtree_prefix[d];
+        const lo_c = lo > 0 ? lo : 0;
+        const hi_c = hi < L_max ? hi : L_max;
+        if (lo_c > hi_c) return 0;
+        return p[hi_c + 1] - p[lo_c];
+    }
+
+    // Max achievable rank sum from depth d onward (band reachability).
+    const _suffix_max_rank = new Int32Array(N_free + 1);
+    for (let d = N_free - 1; d >= 0; d--) {
+        _suffix_max_rank[d] = _suffix_max_rank[d + 1]
+            + (_slot_ub[d] > 0 ? _slot_ub[d] : 0);
+    }
+
     // Rebuild _subtree_leaf_count[ring2_depth] for the given ring1 placement.
     // Only meaningful when both rings free and contiguous.
     function _rebuild_ring2_subtree_leaf_count(ring1_offset) {
@@ -964,17 +1576,19 @@ function _run_level_enum() {
         arr.fill(0);
         const lb2 = Math.max(_slot_lb[ring2_depth], ring1_offset);
         const ub2 = _slot_ub[ring2_depth];
-        if (lb2 > ub2) return;
-        const tail = _subtree_leaf_count[ring2_depth + 1];
-        const prefix = new Float64Array(L_max + 2);
-        for (let L = 0; L <= L_max; L++) prefix[L + 1] = prefix[L] + tail[L];
-        for (let L = 0; L <= L_max; L++) {
-            const lo = Math.max(0, L - ub2);
-            const hi_incl = L - lb2;
-            if (hi_incl < lo) continue;
-            const hi = Math.min(L_max, hi_incl);
-            arr[L] = prefix[hi + 1] - prefix[lo];
+        if (lb2 <= ub2) {
+            const tail = _subtree_leaf_count[ring2_depth + 1];
+            const prefix = new Float64Array(L_max + 2);
+            for (let L = 0; L <= L_max; L++) prefix[L + 1] = prefix[L] + tail[L];
+            for (let L = 0; L <= L_max; L++) {
+                const lo = Math.max(0, L - ub2);
+                const hi_incl = L - lb2;
+                if (hi_incl < lo) continue;
+                const hi = Math.min(L_max, hi_incl);
+                arr[L] = prefix[hi + 1] - prefix[lo];
+            }
         }
+        _rebuild_subtree_prefix(ring2_depth);
     }
 
     // ── Mid-tree SP pruning state & helpers ──────────────────────────────────
@@ -987,9 +1601,11 @@ function _run_level_enum() {
     const _sp_fixed_max_eff_req = [0, 0, 0, 0, 0];
     const _sp_fixed_sum_prov = [0, 0, 0, 0, 0];
 
-    // Per-depth effective requirement from each placed free item.
-    const _sp_slot_eff_req = [];
-    for (let d = 0; d < N_free; d++) _sp_slot_eff_req.push([0, 0, 0, 0, 0]);
+    // Per-depth snapshot of the running max taken just before placing at
+    // that depth, so unplace is an O(5) restore instead of an O(depth*5)
+    // recompute from the fixed baseline.
+    const _sp_max_save = [];
+    for (let d = 0; d < N_free; d++) _sp_max_save.push([0, 0, 0, 0, 0]);
 
     // Running max eff req (fixed + placed free) and running free provisions.
     const _sp_running_max_eff_req = [0, 0, 0, 0, 0];
@@ -1073,20 +1689,19 @@ function _run_level_enum() {
             }
         }
 
-        // Raw requirements (cascade: no self-contribution undoing)
-        const eff = _sp_slot_eff_req[depth];
+        // Snapshot the running max, then fold in this item's raw requirements
+        // (cascade: no self-contribution undoing).
+        const save = _sp_max_save[depth];
         for (let i = 0; i < 5; i++) {
-            eff[i] = req[i];
-        }
-
-        for (let i = 0; i < 5; i++) {
-            if (eff[i] > _sp_running_max_eff_req[i])
-                _sp_running_max_eff_req[i] = eff[i];
+            save[i] = _sp_running_max_eff_req[i];
+            if (req[i] > _sp_running_max_eff_req[i])
+                _sp_running_max_eff_req[i] = req[i];
         }
     }
 
     /**
      * Restore running SP state when unplacing a free item at a given depth.
+     * Placement is strictly LIFO, so restoring the pre-place snapshot is exact.
      */
     function _sp_unplace_free_item(sm, depth) {
         if (!sm.get('crafted')) {
@@ -1096,14 +1711,8 @@ function _run_level_enum() {
             }
         }
 
-        // Recompute running max from fixed baseline + slots 0..depth-1
-        for (let i = 0; i < 5; i++) _sp_running_max_eff_req[i] = _sp_fixed_max_eff_req[i];
-        for (let d = 0; d < depth; d++) {
-            for (let i = 0; i < 5; i++) {
-                if (_sp_slot_eff_req[d][i] > _sp_running_max_eff_req[i])
-                    _sp_running_max_eff_req[i] = _sp_slot_eff_req[d][i];
-            }
-        }
+        const save = _sp_max_save[depth];
+        for (let i = 0; i < 5; i++) _sp_running_max_eff_req[i] = save[i];
     }
 
     /**
@@ -1151,7 +1760,10 @@ function _run_level_enum() {
     // Track ring1's placed offset for ring2 symmetry constraint (ring2 offset >= ring1 offset).
     let _ring1_placed_offset = 0;
 
-    function enumerate(slot_idx, remaining_L) {
+    // enumerate(slot_idx, lo_rem, hi_rem): visit every completion of the
+    // current prefix whose remaining rank sum lies in [lo_rem, hi_rem].
+    // lo_rem may go <= 0 (no lower bound left); hi_rem is the budget.
+    function enumerate(slot_idx, lo_rem, hi_rem) {
         if (_cancelled) return;
 
         if (slot_idx === N_free) {
@@ -1161,7 +1773,7 @@ function _run_level_enum() {
 
         const slot = free_slots[slot_idx];
         const pool = _get_pool(slot);
-        if (!pool) { enumerate(slot_idx + 1, remaining_L); return; }
+        if (!pool) { enumerate(slot_idx + 1, lo_rem, hi_rem); return; }
 
         const is_ring1 = (slot_idx === ring1_depth);
         const is_ring2 = (slot_idx === ring2_depth);
@@ -1184,41 +1796,89 @@ function _run_level_enum() {
             pool_max = Math.min(pool_max, partition.end - 1);
         }
 
-        // For the last free slot, we must place an item at exactly offset=remaining_L.
-        // This ensures each combination is visited at exactly one level (level == sum of offsets),
-        // preventing duplicates where lower-sum combinations were re-evaluated at every higher L.
-        if (slot_idx === N_free - 1) {
-            if (remaining_L >= min_offset && remaining_L <= pool_max) {
-                const item = pool[remaining_L];
+        // ── Hoisted bound bases (constant across this slot's offsets) ──────
+        // running-after-place[x] == running-before[x] + column[x] for every
+        // bound-relevant value, so testing base + column reproduces the
+        // post-placement checks exactly, without placing.
+        const next_depth = slot_idx + 1;
+        const req_col = _col_req[slot_idx];
+        const prov_col = _col_prov[slot_idx];
+        const pc_col = _col_pc[slot_idx];
+        const hp_col = _col_hp[slot_idx];
+        const is_leaf_slot = (slot_idx === N_free - 1);
+
+        {
+            // Leaf slot uses no suffix (mirrors _sp_leaf_feasible / the leaf
+            // prechecks); interior slots add the child-depth suffix.
+            const prov_sfx = _hoist_prov_sfx[slot_idx];
+            const sfx = is_leaf_slot ? null : _sp_suffix_max_prov[next_depth];
+            for (let j = 0; j < 5; j++) {
+                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j] + (sfx ? sfx[j] : 0);
+            }
+            if (pc_col) {
+                const pc_base = _hoist_pc_base[slot_idx];
+                const row = next_depth * _n_pc;
+                for (let i = 0; i < _n_pc; i++) {
+                    const pc = _constraint_prechecks[i];
+                    pc_base[i] = _running_get(pc.stat, pc.stat_idx)
+                        + (is_leaf_slot ? 0 : _pc_suffix[row + i]);
+                }
+            }
+            if (hp_col) {
+                _hoist_hp_base[slot_idx] = _running_get('hp', _vec_hp_idx)
+                    + _running_get('hpBonus', _vec_hpBonus_idx)
+                    + (is_leaf_slot ? 0 : _hp_suffix[next_depth]);
+            }
+        }
+
+        // For the last free slot, the leaf's total rank equals its offset, so
+        // the in-band offsets form the exact range [lo_rem, hi_rem]. Each
+        // tuple's level lies in exactly one band, so no duplicates.
+        if (is_leaf_slot) {
+            const from = Math.max(min_offset, lo_rem);
+            const to = Math.min(pool_max, hi_rem);
+            for (let offset = from; offset <= to; offset++) {
+                if (_cancelled) return;
+                const item = pool[offset];
                 const is = item._illegalSet;
                 const iname = item._illegalSetName;
-                if (!tracker.blocks(is, iname)) {
-                    if (is) tracker.add(is, iname);
-                    partial[slot] = item;
-                    _place_item(item.statMap);
-                    _sp_place_free_item(item.statMap, slot_idx);
-                    if (_sp_leaf_feasible()) {
-                        _evaluate_leaf();
-                    } else {
-                        _checked++;
-                        _dbg_sp_leaf_reject++;
-                        _maybe_progress();
-                    }
-                    _sp_unplace_free_item(item.statMap, slot_idx);
-                    _unplace_item(item.statMap);
-                    if (is) tracker.remove(is, iname);
-                } else {
+                if (tracker.blocks(is, iname)) {
                     // Illegal-set blocked — the single leaf for this tuple is still
                     // counted toward total, so credit it to _checked.
                     _checked++;
                     _maybe_progress();
+                } else if (!_sp_bound_ok(slot_idx, offset)) {
+                    // Same outcome _sp_leaf_feasible would produce after placing.
+                    _checked++;
+                    _dbg_sp_leaf_reject++;
+                    _maybe_progress();
+                } else if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
+                    // Same outcome the leaf prechecks would produce after placing.
+                    _checked++;
+                    _precheck_reject++;
+                    _dbg_precheck_reject++;
+                    _maybe_progress();
+                } else {
+                    if (is) tracker.add(is, iname);
+                    partial[slot] = item;
+                    _place_item(item);
+                    _sp_place_free_item(item.statMap, slot_idx);
+                    _evaluate_leaf();
+                    _sp_unplace_free_item(item.statMap, slot_idx);
+                    _unplace_item(item);
+                    if (is) tracker.remove(is, iname);
                 }
             }
             partial[slot] = locked[slot] ?? none_items_wrapped[_cfg.none_idx_map[slot]];
             return;
         }
 
-        const max_offset = Math.min(remaining_L, pool_max);
+        // Band reachability: offsets too small to reach lo_rem with the
+        // remaining slots' maximum ranks have no in-band leaves (they were
+        // all visited in earlier bands).
+        const reach_min = lo_rem - _suffix_max_rank[next_depth];
+        if (reach_min > min_offset) min_offset = reach_min;
+        const max_offset = Math.min(hi_rem, pool_max);
 
         for (let offset = min_offset; offset <= max_offset; offset++) {
             if (_cancelled) return;
@@ -1234,15 +1894,40 @@ function _run_level_enum() {
                 if (is_ring1 && both_rings_free && rings_contiguous) {
                     _rebuild_ring2_subtree_leaf_count(offset);
                 }
-                const skipped = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
+                const skipped = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += skipped;
                 _maybe_progress();
                 continue;
             }
-            if (is) tracker.add(is, iname);
 
+            if (!_sp_bound_ok(slot_idx, offset)) {
+                if (is_ring1 && both_rings_free && rings_contiguous) {
+                    _rebuild_ring2_subtree_leaf_count(offset);
+                }
+                const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
+                _checked += pruned;
+                _dbg_sp_prune_count += pruned;
+                _maybe_progress();
+                continue;
+            }
+            if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
+                // Every completion would fail the leaf precheck — credit the
+                // subtree to checked and precheck_reject so funnel totals
+                // match the unpruned enumeration exactly.
+                if (is_ring1 && both_rings_free && rings_contiguous) {
+                    _rebuild_ring2_subtree_leaf_count(offset);
+                }
+                const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
+                _checked += pruned;
+                _precheck_reject += pruned;
+                _dbg_restr_prune_count += pruned;
+                _maybe_progress();
+                continue;
+            }
+
+            if (is) tracker.add(is, iname);
             partial[slot] = item;
-            _place_item(item.statMap);
+            _place_item(item);
             _sp_place_free_item(item.statMap, slot_idx);
 
             if (is_ring1) {
@@ -1250,17 +1935,10 @@ function _run_level_enum() {
                 _rebuild_ring2_subtree_leaf_count(offset);
             }
 
-            if (_sp_mid_tree_feasible(slot_idx + 1)) {
-                enumerate(slot_idx + 1, remaining_L - offset);
-            } else {
-                const pruned = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
-                _checked += pruned;
-                _dbg_sp_prune_count += pruned;
-                _maybe_progress();
-            }
+            enumerate(next_depth, lo_rem - offset, hi_rem - offset);
 
             _sp_unplace_free_item(item.statMap, slot_idx);
-            _unplace_item(item.statMap);
+            _unplace_item(item);
             if (is) tracker.remove(is, iname);
         }
         partial[slot] = locked[slot] ?? none_items_wrapped[_cfg.none_idx_map[slot]];
@@ -1272,9 +1950,18 @@ function _run_level_enum() {
     if (N_free === 0) {
         _evaluate_leaf();
     } else {
-        for (let L = 0; L <= L_max && !_cancelled; L++) {
-            _current_L = L;
-            enumerate(0, L);
+        // Geometric level bands: strict per-level ordering for the first,
+        // narrow bands (the quality-critical head of the search) and
+        // doubling widths for the tail, cutting prefix re-walks from
+        // O(L_max) to O(log L_max) per prefix.
+        let band_lo = 0;
+        let band_width = 1;
+        while (band_lo <= L_max && !_cancelled) {
+            const band_hi = Math.min(L_max, band_lo + band_width - 1);
+            _current_L = band_hi;
+            enumerate(0, band_lo, band_hi);
+            band_lo = band_hi + 1;
+            band_width *= 2;
         }
     }
 
@@ -1292,10 +1979,12 @@ function _run_level_enum() {
             '| sp_leaf_reject:', _dbg_sp_leaf_reject,
             '| sp_reject:', _dbg_sp_reject,
             '| sp_pruned:', _dbg_sp_prune_count,
+            '| restr_pruned:', _dbg_restr_prune_count,
             '| feasible:', _feasible,
             '| threshold_reject:', _dbg_threshold_reject,
             '| mana_reject:', _dbg_mana_reject,
             '| mana_rescued:', _dbg_mana_rescued,
+            '| ceiling_skip:', _dbg_ceiling_skip,
             '| hp_reject:', _dbg_hp_reject,
             '| scored:', _dbg_scored);
         if (_feasible > 0) {
@@ -1319,6 +2008,8 @@ self.onmessage = function (e) {
         // Heavy one-time initialization: store all shared data
         sets = new Map(msg.sets_data);
         _cfg = msg;
+        _shared_cutoff = -Infinity;
+        _shared_cutoff_i32 = msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null;
         _set_incr_cache_enabled(!msg.benchmark_legacy_incremental);
         _set_incr_parallel_layout(!msg.benchmark_nested_incremental);
         _cancelled = false;
@@ -1329,6 +2020,8 @@ self.onmessage = function (e) {
         try {
             _build_constraint_prechecks();
             _build_sp_constraints();
+            _vec_setup();
+            _atree_scaling_setup();
         } catch (err) {
             console.error('[w] prechecks crashed:', err.message, err.stack);
             postMessage({ type: 'done', worker_id: msg.worker_id, checked: 0, feasible: 0, met_req: 0, top5: [] });
@@ -1359,6 +2052,7 @@ self.onmessage = function (e) {
             _last_sent_top5_version = 0;
             _checked_at_last_top5_change = 0;
             _current_L = 0;
+            _progress_checkpoint.next = PROGRESS_INTERVAL;
             _reset_trace();
             try {
                 _run_level_enum();
@@ -1393,6 +2087,7 @@ self.onmessage = function (e) {
         _checked_at_last_top5_change = 0;
         _current_L = 0;
         _cancelled = false;
+        _progress_checkpoint.next = PROGRESS_INTERVAL;
         _reset_trace();
 
         try {
@@ -1412,6 +2107,11 @@ self.onmessage = function (e) {
             top5: _top5,
             trace: _trace_snapshot(),
         });
+    } else if (msg.type === 'cutoff') {
+        // Coordinator broadcast of the global top-N cutoff. Only ever raise it.
+        if (typeof msg.value === 'number' && msg.value > _shared_cutoff) {
+            _shared_cutoff = msg.value;
+        }
     } else if (msg.type === 'cancel') {
         _cancelled = true;
     }

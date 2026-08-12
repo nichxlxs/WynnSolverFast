@@ -1343,6 +1343,54 @@ function _run_solver_search_workers(pools, locked, snap) {
 
     _solver_state.workers = [];
 
+    // ── Shared global top-N cutoff for the workers' score-ceiling gate ─────
+    // The 15th-best distinct score reported by any worker (or the seed) is a
+    // lower bound on the final merged top-N cutoff: every reported build
+    // either survives to the final merge or was displaced by 15 higher-
+    // scoring builds from its own partition. Workers read it mid-partition
+    // through a SharedArrayBuffer (Int32, floored — flooring only lowers the
+    // cutoff, which keeps it admissible). Browsers without cross-origin
+    // isolation fall back to postMessage broadcasts, which workers only see
+    // between partitions.
+    const CUTOFF_SENTINEL = -0x80000000;
+    let cutoff_sab = null, cutoff_view = null;
+    try {
+        if (typeof SharedArrayBuffer !== 'undefined'
+            && (typeof crossOriginIsolated === 'undefined' || crossOriginIsolated)) {
+            cutoff_sab = new SharedArrayBuffer(4);
+            cutoff_view = new Int32Array(cutoff_sab);
+            Atomics.store(cutoff_view, 0, CUTOFF_SENTINEL);
+        }
+    } catch (e) { cutoff_sab = null; cutoff_view = null; }
+    const cutoff_scores = new Map();  // item_names key -> best score seen
+    let last_cutoff = -Infinity;
+    // The seed competes in the final merge as its own entry, so it gets its
+    // own key even if the search rediscovers the same build.
+    if (typeof _solver_state.seed_build?.score === 'number') {
+        cutoff_scores.set('\x00seed', _solver_state.seed_build.score);
+    }
+    function _update_shared_cutoff(entries) {
+        if (!entries) return;
+        for (const r of entries) {
+            if (!r || typeof r.score !== 'number' || !r.item_names) continue;
+            const key = r.item_names.join(' ');
+            const prev = cutoff_scores.get(key);
+            if (prev === undefined || r.score > prev) cutoff_scores.set(key, r.score);
+        }
+        if (cutoff_scores.size < 15) return;
+        const scores = [...cutoff_scores.values()].sort((a, b) => b - a);
+        const cutoff = scores[14];
+        if (cutoff <= last_cutoff) return;
+        last_cutoff = cutoff;
+        if (cutoff_view) {
+            const floored = Math.max(CUTOFF_SENTINEL + 1, Math.min(0x7FFFFFFF, Math.floor(cutoff)));
+            Atomics.store(cutoff_view, 0, floored);
+        }
+        for (const ws of _solver_state.workers) {
+            try { ws.worker.postMessage({ type: 'cutoff', value: cutoff }); } catch (e) {}
+        }
+    }
+
     function _insert_wstate_top5(wstate, entry) {
         wstate.top5.push(entry);
         wstate.top5.sort((a, b) => b.score - a.score);
@@ -1391,6 +1439,7 @@ function _run_solver_search_workers(pools, locked, snap) {
         for (const r of msg.top5) {
             _insert_wstate_top5(wstate, r);
         }
+        _update_shared_cutoff(msg.top5);
         active_count--;
 
         // Try to give this worker more work
@@ -1429,7 +1478,10 @@ function _run_solver_search_workers(pools, locked, snap) {
                 wstate._cur_precheck_reject = msg.precheck_reject ?? 0;
                 wstate._cur_feasible = msg.feasible;
                 wstate._cur_met_req = msg.met_req ?? 0;
-                if (msg.top5_names) wstate._cur_top5 = msg.top5_names;
+                if (msg.top5_names) {
+                    wstate._cur_top5 = msg.top5_names;
+                    _update_shared_cutoff(msg.top5_names);
+                }
                 if (msg.checked_since_top5 !== undefined) wstate._cur_checked_since_top5 = msg.checked_since_top5;
                 if (msg.L_progress) wstate._cur_L_progress = msg.L_progress;
             } else if (msg.type === 'done') {
@@ -1451,6 +1503,7 @@ function _run_solver_search_workers(pools, locked, snap) {
         const init_msg = Object.assign({}, init_base, {
             partition: first_partition,
             worker_id: next_partition_id++,
+            cutoff_sab,
         });
         wstate.done = false;
         wstate._cur_checked = 0;

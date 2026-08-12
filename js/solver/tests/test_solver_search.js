@@ -324,6 +324,11 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
             value: r.value,
         })),
     };
+    // Snapshot-level extra thresholds (oracle fixtures exercise restriction
+    // pruning without needing a new URL hash).
+    if (snap.extra_restrictions) {
+        restrictions.stat_thresholds.push(...snap.extra_restrictions);
+    }
 
     // ── 12. Spell base costs ────────────────────────────────────────────────
     const spellBaseCosts = {};
@@ -396,13 +401,51 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
         let timedOut = false;
         let workerError = null;
 
+        // ── Shared global top-N cutoff ─────────────────────────────────────
+        // The 15th-best distinct score reported by any worker (or the seed) is
+        // a lower bound on the final merged top-N cutoff: every reported build
+        // either survives to the final merge or was displaced by 15 higher-
+        // scoring builds from its own partition. Workers read it mid-partition
+        // through a SharedArrayBuffer (Int32, floored — flooring only lowers
+        // the cutoff, which keeps it admissible for the ceiling gate).
+        const CUTOFF_SENTINEL = -0x80000000;
+        const cutoffSab = typeof SharedArrayBuffer !== 'undefined' ? new SharedArrayBuffer(4) : null;
+        const cutoffView = cutoffSab ? new Int32Array(cutoffSab) : null;
+        if (cutoffView) Atomics.store(cutoffView, 0, CUTOFF_SENTINEL);
+        const cutoffScores = new Map();  // item_names key -> best score seen
+        let lastCutoff = -Infinity;
+        if (seedResult?.item_names) {
+            cutoffScores.set(seedResult.item_names.join(' '), seedResult.score);
+        }
+        function updateCutoff(entries) {
+            if (!entries) return;
+            for (const r of entries) {
+                if (!r || typeof r.score !== 'number' || !r.item_names) continue;
+                const key = r.item_names.join(' ');
+                const prev = cutoffScores.get(key);
+                if (prev === undefined || r.score > prev) cutoffScores.set(key, r.score);
+            }
+            if (cutoffScores.size < 15) return;
+            const scores = [...cutoffScores.values()].sort((a, b) => b - a);
+            const cutoff = scores[14];
+            if (cutoff <= lastCutoff) return;
+            lastCutoff = cutoff;
+            if (cutoffView) {
+                const floored = Math.max(CUTOFF_SENTINEL + 1, Math.min(0x7FFFFFFF, Math.floor(cutoff)));
+                Atomics.store(cutoffView, 0, floored);
+            }
+            for (const w of workers) {
+                try { w.postMessage({ type: 'cutoff', value: cutoff }); } catch (e) {}
+            }
+        }
+
         function dispatchNext(worker, workerId) {
             if (timedOut || partitionIdx >= partitions.length) return false;
             const partition = partitions[partitionIdx++];
             try {
                 if (workerId === -1) {
                     // First init message
-                    const msg = { ...initMsgBase, partition, worker_id: worker._workerId };
+                    const msg = { ...initMsgBase, partition, worker_id: worker._workerId, cutoff_sab: cutoffSab };
                     worker.postMessage(msg);
                 } else {
                     worker.postMessage({ type: 'run', partition, worker_id: workerId });
@@ -426,6 +469,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
                 for (const entry of msg.top5_names) {
                     progressTop.push(entry);
                 }
+                updateCutoff(msg.top5_names);
                 // Early termination: if any worker found a build meeting the target,
                 // stop all workers immediately instead of waiting for the full timeout.
                 if (targetScore != null && !timedOut) {
@@ -442,6 +486,7 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             totalChecked += msg.checked || 0;
             totalFeasible += msg.feasible || 0;
             if (msg.top5) allTop.push(...msg.top5);
+            updateCutoff(msg.top5);
             totalTrace = mergeTraceMetrics(totalTrace, msg.trace);
             // Clear progress counts for this worker (done supersedes progress).
             delete progressCounts[msg.worker_id];
@@ -520,6 +565,644 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             dispatchNext(w, -1);
         }
     });
+}
+
+// ── Exhaustive Cartesian oracle (P0.4) ───────────────────────────────────────
+//
+// Re-enumerates the entire canonical tuple space with plain nested loops
+// (rings as unordered pairs, ring2 index >= ring1 index) and evaluates each
+// tuple through a worker whose slots are ALL locked (N_free = 0), completely
+// bypassing the production level enumeration, mid-tree pruning, partitioning,
+// and top-N cutoff. The production search must reproduce the oracle's
+// checked count, feasible count, and top-N scores exactly.
+
+const ORACLE_ARMOR_SLOTS = ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace'];
+
+/** Replicates _make_illegal_tracker semantics over a full equipment set:
+ *  at most one item per illegal set across all eight slots. */
+function _oracleTupleBlocked(items) {
+    const seen = new Set();
+    for (const it of items) {
+        const is = it?._illegalSet;
+        if (!is) continue;
+        if (seen.has(is)) return true;
+        seen.add(is);
+    }
+    return false;
+}
+
+function runOracleEnumeration(initMsgBase, ringPoolSer) {
+    return new Promise((resolve, reject) => {
+        // Enumerate canonical tuples: Cartesian product of free armor slots,
+        // times canonical ring pairs (i <= j) when both rings are free.
+        const freeSlots = ORACLE_ARMOR_SLOTS.filter(s => initMsgBase.pools[s]?.length);
+        const ringsFree = !initMsgBase.ring1_locked && !initMsgBase.ring2_locked
+            && ringPoolSer.length > 0;
+
+        const lockedItems = [
+            ...Object.values(initMsgBase.locked ?? {}),
+            initMsgBase.ring1_locked, initMsgBase.ring2_locked,
+        ].filter(Boolean);
+
+        const tuples = [];
+        const build = (slotIdx, chosen) => {
+            if (slotIdx === freeSlots.length) {
+                if (ringsFree) {
+                    for (let i = 0; i < ringPoolSer.length; i++) {
+                        for (let j = i; j < ringPoolSer.length; j++) {
+                            tuples.push({ armor: chosen.slice(), ring1: i, ring2: j });
+                        }
+                    }
+                } else {
+                    tuples.push({ armor: chosen.slice(), ring1: -1, ring2: -1 });
+                }
+                return;
+            }
+            const pool = initMsgBase.pools[freeSlots[slotIdx]];
+            for (let k = 0; k < pool.length; k++) {
+                chosen.push(k);
+                build(slotIdx + 1, chosen);
+                chosen.pop();
+            }
+        };
+        build(0, []);
+
+        const results = { tupleCount: tuples.length, blocked: 0, feasible: 0, top: [] };
+        let idx = 0;
+
+        const worker = new Worker(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
+
+        const sendNext = () => {
+            while (idx < tuples.length) {
+                const tup = tuples[idx];
+                const items = [];
+                const lockedOverride = { ...initMsgBase.locked };
+                for (let s = 0; s < freeSlots.length; s++) {
+                    const item = initMsgBase.pools[freeSlots[s]][tup.armor[s]];
+                    lockedOverride[freeSlots[s]] = item;
+                    items.push(item);
+                }
+                let ring1_locked = initMsgBase.ring1_locked;
+                let ring2_locked = initMsgBase.ring2_locked;
+                if (tup.ring1 >= 0) {
+                    ring1_locked = ringPoolSer[tup.ring1];
+                    ring2_locked = ringPoolSer[tup.ring2];
+                    items.push(ring1_locked, ring2_locked);
+                }
+                items.push(...lockedItems);
+
+                if (_oracleTupleBlocked(items)) {
+                    // Production counts illegal-set tuples as checked without
+                    // evaluating them.
+                    results.blocked++;
+                    idx++;
+                    continue;
+                }
+
+                worker.postMessage({
+                    ...initMsgBase,
+                    pools: {},
+                    ring_pool: [],
+                    locked: lockedOverride,
+                    ring1_locked,
+                    ring2_locked,
+                    partition: { type: 'full' },
+                    worker_id: 0,
+                });
+                idx++;
+                return;
+            }
+            worker.terminate();
+            results.top.sort((a, b) => (b.score || 0) - (a.score || 0));
+            results.top = results.top.slice(0, 15);
+            resolve(results);
+        };
+
+        worker.on('message', (msg) => {
+            if (msg.type === 'done') {
+                results.feasible += msg.feasible || 0;
+                if (msg.top5) results.top.push(...msg.top5);
+                sendNext();
+            } else if (msg.type === 'worker_error') {
+                worker.terminate();
+                reject(new Error(msg.message));
+            }
+        });
+        worker.on('error', (err) => { worker.terminate(); reject(err); });
+
+        sendNext();
+    });
+}
+
+// ── Rust score-kernel differential fixture export (P2.4 layer 1) ────────────
+//
+// SOLVER_EXPORT_SCORE=<path> samples K random feasible builds (seeded LCG),
+// evaluates each through the production worker with all slots locked and
+// SOLVER_DEBUG_COMBO capture on, and dumps a JSON fixture containing the
+// exact assembled combo_base stat map + expected combo damage per case,
+// plus everything the Rust damage core needs to recompute it: weapon stats,
+// parsed combo rows (with embedded spell definitions and boost tokens), the
+// boost registry, atree hit-string refs for prop overrides, and the game
+// constant tables. The Rust score kernel must reproduce every expected
+// value bit-for-bit (f64).
+
+function _jser(v) {
+    if (v instanceof Map) {
+        const o = {};
+        for (const [k, x] of v) o[String(k)] = _jser(x);
+        return { __m: o };
+    }
+    if (v instanceof Set) return { __s: [...v].map(_jser) };
+    if (Array.isArray(v)) return v.map(_jser);
+    if (v && typeof v === 'object') {
+        const o = {};
+        for (const [k, x] of Object.entries(v)) if (x !== undefined) o[k] = _jser(x);
+        return o;
+    }
+    return v === undefined ? null : v;
+}
+
+function exportScoreFixture(outPath, initMsgBase, ringPoolSer, numCases) {
+    return new Promise((resolve, reject) => {
+        process.env.SOLVER_DEBUG_COMBO = '1';
+
+        const freeSlots = ORACLE_ARMOR_SLOTS.filter(s => initMsgBase.pools[s]?.length);
+        const ring1Free = !initMsgBase.ring1_locked && ringPoolSer.length > 0;
+        const ring2Free = !initMsgBase.ring2_locked && ringPoolSer.length > 0;
+        const lockedItems = [
+            ...Object.values(initMsgBase.locked ?? {}),
+            initMsgBase.ring1_locked, initMsgBase.ring2_locked,
+        ].filter(Boolean);
+
+        let seed = 0x5EEDCAFE;
+        const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000;
+        // Pools are priority-ordered, so jointly-feasible builds concentrate
+        // at low offsets; a geometric bias samples realistic builds while
+        // still reaching deep into the pool occasionally.
+        const geoPick = (n) => Math.min(n - 1, Math.floor(-Math.log(1 - rand()) * (n / 6)));
+
+        const cases = [];
+        let attempts = 0;
+        let posted = 0, doneNoTop = 0, doneNoDebug = 0, spFiltered = 0, blocked = 0;
+        const MAX_ATTEMPTS = numCases * 2000;
+
+        const worker = new Worker(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
+
+        const sendNext = () => {
+            while (cases.length < numCases && attempts < MAX_ATTEMPTS) {
+                attempts++;
+                const lockedOverride = { ...initMsgBase.locked };
+                const items = [];
+                for (const s of freeSlots) {
+                    const pool = initMsgBase.pools[s];
+                    const item = pool[geoPick(pool.length)];
+                    lockedOverride[s] = item;
+                    items.push(item);
+                }
+                let ring1_locked = initMsgBase.ring1_locked;
+                let ring2_locked = initMsgBase.ring2_locked;
+                if (ring1Free && ring2Free) {
+                    const i = geoPick(ringPoolSer.length);
+                    const j = Math.min(ringPoolSer.length - 1, i + geoPick(ringPoolSer.length - i));
+                    ring1_locked = ringPoolSer[i];
+                    ring2_locked = ringPoolSer[j];
+                    items.push(ring1_locked, ring2_locked);
+                } else if (ring1Free) {
+                    ring1_locked = ringPoolSer[geoPick(ringPoolSer.length)];
+                    items.push(ring1_locked);
+                } else if (ring2Free) {
+                    ring2_locked = ringPoolSer[geoPick(ringPoolSer.length)];
+                    items.push(ring2_locked);
+                }
+                items.push(...lockedItems);
+                if (_oracleTupleBlocked(items)) { blocked++; continue; }
+
+                // In-process SP prefilter: skip obviously SP-infeasible builds
+                // without a worker round-trip (the worker remains the truth).
+                const bySlot = {
+                    helmet: lockedOverride.helmet, chestplate: lockedOverride.chestplate,
+                    leggings: lockedOverride.leggings, boots: lockedOverride.boots,
+                    ring1: ring1_locked, ring2: ring2_locked,
+                    bracelet: lockedOverride.bracelet, necklace: lockedOverride.necklace,
+                };
+                const wynnSMs = ['boots', 'leggings', 'chestplate', 'helmet',
+                                 'ring1', 'ring2', 'bracelet', 'necklace']
+                    .map(s => bySlot[s]?.statMap ?? initMsgBase.none_item_sms[NONE_IDX[s]]);
+                let spOk = null;
+                try {
+                    spOk = ctx.calculate_skillpoints(
+                        wynnSMs, initMsgBase.weapon_sm, initMsgBase.sp_budget);
+                } catch (e) {
+                    if (spFiltered === 0) console.log('  [score-export] prefilter error:', e.message);
+                }
+                if (spOk === null) { spFiltered++; continue; }
+                posted++;
+
+                worker.postMessage({
+                    ...initMsgBase,
+                    // Restrictions gate which leaves reach scoring but do not
+                    // affect the damage computation these cases validate —
+                    // strip them so random tuples survive to scoring.
+                    restrictions: { stat_thresholds: [] },
+                    pools: {},
+                    ring_pool: [],
+                    locked: lockedOverride,
+                    ring1_locked,
+                    ring2_locked,
+                    partition: { type: 'full' },
+                    worker_id: 0,
+                });
+                return;
+            }
+            worker.terminate();
+            finish();
+        };
+
+        const finish = () => {
+            const ctxTables = vm.runInContext(`({
+                skillpoint_damage_mult: [...skillpoint_damage_mult],
+                skillpoint_final_mult: [...skillpoint_final_mult],
+                baseDamageMultiplier: [...baseDamageMultiplier],
+                attackSpeeds: [...attackSpeeds],
+                damage_keys: [...damage_keys],
+                sp_percentage_rate: SP_PERCENTAGE_RATE,
+                sp_percentage_input_cap: SP_PERCENTAGE_INPUT_CAP,
+                // V8's Math.pow and Rust's powf can differ by 1 ULP; skill
+                // points are integers, so ship the exact JS values instead.
+                sp_pct_table: Array.from({length: SP_PERCENTAGE_INPUT_CAP + 1},
+                    (_, i) => skillPointsToPercentage(i)),
+            })`, ctx);
+
+            // Pre-resolve atree hit-string refs per base_spell (mirrors
+            // apply_spell_prop_overrides's scan of atree_merged).
+            const hit_refs = {};
+            for (const [, abil] of (initMsgBase.atree_merged ?? new Map())) {
+                for (const effect of (abil.effects ?? [])) {
+                    if (effect.type === 'replace_spell') {
+                        const bs = effect.base_spell;
+                        for (const part of (effect.parts ?? [])) {
+                            if (part && typeof part === 'object' && 'hits' in part) {
+                                ((hit_refs[bs] ??= {}))[part.name] = { ...((hit_refs[bs] ?? {})[part.name] ?? {}), ...part.hits };
+                            }
+                        }
+                    } else if (effect.type === 'add_spell_prop'
+                               && effect.target_part && 'hits' in effect) {
+                        const bs = effect.base_spell;
+                        ((hit_refs[bs] ??= {}))[effect.target_part] = { ...((hit_refs[bs] ?? {})[effect.target_part] ?? {}), ...effect.hits };
+                    }
+                }
+            }
+
+            // Layer-2 scenario data: everything the Rust leaf pipeline needs
+            // to reproduce build stats → assemble → greedy → mana → score
+            // from raw items (PORT_PLAN.md). Item registry covers pools,
+            // locked, rings, and none items, keyed by displayName.
+            const item_registry = {};
+            const regAdd = (it) => {
+                const sm = it?.statMap ?? it;
+                if (!sm?.get) return;
+                const name = sm.get('displayName') ?? sm.get('name');
+                if (name && !(name in item_registry)) item_registry[name] = _jser(sm);
+            };
+            for (const pool of Object.values(initMsgBase.pools)) for (const it of pool) regAdd(it);
+            for (const it of ringPoolSer) regAdd(it);
+            for (const it of Object.values(initMsgBase.locked ?? {})) regAdd(it);
+            regAdd(initMsgBase.ring1_locked);
+            regAdd(initMsgBase.ring2_locked);
+
+            // Lower the atree scaling plan exactly the way the worker's
+            // _atree_scaling_setup does (const partition + numeric var
+            // effects), so the Rust side ports only atree_eval_stat_effects.
+            // kind 'full' marks scenarios outside the supported subset —
+            // the Rust layer-2 pipeline must refuse those fixtures.
+            const scaling_plan = (() => {
+                const am = initMsgBase.atree_merged;
+                const A = ctx.atree_scaling_analysis(am);
+                const skip_edit = !A.has_prop_outputs;
+                if (!A.stat_dependent) {
+                    const [, scaled] = ctx.atree_compute_scaling(am, new Map(),
+                        initMsgBase.button_states, initMsgBase.slider_states, null, skip_edit);
+                    return { kind: 'cached', scaled: _jser(scaled) };
+                }
+                const plan = ctx.atree_collect_stat_effects(am);
+                if (!plan || plan.var_has_prop_io) return { kind: 'full' };
+                const [, const_scaled] = ctx.atree_compute_scaling(am, new Map(),
+                    initMsgBase.button_states, initMsgBase.slider_states, null, skip_edit, true);
+                for (const key of plan.var_keys) {
+                    if (key.includes('.') || ['damMult', 'defMult', 'healMult', 'manaMult'].includes(key)
+                        || const_scaled.has(key)) {
+                        return { kind: 'full' };
+                    }
+                }
+                const lowered = plan.var_effects.map(effect => {
+                    const scaling = effect.scaling ?? [0];
+                    const inputs = effect.inputs ?? [];
+                    const terms = [];
+                    let const_add = 0;
+                    for (let i = 0; i < Math.min(scaling.length, inputs.length); i++) {
+                        const s = ctx.atree_translate(am, scaling[i]);
+                        if (inputs[i].type === 'stat') {
+                            terms.push({ stat: inputs[i].name, factor: s });
+                        } else if (inputs[i].type === 'prop') {
+                            const abil = am.get(inputs[i].abil);
+                            if (abil) const_add += abil.properties[inputs[i].name] * s;
+                        }
+                    }
+                    const low = {
+                        round: effect.round ?? true,
+                        positive: effect.positive ?? true,
+                        terms,
+                        const_add,
+                        outputs: (Array.isArray(effect.output) ? effect.output : [effect.output])
+                            .filter(o => o && o.type === 'stat').map(o => o.name),
+                    };
+                    if ('max' in effect) low.max = ctx.atree_translate(am, effect.max);
+                    return low;
+                });
+                return { kind: 'split', const_scaled: _jser(const_scaled), var_effects: lowered };
+            })();
+
+            const ctxLayer2 = vm.runInContext(`({
+                statmap_static_ids: [...STATMAP_STATIC_IDS],
+                statmap_must_ids: [...STATMAP_MUST_IDS],
+                hp_base_for_level: levelToHPBase(${JSON.stringify(initMsgBase.level)}),
+                class_def: Object.fromEntries(classDefenseMultipliers),
+                base_mana_regen: BASE_MANA_REGEN,
+                mana_tick_seconds: MANA_TICK_SECONDS,
+                spell_cast_time: SPELL_CAST_TIME,
+                spell_cast_delay: SPELL_CAST_DELAY,
+                skp_order: [...skp_order],
+            })`, ctx);
+
+            const fixture = {
+                meta: {
+                    generated: 'exportScoreFixture',
+                    cases: cases.length,
+                    attempts,
+                    scoring_target: initMsgBase.scoring_target,
+                },
+                tables: ctxTables,
+                weapon_sm: _jser(initMsgBase.weapon_sm),
+                parsed_combo: _jser(initMsgBase.parsed_combo),
+                boost_registry: _jser(initMsgBase.boost_registry),
+                atree_hit_refs: _jser(hit_refs),
+                // Layer-2 scenario data (see rust/sp_kernel/PORT_PLAN.md)
+                layer2: {
+                    level: initMsgBase.level,
+                    sp_budget: initMsgBase.sp_budget,
+                    combo_time: initMsgBase.combo_time,
+                    allow_downtime: initMsgBase.allow_downtime,
+                    hp_casting: initMsgBase.hp_casting,
+                    health_config: _jser(initMsgBase.health_config),
+                    tome_sms: _jser(initMsgBase.tome_sms),
+                    guild_tome_sm: _jser(initMsgBase.guild_tome_sm),
+                    none_item_sms: _jser(initMsgBase.none_item_sms),
+                    none_idx_map: initMsgBase.none_idx_map,
+                    sets_data: _jser(new Map(initMsgBase.sets_data)),
+                    atree_raw: _jser(initMsgBase.atree_raw),
+                    atree_merged: _jser(initMsgBase.atree_merged),
+                    button_states: _jser(initMsgBase.button_states),
+                    slider_states: _jser(initMsgBase.slider_states),
+                    static_boosts: _jser(initMsgBase.static_boosts),
+                    radiance_boost: _jser(initMsgBase.radiance_boost ?? null),
+                    spell_base_costs: _jser(initMsgBase.spell_base_costs ?? null),
+                    restrictions: initMsgBase.restrictions ?? { stat_thresholds: [] },
+                    custom_weights: _jser(initMsgBase.custom_weights ?? null),
+                    scaling_plan,
+                    constants: ctxLayer2,
+                    item_registry,
+                },
+                cases,
+            };
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+            fs.writeFileSync(outPath, JSON.stringify(fixture));
+            console.log(`  [score-export] wrote ${cases.length} cases (${attempts} attempts, `
+                + `${blocked} blocked, ${spFiltered} sp-filtered, ${posted} posted, `
+                + `${doneNoTop} no-top, ${doneNoDebug} no-debug) to ${outPath}`);
+            resolve(cases.length);
+        };
+
+        worker.on('message', (msg) => {
+            if (msg.type === 'done') {
+                const top = msg.top5?.[0];
+                if (top && top._debug_combo_base) {
+                    cases.push({
+                        item_names: top.item_names,
+                        base_sp: [...top.base_sp],
+                        total_sp: [...top.total_sp],
+                        assigned_sp: top.assigned_sp,
+                        expected_damage: top.score,
+                        combo_base: _jser(top._debug_combo_base),
+                    });
+                } else if (!top) {
+                    doneNoTop++;
+                    if (doneNoTop === 1 && process.env.SOLVER_EXPORT_SCORE_DEBUG) {
+                        console.log('  [score-export] first no-top done msg:',
+                            JSON.stringify({ ...msg, top5: msg.top5?.length, trace: undefined }));
+                    }
+                } else {
+                    doneNoDebug++;
+                }
+                sendNext();
+            } else if (msg.type === 'worker_error') {
+                worker.terminate();
+                reject(new Error(msg.message));
+            }
+        });
+        worker.on('error', (err) => { worker.terminate(); reject(err); });
+
+        sendNext();
+    });
+}
+
+// ── Rust enumeration-kernel fixture export (P2.3) ────────────────────────────
+//
+// SOLVER_EXPORT_RUST=<path> dumps everything the Rust enumeration kernel
+// needs to replay this scenario's search space: free slots in enumeration
+// order with priority-ordered pools (reqs/skp/crafted/set/illegal-set +
+// precheck stat values), fixed equipment, weapon/guild tome, the set-bonus
+// SP table, precheck thresholds with root running values, and EHP precheck
+// constants. All floats are printed with full precision.
+
+function exportRustFixture(outPath, { initMsgBase, ringPoolSer, solverSnap }) {
+    const L = [];
+    const f = (x) => (typeof x === 'number' && Number.isFinite(x)) ? String(x) : '0';
+
+    const H = vm.runInContext(`({
+        sp100: skillPointsToPercentage(100),
+        fm3: skillpoint_final_mult[3], fm4: skillpoint_final_mult[4],
+        static_ids: [...STATMAP_STATIC_IDS],
+        indirect: [...INDIRECT_CONSTRAINT_STATS],
+        skp_order: [...skp_order],
+        classDefFor: (t) => classDefenseMultipliers.get(t) || 1.0,
+    })`, ctx);
+    const STATIC_SET = new Set(H.static_ids);
+    const EXCLUDED = new Set([...H.indirect, 'str', 'dex', 'int', 'def', 'agi']);
+
+    // ── Mirror the worker's partial[] and fixed running statmap ──
+    const NONE = (sm) => !sm || sm.has('NONE');
+    const lk = initMsgBase.locked ?? {};
+    const partial = {
+        helmet: lk.helmet?.statMap, chestplate: lk.chestplate?.statMap,
+        leggings: lk.leggings?.statMap, boots: lk.boots?.statMap,
+        ring1: initMsgBase.ring1_locked?.statMap, ring2: initMsgBase.ring2_locked?.statMap,
+        bracelet: lk.bracelet?.statMap, necklace: lk.necklace?.statMap,
+    };
+    const fixed_sms = [];
+    for (const sm of Object.values(partial)) if (!NONE(sm)) fixed_sms.push(sm);
+    for (const t of initMsgBase.tome_sms) fixed_sms.push(t);
+    fixed_sms.push(initMsgBase.weapon_sm);
+    const running0 = ctx._init_running_statmap(initMsgBase.level, fixed_sms);
+
+    // ── Prechecks (mirror _build_constraint_prechecks) ──
+    const fixedContrib = (stat) =>
+        (solverSnap.atree_raw?.get(stat) ?? 0) + (solverSnap.static_boosts?.get(stat) ?? 0);
+    const thresholds = solverSnap.restrictions?.stat_thresholds ?? [];
+    const pcs = [];
+    let ehp = null, ehpna = null, thp = null;
+    for (const { stat, op, value } of thresholds) {
+        if (op !== 'ge') continue;
+        if (stat === 'ehp' || stat === 'ehp_no_agi') {
+            const fixed_hp = fixedContrib('hpBonus');
+            const def_pct = H.sp100 * H.fm3;
+            const defMult = 2 - H.classDefFor(initMsgBase.weapon_sm.get('type'));
+            if (stat === 'ehp') {
+                const agi_pct = H.sp100 * H.fm4;
+                const agi_reduction = (100 - 90) / 100;
+                ehp = { threshold: value, fixed_hp, divisor: (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult };
+            } else {
+                ehpna = { threshold: value, fixed_hp, divisor: (1 - def_pct) * defMult };
+            }
+            continue;
+        }
+        if (stat === 'total_hp') { thp = { threshold: value, fixed_hp: fixedContrib('hpBonus') }; continue; }
+        if (EXCLUDED.has(stat)) continue;
+        pcs.push({ stat, adjusted_threshold: value - fixedContrib(stat), start: running0.get(stat) ?? 0 });
+    }
+
+    // ── Set / illegal-set id tables ──
+    const setIds = new Map();
+    const illegalIds = new Map();
+    const setId = (name) => {
+        if (!name) return -1;
+        if (!setIds.has(name)) setIds.set(name, setIds.size);
+        return setIds.get(name);
+    };
+    const illegalId = (name) => {
+        if (!name) return -1;
+        if (!illegalIds.has(name)) illegalIds.set(name, illegalIds.size);
+        return illegalIds.get(name);
+    };
+
+    const itemLine = (it) => {
+        const sm = it.statMap;
+        const reqs = sm.get('reqs'), skp = sm.get('skillpoints');
+        const maxRolls = sm.get('maxRolls');
+        const sVal = (stat) => STATIC_SET.has(stat) ? (sm.get(stat) || 0) : (maxRolls?.get(stat) || 0);
+        const hp = (sm.get('hp') || 0) + (maxRolls?.get('hpBonus') || 0);
+        return ['ITEM', sm.get('crafted') ? 1 : 0, ...reqs, ...skp,
+            setId(sm.get('crafted') ? null : sm.get('set')), illegalId(it._illegalSet),
+            f(hp), ...pcs.map(pc => f(sVal(pc.stat)))].join(' ');
+    };
+
+    // ── Free slots in the worker's enumeration order ──
+    const pools = initMsgBase.pools ?? {};
+    const getPool = (slot) => (slot === 'ring1' || slot === 'ring2') ? ringPoolSer : pools[slot];
+    const free_slots = [];
+    for (const slot of ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace']) {
+        if (!lk[slot]) free_slots.push(slot);
+    }
+    if (!initMsgBase.ring1_locked) free_slots.push('ring1');
+    if (!initMsgBase.ring2_locked) free_slots.push('ring2');
+    free_slots.sort((a, b) => {
+        const diff = (getPool(a)?.length ?? 0) - (getPool(b)?.length ?? 0);
+        if (diff !== 0) return diff;
+        if (a === 'ring1' && b === 'ring2') return -1;
+        if (a === 'ring2' && b === 'ring1') return 1;
+        return 0;
+    });
+    const SLOT_POS = { helmet: 0, chestplate: 1, leggings: 2, boots: 3, ring1: 4, ring2: 5, bracelet: 6, necklace: 7 };
+
+    // ── Emit ──
+    L.push(`BUDGET ${initMsgBase.sp_budget}`);
+    L.push(`PRECHECKS ${pcs.length}`);
+    for (const pc of pcs) L.push(`PC ${pc.stat} ${f(pc.adjusted_threshold)} ${f(pc.start)}`);
+    L.push(`EHP ${ehp ? 1 : 0} ${f(ehp?.threshold)} ${f(ehp?.fixed_hp)} ${f(ehp?.divisor)}`);
+    L.push(`EHPNA ${ehpna ? 1 : 0} ${f(ehpna?.threshold)} ${f(ehpna?.fixed_hp)} ${f(ehpna?.divisor)}`);
+    L.push(`THP ${thp ? 1 : 0} ${f(thp?.threshold)} ${f(thp?.fixed_hp)}`);
+    L.push(`HPSTART ${f((running0.get('hp') ?? 0) + (running0.get('hpBonus') ?? 0))}`);
+    const wep = initMsgBase.weapon_sm;
+    L.push(`WEAPON ${wep.get('reqs').join(' ')} ${wep.get('skillpoints').join(' ')}`);
+    const gt = initMsgBase.guild_tome_sm;
+    const gtPresent = gt && !gt.has('NONE');
+    L.push(`GUILD ${gtPresent ? 1 : 0} ${gtPresent && gt.get('crafted') ? 1 : 0} `
+        + `${(gtPresent ? gt.get('reqs') : [0,0,0,0,0]).join(' ')} `
+        + `${(gtPresent ? gt.get('skillpoints') : [0,0,0,0,0]).join(' ')} `
+        + `${gtPresent ? setId(gt.get('set')) : -1}`);
+
+    // Fixed equipment (non-NONE locked slots).
+    const fixedLines = [];
+    for (const [slot, sm] of Object.entries(partial)) {
+        if (NONE(sm)) continue;
+        const wrapper = (slot === 'ring1') ? initMsgBase.ring1_locked
+            : (slot === 'ring2') ? initMsgBase.ring2_locked : lk[slot];
+        fixedLines.push(`FIXED ${SLOT_POS[slot]} ${sm.get('crafted') ? 1 : 0} `
+            + `${sm.get('reqs').join(' ')} ${sm.get('skillpoints').join(' ')} `
+            + `${setId(sm.get('crafted') ? null : sm.get('set'))} ${illegalId(wrapper?._illegalSet)}`);
+    }
+    L.push(`NFIXED ${fixedLines.length}`);
+    L.push(...fixedLines);
+
+    // Free slots + pools (items reference set/illegal ids, so emit before SETS).
+    L.push(`NSLOTS ${free_slots.length}`);
+    const slotLines = [];
+    for (const slot of free_slots) {
+        const pool = getPool(slot) ?? [];
+        slotLines.push(`SLOT ${slot} ${SLOT_POS[slot]} ${slot === 'ring1' ? 1 : 0} ${slot === 'ring2' ? 1 : 0} ${pool.length}`);
+        for (const it of pool) slotLines.push(itemLine(it));
+    }
+    L.push(...slotLines);
+
+    // Set-bonus SP table (ids assigned while emitting items above).
+    const setLines = [];
+    for (const [name, id] of setIds) {
+        const bonuses = ctx.sets.get(name)?.bonuses ?? [];
+        const rows = bonuses.map(b => H.skp_order.map(k => (b?.[k] || 0)).join(' '));
+        setLines.push(`SET ${id} ${rows.length} ${rows.join('  ')}`);
+    }
+    L.push(`NSETS ${setIds.size}`);
+    L.push(...setLines);
+
+    // Item display names (optional trailing section) — lets the Rust scoring
+    // integration join pool/fixed items to the score fixture's item registry.
+    // Names are raw line remainders (they contain spaces).
+    const nameOf = (it) => {
+        const sm = it?.statMap ?? it;
+        return sm?.get?.('displayName') ?? sm?.get?.('name') ?? '';
+    };
+    L.push('NAMES 1');
+    for (let si = 0; si < free_slots.length; si++) {
+        const pool = getPool(free_slots[si]) ?? [];
+        L.push(`INAMES ${si} ${pool.length}`);
+        for (const it of pool) L.push(nameOf(it));
+    }
+    const fixedNameLines = [];
+    for (const [slot, sm] of Object.entries(partial)) {
+        if (NONE(sm)) continue;
+        fixedNameLines.push(`${SLOT_POS[slot]} ${sm.get('displayName') ?? sm.get('name') ?? ''}`);
+    }
+    L.push(`FNAMES ${fixedNameLines.length}`);
+    L.push(...fixedNameLines);
+    // All-8 none-item names by slot position (for slots neither free nor fixed).
+    L.push('NONENAMES 8');
+    for (let p = 0; p < 8; p++) {
+        const noneSm = initMsgBase.none_item_sms[p];
+        L.push(noneSm?.get?.('displayName') ?? noneSm?.get?.('name') ?? '');
+    }
+
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, L.join('\n') + '\n');
+    console.log(`  [export] Rust fixture written to ${outPath}`);
 }
 
 // ── Seed build helper ────────────────────────────────────────────────────────
@@ -683,6 +1366,14 @@ async function runSolverTest(snapName) {
         ctx._prioritize_pools(freePools, dmgWeights);
     }
 
+    // Oracle snapshots truncate every free pool after prioritization so the
+    // full Cartesian space stays small enough for per-tuple re-evaluation.
+    if (snap.max_pool_size) {
+        for (const key of Object.keys(freePools)) {
+            freePools[key] = freePools[key].slice(0, snap.max_pool_size);
+        }
+    }
+
     // Freshness check: locked item stats + compress hash (has free slots).
     const currentLockedStats = extractLockedItemStats(locked);
     const hasFreeSlots = Object.keys(freePools).length > 0;
@@ -745,6 +1436,7 @@ async function runSolverTest(snapName) {
         benchmark_nested_incremental: process.env.SOLVER_BENCH_VARIANT === 'current_nested_incremental',
         benchmark_legacy_running_map: ['original', 'current_running_map']
             .includes(process.env.SOLVER_BENCH_VARIANT),
+        benchmark_compact_running: process.env.SOLVER_BENCH_VARIANT === 'current_compact_object',
         sets_data: [...ctx.sets],
         ring_pool: ringPoolSer,
         ring1_locked: lockedSer.ring1 ?? null,
@@ -752,6 +1444,23 @@ async function runSolverTest(snapName) {
         none_item_sms: noneItemSMs,
         none_idx_map: NONE_IDX,
     };
+
+    // Optional: dump this scenario as a Rust enumeration-kernel fixture.
+    // Both exports can run in one invocation (the Rust scoring integration
+    // joins them by item name, so they must come from the same scenario run).
+    if (process.env.SOLVER_EXPORT_RUST) {
+        exportRustFixture(process.env.SOLVER_EXPORT_RUST, { initMsgBase, ringPoolSer, solverSnap });
+        t.assert(true, `${snapName}: exported Rust fixture`);
+        if (!process.env.SOLVER_EXPORT_SCORE) return;
+    }
+
+    // Optional: dump sampled score cases for the Rust damage-core port and stop.
+    if (process.env.SOLVER_EXPORT_SCORE) {
+        const k = parseInt(process.env.SOLVER_EXPORT_SCORE_CASES ?? '96', 10);
+        const n = await exportScoreFixture(process.env.SOLVER_EXPORT_SCORE, initMsgBase, ringPoolSer, k);
+        t.assert(n > 0, `${snapName}: exported ${n} score cases`);
+        return;
+    }
 
     // 10. Build partitions and run workers
     // Match the real solver's worker count: min(hardwareConcurrency - 2, 16), at least 1.
@@ -786,6 +1495,11 @@ async function runSolverTest(snapName) {
     if (result.top5 && result.top5.length > 0) {
         const bestScore = result.top5[0].score;
         console.log(`  [${snapName}] best score: ${Math.round(bestScore)}`);
+        if (process.env.SOLVER_PRINT_TOP15 === '1') {
+            for (const r of result.top5) {
+                console.log(`  [top15] ${r.score.toExponential(17)} | ${r.item_names?.filter(n => n).join(', ')}`);
+            }
+        }
 
         if (snap.expected_min_score != null) {
             // Score must reach or surpass the target.
@@ -803,6 +1517,51 @@ async function runSolverTest(snapName) {
         }
     } else {
         t.assert(false, `${snapName}: solver found no results`);
+    }
+
+    // 12. Oracle verification (P0.4): exact equality against an independent
+    // Cartesian enumeration, plus partition-count invariance.
+    if (snap.oracle) {
+        t.assert(!result.timedOut, `${snapName}: oracle run completed within time limit`);
+
+        const oracle = await runOracleEnumeration(initMsgBase, ringPoolSer);
+        console.log(`  [${snapName}] oracle: ${oracle.tupleCount} tuples, ${oracle.blocked} illegal-set blocked, ${oracle.feasible} feasible`);
+
+        t.assert(oracle.tupleCount === combinations,
+            `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
+        t.assert(result.checked === oracle.tupleCount,
+            `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
+        t.assert(result.feasible === oracle.feasible,
+            `${snapName}: production feasible ${result.feasible} == oracle ${oracle.feasible}`);
+
+        const prodScores = result.top5.map(r => r.score);
+        const oracleScores = oracle.top.map(r => r.score);
+        t.assert(prodScores.length === oracleScores.length,
+            `${snapName}: top-N length ${prodScores.length} == oracle ${oracleScores.length}`);
+        let scoresEqual = prodScores.length === oracleScores.length;
+        for (let i = 0; i < Math.min(prodScores.length, oracleScores.length); i++) {
+            if (prodScores[i] !== oracleScores[i]) { scoresEqual = false; break; }
+        }
+        t.assert(scoresEqual,
+            `${snapName}: top-N scores match oracle exactly`
+            + (scoresEqual ? '' : ` (prod=${JSON.stringify(prodScores)} oracle=${JSON.stringify(oracleScores)})`));
+        if (result.top5.length && oracle.top.length) {
+            t.assert(JSON.stringify(result.top5[0].item_names) === JSON.stringify(oracle.top[0].item_names),
+                `${snapName}: best build items match oracle`);
+        }
+
+        // Partition completeness: a different partition count must not change
+        // checked, feasible, or top-N scores.
+        const altPartitions = ctx._partition_work(freePools, locked, 3);
+        const altResult = await runSolverWorkers(
+            initMsgBase, ringPoolSer, altPartitions, 1, timeLimitMs, null, null);
+        t.assert(altResult.checked === result.checked,
+            `${snapName}: 3-partition checked ${altResult.checked} == ${result.checked}`);
+        t.assert(altResult.feasible === result.feasible,
+            `${snapName}: 3-partition feasible ${altResult.feasible} == ${result.feasible}`);
+        const altScores = altResult.top5.map(r => r.score);
+        t.assert(JSON.stringify(altScores) === JSON.stringify(prodScores),
+            `${snapName}: 3-partition top-N scores identical`);
     }
 }
 

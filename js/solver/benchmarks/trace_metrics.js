@@ -1,6 +1,6 @@
 'use strict';
 
-const PHASES = ['precheck', 'sp', 'finalize', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+const PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
 
 function mergeTraceMetrics(...metrics) {
     const result = {};

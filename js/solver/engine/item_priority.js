@@ -1109,24 +1109,39 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
     }
 
     // Conflict resolution: stat in both sets → remove from both (non-monotonic)
+    // Relevant-but-non-monotonic stats must be EQUAL between dominator and
+    // dominated: silently dropping them from the comparison lets an item
+    // that differs on such a stat be pruned even though the difference can
+    // matter (e.g. the only atkTier necklace being removed while an
+    // atkTier >= N restriction exists, making the restriction unsatisfiable).
+    const equal = new Set();
+
+    // Conflict resolution: stat in both sets → non-monotonic, require equality.
     for (const stat of higher) {
-        if (lower.has(stat)) { higher.delete(stat); lower.delete(stat); }
+        if (lower.has(stat)) {
+            higher.delete(stat);
+            lower.delete(stat);
+            equal.add(stat);
+        }
     }
 
-    // atkTier special case: melee DPS + mana-tight/ls-constraint conflict
+    // atkTier special case: melee DPS + mana-tight/ls-constraint conflict —
+    // faster attacks trade per-hit damage against mana/ls economy, so
+    // direction is build-dependent. Still relevant, so demand equality.
     const ls_constraint = (restrictions.stat_thresholds ?? []).some(t => t.stat === 'ls' && t.op === 'ge');
     if (has_melee && (mana_tight || ls_constraint)) {
-        higher.delete('atkTier');
-        lower.delete('atkTier');
+        if (higher.delete('atkTier') || lower.delete('atkTier')) {
+            equal.add('atkTier');
+        }
     }
 
     if (SOLVER_DEBUG_SENSITIVITY) {
         console.log('[solver][sensitivity] dominance classification:',
-            'higher:', higher.size, 'lower:', lower.size,
-            'excluded:', _PERTURBABLE_STATS.length - higher.size - lower.size);
+            'higher:', higher.size, 'lower:', lower.size, 'equal:', equal.size,
+            'excluded:', _PERTURBABLE_STATS.length - higher.size - lower.size - equal.size);
     }
 
-    return { higher, lower };
+    return { higher, lower, equal };
 }
 
 // ── Dominance pruning ─────────────────────────────────────────────────────────
@@ -1152,12 +1167,14 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
     const preserve_set_items = options.preserve_set_items !== false;
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
+    const equal_stats = [...(dominance_stats.equal ?? [])];
 
     const _dbg = SOLVER_DEBUG_DOMINANCE;
     if (_dbg) {
         console.groupCollapsed('[solver][dominance] check stats');
         console.log('higher-is-better:', higher_stats);
         console.log('lower-is-better:', lower_stats);
+        console.log('must-be-equal:', equal_stats);
         console.groupEnd();
     }
 
@@ -1213,6 +1230,15 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
                 // 2. Lower-is-better stats: A <= B on all
                 for (const stat of lower_stats) {
                     if (_item_stat_val(a_sm, stat) > _item_stat_val(b_sm, stat)) {
+                        ok = false; break;
+                    }
+                }
+                if (!ok) continue;
+
+                // 2b. Non-monotonic relevant stats: A == B on all — a
+                // difference in either direction can matter to the build.
+                for (const stat of equal_stats) {
+                    if (_item_stat_val(a_sm, stat) !== _item_stat_val(b_sm, stat)) {
                         ok = false; break;
                     }
                 }
