@@ -485,6 +485,7 @@ function _run_level_enum() {
     const pools = { ..._cfg.pools };
     const _dbg = SOLVER_DEBUG_WORKER && _cfg.worker_id === 0;
     let _dbg_sp_prune_count = 0;
+    let _dbg_restr_prune_count = 0;
     let _dbg_sp_leaf_reject = 0;
     let _dbg_precheck_reject = 0;
     let _dbg_ehp_reject = 0;
@@ -587,6 +588,105 @@ function _run_level_enum() {
                 + _sp_max_pool_prov[d][i];
         }
     }
+
+    // ── Mid-tree restriction suffix bounds (P1.5) ───────────────────────────
+    //
+    // For each direct ge-precheck stat (and the hp+hpBonus base of the
+    // EHP-family prechecks), precompute per-depth suffix sums of the maximum
+    // contribution any item in each remaining slot's pool can add. A subtree
+    // is pruned only when even that optimistic completion fails the exact
+    // check the leaf precheck would apply, so pruning removes only leaves the
+    // precheck would reject: checked/feasible/top-N are unchanged.
+
+    const _item_stat_value = (sm, stat) => {
+        if (STATMAP_STATIC_ID_SET.has(stat)) return sm.get(stat) || 0;
+        return sm.get('maxRolls')?.get(stat) || 0;
+    };
+
+    const _n_pc = _constraint_prechecks.length;
+    const _hp_prechecks_active = !!(_ehp_precheck || _ehp_no_agi_precheck || _total_hp_precheck);
+    let _pc_suffix = null;   // Float64Array[(N_free+1) * _n_pc], row-major by depth
+    let _hp_suffix = null;   // Float64Array[N_free+1] for hp + hpBonus
+
+    if (_n_pc > 0 && N_free > 0) {
+        _pc_suffix = new Float64Array((N_free + 1) * _n_pc);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            for (let i = 0; i < _n_pc; i++) {
+                let slot_max = -Infinity;
+                if (pool && pool.length) {
+                    for (const item of pool) {
+                        const v = _item_stat_value(item.statMap, _constraint_prechecks[i].stat);
+                        if (v > slot_max) slot_max = v;
+                    }
+                } else {
+                    slot_max = 0;
+                }
+                _pc_suffix[d * _n_pc + i] = _pc_suffix[(d + 1) * _n_pc + i] + slot_max;
+            }
+        }
+    }
+    if (_hp_prechecks_active && N_free > 0) {
+        _hp_suffix = new Float64Array(N_free + 1);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            let slot_max = -Infinity;
+            if (pool && pool.length) {
+                for (const item of pool) {
+                    const sm = item.statMap;
+                    const v = (sm.get('hp') || 0) + (sm.get('maxRolls')?.get('hpBonus') || 0);
+                    if (v > slot_max) slot_max = v;
+                }
+            } else {
+                slot_max = 0;
+            }
+            _hp_suffix[d] = _hp_suffix[d + 1] + slot_max;
+        }
+    }
+
+    // Current-value getters that work for every running-store variant.
+    const _running_get = (stat, idx) => {
+        if (_running_is_vec) return idx >= 0 ? running_sm[idx] : 0;
+        if (running_sm instanceof Map) return running_sm.get(stat) ?? 0;
+        return running_sm[stat] ?? 0;
+    };
+
+    /**
+     * Returns false when no completion of the current prefix can pass the
+     * leaf constraint/EHP prechecks (same math, optimistic suffix added).
+     */
+    function _restr_mid_tree_feasible(next_depth) {
+        if (_pc_suffix) {
+            const row = next_depth * _n_pc;
+            for (let i = 0; i < _n_pc; i++) {
+                const pc = _constraint_prechecks[i];
+                const cur = _running_get(pc.stat, pc.stat_idx);
+                if (cur + _pc_suffix[row + i] < pc.adjusted_threshold) return false;
+            }
+        }
+        if (_hp_suffix) {
+            const raw_hp = _running_get('hp', _vec_hp_idx)
+                + _running_get('hpBonus', _vec_hpBonus_idx)
+                + _hp_suffix[next_depth];
+            if (_ehp_precheck) {
+                let totalHp = raw_hp + _ehp_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if ((totalHp / _ehp_precheck.ehp_divisor) < _ehp_precheck.threshold) return false;
+            }
+            if (_ehp_no_agi_precheck) {
+                let totalHp = raw_hp + _ehp_no_agi_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if ((totalHp / _ehp_no_agi_precheck.ehp_divisor) < _ehp_no_agi_precheck.threshold) return false;
+            }
+            if (_total_hp_precheck) {
+                let totalHp = raw_hp + _total_hp_precheck.fixed_hp;
+                if (totalHp < 5) totalHp = 5;
+                if (totalHp < _total_hp_precheck.threshold) return false;
+            }
+        }
+        return true;
+    }
+    const _restr_pruning_active = !!(_pc_suffix || _hp_suffix);
 
     // ── Incremental stat accumulation ───────────────────────────────────────
     // Build base statMap from locked items + tomes + weapon. Free items are added/removed during search.
@@ -1416,13 +1516,22 @@ function _run_level_enum() {
                 _rebuild_ring2_subtree_leaf_count(offset);
             }
 
-            if (_sp_mid_tree_feasible(slot_idx + 1)) {
-                enumerate(slot_idx + 1, remaining_L - offset);
-            } else {
+            if (!_sp_mid_tree_feasible(slot_idx + 1)) {
                 const pruned = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
                 _checked += pruned;
                 _dbg_sp_prune_count += pruned;
                 _maybe_progress();
+            } else if (_restr_pruning_active && !_restr_mid_tree_feasible(slot_idx + 1)) {
+                // Every completion would fail the leaf precheck — credit the
+                // subtree to checked and precheck_reject so funnel totals
+                // match the unpruned enumeration exactly.
+                const pruned = _subtree_leaf_count[slot_idx + 1][remaining_L - offset];
+                _checked += pruned;
+                _precheck_reject += pruned;
+                _dbg_restr_prune_count += pruned;
+                _maybe_progress();
+            } else {
+                enumerate(slot_idx + 1, remaining_L - offset);
             }
 
             _sp_unplace_free_item(item.statMap, slot_idx);
@@ -1458,6 +1567,7 @@ function _run_level_enum() {
             '| sp_leaf_reject:', _dbg_sp_leaf_reject,
             '| sp_reject:', _dbg_sp_reject,
             '| sp_pruned:', _dbg_sp_prune_count,
+            '| restr_pruned:', _dbg_restr_prune_count,
             '| feasible:', _feasible,
             '| threshold_reject:', _dbg_threshold_reject,
             '| mana_reject:', _dbg_mana_reject,
