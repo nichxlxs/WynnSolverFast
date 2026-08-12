@@ -13,9 +13,13 @@ search, JS covers ~430K in 180s).
   integer-SP `skillPointsToPercentage` table (V8 pow vs Rust powf 1 ULP),
   serde_json `float_roundtrip`.
 
-- **Layer 2 — leaf pipeline (IN PROGRESS):** stat assembly DONE 2026-08-12
-  (192/192 assembly-exact + end-to-end score-exact from raw items on both
-  fixtures). Remaining: greedy SP + mana check (sub-pieces 3-4).
+- **Layer 2 — leaf pipeline: DONE (2026-08-12).** Full pipeline
+  (SP solve → greedy damage trials → mana check + Int-shift rescue →
+  score) reproduces the worker's (base_sp, total_sp, assigned_sp, score)
+  192/192 bit-exact on both fixtures. Unsupported subsets (loops, buff
+  states, Blood Pact) hard-fail. Parity-first throughput: 1,276 leaves/s
+  melee, 60 leaves/s spell (greedy = ~50-90 full 33-row damage evals per
+  leaf), single-threaded.
   Original scope: given a leaf's items, reproduce the
   worker's (base_sp, total_sp, final score). The existing score fixtures
   already carry expected total_sp + score per case, so validation is free.
@@ -49,12 +53,24 @@ search, JS covers ~430K in 180s).
      assert on export).
   5. Scoring dispatch for combo_damage = total_damage (done in layer 1).
 
-- **Layer 3 — enum_kernel integration:** replace `feasible += 1` with the
-  layer-2 leaf pipeline; add per-thread top-N (15), the score-ceiling gate
-  (one damage eval at all-150 SP vs cutoff), and a shared AtomicU64 cutoff
-  across threads (floor(score) is admissible). Validate: top-N score-set
-  equality vs JS on completing scenarios (oracle-style), then benchmark
-  spell_wide end-to-end.
+- **Layer 3 — enum_kernel integration (NEXT):** replace `feasible += 1`
+  with the layer-2 leaf pipeline; add per-thread top-N (15), the
+  score-ceiling gate (one damage eval at all-150 SP vs cutoff), and a
+  shared AtomicU64 cutoff across threads (floor(score) ≥ 0 is admissible;
+  0 = unset). Validate: top-N score-set equality vs JS on completing
+  scenarios (oracle-style), then benchmark spell_wide end-to-end.
+  Design decisions (2026-08-12):
+  - Move the scoring code from `bin/score_kernel.rs` into the lib
+    (`src/scoring.rs`) so enum_kernel can use it; score_kernel stays as
+    the differential-validation bin.
+  - enum_kernel takes the enum text fixture AND the score JSON fixture
+    for the same scenario; pool items join to the item registry via name
+    lists exported in the score fixture (`pool_names` per slot in
+    enumeration order, `ring_pool_names`, `locked_names`) — both exports
+    must come from the same scenario run (SOLVER_EXPORT_RUST and
+    SOLVER_EXPORT_SCORE now co-exist in one invocation).
+  - Read-only scoring state (Layer2/Tables/rows/registry) shared by
+    reference across threads; sp Kernel + scratch per thread.
 
 - **Layer 4 — optimization pass:** replace dynamic JSON stat maps with
   compiled dense stat vectors (the JS P1.3 trick): fixture already ships
