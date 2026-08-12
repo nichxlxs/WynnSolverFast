@@ -1037,6 +1037,10 @@ pub fn merge_into(target: &mut Obj, source: Option<&Obj>) {
 }
 
 pub struct Layer2 {
+    /// True when no atree var effect outputs a mana-relevant stat, i.e. the
+    /// fast mana sim is monotone in Int and the Int=150 doom precheck is
+    /// admissible (see leaf_pipeline_gated).
+    pub mana_doom_ok: bool,
     pub item_registry: HashMap<String, Obj>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
@@ -1075,7 +1079,19 @@ impl Layer2 {
         let strvec = |v: &Value| -> Vec<String> {
             v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
         };
+        let mana_relevant = |k: &str| -> bool {
+            matches!(k, "mr" | "ms" | "maxMana" | "hp" | "hpBonus" | "atkTier" | "int")
+                || k.starts_with("spRaw") || k.starts_with("spPct")
+        };
+        let var_effects_list = plan.get("var_effects").and_then(|x| x.as_array())
+            .cloned().unwrap_or_default();
+        let mana_doom_ok = var_effects_list.iter().all(|eff| {
+            eff.get("outputs").and_then(|o| o.as_array()).map(|outs| {
+                outs.iter().all(|o| o.as_str().map(|k| !mana_relevant(k)).unwrap_or(false))
+            }).unwrap_or(false)
+        });
         Some(Layer2 {
+            mana_doom_ok,
             item_registry,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
@@ -1680,7 +1696,22 @@ pub fn leaf_pipeline_gated(
         }
     }
 
-    // Greedy allocation with damage trials (combo_damage target).
+    // Mana-doom precheck: mana feasibility depends on the greedy SP only
+    // through Int (monotone — more Int means more starting mana and cheaper
+    // spells), so a single sim at Int=150 upper-bounds every greedy/rescue
+    // outcome. Admissible only when no atree var effect couples stats into
+    // the mana-relevant set (l2.mana_doom_ok).
+    if l2.mana_doom_ok && (consts.combo_time != 0.0 || consts.hp_casting) {
+        let mut doom_sp = [0f64; 5];
+        for i in 0..5 { doom_sp[i] = total_sp[i] as f64; }
+        doom_sp[2] = 150.0;
+        let cb_doom = l2.assemble_from_base(&build_base, &doom_sp, weapon);
+        if !mana_check_passes(rows, &cb_doom, registry, tables, consts) {
+            return Ok(LeafOutcome::ManaReject);
+        }
+    }
+
+    // Greedy allocation with objective-scored trials.
     let remaining = consts.sp_budget - assigned_sp;
     let cap_total = [150i32; 5];
     let orig_base_sp = base_sp;

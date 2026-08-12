@@ -99,3 +99,27 @@ After each layer with a runtime effect, report:
 - melee: colossal 4.52T wall time (Rust threads vs JS 2-worker),
 - spell: readme_spell_wide coverage (checked @ time cap or completion),
 - plain-terms framing: "N empty slots solved exhaustively in X seconds".
+
+## Condition-based early termination (2026-08-12)
+
+- **Leaf mana-doom precheck: DONE.** Mana feasibility depends on greedy SP
+  only through Int (monotone: start mana up, costs down), so one fast sim
+  at Int=150 before greedy proves whether ANY allocation can sustain the
+  combo — doomed leaves skip the ~17ms greedy entirely. Guarded by
+  `Layer2::mana_doom_ok` (no atree var effect may output a mana-relevant
+  stat: mr/ms/maxMana/hp/hpBonus/atkTier/int/spRaw*/spPct*).
+- **Subtree mana bound (designed, next):** extend BoundTables with suffix
+  MINIMA for the cost stats (spRaw*/spPct*/spPct*Final; suffix_max already
+  covers mr/ms/maxMana) and the achievable integer atkTier range; a prefix
+  is mana-dead when the fast sim fails for EVERY atkTier in range with
+  best-case stats (sim is monotone in the others once atkTier is fixed).
+  Evaluate alongside the objective ceiling in bound_prunes (same memo).
+
+## Generic objectives (2026-08-12)
+
+DONE — see `Objective` in scoring.rs. Gate/bound/greedy dispatch through
+it; ceiling-based pruning arms only when `supports_ceiling()` proves
+monotonicity (combo_damage, indirect stats, custom blends with all
+weights >= 0). Validated bit-exact on total_hp (readme_armor2) at all
+levels; tie membership at the top-15 boundary may differ from JS
+(insertion-order semantics), score sets are identical.
