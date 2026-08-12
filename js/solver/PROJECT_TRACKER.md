@@ -101,6 +101,7 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Cross-worker shared cutoff (SAB) for the ceiling gate | Dense combo_damage (readme armor2 pools, 3,712 search) | — | 3,712 | wall 18.0s (local-only gate) | wall **7.54s** (2.4x; 8.3x vs ungated) | greedy calls 1,744 → 521; gate armed from partition start via global 15th-best distinct score | best 8,110,465 unchanged; suite 253/253 |
 | 2026-08-12 | Shared cutoff, spell-spam workload | `readme_spell_wide`, 2 workers, 180s cap | — | 380,000 → 430,000 checked @ timeout | ~2,111 leaves/s | **~2,389 leaves/s** (12.3x vs ungated) | — | best 8,119,340 and items unchanged |
 | 2026-08-12 | Shared cutoff, colossal | 4.52T input / 334.8B search, 2 workers | — | 334,843,891,200 (full space) | completes 19.97s | **completes 17.89s** | enumeration-bound, so leaf gating gains are marginal here | feasible 329,883 and best 470,163 unchanged |
+| 2026-08-12 | Multithreaded Rust enum_kernel (first-slot work stealing) | Colossal 4.52T, Rust | — | 334,843,891,200 | 4.35s (1 thread) | **1.16s (4 threads, 3.8x)**; all-free 1.816T 0.86→0.26s; 135M 0.10→0.05s | per-thread counter sums bit-identical to single-thread on every fixture | feasible 329,883/81,616/12,905/4,862 all match JS current |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -243,10 +244,14 @@ will be used by both JS reference and future Rust core.
    restriction-heavy and one SP-heavy scenario as oracle fixtures.
 4. P1.6 objective branch-and-bound (score upper bounds per remaining slot) is
    the next algorithmic lever for the sparse case; validate against the oracle.
-5. P2.3: enum_kernel replays full scenarios with exact funnel parity at
-   5.5x/4.1x vs the 2-worker JS engine single-threaded. Next: multithread it,
-   port the top-N/score layer for at least one scoring target, and wire a
-   checkpoint cursor (P3.2 shape) to justify the native go decision.
+5. P2.3: enum_kernel replays full scenarios with exact funnel parity.
+   DONE 2026-08-12: multithreaded via first-slot work stealing (colossal
+   4.35s → 1.16s on 4 threads; per-thread counter sums bit-identical).
+   Next: port the top-N/score layer for combo_damage (including the
+   score-ceiling gate) — the prerequisite for meaningful Rust spell-build
+   benchmarks (`enum_spell_wide` replays at only ~13.3M checked/s because
+   nothing prunes without restrictions) — and wire a checkpoint cursor
+   (P3.2 shape) to justify the native go decision.
 6. DONE 2026-08-12: `gaia_colossal_4_5t_input` (all slots free, lvl 98-121,
    4.52T input / 334.8B search) sized so the Rust kernel needs ~77s.
    Enumeration cost tracks pruning effectiveness, not space size: each level

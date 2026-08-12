@@ -11,11 +11,17 @@
 //! leaves are counted, not scored, so compare against the JS run's funnel
 //! and treat the time as the enumeration+SP engine cost.
 //!
-//! Usage: enum_kernel <fixture.txt>
+//! Usage: enum_kernel <fixture.txt> [threads]
+//!
+//! Threading: worker threads claim first-slot offsets from an atomic queue
+//! and run the full band sweep restricted to that offset (the same 'slot'
+//! partition shape the JS engine uses). Every counter is integral, so the
+//! per-thread sums combine exactly regardless of scheduling order.
 
 use sp_kernel::{Case, Kernel, Unit, SP_PER_ATTR_CAP};
 use std::env;
 use std::fs;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -202,6 +208,13 @@ struct Search<'a> {
     next_report: f64,
     report_every: f64,
     report_calls: u64,
+
+    // Multithreading: first-slot offset bounds (inclusive) and the shared
+    // progress counter this thread flushes its local `checked` delta into.
+    part_lo: i64,
+    part_hi: i64,
+    shared_checked: Option<&'a AtomicU64>,
+    checked_flushed: f64,
 }
 
 impl<'a> Search<'a> {
@@ -371,6 +384,10 @@ impl<'a> Search<'a> {
             next_report: 0.0,
             report_every: 0.0,
             report_calls: 0,
+            part_lo: 0,
+            part_hi: i64::MAX,
+            shared_checked: None,
+            checked_flushed: 0.0,
         }
     }
 
@@ -379,6 +396,15 @@ impl<'a> Search<'a> {
     fn maybe_report(&mut self) {
         self.report_calls += 1;
         if self.report_calls & 0xFFFF != 0 { return; }
+        if let Some(shared) = self.shared_checked {
+            // Threaded mode: flush the local delta; the monitor thread prints.
+            let delta = self.checked - self.checked_flushed;
+            if delta > 0.0 {
+                shared.fetch_add(delta as u64, Ordering::Relaxed);
+                self.checked_flushed = self.checked;
+            }
+            return;
+        }
         let elapsed = self.started.elapsed().as_secs_f64();
         if elapsed < self.next_report { return; }
         self.next_report = elapsed + 5.0;
@@ -389,6 +415,17 @@ impl<'a> Search<'a> {
             self.checked / self.total_space * 100.0,
             self.checked, self.total_space, rate, elapsed, remaining / rate,
         );
+    }
+
+    /// Final flush of the local `checked` delta into the shared counter.
+    fn flush_checked(&mut self) {
+        if let Some(shared) = self.shared_checked {
+            let delta = self.checked - self.checked_flushed;
+            if delta > 0.0 {
+                shared.fetch_add(delta as u64, Ordering::Relaxed);
+                self.checked_flushed = self.checked;
+            }
+        }
     }
 
     fn rebuild_ring2_subtree(&mut self, ring1_offset: usize) {
@@ -626,8 +663,12 @@ impl<'a> Search<'a> {
         if depth == self.n_free - 1 {
             // Last slot: the leaf's remaining rank equals its offset, so the
             // in-band offsets are exactly [lo_rem, hi_rem].
-            let from = min_offset.max(lo_rem).max(0);
-            let to = pool_max.min(hi_rem);
+            let mut from = min_offset.max(lo_rem).max(0);
+            let mut to = pool_max.min(hi_rem);
+            if depth == 0 {
+                from = from.max(self.part_lo);
+                to = to.min(self.part_hi);
+            }
             let mut offset = from;
             while offset <= to {
                 let o = offset as usize;
@@ -657,7 +698,11 @@ impl<'a> Search<'a> {
         // in-band leaves (all were visited in earlier bands).
         let reach_min = lo_rem - self.suffix_max_rank[depth + 1];
         let mut offset = min_offset.max(reach_min).max(0);
-        let max_offset = hi_rem.min(pool_max);
+        let mut max_offset = hi_rem.min(pool_max);
+        if depth == 0 {
+            offset = offset.max(self.part_lo);
+            max_offset = max_offset.min(self.part_hi);
+        }
         while offset <= max_offset {
             let o = offset as usize;
             let illegal = self.fx.slots[depth].pool[o].illegal_id;
@@ -728,22 +773,136 @@ impl<'a> Search<'a> {
     }
 }
 
+#[derive(Default)]
+struct Totals {
+    checked: f64,
+    precheck_reject: f64,
+    precheck_pass: u64,
+    sp_leaf_reject: u64,
+    feasible: u64,
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let fixture_path = args.get(1).map(String::as_str).expect("usage: enum_kernel <fixture>");
+    let fixture_path = args.get(1).map(String::as_str).expect("usage: enum_kernel <fixture> [threads]");
     let text = fs::read_to_string(fixture_path).expect("cannot read fixture");
     let fx = parse_fixture(&text);
 
+    let n_threads: usize = args.get(2)
+        .map(|s| s.parse().expect("threads must be a number"))
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
+
     let start = Instant::now();
-    let mut search = Search::new(&fx);
-    search.run();
-    let elapsed = start.elapsed();
+
+    let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
+        let mut search = Search::new(&fx);
+        search.run();
+        let elapsed = start.elapsed();
+        (Totals {
+            checked: search.checked,
+            precheck_reject: search.precheck_reject,
+            precheck_pass: search.precheck_pass,
+            sp_leaf_reject: search.sp_leaf_reject,
+            feasible: search.feasible,
+        }, elapsed)
+    } else {
+        // Work-stealing over first-slot offsets: each claim runs the full
+        // band sweep restricted to one offset — the same 'slot' partition
+        // shape the JS engine uses, so per-offset subspaces are disjoint and
+        // the integral counters sum exactly.
+        let first_pool_len = fx.slots[0].pool.len();
+        let next_offset = AtomicUsize::new(0);
+        let shared_checked = AtomicU64::new(0);
+        let done = AtomicU64::new(0);
+
+        // Full-space total for the monitor line.
+        let total_space = {
+            let s = Search::new(&fx);
+            let mut total = 0.0;
+            for l in 0..=s.l_max { total += s.subtree[0][l]; }
+            total.max(1.0)
+        };
+
+        let totals = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..n_threads.min(first_pool_len) {
+                handles.push(scope.spawn(|| {
+                    let mut search = Search::new(&fx);
+                    search.shared_checked = Some(&shared_checked);
+                    search.started = Instant::now();
+                    // Suppress the single-thread report path entirely.
+                    search.next_report = f64::INFINITY;
+                    let l_max = search.l_max as i64;
+                    loop {
+                        let o = next_offset.fetch_add(1, Ordering::Relaxed);
+                        if o >= first_pool_len { break; }
+                        search.part_lo = o as i64;
+                        search.part_hi = o as i64;
+                        let mut band_lo: i64 = 0;
+                        let mut band_width: i64 = 1;
+                        while band_lo <= l_max {
+                            let band_hi = l_max.min(band_lo + band_width - 1);
+                            search.enumerate(0, band_lo, band_hi);
+                            band_lo = band_hi + 1;
+                            band_width *= 2;
+                        }
+                    }
+                    search.flush_checked();
+                    Totals {
+                        checked: search.checked,
+                        precheck_reject: search.precheck_reject,
+                        precheck_pass: search.precheck_pass,
+                        sp_leaf_reject: search.sp_leaf_reject,
+                        feasible: search.feasible,
+                    }
+                }));
+            }
+
+            // Monitor thread: progress/rate/ETA line every ~5s. Polls the
+            // done flag at 20Hz so small runs aren't floored by its sleep.
+            let monitor = scope.spawn(|| {
+                let started = Instant::now();
+                let mut next_report = 5.0f64;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    if done.load(Ordering::Relaxed) != 0 { break; }
+                    let elapsed = started.elapsed().as_secs_f64();
+                    if elapsed < next_report { continue; }
+                    next_report = elapsed + 5.0;
+                    let checked = shared_checked.load(Ordering::Relaxed) as f64;
+                    if checked == 0.0 { continue; }
+                    let rate = checked / elapsed;
+                    let remaining = (total_space - checked).max(0.0);
+                    eprintln!(
+                        "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s",
+                        checked / total_space * 100.0, checked, total_space,
+                        rate, elapsed, remaining / rate,
+                    );
+                }
+            });
+
+            let mut totals = Totals::default();
+            for h in handles {
+                let t = h.join().expect("worker thread panicked");
+                totals.checked += t.checked;
+                totals.precheck_reject += t.precheck_reject;
+                totals.precheck_pass += t.precheck_pass;
+                totals.sp_leaf_reject += t.sp_leaf_reject;
+                totals.feasible += t.feasible;
+            }
+            done.store(1, Ordering::Relaxed);
+            monitor.join().expect("monitor thread panicked");
+            totals
+        });
+        (totals, start.elapsed())
+    };
 
     println!(
-        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | feasible {} | elapsed {:.3}s | {:.0} checked/s",
-        search.checked, search.precheck_reject, search.precheck_pass,
-        search.sp_leaf_reject, search.feasible,
+        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | feasible {} | threads {} | elapsed {:.3}s | {:.0} checked/s",
+        totals.checked, totals.precheck_reject, totals.precheck_pass,
+        totals.sp_leaf_reject, totals.feasible,
+        if fx.slots.is_empty() { 1 } else { n_threads.min(fx.slots[0].pool.len()).max(1) },
         elapsed.as_secs_f64(),
-        search.checked / elapsed.as_secs_f64(),
+        totals.checked / elapsed.as_secs_f64(),
     );
 }

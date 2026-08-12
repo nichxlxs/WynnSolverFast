@@ -52,29 +52,40 @@ SOLVER_EXPORT_RUST=rust/sp_kernel/fixtures/enum_gaia_135m.txt \
   node js/solver/tests/test_solver_search.js gaia_armor4_ring_135m_input
 
 cargo build --release
-./target/release/enum_kernel fixtures/enum_gaia_135m.txt
+./target/release/enum_kernel fixtures/enum_gaia_135m.txt            # all cores
+./target/release/enum_kernel fixtures/enum_gaia_135m.txt 1          # single thread
 ```
 
 The binary prints a progress/rate/ETA line to stderr every ~5 seconds on
-long runs.
+long runs. Threading (2026-08-12): worker threads claim first-slot offsets
+from an atomic queue and run the full band sweep restricted to each offset
+(the JS engine's 'slot' partition shape). Per-offset subspaces are disjoint
+and all funnel counters are integral, so the per-thread sums are exactly
+the single-thread counters, verified bit-identical on every fixture.
 
-Measured (2026-08-12, this container) — funnel parity is exact wherever both
-engines completed (identical checked and feasible):
+Measured (2026-08-12, this container, fixtures regenerated after the
+dominance equality-set fix) — funnel parity is exact wherever both engines
+completed (identical checked and feasible):
 
-| Scenario | JS (2 workers, full leaf pipeline) | Rust (1 thread, no scoring) |
-|---|---:|---:|
-| Gaia 135.5M input / 22.97M search, 10,313 feasible | 1.881s | 0.069s |
-| Gaia 1.898B input / 229.7M search, 4,017 feasible | 1.376s | 0.055s |
-| Gaia all-free 1.816T input / 144.7B search, 81,616 feasible | — | 0.847s |
-| Gaia colossal 4.52T input / 334.8B search (lvl 98-121, all slots free), 329,883 feasible | **completes 32.9s** | **4.33s** |
+| Scenario | JS (2 workers, full leaf pipeline) | Rust 1 thread | Rust 4 threads |
+|---|---:|---:|---:|
+| Gaia 135.5M input / 31.5M search, 12,905 feasible | 1.39s | 0.097s | 0.054s |
+| Gaia 1.898B input / 314.7M search, 4,862 feasible | 0.93s | 0.071s | 0.055s |
+| Gaia all-free 1.816T input / 144.7B search, 81,616 feasible | — | 0.859s | 0.256s |
+| Gaia colossal 4.52T input / 334.8B search (lvl 98-121, all slots free), 329,883 feasible | **completes 17.9s** | **4.35s** | **1.16s** |
 
 Both engines use geometric level-band enumeration with pre-placement column
 bound checks (2026-08-12); funnel counters are bit-identical to the
 per-level enumeration they replaced.
 
-(The first two rows predate the dominance equality-set fix, which grows
-those scenarios' post-dominance spaces; regenerate fixtures before
-comparing against them.)
+Spell-workload caveat: a fixture exported from `readme_spell_wide` (20.07B
+search, combo_damage, no stat restrictions) enumerates with almost no
+pruning — nearly every leaf reaches the exact SP kernel, so the replay runs
+at ~13.3M checked/s (4 threads, ETA ~25 min) instead of billions/s. That
+workload's real cost lives in the scoring layer (greedy damage trials),
+which this kernel intentionally lacks; porting the combo-damage scoring
+pipeline (with the score-ceiling gate) is the prerequisite for meaningful
+Rust spell benchmarks.
 
 Sizing note: enumeration cost is governed by pruning effectiveness, not
 space size. Lowering the level filter floods the pools with tier-stack
