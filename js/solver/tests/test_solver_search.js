@@ -1171,6 +1171,33 @@ function exportRustFixture(outPath, { initMsgBase, ringPoolSer, solverSnap }) {
     L.push(`NSETS ${setIds.size}`);
     L.push(...setLines);
 
+    // Item display names (optional trailing section) — lets the Rust scoring
+    // integration join pool/fixed items to the score fixture's item registry.
+    // Names are raw line remainders (they contain spaces).
+    const nameOf = (it) => {
+        const sm = it?.statMap ?? it;
+        return sm?.get?.('displayName') ?? sm?.get?.('name') ?? '';
+    };
+    L.push('NAMES 1');
+    for (let si = 0; si < free_slots.length; si++) {
+        const pool = getPool(free_slots[si]) ?? [];
+        L.push(`INAMES ${si} ${pool.length}`);
+        for (const it of pool) L.push(nameOf(it));
+    }
+    const fixedNameLines = [];
+    for (const [slot, sm] of Object.entries(partial)) {
+        if (NONE(sm)) continue;
+        fixedNameLines.push(`${SLOT_POS[slot]} ${sm.get('displayName') ?? sm.get('name') ?? ''}`);
+    }
+    L.push(`FNAMES ${fixedNameLines.length}`);
+    L.push(...fixedNameLines);
+    // All-8 none-item names by slot position (for slots neither free nor fixed).
+    L.push('NONENAMES 8');
+    for (let p = 0; p < 8; p++) {
+        const noneSm = initMsgBase.none_item_sms[p];
+        L.push(noneSm?.get?.('displayName') ?? noneSm?.get?.('name') ?? '');
+    }
+
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, L.join('\n') + '\n');
     console.log(`  [export] Rust fixture written to ${outPath}`);
@@ -1416,11 +1443,13 @@ async function runSolverTest(snapName) {
         none_idx_map: NONE_IDX,
     };
 
-    // Optional: dump this scenario as a Rust enumeration-kernel fixture and stop.
+    // Optional: dump this scenario as a Rust enumeration-kernel fixture.
+    // Both exports can run in one invocation (the Rust scoring integration
+    // joins them by item name, so they must come from the same scenario run).
     if (process.env.SOLVER_EXPORT_RUST) {
         exportRustFixture(process.env.SOLVER_EXPORT_RUST, { initMsgBase, ringPoolSer, solverSnap });
         t.assert(true, `${snapName}: exported Rust fixture`);
-        return;
+        if (!process.env.SOLVER_EXPORT_SCORE) return;
     }
 
     // Optional: dump sampled score cases for the Rust damage-core port and stop.
@@ -1464,6 +1493,11 @@ async function runSolverTest(snapName) {
     if (result.top5 && result.top5.length > 0) {
         const bestScore = result.top5[0].score;
         console.log(`  [${snapName}] best score: ${Math.round(bestScore)}`);
+        if (process.env.SOLVER_PRINT_TOP15 === '1') {
+            for (const r of result.top5) {
+                console.log(`  [top15] ${r.score.toExponential(17)} | ${r.item_names?.filter(n => n).join(', ')}`);
+            }
+        }
 
         if (snap.expected_min_score != null) {
             // Score must reach or surpass the target.

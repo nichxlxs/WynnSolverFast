@@ -42,6 +42,9 @@ struct Slot {
     is_ring1: bool,
     is_ring2: bool,
     pool: Vec<PoolItem>,
+    /// Item display names (from the optional NAMES section), for joining to
+    /// a score fixture's item registry. Empty when the section is absent.
+    item_names: Vec<String>,
 }
 
 struct Fixture {
@@ -57,6 +60,8 @@ struct Fixture {
     fixed: Vec<(usize, Unit, i32, i32)>, // pos, unit, set_id, illegal_id
     slots: Vec<Slot>,
     set_table: Vec<Vec<[i32; 5]>>,  // set_id -> bonuses per count (count-1 indexed)
+    fixed_names: Vec<(usize, String)>,   // pos, display name (NAMES section)
+    none_names: Vec<String>,             // 8 none-item names by slot position
 }
 
 fn parse_fixture(text: &str) -> Fixture {
@@ -138,7 +143,7 @@ fn parse_fixture(text: &str) -> Fixture {
             for k in 0..n_pc { pc.push(it[15 + k].parse().unwrap()); }
             pool.push(PoolItem { crafted: u.crafted, reqs: u.reqs, skp: u.skp, set_id, illegal_id, hp, pc });
         }
-        slots.push(Slot { name, pos, is_ring1, is_ring2, pool });
+        slots.push(Slot { name, pos, is_ring1, is_ring2, pool, item_names: Vec::new() });
     }
 
     let n_sets: usize = toks(next())[1].parse().unwrap();
@@ -157,8 +162,44 @@ fn parse_fixture(text: &str) -> Fixture {
         set_table[id] = rows;
     }
 
+    // Optional NAMES section (item display names for score-fixture joining).
+    let mut fixed_names = Vec::new();
+    let mut none_names = Vec::new();
+    loop {
+        let Some(line) = lines.next() else { break };
+        let t = toks(line);
+        if t.is_empty() { continue; }
+        match t[0].as_str() {
+            "NAMES" => {}
+            "INAMES" => {
+                let si: usize = t[1].parse().unwrap();
+                let n: usize = t[2].parse().unwrap();
+                let mut names = Vec::with_capacity(n);
+                for _ in 0..n {
+                    names.push(lines.next().expect("truncated INAMES").trim().to_string());
+                }
+                slots[si].item_names = names;
+            }
+            "FNAMES" => {
+                let n: usize = t[1].parse().unwrap();
+                for _ in 0..n {
+                    let line = lines.next().expect("truncated FNAMES");
+                    let (pos_s, name) = line.split_once(' ').expect("FNAMES line");
+                    fixed_names.push((pos_s.parse().unwrap(), name.trim().to_string()));
+                }
+            }
+            "NONENAMES" => {
+                let n: usize = t[1].parse().unwrap();
+                for _ in 0..n {
+                    none_names.push(lines.next().expect("truncated NONENAMES").trim().to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, guild, fixed, slots, set_table }
+              weapon, guild, fixed, slots, set_table, fixed_names, none_names }
 }
 
 struct Search<'a> {
@@ -215,6 +256,17 @@ struct Search<'a> {
     part_hi: i64,
     shared_checked: Option<&'a AtomicU64>,
     checked_flushed: f64,
+
+    // Scoring integration (P2.4 layer 3): current equip names by position,
+    // the scenario scoring context, per-thread top-N, and the shared cutoff
+    // (floor(score) as u64; 0 = unset — floor is admissible for the gate).
+    equip_names: [&'a str; 8],
+    scoring: Option<&'a sp_kernel::scoring::ScoringCtx>,
+    top_n: Vec<(f64, Vec<String>)>,
+    shared_cutoff: Option<&'a AtomicU64>,
+    scored: u64,
+    gated: u64,
+    mana_reject: u64,
 }
 
 impl<'a> Search<'a> {
@@ -388,6 +440,24 @@ impl<'a> Search<'a> {
             part_hi: i64::MAX,
             shared_checked: None,
             checked_flushed: 0.0,
+            equip_names: Default::default(),
+            scoring: None,
+            top_n: Vec::new(),
+            shared_cutoff: None,
+            scored: 0,
+            gated: 0,
+            mana_reject: 0,
+        }
+    }
+
+    /// Initialize equip names: none-item names per position, overridden by
+    /// fixed items. Free-slot names are set/cleared by place()/unplace().
+    fn init_equip_names(&mut self) {
+        if self.fx.none_names.len() == 8 {
+            for p in 0..8 { self.equip_names[p] = &self.fx.none_names[p]; }
+        }
+        for (pos, name) in &self.fx.fixed_names {
+            self.equip_names[*pos] = name;
         }
     }
 
@@ -586,6 +656,53 @@ impl<'a> Search<'a> {
             let row = rows[idx - 1];
             for j in 0..5 { set_free[j] += row[j]; }
         }
+        // Scored path (P2.4 layer 3): full leaf pipeline with ceiling gate.
+        if let Some(sc) = self.scoring {
+            let names: [&str; 8] = self.equip_names;
+            // Gate cutoff: local 15th-best exact score, or the shared
+            // floored cutoff — whichever is higher.
+            let mut cutoff: Option<f64> = None;
+            if self.top_n.len() >= 15 {
+                cutoff = Some(self.top_n[14].0);
+            }
+            if let Some(shared) = self.shared_cutoff {
+                let s = shared.load(Ordering::Relaxed);
+                if s > 0 && (s as f64) > cutoff.unwrap_or(f64::NEG_INFINITY) {
+                    cutoff = Some(s as f64);
+                }
+            }
+            use sp_kernel::scoring::LeafOutcome;
+            match sp_kernel::scoring::leaf_pipeline_gated(
+                &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
+                &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
+                &sc.tables, &sc.consts, cutoff,
+            ).expect("scoring pipeline error") {
+                LeafOutcome::SpInfeasible => {}
+                LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
+                LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
+                LeafOutcome::Scored(r) => {
+                    self.feasible += 1;
+                    self.scored += 1;
+                    let pos = self.top_n.iter().position(|(s, _)| r.score > *s)
+                        .unwrap_or(self.top_n.len());
+                    if pos < 15 {
+                        let names_owned = names.iter().map(|s| s.to_string()).collect();
+                        self.top_n.insert(pos, (r.score, names_owned));
+                        self.top_n.truncate(15);
+                        if self.top_n.len() == 15 {
+                            if let Some(shared) = self.shared_cutoff {
+                                let floored = self.top_n[14].0.floor();
+                                if floored > 0.0 {
+                                    shared.fetch_max(floored as u64, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         let case = Case {
             budget: self.fx.budget,
             equipment: self.equips,
@@ -617,6 +734,9 @@ impl<'a> Search<'a> {
         }
         self.equips[slot.pos] = Unit { crafted: it.crafted, reqs: it.reqs, skp: it.skp };
         self.equip_set[slot.pos] = it.set_id;
+        if !slot.item_names.is_empty() {
+            self.equip_names[slot.pos] = &slot.item_names[item_idx];
+        }
         if it.illegal_id >= 0 { self.illegal_counts[it.illegal_id as usize] += 1; }
     }
 
@@ -635,6 +755,9 @@ impl<'a> Search<'a> {
         self.sp_max_req = self.sp_max_save[depth];
         self.equips[slot.pos] = Unit::default();
         self.equip_set[slot.pos] = -1;
+        if !slot.item_names.is_empty() && self.fx.none_names.len() == 8 {
+            self.equip_names[slot.pos] = &self.fx.none_names[slot.pos];
+        }
         if it.illegal_id >= 0 { self.illegal_counts[it.illegal_id as usize] -= 1; }
     }
 
@@ -780,11 +903,26 @@ struct Totals {
     precheck_pass: u64,
     sp_leaf_reject: u64,
     feasible: u64,
+    scored: u64,
+    gated: u64,
+    mana_reject: u64,
+    top_n: Vec<(f64, Vec<String>)>,
+}
+
+fn merge_top(into: &mut Vec<(f64, Vec<String>)>, from: Vec<(f64, Vec<String>)>) {
+    for (score, names) in from {
+        let pos = into.iter().position(|(s, _)| score > *s).unwrap_or(into.len());
+        if pos < 15 {
+            into.insert(pos, (score, names));
+            into.truncate(15);
+        }
+    }
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let fixture_path = args.get(1).map(String::as_str).expect("usage: enum_kernel <fixture> [threads]");
+    let fixture_path = args.get(1).map(String::as_str)
+        .expect("usage: enum_kernel <fixture> [threads] [score_fixture.json]");
     let text = fs::read_to_string(fixture_path).expect("cannot read fixture");
     let fx = parse_fixture(&text);
 
@@ -792,10 +930,26 @@ fn main() {
         .map(|s| s.parse().expect("threads must be a number"))
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
 
+    // Optional scoring context (P2.4 layer 3): full leaf pipeline + top-N.
+    let scoring_ctx: Option<sp_kernel::scoring::ScoringCtx> = args.get(3).map(|p| {
+        let text = fs::read_to_string(p).expect("cannot read score fixture");
+        let json: serde_json::Value = serde_json::from_str(&text).expect("invalid score fixture");
+        let ctx = sp_kernel::scoring::ScoringCtx::load(&json).expect("scoring context");
+        assert!(fx.slots.iter().all(|s| s.item_names.len() == s.pool.len()),
+            "enum fixture lacks the NAMES section — re-export with the current exporter");
+        assert_eq!(fx.none_names.len(), 8, "enum fixture lacks NONENAMES");
+        ctx
+    });
+    let scoring = scoring_ctx.as_ref();
+    let shared_cutoff = AtomicU64::new(0);
+
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
         let mut search = Search::new(&fx);
+        search.scoring = scoring;
+        search.shared_cutoff = Some(&shared_cutoff);
+        search.init_equip_names();
         search.run();
         let elapsed = start.elapsed();
         (Totals {
@@ -804,6 +958,10 @@ fn main() {
             precheck_pass: search.precheck_pass,
             sp_leaf_reject: search.sp_leaf_reject,
             feasible: search.feasible,
+            scored: search.scored,
+            gated: search.gated,
+            mana_reject: search.mana_reject,
+            top_n: search.top_n,
         }, elapsed)
     } else {
         // Work-stealing over first-slot offsets: each claim runs the full
@@ -829,6 +987,9 @@ fn main() {
                 handles.push(scope.spawn(|| {
                     let mut search = Search::new(&fx);
                     search.shared_checked = Some(&shared_checked);
+                    search.scoring = scoring;
+                    search.shared_cutoff = Some(&shared_cutoff);
+                    search.init_equip_names();
                     search.started = Instant::now();
                     // Suppress the single-thread report path entirely.
                     search.next_report = f64::INFINITY;
@@ -854,6 +1015,10 @@ fn main() {
                         precheck_pass: search.precheck_pass,
                         sp_leaf_reject: search.sp_leaf_reject,
                         feasible: search.feasible,
+                        scored: search.scored,
+                        gated: search.gated,
+                        mana_reject: search.mana_reject,
+                        top_n: search.top_n,
                     }
                 }));
             }
@@ -889,6 +1054,10 @@ fn main() {
                 totals.precheck_pass += t.precheck_pass;
                 totals.sp_leaf_reject += t.sp_leaf_reject;
                 totals.feasible += t.feasible;
+                totals.scored += t.scored;
+                totals.gated += t.gated;
+                totals.mana_reject += t.mana_reject;
+                merge_top(&mut totals.top_n, t.top_n);
             }
             done.store(1, Ordering::Relaxed);
             monitor.join().expect("monitor thread panicked");
@@ -905,4 +1074,15 @@ fn main() {
         elapsed.as_secs_f64(),
         totals.checked / elapsed.as_secs_f64(),
     );
+    if scoring.is_some() {
+        println!(
+            "scoring: scored {} | gated {} | mana_reject {}",
+            totals.scored, totals.gated, totals.mana_reject,
+        );
+        for (score, names) in &totals.top_n {
+            println!("top15: {:.17e} | {}", score,
+                names.iter().filter(|n| !n.starts_with("No ")).cloned()
+                    .collect::<Vec<_>>().join(", "));
+        }
+    }
 }

@@ -1470,12 +1470,36 @@ pub struct LeafResult {
     pub score: f64,
 }
 
+pub enum LeafOutcome {
+    SpInfeasible,
+    /// SP-feasible but the all-150-SP damage ceiling cannot beat the cutoff
+    /// (counts as feasible; greedy/mana/score skipped — same as the JS gate).
+    Gated,
+    ManaReject,
+    Scored(LeafResult),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn leaf_pipeline(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
 ) -> Result<Option<LeafResult>, String> {
+    match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
+                              registry, hit_refs, tables, consts, None)? {
+        LeafOutcome::Scored(r) => Ok(Some(r)),
+        LeafOutcome::Gated => unreachable!("no cutoff passed"),
+        _ => Ok(None),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn leaf_pipeline_gated(
+    item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
+    kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+    gate_cutoff: Option<f64>,
+) -> Result<LeafOutcome, String> {
     // Units in worker order (helmet-first _scratch_sp_input order).
     let unit_of = |sm: &Obj| -> crate::Unit {
         let arr5 = |k: &str| -> [i32; 5] {
@@ -1534,11 +1558,23 @@ pub fn leaf_pipeline(
         expected: None,
     };
     let Some((assign, total, assigned)) = kernel.calculate_with_extra(&case, guild) else {
-        return Ok(None);  // SP infeasible
+        return Ok(LeafOutcome::SpInfeasible);
     };
     let mut base_sp = assign;
     let mut total_sp = total;
     let mut assigned_sp = assigned;
+
+    // Score-ceiling gate (mirrors the JS worker): one damage eval at
+    // all-150 SP upper-bounds anything greedy can reach. Strict margin so
+    // a float-ulp monotonicity wobble never gates a genuine candidate.
+    if let Some(cutoff) = gate_cutoff {
+        let ceiling_sp = [150f64; 5];
+        let cb150 = l2.assemble(item_names, &ceiling_sp, weapon)?;
+        let ceiling = eval_combo_damage(&cb150, weapon, rows, registry, hit_refs, tables);
+        if ceiling < cutoff - cutoff.abs() * 1e-9 {
+            return Ok(LeafOutcome::Gated);
+        }
+    }
 
     // Greedy allocation with damage trials (combo_damage target).
     let remaining = consts.sp_budget - assigned_sp;
@@ -1561,12 +1597,12 @@ pub fn leaf_pipeline(
         match mana_rescue(item_names, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts)? {
             Some(rescued) => combo_base = rescued,
-            None => return Ok(None),  // mana reject
+            None => return Ok(LeafOutcome::ManaReject),
         }
     }
 
     let score = eval_combo_damage(&combo_base, weapon, rows, registry, hit_refs, tables);
-    Ok(Some(LeafResult { base_sp, total_sp, assigned_sp, score }))
+    Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
 /// _mana_rescue: shift freely-assigned SP into Int in increasing fractions.
@@ -1635,3 +1671,66 @@ pub fn mana_rescue(
     Ok(None)
 }
 
+
+// ── Scenario scoring context (for the enum_kernel integration) ──────────────
+
+/// Everything the leaf pipeline needs, loaded from a score-fixture JSON.
+pub struct ScoringCtx {
+    pub tables: Tables,
+    pub weapon: Obj,
+    pub rows: Vec<Row>,
+    pub registry: Vec<Value>,
+    pub hit_refs: HashMap<i64, HashMap<String, Obj>>,
+    pub layer2: Layer2,
+    pub consts: L2Consts,
+    pub guild_unit: Option<crate::Unit>,
+}
+
+impl ScoringCtx {
+    pub fn load(fixture: &Value) -> Result<ScoringCtx, String> {
+        let layer2 = Layer2::parse(fixture).ok_or("missing/invalid layer2 data")?;
+        if layer2.scaling_kind != "cached" && layer2.scaling_kind != "split" {
+            return Err(format!("unsupported scaling plan: {}", layer2.scaling_kind));
+        }
+        let consts = L2Consts::parse(fixture).ok_or("missing layer2 constants")?;
+        let mut hit_refs: HashMap<i64, HashMap<String, Obj>> = HashMap::new();
+        if let Some(hr) = fixture["atree_hit_refs"].as_object() {
+            for (bs, parts) in hr {
+                let bs_num: i64 = bs.parse().unwrap_or(i64::MIN);
+                let mut m = HashMap::new();
+                if let Some(po) = parts.as_object() {
+                    for (part_name, hits) in po {
+                        if let Some(h) = hits.as_object() { m.insert(part_name.clone(), h.clone()); }
+                    }
+                }
+                hit_refs.insert(bs_num, m);
+            }
+        }
+        let guild_unit = fixture["layer2"].get("guild_tome_sm").and_then(as_map).map(|sm| {
+            let arr5 = |k: &str| -> [i32; 5] {
+                let mut out = [0i32; 5];
+                if let Some(a) = sm.get(k).and_then(|v| v.as_array()) {
+                    for (i, x) in a.iter().take(5).enumerate() {
+                        out[i] = x.as_f64().unwrap_or(0.0) as i32;
+                    }
+                }
+                out
+            };
+            crate::Unit {
+                crafted: sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+                reqs: arr5("reqs"),
+                skp: arr5("skillpoints"),
+            }
+        });
+        Ok(ScoringCtx {
+            tables: Tables::parse(&fixture["tables"]),
+            weapon: as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone(),
+            rows: parse_rows(&fixture["parsed_combo"]),
+            registry: fixture["boost_registry"].as_array().cloned().unwrap_or_default(),
+            hit_refs,
+            layer2,
+            consts,
+            guild_unit,
+        })
+    }
+}
