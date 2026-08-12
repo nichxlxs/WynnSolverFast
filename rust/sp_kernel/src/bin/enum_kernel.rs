@@ -258,6 +258,9 @@ struct Search<'a> {
     stop_flag: Option<&'a AtomicU64>,
     stop: bool,
     dense_work: sp_kernel::scoring::DenseWork,
+    /// Separate buffers for bound evals so the leaf pipeline can't clobber
+    /// the cached last-slot prefix state.
+    bound_work: sp_kernel::scoring::DenseWork,
     checked_flushed: f64,
 
     // Scoring integration (P2.4 layer 3): current equip names by position,
@@ -274,6 +277,12 @@ struct Search<'a> {
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
     bound_max_depth: usize,
+    /// Apply the per-offset bound when the REMAINING depth (slots after the
+    /// candidate) is <= bound_tail — near the leaves the suffix maxima cover
+    /// one or two pools and the ceiling is nearly as tight as the leaf gate,
+    /// so one eval prunes a whole last-pool subtree.
+    bound_tail: usize,
+    dense_bound: Option<&'a sp_kernel::scoring::DenseBound>,
     bound_pruned: f64,
     /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
     /// the prefix, not the band, and prefixes recur across band sweeps).
@@ -455,6 +464,7 @@ impl<'a> Search<'a> {
             stop_flag: None,
             stop: false,
             dense_work: Default::default(),
+            bound_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
             scoring: None,
@@ -465,6 +475,8 @@ impl<'a> Search<'a> {
             mana_reject: 0,
             bound_tables: None,
             bound_max_depth: 2,
+            bound_tail: 0,
+            dense_bound: None,
             bound_pruned: 0.0,
             bound_memo: std::collections::HashMap::new(),
             prefix_offsets: [0; 8],
@@ -489,29 +501,45 @@ impl<'a> Search<'a> {
 
     /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
     /// the packed prefix. Returns true when the subtree CANNOT beat `cutoff`.
-    fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64) -> bool {
+    fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
         let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
-        let mut key = (depth as u64) << 56;
+        let h_child = hi_rem - offset as i64;
+        let mut key = (depth as u64) << 60;
+        key |= (h_child.clamp(0, 2047) as u64) & 0x7FF;
         for d in 0..depth {
-            key |= (self.prefix_offsets[d] as u64) << (d * 7);
+            key |= (self.prefix_offsets[d] as u64) << (11 + d * 7);
         }
-        key |= (offset as u64) << (depth * 7);
+        key |= (offset as u64) << (11 + depth * 7);
         let ceiling = match self.bound_memo.get(&key) {
             Some(&c) => c,
             None => {
                 let slot = &self.fx.slots[depth];
-                let saved = self.equip_names[slot.pos];
                 let mut names = self.equip_names;
                 names[slot.pos] = &slot.item_names[offset];
-                let _ = saved;
-                let c = sc.layer2.subtree_ceiling(
-                    &names, bt, depth + 1, &sc.weapon, &sc.rows, &sc.registry,
-                    &sc.hit_refs, &sc.tables, &sc.objective, Some(&sc.compiled_rows),
-                ).expect("bound eval error");
+                let dense_c = match (sc.dense.as_ref(), self.dense_bound) {
+                    (Some(d), Some(db)) => sp_kernel::scoring::dense_subtree_ceiling(
+                        d, db, depth + 1, h_child, &names, &mut self.bound_work,
+                        &sc.rows, &sc.compiled_rows, &sc.tables),
+                    _ => None,
+                };
+                let c = match dense_c {
+                    Some(c) => c,
+                    None => sc.layer2.subtree_ceiling(
+                        &names, bt, depth + 1, &sc.weapon, &sc.rows, &sc.registry,
+                        &sc.hit_refs, &sc.tables, &sc.objective, Some(&sc.compiled_rows),
+                    ).expect("bound eval error"),
+                };
                 self.bound_memo.insert(key, c);
                 c
             }
         };
+        if std::env::var("BOUND_DEBUG").as_deref() == Ok("1") {
+            use std::sync::atomic::AtomicU64 as A;
+            static N: A = A::new(0);
+            if N.fetch_add(1, Ordering::Relaxed) < 30 {
+                eprintln!("bound_debug: depth {} ceiling {:.4e} cutoff {:.4e}", depth, ceiling, cutoff);
+            }
+        }
         ceiling < cutoff - cutoff.abs() * 1e-9
     }
 
@@ -863,8 +891,57 @@ impl<'a> Search<'a> {
                 to = to.min(self.part_hi);
             }
             let mut offset = from;
+            // Cached prefix state for the cluster bound: filled at the first
+            // cluster miss, reused for every cluster in this node.
+            let mut prefix_state: i8 = 0; // 0 unfilled, 1 ok, -1 unavailable
             while offset <= to {
                 let o = offset as usize;
+                // Last-slot cluster bound: one ceiling eval covers a cluster
+                // of level-adjacent items; below-cutoff clusters are skipped
+                // whole (each in-band offset here is exactly one leaf).
+                if let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) {
+                    if db.cluster_size > 0 {
+                        if let Some(cutoff) = self.cutoff() {
+                            let c = o / db.cluster_size;
+                            let mut key = 0xFu64 << 60;
+                            key |= (c as u64) << 49;
+                            for dd in 0..depth {
+                                key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
+                            }
+                            let ceiling = match self.bound_memo.get(&key) {
+                                Some(&v) => v,
+                                None => {
+                                    if prefix_state == 0 {
+                                        prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
+                                            Some((d, dd)) => {
+                                                if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                            }
+                                            None => -1,
+                                        };
+                                    }
+                                    let v = if prefix_state == 1 {
+                                        let d = sc.dense.as_ref().unwrap();
+                                        sp_kernel::scoring::dense_ceiling_cached(
+                                            d, &mut self.bound_work,
+                                            &db.last_clusters[c], &db.last_cluster_terms[c],
+                                            &sc.rows, &sc.compiled_rows, &sc.tables)
+                                    } else { f64::INFINITY };
+                                    self.bound_memo.insert(key, v);
+                                    v
+                                }
+                            };
+                            if ceiling < cutoff - cutoff.abs() * 1e-9 {
+                                let end = to.min(((c + 1) * db.cluster_size) as i64 - 1);
+                                let skipped = (end - offset + 1) as f64;
+                                self.checked += skipped;
+                                self.bound_pruned += skipped;
+                                self.maybe_report();
+                                offset = end + 1;
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let illegal = self.fx.slots[depth].pool[o].illegal_id;
                 if self.blocks(illegal) {
                     self.checked += 1.0;
@@ -930,9 +1007,13 @@ impl<'a> Search<'a> {
             }
             // Mid-tree damage ceiling bound (shallow depths only; the eval is
             // a full damage computation, memoized per prefix).
-            if depth < self.bound_max_depth && self.bound_tables.is_some() {
+            let bound_here = depth < self.bound_max_depth
+                || (self.bound_tail > 0
+                    && depth + 1 < self.n_free
+                    && self.n_free - (depth + 1) <= self.bound_tail);
+            if bound_here && self.bound_tables.is_some() {
                 if let Some(cutoff) = self.cutoff() {
-                    if self.bound_prunes(depth, o, cutoff) {
+                    if self.bound_prunes(depth, o, cutoff, hi_rem) {
                         if slot_is_ring1 && self.rings_contiguous {
                             self.rebuild_ring2_subtree(o);
                         }
@@ -1037,16 +1118,31 @@ fn main() {
     // offsets into 7 bits, so guard on pool sizes.
     let bound_max_depth: usize = env::var("BOUND_DEPTH").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(0);
+    let bound_tail: usize = env::var("BOUND_TAIL").ok()
+        .and_then(|s| s.parse().ok()).unwrap_or(0);
     let bound_tables: Option<sp_kernel::scoring::BoundTables> = scoring.and_then(|sc| {
-        if bound_max_depth == 0 { return None; }
+        let bound_cluster_on: bool = env::var("BOUND_CLUSTER").ok()
+            .and_then(|s| s.parse::<usize>().ok()).unwrap_or(4) > 0;
+        if bound_max_depth == 0 && bound_tail == 0 && !bound_cluster_on { return None; }
         if !fx.slots.iter().all(|s| s.pool.len() < 128) {
             eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
             return None;
         }
+        if !sc.objective.supports_ceiling() { return None; }
         let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
     });
     let bounds = bound_tables.as_ref();
+    let bound_cluster: usize = env::var("BOUND_CLUSTER").ok()
+        .and_then(|s| s.parse().ok()).unwrap_or(4);
+    let dense_bound: Option<sp_kernel::scoring::DenseBound> = match (scoring, bounds) {
+        (Some(sc), Some(bt)) => sc.dense.as_ref().and_then(|d| {
+            let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+            sp_kernel::scoring::DenseBound::build(&sc.layer2, d, &slot_pools, bound_cluster)
+        }),
+        _ => None,
+    };
+    let dense_bound = dense_bound.as_ref();
 
     let start = Instant::now();
 
@@ -1056,6 +1152,8 @@ fn main() {
         search.shared_cutoff = Some(&shared_cutoff);
         search.bound_tables = bounds;
         search.bound_max_depth = bound_max_depth;
+        search.bound_tail = bound_tail;
+        search.dense_bound = dense_bound;
         search.init_equip_names();
         search.run();
         let elapsed = start.elapsed();
@@ -1103,6 +1201,8 @@ fn main() {
                     search.shared_cutoff = Some(&shared_cutoff);
                     search.bound_tables = bounds;
                     search.bound_max_depth = bound_max_depth;
+                    search.bound_tail = bound_tail;
+                    search.dense_bound = dense_bound;
                     search.init_equip_names();
                     search.started = Instant::now();
                     // Suppress the single-thread report path entirely.

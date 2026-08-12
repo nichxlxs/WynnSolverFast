@@ -4188,3 +4188,282 @@ impl DenseLeaf {
         true
     }
 }
+
+// ── Dense subtree ceiling bound (mid-tree B&B on flat vectors) ───────────────
+//
+// BoundTables lowered onto the dense read universe: per depth, one combined
+// add list (suffix_max[d] + set_upper, zero deltas dropped like the Obj
+// path) plus the matching var-term-capture deltas — the Obj bound adds the
+// maxima to the base BEFORE assembly, so atree var effects see the boosted
+// inputs; the dense build captures term inputs mid-build and must add the
+// deltas afterward or the ceiling would understate (inadmissible).
+// Bit-parity with the Obj bound is not required — admissibility comes from
+// monotonicity plus the relative cutoff margin — but the added quantities
+// are identical, differing only in float association order.
+
+pub struct DenseBound {
+    /// table[d][h] = indexed stat deltas upper-bounding every completion of
+    /// depths d.. when the remaining level-band budget is h: per slot j >= d,
+    /// the per-stat running maxima over pool offsets 0..=min(h, len-1)
+    /// (offsets are level-ranked, and a completion with budget h can only
+    /// use offsets <= h in each slot), summed across slots, plus the global
+    /// set-bonus upper bound. h is clamped to the largest pool.
+    pub table: Vec<Vec<Vec<(u32, f64)>>>,
+    /// Matching deltas for captured var-term inputs (see module comment).
+    pub term_table: Vec<Vec<Vec<(usize, f64)>>>,
+    pub h_max: i64,
+    /// Last-slot cluster bounds: per cluster of `cluster_size` level-adjacent
+    /// offsets, the per-stat maxima over just those items (+ set_upper) —
+    /// far tighter than pool maxima, one eval covers cluster_size leaves.
+    pub last_clusters: Vec<Vec<(u32, f64)>>,
+    pub last_cluster_terms: Vec<Vec<(usize, f64)>>,
+    pub cluster_size: usize,
+}
+
+impl DenseBound {
+    /// Build from the slots' level-ordered item-name pools. Mirrors
+    /// build_bound_tables' key set (maxRolls + static ids, clamped >= 0)
+    /// but per offset prefix, lowered straight onto the read universe.
+    pub fn build(
+        l2: &Layer2, d: &DenseCtx, slot_pools: &[Vec<String>],
+        cluster_size: usize,
+    ) -> Option<DenseBound> {
+        let n = slot_pools.len();
+        let h_max = slot_pools.iter().map(|p| p.len() as i64 - 1).max().unwrap_or(0).max(0);
+        // Set-transition deltas: adding one (non-crafted) item of set s moves
+        // that set's count c -> c+1, changing the applied bonus from
+        // bonuses[c-1] to bonuses[c]. Per set, the per-stat max POSITIVE
+        // transition upper-bounds the delta for any prefix count — far
+        // tighter than summing every set's best bonus globally, and 0 for
+        // the setless majority. skp keys are excluded like build_base.
+        let js_num = |v: &Value| -> f64 {
+            match v {
+                Value::Number(n) => n.as_f64().unwrap_or(0.0),
+                Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+                _ => 0.0,
+            }
+        };
+        let set_delta = |set_name: &str| -> HashMap<u32, f64> {
+            let mut out = HashMap::new();
+            let Some(set_data) = l2.sets_data.get(set_name) else { return out };
+            let Some(bonuses) = set_data.get("bonuses").and_then(|b| b.as_array()) else { return out };
+            let mut prev: HashMap<String, f64> = HashMap::new();
+            for bonus in bonuses {
+                let Some(bo) = bonus.as_object() else { continue };
+                let mut cur: HashMap<String, f64> = HashMap::new();
+                for (id, v) in bo {
+                    if l2.skp_order.iter().any(|s| s == id) { continue; }
+                    cur.insert(id.clone(), js_num(v));
+                }
+                for (id, v) in &cur {
+                    let delta = v - prev.get(id).copied().unwrap_or(0.0);
+                    if delta <= 0.0 { continue; }
+                    let Some(&i) = d.idx.get(id.as_str()) else { continue };
+                    let e = out.entry(i).or_insert(0.0);
+                    if delta > *e { *e = delta; }
+                }
+                prev = cur;
+            }
+            out
+        };
+        // Per slot: running per-stat maxima and running max set delta by
+        // offset (read-universe keys only).
+        let mut per_slot: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
+        let mut per_slot_set: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
+        for pool in slot_pools {
+            let mut running: HashMap<u32, f64> = HashMap::new();
+            let mut running_set: HashMap<u32, f64> = HashMap::new();
+            let mut by_offset = Vec::with_capacity(pool.len());
+            let mut by_offset_set = Vec::with_capacity(pool.len());
+            for name in pool {
+                let item = l2.item_registry.get(name)?;
+                let mut item_stats: HashMap<String, f64> = HashMap::new();
+                l2.additive_item_stats(item, &mut item_stats);
+                for (k, v) in item_stats {
+                    let v = if v == f64::NEG_INFINITY { 0.0 } else { v };
+                    let v = if v < 0.0 { 0.0 } else { v };
+                    let Some(&i) = d.idx.get(&k) else { continue };
+                    let e = running.entry(i).or_insert(0.0);
+                    if v > *e { *e = v; }
+                }
+                let crafted = item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
+                if !crafted {
+                    if let Some(sn) = item.get("set").and_then(|v| v.as_str()) {
+                        for (i, v) in set_delta(sn) {
+                            let e = running_set.entry(i).or_insert(0.0);
+                            if v > *e { *e = v; }
+                        }
+                    }
+                }
+                by_offset.push(running.clone());
+                by_offset_set.push(running_set.clone());
+            }
+            per_slot.push(by_offset);
+            per_slot_set.push(by_offset_set);
+        }
+
+        let mut table = Vec::with_capacity(n + 1);
+        let mut term_table = Vec::with_capacity(n + 1);
+        for depth in 0..=n {
+            let mut rows = Vec::with_capacity((h_max + 1) as usize);
+            let mut term_rows = Vec::with_capacity((h_max + 1) as usize);
+            for h in 0..=h_max {
+                let mut acc: HashMap<u32, f64> = HashMap::new();
+                for j in depth..n {
+                    if per_slot[j].is_empty() { continue; }
+                    let o = (h.min(per_slot[j].len() as i64 - 1)).max(0) as usize;
+                    for (&i, &v) in &per_slot[j][o] {
+                        *acc.entry(i).or_insert(0.0) += v;
+                    }
+                    for (&i, &v) in &per_slot_set[j][o] {
+                        *acc.entry(i).or_insert(0.0) += v;
+                    }
+                }
+                let list: Vec<(u32, f64)> = acc.into_iter().filter(|(_, v)| *v != 0.0).collect();
+                let terms: Vec<(usize, f64)> = d.const_term_keys.iter().enumerate()
+                    .filter_map(|(slot, k)| {
+                        let &i = d.idx.get(k.as_str())?;
+                        list.iter().find(|(j, _)| *j == i).map(|(_, dv)| (slot, *dv))
+                    })
+                    .collect();
+                rows.push(list);
+                term_rows.push(terms);
+            }
+            table.push(rows);
+            term_table.push(term_rows);
+        }
+
+        // Last-slot clusters.
+        let mut last_clusters = Vec::new();
+        let mut last_cluster_terms = Vec::new();
+        if cluster_size > 0 && n > 0 {
+            let pool = &slot_pools[n - 1];
+            let mut c0 = 0usize;
+            while c0 < pool.len() {
+                let c1 = (c0 + cluster_size).min(pool.len());
+                let mut acc: HashMap<u32, f64> = HashMap::new();
+                let mut set_acc: HashMap<u32, f64> = HashMap::new();
+                for name in &pool[c0..c1] {
+                    let item = l2.item_registry.get(name)?;
+                    let mut item_stats: HashMap<String, f64> = HashMap::new();
+                    l2.additive_item_stats(item, &mut item_stats);
+                    for (k, v) in item_stats {
+                        let v = if !v.is_finite() || v < 0.0 { 0.0 } else { v };
+                        let Some(&i) = d.idx.get(&k) else { continue };
+                        let e = acc.entry(i).or_insert(0.0);
+                        if v > *e { *e = v; }
+                    }
+                    let crafted = item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if !crafted {
+                        if let Some(sn) = item.get("set").and_then(|v| v.as_str()) {
+                            for (i, v) in set_delta(sn) {
+                                let e = set_acc.entry(i).or_insert(0.0);
+                                if v > *e { *e = v; }
+                            }
+                        }
+                    }
+                }
+                for (i, v) in set_acc {
+                    *acc.entry(i).or_insert(0.0) += v;
+                }
+                let list: Vec<(u32, f64)> = acc.into_iter().filter(|(_, v)| *v != 0.0).collect();
+                let terms: Vec<(usize, f64)> = d.const_term_keys.iter().enumerate()
+                    .filter_map(|(slot, k)| {
+                        let &i = d.idx.get(k.as_str())?;
+                        list.iter().find(|(j, _)| *j == i).map(|(_, dv)| (slot, *dv))
+                    })
+                    .collect();
+                last_clusters.push(list);
+                last_cluster_terms.push(terms);
+                c0 = c1;
+            }
+        }
+        Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size })
+    }
+}
+
+/// Objective ceiling for bound deltas over an ALREADY-FILLED leaf in `work`
+/// (the last-slot cluster loop fills the prefix once and probes many delta
+/// sets against it). Deltas are journaled and rolled back.
+pub fn dense_ceiling_cached(
+    d: &DenseCtx, work: &mut DenseWork, adds: &[(u32, f64)], term_adds: &[(usize, f64)],
+    rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+) -> f64 {
+    let leaf = &mut work.leaf;
+    let mut journal: Vec<(u32, f64, bool)> = Vec::with_capacity(adds.len());
+    for &(i, dv) in adds {
+        let iu = i as usize;
+        let was = bit_get(&leaf.present, i);
+        let old = leaf.lc_vals[iu];
+        let cur = if was && !old.is_nan() { old } else { 0.0 };
+        leaf.lc_vals[iu] = cur + dv;
+        bit_set(&mut leaf.present, i);
+        journal.push((i, old, was));
+    }
+    let mut term_journal: Vec<(usize, f64)> = Vec::with_capacity(term_adds.len());
+    for &(slot, dv) in term_adds {
+        term_journal.push((slot, leaf.const_term_vals[slot]));
+        leaf.const_term_vals[slot] += dv;
+    }
+    {
+        let DenseWork { leaf, scratch } = work;
+        scratch.reset(leaf, d);
+        let ceiling_sp = [150f64; 5];
+        dense_assemble(d, leaf, scratch, &ceiling_sp);
+    }
+    let v = {
+        let DenseWork { leaf, scratch } = work;
+        dense_score(d, leaf, scratch, rows, compiled, tables)
+    };
+    let leaf = &mut work.leaf;
+    for (slot, old) in term_journal.into_iter().rev() {
+        leaf.const_term_vals[slot] = old;
+    }
+    for (i, old, was) in journal.into_iter().rev() {
+        leaf.lc_vals[i as usize] = old;
+        if !was { leaf.present[(i / 64) as usize] &= !(1u64 << (i % 64)); }
+    }
+    v
+}
+
+/// Objective ceiling for `prefix + arbitrary bound deltas` at all-150 SP.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_ceiling_with(
+    d: &DenseCtx, adds: &[(u32, f64)], term_adds: &[(usize, f64)], prefix_names: &[&str],
+    work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+) -> Option<f64> {
+    let dd = d.direct.as_ref()?;
+    if !work.leaf.fill_direct(d, dd, prefix_names) { return None; }
+    let leaf = &mut work.leaf;
+    for &(i, dv) in adds {
+        let iu = i as usize;
+        let cur = if bit_get(&leaf.present, i) {
+            let v = leaf.lc_vals[iu];
+            if v.is_nan() { 0.0 } else { v }
+        } else { 0.0 };
+        leaf.lc_vals[iu] = cur + dv;
+        bit_set(&mut leaf.present, i);
+    }
+    for &(slot, dv) in term_adds {
+        leaf.const_term_vals[slot] += dv;
+    }
+    work.scratch.reset(&work.leaf, d);
+    let DenseWork { leaf, scratch } = work;
+    let ceiling_sp = [150f64; 5];
+    dense_assemble(d, leaf, scratch, &ceiling_sp);
+    Some(dense_score(d, leaf, scratch, rows, compiled, tables))
+}
+
+/// Subtree ceiling on the dense path with the level-banded suffix maxima:
+/// direct leaf build from the prefix (unfilled slots hold their none-items)
+/// + the (next_depth, remaining-budget) bound deltas + all-150 assemble +
+/// objective score. None -> caller falls back to the Obj-path bound.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_subtree_ceiling(
+    d: &DenseCtx, db: &DenseBound, next_depth: usize, hi_rem: i64, prefix_names: &[&str],
+    work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+) -> Option<f64> {
+    let h = hi_rem.clamp(0, db.h_max) as usize;
+    dense_ceiling_with(d, &db.table[next_depth][h], &db.term_table[next_depth][h],
+                       prefix_names, work, rows, compiled, tables)
+}
