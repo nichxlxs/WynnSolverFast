@@ -650,16 +650,126 @@ function _run_level_enum() {
     // remaining budget is greedily distributed to maximise the scoring target.
     // Uses geometric step-down (20 → 4 → 1) for O(50-95) trials worst case.
 
+    // ── In-place greedy trial evaluation ───────────────────────────────────
+    //
+    // assemble_combo_stats deep-clones two ~170-entry Maps per call, and the
+    // greedy loop calls it up to ~95 times per feasible leaf. Between trials
+    // only the five skill-point entries change, so instead we build the
+    // trial base once per leaf (clone + classDef + atree_raw + radiance —
+    // radiance_affected excludes the SP stats, so its floors are independent
+    // of the per-trial SP values) and per trial: overwrite the five SP keys,
+    // run atree scaling, merge the scaled + static stats in place with an
+    // undo journal, score, and roll the journal back. Addition order matches
+    // assemble_combo_stats exactly, so trial scores are bit-identical.
+
+    const _scratch_trial_pre = new Map();
+    const _scratch_trial_pre_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
+    const _trial_raw_skp = [0, 0, 0, 0, 0];
+    const _UNDO_ABSENT = Symbol('absent');
+    const _undo_maps = [];
+    const _undo_keys = [];
+    const _undo_vals = [];
+    let _undo_len = 0;
+
+    function _undo_record(map, key) {
+        _undo_maps[_undo_len] = map;
+        _undo_keys[_undo_len] = key;
+        _undo_vals[_undo_len] = map.has(key) ? map.get(key) : _UNDO_ABSENT;
+        _undo_len++;
+    }
+
+    function _undo_rollback() {
+        for (let j = _undo_len - 1; j >= 0; j--) {
+            const m = _undo_maps[j], k = _undo_keys[j], v = _undo_vals[j];
+            if (v === _UNDO_ABSENT) m.delete(k); else m.set(k, v);
+            _undo_maps[j] = null;  // release references
+        }
+        _undo_len = 0;
+    }
+
+    /** merge_stat (build_utils.js) with every mutation journaled for undo. */
+    function _merge_stat_undo(stats, name, value) {
+        const [start, end] = name.split('.', 2);
+        if (start === 'damMult' || start === 'defMult' || start === 'healMult' || start === 'manaMult') {
+            if (!stats.has(start)) {
+                _undo_record(stats, start);
+                stats.set(start, new Map());
+            }
+            const map = stats.get(start);
+            if (value instanceof Map) {
+                for (const [k, v] of value.entries()) {
+                    _merge_stat_undo(map, k, v);
+                }
+                return;
+            }
+            if (nonstacking_stats.includes(end)) {
+                let highest = stats.get(start).get(end);
+                if (highest !== undefined) {
+                    if (value > highest) {
+                        _undo_record(map, end);
+                        map.set(end, value);
+                        stats.set(start, map);
+                    }
+                    return;
+                }
+            }
+            _merge_stat_undo(map, name.slice(name.indexOf('.') + 1), value);
+            return;
+        }
+        _undo_record(stats, name);
+        if (stats.has(name)) {
+            stats.set(name, stats.get(name) + value);
+        }
+        else { stats.set(name, value); }
+    }
+
+    /** _merge_into (pure/utils.js) with journaling. */
+    function _merge_into_undo(target, source) {
+        if (!source) return;
+        for (const [k, v] of source) {
+            if (v instanceof Map) {
+                for (const [mk, mv] of v) _merge_stat_undo(target, k + '.' + mk, mv);
+            } else {
+                _merge_stat_undo(target, k, v);
+            }
+        }
+    }
+
     function _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm) {
         const remaining = sp_budget - assigned_sp;
 
         const target = _cfg.scoring_target ?? 'combo_damage';
         const need_thresh = (target !== 'combo_damage' && target !== 'total_healing');
 
+        // Trial base is built lazily: greedy_sp_allocate can return without
+        // ever scoring (no remaining budget / no room).
+        let trial_ready = false;
+        let P = null;
+
         function _trial_score() {
-            const cb = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
-            const ts = need_thresh ? _assemble_threshold_stats(cb) : null;
-            return _eval_score(cb, ts);
+            if (!trial_ready) {
+                P = _deep_clone_statmap_into(_scratch_trial_pre, build_sm, _scratch_trial_pre_nested);
+                const weaponType = weapon_sm.get('type');
+                if (weaponType) P.set('classDef', classDefenseMultipliers.get(weaponType) || 1.0);
+                _merge_into(P, _cfg.atree_raw);
+                _apply_radiance_scale_inplace(P, _cfg.radiance_boost);
+                for (let i = 0; i < 5; i++) {
+                    _trial_raw_skp[i] = _cfg.atree_raw?.get(skp_order[i]) ?? 0;
+                }
+                trial_ready = true;
+            }
+            // assemble_combo_stats sets skp to total_sp then adds atree_raw;
+            // writing the sum directly is the same two-operand addition.
+            for (let i = 0; i < 5; i++) {
+                P.set(skp_order[i], total_sp[i] + _trial_raw_skp[i]);
+            }
+            const [, atree_scaled_stats] = atree_compute_scaling(
+                _cfg.atree_merged, P, _cfg.button_states, _cfg.slider_states, _scratch_atree);
+            _merge_into_undo(P, atree_scaled_stats);
+            _merge_into_undo(P, _cfg.static_boosts);
+            const s = _eval_score(P, P);
+            _undo_rollback();
+            return s;
         }
 
         const cap_total = _sp_caps ?? _default_sp_caps;
