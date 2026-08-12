@@ -99,6 +99,8 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Ceiling gate, colossal | 4.52T input / 334.8B search, 2 workers | — | 334,843,891,200 (full space) | completes 32.9s | **completes 19.97s (1.65x)**, 16.76B/s | 329,883 feasible leaves now mostly gate before greedy | feasible 329,883 and best 470,163 unchanged |
 | 2026-08-12 | Re-baseline post-dominance-fix + gate (queue item 7) | 2M / 95M / 135M / 1.9B, 2 workers | 2,486,862 / 13.4M / 25.2M / 239.0M (original variant) | 3,100,680 / 21.3M / 31.5M / 314.7M | 515ms / 8.88s / 1.82s / 1.08s (original) | **437ms / 8.76s / 1.39s / 0.93s** | current beats original despite 25-59% larger post-dominance space | 470,163 on all eight runs |
 | 2026-08-12 | Cross-worker shared cutoff (SAB) for the ceiling gate | Dense combo_damage (readme armor2 pools, 3,712 search) | — | 3,712 | wall 18.0s (local-only gate) | wall **7.54s** (2.4x; 8.3x vs ungated) | greedy calls 1,744 → 521; gate armed from partition start via global 15th-best distinct score | best 8,110,465 unchanged; suite 253/253 |
+| 2026-08-12 | Shared cutoff, spell-spam workload | `readme_spell_wide`, 2 workers, 180s cap | — | 380,000 → 430,000 checked @ timeout | ~2,111 leaves/s | **~2,389 leaves/s** (12.3x vs ungated) | — | best 8,119,340 and items unchanged |
+| 2026-08-12 | Shared cutoff, colossal | 4.52T input / 334.8B search, 2 workers | — | 334,843,891,200 (full space) | completes 19.97s | **completes 17.89s** | enumeration-bound, so leaf gating gains are marginal here | feasible 329,883 and best 470,163 unchanged |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -272,10 +274,14 @@ will be used by both JS reference and future Rust core.
    any stat-input atree scaling has non-negative factors into plain stats).
    Leaves whose ceiling cannot beat the top-15 cutoff skip greedy+mana+
    score with an identical top-N (validated by oracle fixture
-   `solver_oracle_spell_cd`). Dense scenario: 62.5s → 18.0s. Remaining
-   lever for leaves that pass the gate: incremental damage evaluation
-   w.r.t. SP changes inside greedy; all five skills can affect damage
-   through elemental skill boosts, so naive trial skipping is not exact.
+   `solver_oracle_spell_cd`). Dense scenario: 62.5s → 18.0s. A cross-worker
+   shared cutoff (the global 15th-best distinct reported score, exposed
+   mid-partition through a SharedArrayBuffer, with postMessage fallback)
+   arms the gate from partition start: dense 18.0s → 7.54s, spell_wide
+   35,000 → 430,000 checked @ 180s (12.3x cumulative). Remaining lever
+   for leaves that pass the gate: incremental damage evaluation w.r.t. SP
+   changes inside greedy; all five skills can affect damage through
+   elemental skill boosts, so naive trial skipping is not exact.
 
 ## Update protocol
 
