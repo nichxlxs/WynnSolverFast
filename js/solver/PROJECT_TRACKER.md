@@ -95,6 +95,9 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Rust enum_kernel with bands | all fixtures, 1 thread | — | — | 77.1s (colossal) | **4.33s**; all-free 8.4→0.85s; 1.9B 0.33→0.06s | 17.8x | Funnel counters bit-identical pre/post bands |
 | 2026-08-12 | New spell-spam benchmark (`readme_spell_wide`) | 350.6B input / 20.07B search, combo_damage, no restrictions | — | 35,000 checked @ 180s timeout | — | ~194 leaves/s | feasibility-dense: 17,433/35,000 feasible — leaf pipeline dominates | best 7,832,627; the anti-Gaia workload |
 | 2026-08-12 | Score-ceiling gate (one damage eval at all-150 SP bounds greedy) | Dense combo_damage (readme armor2 pools, 3,712 search) | — | 3,712 | wall 62.5s | wall **18.0s** (3.5x) | 1,798/3,542 feasible leaves gated at 1.0ms vs greedy 17.4ms | Oracle fixture `solver_oracle_spell_cd`: gated top-N exactly equals ungated Cartesian ground truth; suite 253/253 |
+| 2026-08-12 | Ceiling gate, spell-spam workload | `readme_spell_wide`, 2 workers, 180s cap | — | 35,000 → 380,000 checked @ timeout | ~194 leaves/s | **~2,111 leaves/s (10.9x)** | leaf pipeline was 95% greedy; gate skips most of it | best improved 7,832,627 → 8,119,340 (more space covered) |
+| 2026-08-12 | Ceiling gate, colossal | 4.52T input / 334.8B search, 2 workers | — | 334,843,891,200 (full space) | completes 32.9s | **completes 19.97s (1.65x)**, 16.76B/s | 329,883 feasible leaves now mostly gate before greedy | feasible 329,883 and best 470,163 unchanged |
+| 2026-08-12 | Re-baseline post-dominance-fix + gate (queue item 7) | 2M / 95M / 135M / 1.9B, 2 workers | 2,486,862 / 13.4M / 25.2M / 239.0M (original variant) | 3,100,680 / 21.3M / 31.5M / 314.7M | 515ms / 8.88s / 1.82s / 1.08s (original) | **437ms / 8.76s / 1.39s / 0.93s** | current beats original despite 25-59% larger post-dominance space | 470,163 on all eight runs |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -246,9 +249,11 @@ will be used by both JS reference and future Rust core.
    Enumeration cost tracks pruning effectiveness, not space size: each level
    step below 100 floods pools with tier-stack items and weakens the atkTier
    suffix bound (100→8.4s, 99→22.4s, 98→77s, 97→~3.6h single-thread).
-7. The dominance equality fix grows every scenario's post-dominance space;
-   earlier ledger rows' "current space" values predate it. Re-baseline the
-   standing scenarios (2M/95M/135M/1.9B) in the next benchmarking pass.
+7. DONE 2026-08-12: standing scenarios re-baselined post-dominance-fix and
+   post-ceiling-gate (2 workers, current variant): 2M → 3,100,680 search in
+   437ms; 95M → 21,285,396 search in 8.76s; 135M → 31,465,368 search in
+   1.39s; 1.9B → 314,653,680 search in 0.93s. All hold 470,163; none time
+   out. These "current space" values supersede earlier ledger rows.
 8. PR #3 reviewed and closed: progress checkpoint + precompiled item entries
    absorbed; the rest duplicated master or this branch.
 9. Restriction-based iterated pool filtering (remove items whose every
