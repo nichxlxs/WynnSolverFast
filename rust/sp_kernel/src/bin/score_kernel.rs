@@ -886,6 +886,359 @@ fn eval_combo_damage(
     total_damage
 }
 
+// ── Layer 2: build-stat assembly (PORT_PLAN.md) ─────────────────────────────
+//
+// From a leaf's item names, reproduce the worker's assembled combo_base at
+// the case's total_sp: createBaseStatmap → per-item additive accumulation →
+// set bonuses → finalizeStatmap → assemble_combo_stats (skp, classDef,
+// atree_raw merge, scaling plan, static_boosts). Validated key-by-key
+// against the exported combo_base, then end-to-end by scoring it.
+
+/// merge_stat (build_utils.js): dotted mult-map keys, non-stacking maxima,
+/// plain additive otherwise.
+fn merge_stat(stats: &mut Obj, name: &str, value: &Value) {
+    const NONSTACKING: [&str; 3] = ["Potion", "Vulnerability", "Mask"];
+    let start = name.split('.').next().unwrap_or(name);
+    if start == "damMult" || start == "defMult" || start == "healMult" || start == "manaMult" {
+        // Ensure nested map exists.
+        if !stats.contains_key(start) {
+            let mut wrap = Obj::new();
+            wrap.insert("__m".into(), Value::Object(Obj::new()));
+            stats.insert(start.to_string(), Value::Object(wrap));
+        }
+        if let Some(m) = value.get("__m").and_then(|v| v.as_object()).cloned() {
+            // Merging a whole map: recurse per entry.
+            for (k, v) in &m {
+                let nested = stats.get_mut(start).and_then(|w| w.get_mut("__m")).and_then(|v| v.as_object_mut()).unwrap();
+                merge_plain(nested, k, v, &NONSTACKING);
+            }
+            return;
+        }
+        let rest = &name[name.find('.').map(|i| i + 1).unwrap_or(name.len())..];
+        let nested = stats.get_mut(start).and_then(|w| w.get_mut("__m")).and_then(|v| v.as_object_mut()).unwrap();
+        merge_plain(nested, rest, value, &NONSTACKING);
+        return;
+    }
+    merge_plain(stats, name, value, &NONSTACKING);
+}
+
+/// The scalar tail of merge_stat: additive when present, insert otherwise.
+/// Mirrors the JS non-stacking check only at the mult-map level (the JS
+/// nonstacking branch runs before recursing into the map).
+fn merge_plain(map: &mut Obj, name: &str, value: &Value, nonstacking: &[&str]) {
+    // Non-stacking keys keep the max (JS checks this on mult maps; on plain
+    // maps these names never occur, so the branch is inert there).
+    if nonstacking.contains(&name) {
+        if let Some(prev) = map.get(name).and_then(|v| v.as_f64()) {
+            let nv = value.as_f64().unwrap_or(f64::NAN);
+            if nv > prev { map.insert(name.to_string(), value.clone()); }
+            return;
+        }
+    }
+    match map.get(name) {
+        Some(prev) => {
+            let sum = prev.as_f64().unwrap_or(f64::NAN) + value.as_f64().unwrap_or(f64::NAN);
+            map.insert(name.to_string(), Value::from(sum));
+        }
+        None => { map.insert(name.to_string(), value.clone()); }
+    }
+}
+
+/// _merge_into (pure/utils.js): merge a source stat map into target.
+fn merge_into(target: &mut Obj, source: Option<&Obj>) {
+    let Some(source) = source else { return };
+    for (k, v) in source {
+        if let Some(m) = v.get("__m").and_then(|x| x.as_object()) {
+            for (mk, mv) in m {
+                merge_stat(target, &format!("{}.{}", k, mk), mv);
+            }
+        } else {
+            merge_stat(target, k, v);
+        }
+    }
+}
+
+struct Layer2 {
+    item_registry: HashMap<String, Obj>,
+    sets_data: Obj,
+    tome_sms: Vec<Obj>,
+    atree_raw: Option<Obj>,
+    static_boosts: Option<Obj>,
+    scaling_kind: String,
+    scaled_cached: Option<Obj>,
+    const_scaled: Option<Obj>,
+    var_effects: Vec<Value>,
+    static_ids: Vec<String>,
+    must_ids: Vec<String>,
+    hp_base: f64,
+    class_def: HashMap<String, f64>,
+    skp_order: Vec<String>,
+}
+
+impl Layer2 {
+    fn parse(v: &Value) -> Option<Layer2> {
+        let l2 = v.get("layer2")?;
+        let consts = l2.get("constants")?;
+        let mut item_registry = HashMap::new();
+        for (name, sm) in l2.get("item_registry")?.as_object()? {
+            if let Some(m) = as_map(sm) { item_registry.insert(name.clone(), m.clone()); }
+        }
+        // none items keyed by displayName too
+        if let Some(nones) = l2.get("none_item_sms").and_then(|x| x.as_array()) {
+            for sm in nones {
+                if let Some(m) = as_map(sm) {
+                    if let Some(n) = m.get("displayName").and_then(|x| x.as_str()) {
+                        item_registry.entry(n.to_string()).or_insert_with(|| m.clone());
+                    }
+                }
+            }
+        }
+        let plan = l2.get("scaling_plan")?;
+        let strvec = |v: &Value| -> Vec<String> {
+            v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+        };
+        Some(Layer2 {
+            item_registry,
+            sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
+            tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|t| as_map(t).cloned()).collect()).unwrap_or_default(),
+            atree_raw: l2.get("atree_raw").and_then(as_map).cloned(),
+            static_boosts: l2.get("static_boosts").and_then(as_map).cloned(),
+            scaling_kind: plan.get("kind").and_then(|k| k.as_str()).unwrap_or("full").to_string(),
+            scaled_cached: plan.get("scaled").and_then(as_map).cloned(),
+            const_scaled: plan.get("const_scaled").and_then(as_map).cloned(),
+            var_effects: plan.get("var_effects").and_then(|x| x.as_array()).cloned().unwrap_or_default(),
+            static_ids: strvec(consts.get("statmap_static_ids")?),
+            must_ids: strvec(consts.get("statmap_must_ids")?),
+            hp_base: consts.get("hp_base_for_level")?.as_f64()?,
+            class_def: consts.get("class_def")?.as_object()?
+                .iter().filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f))).collect(),
+            skp_order: strvec(consts.get("skp_order")?),
+        })
+    }
+
+    /// _incr_add_item: maxRolls (minus static ids) + static ids, additive.
+    fn add_item(&self, sm: &mut Obj, item: &Obj) {
+        if let Some(mr) = item.get("maxRolls").and_then(as_map) {
+            for (id, value) in mr {
+                if self.static_ids.iter().any(|s| s == id) { continue; }
+                let v = value.as_f64().unwrap_or(f64::NAN);
+                if v == 0.0 { continue; } // JS: `if (!value) skip` in compiled entries
+                let cur = sm.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                sm.insert(id.clone(), Value::from(cur + v));
+            }
+        }
+        for id in &self.static_ids {
+            let v = item.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            if v == 0.0 { continue; }
+            let cur = sm.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            sm.insert(id.clone(), Value::from(cur + v));
+        }
+    }
+
+    /// Build combo_base for a case's items at the given total_sp.
+    fn assemble(&self, item_names: &[&str], total_sp: &[f64], weapon: &Obj) -> Result<Obj, String> {
+        // createBaseStatmap
+        let mut sm = Obj::new();
+        for id in self.static_ids.iter().chain(self.must_ids.iter()) {
+            sm.insert(id.clone(), Value::from(0.0));
+        }
+        sm.insert("hp".into(), Value::from(self.hp_base));
+        sm.insert("agiDef".into(), Value::from(90.0));
+
+        // Items: 8 equips + tomes + weapon (additive, order-independent sums)
+        let mut equips: Vec<&Obj> = Vec::new();
+        for name in item_names {
+            let item = self.item_registry.get(*name)
+                .ok_or_else(|| format!("item not in registry: {}", name))?;
+            equips.push(item);
+        }
+        for item in &equips { self.add_item(&mut sm, item); }
+        for tome in &self.tome_sms { self.add_item(&mut sm, tome); }
+        self.add_item(&mut sm, weapon);
+
+        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names.
+        let mut set_counts: Vec<(String, i64)> = Vec::new();
+        for item in &equips {
+            if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
+            let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
+            match set_counts.iter_mut().find(|(n, _)| n == set_name) {
+                Some((_, c)) => *c += 1,
+                None => set_counts.push((set_name.to_string(), 1)),
+            }
+        }
+        // JS coerces in `(sm.get(id)||0) + bonus[id]`: booleans become 0/1
+        // (e.g. the illegal-at-2 double-ring marker `illegal: true`).
+        let js_num = |v: &Value| -> f64 {
+            match v {
+                Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+                Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+                Value::Null => 0.0,
+                _ => f64::NAN,
+            }
+        };
+        for (set_name, count) in &set_counts {
+            let Some(set_data) = self.sets_data.get(set_name) else { continue };
+            let bonuses = set_data.get("bonuses").and_then(|b| b.as_array());
+            let Some(bonus) = bonuses.and_then(|b| b.get((*count - 1) as usize)) else { continue };
+            let Some(bonus) = bonus.as_object() else { continue };
+            for (id, v) in bonus {
+                if self.skp_order.iter().any(|s| s == id) { continue; }
+                let cur = sm.get(id).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                sm.insert(id.clone(), Value::from(cur + js_num(v)));
+            }
+        }
+
+        // finalizeStatmap
+        let mut dam_mult = Obj::new();
+        dam_mult.insert("tome".into(), Value::from(sm.get("damMobs").and_then(|v| v.as_f64()).unwrap_or(0.0)));
+        let mut def_mult = Obj::new();
+        def_mult.insert("tome".into(), Value::from(sm.get("defMobs").and_then(|v| v.as_f64()).unwrap_or(0.0)));
+        let wrap = |m: Obj| { let mut w = Obj::new(); w.insert("__m".into(), Value::Object(m)); Value::Object(w) };
+        sm.insert("damMult".into(), wrap(dam_mult));
+        sm.insert("defMult".into(), wrap(def_mult));
+        let mut major_ids: Vec<Value> = Vec::new();
+        for item in equips.iter().copied().chain(self.tome_sms.iter()).chain(std::iter::once(weapon)) {
+            // Item maps store majorIds as a plain array; sets ({__s}) also
+            // accepted for robustness.
+            let mids = item.get("majorIds").and_then(|v| {
+                v.as_array().or_else(|| v.get("__s").and_then(|s| s.as_array()))
+            });
+            if let Some(mids) = mids {
+                for mid in mids {
+                    if !major_ids.contains(mid) { major_ids.push(mid.clone()); }
+                }
+            }
+        }
+        let mut mid_wrap = Obj::new();
+        mid_wrap.insert("__s".into(), Value::Array(major_ids));
+        sm.insert("activeMajorIDs".into(), Value::Object(mid_wrap));
+        sm.insert("poisonPct".into(), Value::from(0.0));
+        let mut heal_mult = Obj::new();
+        heal_mult.insert("item".into(), Value::from(sm.get("healPct").and_then(|v| v.as_f64()).unwrap_or(0.0)));
+        sm.insert("healMult".into(), wrap(heal_mult));
+        if let Some(spd) = weapon.get("atkSpd") { sm.insert("atkSpd".into(), spd.clone()); }
+
+        // assemble_combo_stats: pre_scale = clone + skp + classDef + atree_raw
+        let mut pre_scale = sm;
+        for (i, skp) in self.skp_order.iter().enumerate() {
+            pre_scale.insert(skp.clone(), Value::from(total_sp[i]));
+        }
+        if let Some(wt) = weapon.get("type").and_then(|v| v.as_str()) {
+            let cd = self.class_def.get(wt).copied().unwrap_or(1.0);
+            pre_scale.insert("classDef".into(), Value::from(cd));
+        }
+        merge_into(&mut pre_scale, self.atree_raw.as_ref());
+        // radiance_boost asserted null at export for supported scenarios.
+
+        let mut var_out: Option<Obj> = None;
+        let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
+            "cached" => self.scaled_cached.as_ref(),
+            "split" => {
+                // atree_eval_stat_effects on lowered var effects.
+                let mut out = Obj::new();
+                for eff in &self.var_effects {
+                    let mut total = 0.0;
+                    total += eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                        let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
+                        let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
+                        let v = pre_scale.get(stat).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                        total += v * factor;
+                    }
+                    let round = eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true);
+                    let positive = eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true);
+                    let mut t = total;
+                    if round { t = round_near(t).floor(); }
+                    if positive && t < 0.0 { t = 0.0; }
+                    if let Some(mx) = eff.get("max").and_then(|v| v.as_f64()) {
+                        if mx > 0.0 && t > mx { t = mx; }
+                        if mx < 0.0 && t < mx { t = mx; }
+                    }
+                    for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+                        if let Some(name) = output.as_str() {
+                            merge_stat(&mut out, name, &Value::from(t));
+                        }
+                    }
+                }
+                var_out = Some(out);
+                self.const_scaled.as_ref()
+            }
+            _ => return Err(format!("unsupported scaling plan: {}", self.scaling_kind)),
+        };
+
+        let mut combo_base = pre_scale;
+        merge_into(&mut combo_base, scaled);
+        merge_into(&mut combo_base, var_out.as_ref());
+        merge_into(&mut combo_base, self.static_boosts.as_ref());
+        Ok(combo_base)
+    }
+}
+
+/// Compare an assembled combo_base against the worker-exported one.
+/// Missing numeric keys are 0 (the worker's vector materialization drops
+/// non-base zeros); nested maps, the majorID set, and strings compare
+/// structurally.
+fn diff_stat_maps(mine: &Obj, expected: &Obj) -> Vec<String> {
+    let mut diffs = Vec::new();
+    let mut keys: Vec<&String> = mine.keys().chain(expected.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    for k in keys {
+        let a = mine.get(k.as_str());
+        let b = expected.get(k.as_str());
+        match (a, b) {
+            (Some(Value::Number(x)), Some(Value::Number(y))) => {
+                let (x, y) = (x.as_f64().unwrap_or(f64::NAN), y.as_f64().unwrap_or(f64::NAN));
+                if x.to_bits() != y.to_bits() && !(x == 0.0 && y == 0.0) {
+                    diffs.push(format!("{}: mine {:?} vs expected {:?}", k, x, y));
+                }
+            }
+            (Some(Value::Number(x)), None) => {
+                if x.as_f64() != Some(0.0) { diffs.push(format!("{}: mine {:?} vs missing", k, x)); }
+            }
+            (None, Some(Value::Number(y))) => {
+                if y.as_f64() != Some(0.0) { diffs.push(format!("{}: missing vs expected {:?}", k, y)); }
+            }
+            (Some(Value::String(x)), Some(Value::String(y))) => {
+                if x != y { diffs.push(format!("{}: mine {:?} vs expected {:?}", k, x, y)); }
+            }
+            (Some(a), Some(b)) => {
+                if let (Some(ma), Some(mb)) = (a.get("__m"), b.get("__m")) {
+                    if let (Some(ma), Some(mb)) = (ma.as_object(), mb.as_object()) {
+                        for (mk, mv) in ma.iter() {
+                            let ev = mb.get(mk).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let sv = mv.as_f64().unwrap_or(f64::NAN);
+                            if sv.to_bits() != ev.to_bits() && !(sv == 0.0 && ev == 0.0) {
+                                diffs.push(format!("{}.{}: mine {:?} vs expected {:?}", k, mk, sv, ev));
+                            }
+                        }
+                        for (mk, mv) in mb.iter() {
+                            if !ma.contains_key(mk) && mv.as_f64() != Some(0.0) {
+                                diffs.push(format!("{}.{}: missing vs expected {:?}", k, mk, mv));
+                            }
+                        }
+                        continue;
+                    }
+                }
+                if let (Some(sa), Some(sb)) = (a.get("__s"), b.get("__s")) {
+                    let (sa, sb) = (sa.as_array().cloned().unwrap_or_default(), sb.as_array().cloned().unwrap_or_default());
+                    let mut xa: Vec<String> = sa.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                    let mut xb: Vec<String> = sb.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                    xa.sort(); xb.sort();
+                    if xa != xb { diffs.push(format!("{}: set mine {:?} vs expected {:?}", k, xa, xb)); }
+                    continue;
+                }
+                if a != b { diffs.push(format!("{}: structural mismatch", k)); }
+            }
+            (Some(a), None) => diffs.push(format!("{}: mine {:?} vs missing", k, a)),
+            (None, Some(b)) => diffs.push(format!("{}: missing vs expected {:?}", k, b)),
+            (None, None) => {}
+        }
+    }
+    diffs
+}
+
 // ── Main: differential validation ────────────────────────────────────────────
 
 fn main() {
@@ -914,6 +1267,15 @@ fn main() {
             hit_refs.insert(bs_num, m);
         }
     }
+
+    let layer2 = Layer2::parse(&fixture);
+    let layer2_supported = layer2.as_ref()
+        .map(|l| l.scaling_kind == "cached" || l.scaling_kind == "split")
+        .unwrap_or(false);
+    let mut l2_pass = 0u64;
+    let mut l2_fail = 0u64;
+    let mut l2_score_pass = 0u64;
+    let mut l2_score_fail = 0u64;
 
     let cases = fixture["cases"].as_array().expect("cases array");
     let mut pass = 0u64;
@@ -959,6 +1321,39 @@ fn main() {
                 }
             }
         }
+        // Layer 2: rebuild combo_base from raw items and compare.
+        if layer2_supported {
+            let l2 = layer2.as_ref().unwrap();
+            let names: Vec<&str> = case["item_names"].as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            let sp: Vec<f64> = arr_f64(&case["total_sp"]);
+            match l2.assemble(&names, &sp, &weapon) {
+                Ok(assembled) => {
+                    let diffs = diff_stat_maps(&assembled, combo_base);
+                    if diffs.is_empty() { l2_pass += 1; } else {
+                        l2_fail += 1;
+                        if l2_fail <= 3 {
+                            eprintln!("case {}: ASSEMBLY DIFFS ({}):", i, diffs.len());
+                            for d in diffs.iter().take(8) { eprintln!("    {}", d); }
+                        }
+                    }
+                    // End-to-end: score the rebuilt map.
+                    let got2 = eval_combo_damage(&assembled, &weapon, &rows, &registry, &hit_refs, &tables);
+                    if got2.to_bits() == expected.to_bits() { l2_score_pass += 1; } else {
+                        l2_score_fail += 1;
+                        if l2_score_fail <= 3 {
+                            eprintln!("case {}: L2 SCORE MISMATCH expected {:.17e} got {:.17e}", i, expected, got2);
+                        }
+                    }
+                }
+                Err(e) => {
+                    l2_fail += 1;
+                    if l2_fail <= 3 { eprintln!("case {}: assemble failed: {}", i, e); }
+                }
+            }
+        }
+
         let got = eval_combo_damage(combo_base, &weapon, &rows, &registry, &hit_refs, &tables);
         if got.to_bits() == expected.to_bits() {
             pass += 1;
@@ -981,5 +1376,13 @@ fn main() {
         cases.len(), pass, fail,
         cases.len() as f64 / elapsed,
     );
-    if fail > 0 { std::process::exit(1); }
+    if layer2_supported {
+        println!(
+            "layer2: assembly {} exact / {} diff | end-to-end score {} exact / {} diff",
+            l2_pass, l2_fail, l2_score_pass, l2_score_fail,
+        );
+    } else if layer2.is_some() {
+        println!("layer2: scaling plan unsupported (kind=full), skipped");
+    }
+    if fail > 0 || l2_fail > 0 || l2_score_fail > 0 { std::process::exit(1); }
 }

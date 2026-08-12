@@ -13,7 +13,10 @@ search, JS covers ~430K in 180s).
   integer-SP `skillPointsToPercentage` table (V8 pow vs Rust powf 1 ULP),
   serde_json `float_roundtrip`.
 
-- **Layer 2 — leaf pipeline (NEXT):** given a leaf's items, reproduce the
+- **Layer 2 — leaf pipeline (IN PROGRESS):** stat assembly DONE 2026-08-12
+  (192/192 assembly-exact + end-to-end score-exact from raw items on both
+  fixtures). Remaining: greedy SP + mana check (sub-pieces 3-4).
+  Original scope: given a leaf's items, reproduce the
   worker's (base_sp, total_sp, final score). The existing score fixtures
   already carry expected total_sp + score per case, so validation is free.
   Sub-pieces, in dependency order:
