@@ -178,6 +178,16 @@ pub fn calculate_spell_damage(
     ignore_speed: bool, part_filter: Option<&str>, ignore_str: bool,
     ignored_mults: &[String], tables: &Tables,
 ) -> ([f64; 2], [f64; 2]) {
+    calculate_spell_damage_pc(stats, weapon, conversions_in, use_spell_damage,
+        ignore_speed, part_filter, ignore_str, ignored_mults, tables, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn calculate_spell_damage_pc(
+    stats: &StatsView, weapon: &Obj, conversions_in: &[f64], use_spell_damage: bool,
+    ignore_speed: bool, part_filter: Option<&str>, ignore_str: bool,
+    ignored_mults: &[String], tables: &Tables, part_conv: Option<&[String; 6]>,
+) -> ([f64; 2], [f64; 2]) {
     let wview = StatsView::Borrowed(weapon);
     let crafted = wview.str_of("tier") == Some("Crafted");
 
@@ -195,7 +205,11 @@ pub fn calculate_spell_damage(
 
     // 2. Conversions (part-scoped ConvBase first, then plain ConvBase).
     let mut conversions: Vec<f64> = conversions_in.to_vec();
-    if let Some(pf) = part_filter {
+    if let Some(pc) = part_conv {
+        for (i, name) in pc.iter().enumerate() {
+            if stats.has(name) { conversions[i] += stats.num(name); }
+        }
+    } else if let Some(pf) = part_filter {
         for (i, el) in DAMAGE_ELEMENTS.iter().enumerate() {
             let name = format!("{}ConvBase:{}", el, pf);
             if stats.has(&name) { conversions[i] += stats.num(&name); }
@@ -2288,6 +2302,8 @@ pub struct CompiledRow {
     /// DPS analysis of mod_spell (always valid — overrides are constant).
     pub dps: Option<(String, f64, String)>,
     pub fallback_root: Option<String>,
+    /// Compiled structural plan of mod_spell (None → dynamic fallback).
+    pub plan: Option<SpellPlan>,
 }
 
 pub fn compile_rows(
@@ -2389,7 +2405,15 @@ pub fn compile_rows(
         let fallback_root = mod_spell.as_ref().and_then(|s| {
             if spell_is_dps(s) { find_dps_display_root(s) } else { None }
         });
-        CompiledRow { bonuses, cost_bonuses, cost_keys, mod_spell, dps, fallback_root }
+        let plan = mod_spell.as_ref().and_then(|sp| {
+            // DPS display precedence mirrors the eval: explicit per-row name
+            // first, then the spell's own DPS analysis.
+            let eff_dps = row.dps_per_hit_name.clone()
+                .map(|n| (n, 0.0, String::new()))
+                .or_else(|| dps.clone());
+            compile_spell_plan(sp, &eff_dps, &fallback_root)
+        });
+        CompiledRow { bonuses, cost_bonuses, cost_keys, mod_spell, dps, fallback_root, plan }
     }).collect()
 }
 
@@ -2516,15 +2540,24 @@ pub fn eval_combo_damage_compiled(
 
         let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, |b| {
             let stats = StatsView::Borrowed(b);
-            let per_cast = match eff_dps_name {
-                Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
-                None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
-            };
-            let mut flat_per_cast = 0.0;
-            if let Some(root) = final_root {
-                flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
+            if let Some(plan) = &comp.plan {
+                let (mut per_cast, flat) = eval_spell_plan(
+                    &stats, weapon, plan, crit, tables, eff_dps_name.is_some());
+                if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
+                // flat only applies when a chain root exists (same as dynamic)
+                let flat = if final_root.is_some() { flat } else { 0.0 };
+                (per_cast, flat)
+            } else {
+                let per_cast = match eff_dps_name {
+                    Some(name) => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, Some(name)) * eff_dps_hits,
+                    None => compute_spell_display_avg(&stats, weapon, mod_spell, crit, tables, None),
+                };
+                let mut flat_per_cast = 0.0;
+                if let Some(root) = final_root {
+                    flat_per_cast = compute_spell_flat_damage(&stats, weapon, mod_spell, crit, root, tables);
+                }
+                (per_cast, flat_per_cast)
             }
-            (per_cast, flat_per_cast)
         });
 
         let eff_qty = if row.is_melee_time {
@@ -2535,4 +2568,211 @@ pub fn eval_combo_damage_compiled(
         total_damage += row_damage;
     }
     total_damage
+}
+
+// ── Compiled spell plans (P2.4 layer 4, step 3) ─────────────────────────────
+//
+// Everything structural about a row's (constant) mod_spell is resolved at
+// compile time: parts lowered to flat structs with precomputed multipliers,
+// part ids, and part-scoped ConvBase key names; hit edges resolved to part
+// indices; part KINDS resolved statically (multipliers → damage,
+// max_hp_heal_pct → heal, total → first sub's kind — the same inference the
+// dynamic path performs); the display part index (find_display_result) and
+// the flat-damage contributor set (given the row's constant DPS chain root)
+// precomputed. Evaluation walks arrays with an indexed memo and computes
+// display-avg and flat damage from ONE parts pass (the dynamic path
+// evaluates parts twice on DPS rows; identical inputs give identical
+// results, so the shared pass is bit-exact).
+
+pub struct PartDamagePlan {
+    pub multipliers: Vec<f64>,
+    pub use_str: bool,
+    pub ignored_mults: Vec<String>,
+    pub part_id: String,
+    pub conv_names: [String; 6],
+}
+
+pub enum PartKindPlan {
+    Damage(PartDamagePlan),
+    Heal,
+    /// (sub part index, hits, tick_rounding)
+    Total(Vec<(usize, f64, bool)>),
+}
+
+pub struct PartPlan {
+    pub kind: PartKindPlan,
+    pub display: bool,
+    /// Statically inferred result kind: "damage" | "heal" | none.
+    pub static_kind: Option<&'static str>,
+}
+
+pub struct SpellPlan {
+    pub parts: Vec<PartPlan>,
+    pub use_speed: bool,
+    pub use_spell: bool,
+    /// find_display_result resolved statically (index into parts).
+    pub display_idx: Option<usize>,
+    /// Per-hit display override target for DPS rows (index into parts).
+    pub dps_display_idx: Option<usize>,
+    /// Flat-damage contributors (displayed damage roots, minus the DPS
+    /// chain root), resolved statically.
+    pub flat_idxs: Vec<usize>,
+}
+
+pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)>,
+                          fallback_root: &Option<String>) -> Option<SpellPlan> {
+    let parts_json = spell_parts(spell);
+    if parts_json.is_empty() { return None; }
+    let use_speed = spell.get("use_atkspd").and_then(|v| v.as_bool()).unwrap_or(true);
+    let use_spell = spell.get("scaling").and_then(|v| v.as_str()).unwrap_or("spell") == "spell";
+    let base_spell = spell.get("base_spell").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let names: Vec<&str> = parts_json.iter()
+        .map(|p| p.get("name").and_then(|n| n.as_str()).unwrap_or(""))
+        .collect();
+    let idx_of = |n: &str| -> Option<usize> { names.iter().position(|x| *x == n) };
+
+    // Static kind inference (mirrors eval_part's result.type assignment).
+    fn static_kind_of(i: usize, parts: &[Value], names: &[&str], seen: &mut Vec<usize>) -> Option<&'static str> {
+        if seen.contains(&i) { return None; }
+        seen.push(i);
+        let p = &parts[i];
+        if p.get("multipliers").is_some() { return Some("damage"); }
+        if p.get("max_hp_heal_pct").is_some() { return Some("heal"); }
+        if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
+            for sub in hits.keys() {
+                if let Some(j) = names.iter().position(|x| x == sub) {
+                    if let Some(k) = static_kind_of(j, parts, names, seen) { return Some(k); }
+                } else {
+                    // Missing sub: dynamic eval_part returns None and the
+                    // total's kind falls through to the next sub.
+                    continue;
+                }
+            }
+            return None;
+        }
+        None
+    }
+
+    let mut parts = Vec::with_capacity(parts_json.len());
+    for (i, p) in parts_json.iter().enumerate() {
+        let kind = if let Some(mults) = p.get("multipliers") {
+            let part_id = format!("{}.{}", base_spell, names[i]);
+            let conv_names = std::array::from_fn(|e| {
+                format!("{}ConvBase:{}", DAMAGE_ELEMENTS[e], part_id)
+            });
+            PartKindPlan::Damage(PartDamagePlan {
+                multipliers: arr_f64(mults),
+                use_str: p.get("use_str").and_then(|v| v.as_bool()).unwrap_or(true),
+                ignored_mults: p.get("ignored_mults").and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                    .unwrap_or_default(),
+                part_id,
+                conv_names,
+            })
+        } else if p.get("max_hp_heal_pct").is_some() {
+            PartKindPlan::Heal
+        } else if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
+            let tick_rounding = p.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut edges = Vec::with_capacity(hits.len());
+            for (sub, v) in hits {
+                if let Some(j) = idx_of(sub) {
+                    edges.push((j, v.as_f64().unwrap_or(f64::NAN), tick_rounding));
+                }
+            }
+            PartKindPlan::Total(edges)
+        } else {
+            PartKindPlan::Total(Vec::new())
+        };
+        parts.push(PartPlan {
+            kind,
+            display: p.get("display").and_then(|v| v.as_bool()).unwrap_or(true),
+            static_kind: static_kind_of(i, parts_json, &names, &mut Vec::new()),
+        });
+    }
+
+    // display_idx: find_display_result with static kinds.
+    let display_name = spell.get("display").and_then(|d| d.as_str());
+    let mut display_idx = display_name.and_then(idx_of)
+        .filter(|&i| parts[i].static_kind == Some("damage"));
+    if display_idx.is_none() {
+        let dps_name = find_dps_root_name(spell);
+        display_idx = dps_name.as_deref().and_then(idx_of)
+            .or_else(|| (0..parts.len()).rev()
+                .find(|&i| parts[i].display && parts[i].static_kind == Some("damage")));
+    }
+
+    let dps_display_idx = comp_dps.as_ref().and_then(|(name, _, _)| idx_of(name));
+
+    // flat_idxs: displayed, unreferenced damage parts minus the chain root.
+    let exclude_root: Option<&str> = comp_dps.as_ref().map(|(_, _, r)| r.as_str())
+        .or(fallback_root.as_deref());
+    let referenced = collect_referenced_part_names(spell);
+    let flat_idxs = if exclude_root.is_some() {
+        (0..parts.len()).filter(|&i| {
+            parts[i].static_kind == Some("damage") && parts[i].display
+                && Some(names[i]) != exclude_root
+                && !referenced.iter().any(|r| r == names[i])
+        }).collect()
+    } else { Vec::new() };
+
+    Some(SpellPlan { parts, use_speed, use_spell, display_idx, dps_display_idx, flat_idxs })
+}
+
+/// One-pass evaluation of a compiled plan: (per_cast_avg, flat_damage).
+pub fn eval_spell_plan(
+    stats: &StatsView, weapon: &Obj, plan: &SpellPlan, crit: f64, tables: &Tables,
+    use_dps_display: bool,
+) -> (f64, f64) {
+    let n = plan.parts.len();
+    let mut memo: Vec<Option<[f64; 4]>> = vec![None; n]; // norm0 norm1 crit0 crit1
+
+    fn eval(i: usize, plan: &SpellPlan, memo: &mut Vec<Option<[f64; 4]>>,
+            stats: &StatsView, weapon: &Obj, crit_unused: f64, tables: &Tables) -> [f64; 4] {
+        if let Some(r) = memo[i] { return r; }
+        let r = match &plan.parts[i].kind {
+            PartKindPlan::Damage(d) => {
+                let (norm, crit_t) = calculate_spell_damage_pc(
+                    stats, weapon, &d.multipliers, plan.use_spell, !plan.use_speed,
+                    Some(&d.part_id), !d.use_str, &d.ignored_mults, tables,
+                    Some(&d.conv_names));
+                [norm[0], norm[1], crit_t[0], crit_t[1]]
+            }
+            PartKindPlan::Heal => [0.0; 4],
+            PartKindPlan::Total(edges) => {
+                let mut acc = [0.0f64; 4];
+                for (j, hits, tick_rounding) in edges {
+                    let sub = eval(*j, plan, memo, stats, weapon, crit_unused, tables);
+                    if plan.parts[*j].static_kind == Some("damage") {
+                        let eff = if *tick_rounding {
+                            1.0 / ((1.0 / hits * 20.0).floor() * 0.05)
+                        } else { *hits };
+                        for k in 0..4 { acc[k] += sub[k] * eff; }
+                    }
+                }
+                acc
+            }
+        };
+        memo[i] = Some(r);
+        r
+    }
+
+    let display = if use_dps_display { plan.dps_display_idx } else { plan.display_idx };
+    let per_cast = match display {
+        Some(i) if plan.parts[i].static_kind == Some("damage") => {
+            let r = eval(i, plan, &mut memo, stats, weapon, crit, tables);
+            let non_crit_avg = (r[0] + r[1]) / 2.0;
+            let crit_avg = (r[2] + r[3]) / 2.0;
+            (1.0 - crit) * non_crit_avg + crit * crit_avg
+        }
+        _ => 0.0,
+    };
+    let mut flat = 0.0;
+    for &i in &plan.flat_idxs {
+        let r = eval(i, plan, &mut memo, stats, weapon, crit, tables);
+        let non_crit_avg = (r[0] + r[1]) / 2.0;
+        let crit_avg = (r[2] + r[3]) / 2.0;
+        flat += (1.0 - crit) * non_crit_avg + crit * crit_avg;
+    }
+    (per_cast, flat)
 }
