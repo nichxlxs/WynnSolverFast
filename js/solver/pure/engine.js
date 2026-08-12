@@ -392,7 +392,7 @@ function eval_combo_damage_with_bp(combo_base, weapon_sm, parsed_combo, bp_confi
  */
 function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance_boost,
                                atree_merged, button_states, slider_states, static_boosts,
-                               scratch) {
+                               scratch, scaling_opts) {
     let pre_scale;
     if (scratch?.pre_scale) {
         _deep_clone_statmap_into(scratch.pre_scale, build_sm, scratch.pre_scale_nested);
@@ -407,8 +407,17 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
     if (weaponType) pre_scale.set('classDef', classDefenseMultipliers.get(weaponType) || 1.0);
     _merge_into(pre_scale, atree_raw);
     _apply_radiance_scale_inplace(pre_scale, radiance_boost);
-    const [, atree_scaled_stats] = atree_compute_scaling(
-        atree_merged, pre_scale, button_states, slider_states, scratch?.atree);
+    // scaling_opts (worker only): {cached} — atree scaling proven constant
+    // for this search, reuse the precomputed result; {skip_edit} — no prop
+    // outputs exist, so the per-call ability clone can be skipped.
+    let atree_scaled_stats;
+    if (scaling_opts?.cached) {
+        atree_scaled_stats = scaling_opts.cached;
+    } else {
+        [, atree_scaled_stats] = atree_compute_scaling(
+            atree_merged, pre_scale, button_states, slider_states, scratch?.atree,
+            scaling_opts?.skip_edit ?? false);
+    }
 
     let combo_base;
     if (scratch?.combo_base) {

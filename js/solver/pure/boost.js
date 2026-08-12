@@ -51,6 +51,18 @@ function find_all_matching_boosts(token_name, token_value, is_pct, registry) {
  * Returns { stats: modified_stats, prop_overrides: Map<'abilId.prop', value> }.
  */
 function apply_combo_row_boosts(base_stats, boost_tokens, registry, scratch) {
+    // Fast path: a row with no boost tokens cannot modify any stat, so hand
+    // back base_stats itself instead of copying ~170 entries plus the nested
+    // mult maps. Callers treat the returned stats as read-only. Gated on the
+    // nested maps already existing because downstream readers iterate
+    // damMult/defMult/healMult unguarded (every finalized statMap has them).
+    if ((!boost_tokens || boost_tokens.length === 0)
+        && base_stats.has('damMult') && base_stats.has('defMult')) {
+        const prop_overrides = scratch?.prop_overrides ?? new Map();
+        if (scratch?.prop_overrides) prop_overrides.clear();
+        return { stats: base_stats, prop_overrides };
+    }
+
     let stats, damMult, defMult;
     if (scratch) {
         // Reuse pre-allocated Maps (zero allocation for the outer + nested Maps)
@@ -129,6 +141,58 @@ function apply_combo_row_boosts(base_stats, boost_tokens, registry, scratch) {
         }
     }
     return { stats, prop_overrides };
+}
+
+/**
+ * Compute a row's unclamped spell cost without materializing boosted row
+ * stats. The cost depends on exactly four stats — int, spRaw{bs}, spPct{bs},
+ * spPct{bs}Final — so this applies boost-token bonuses to those four values
+ * with merge semantics identical to apply_combo_row_boosts (same token /
+ * match / bonus order, same round + max + mode handling) and then evaluates
+ * getBaseSpellCost/getUnclampedSpellCost's formula directly. Used by the
+ * mana simulations, whose row stats were only ever read for the cost.
+ */
+function row_unclamped_spell_cost(base_stats, spell, boost_tokens, registry) {
+    const bs = spell.mana_derived_from ?? spell.base_spell;
+    const kRaw = 'spRaw' + bs, kPct = 'spPct' + bs, kFinal = 'spPct' + bs + 'Final';
+    let vInt = base_stats.get('int') ?? 0;
+    let vRaw = base_stats.get(kRaw) ?? 0;
+    let vPct = base_stats.get(kPct) ?? 0;
+    let vFinal = base_stats.get(kFinal) ?? 0;
+
+    if (boost_tokens && boost_tokens.length) {
+        for (const { name, value, is_pct } of boost_tokens) {
+            const matches = find_all_matching_boosts(name, value, !!is_pct, registry);
+            for (const { entry, effective_value } of matches) {
+                for (const b of entry.stat_bonuses) {
+                    const key = b.key;
+                    if (key !== 'int' && key !== kRaw && key !== kPct && key !== kFinal) continue;
+                    let contrib = b.value * effective_value;
+                    if (b.round !== false) contrib = Math.floor(round_near(contrib));
+                    if (b.max != null) {
+                        if (b.max > 0 && contrib > b.max) contrib = b.max;
+                        else if (b.max < 0 && contrib < b.max) contrib = b.max;
+                    }
+                    if (key === 'int') {
+                        vInt = b.mode === 'max' ? Math.max(vInt, contrib) : vInt + contrib;
+                    } else if (key === kRaw) {
+                        vRaw = b.mode === 'max' ? Math.max(vRaw, contrib) : vRaw + contrib;
+                    } else if (key === kPct) {
+                        vPct = b.mode === 'max' ? Math.max(vPct, contrib) : vPct + contrib;
+                    } else {
+                        vFinal = b.mode === 'max' ? Math.max(vFinal, contrib) : vFinal + contrib;
+                    }
+                }
+            }
+        }
+    }
+
+    // Mirror getBaseSpellCost + getUnclampedSpellCost exactly.
+    const int_reduction = skillPointsToPercentage(vInt) * skillpoint_final_mult[2];
+    let cost = spell.cost * (1 - int_reduction);
+    cost += vRaw;
+    cost *= (1 + vPct / 100);
+    return cost * (1 + vFinal / 100);
 }
 
 /**

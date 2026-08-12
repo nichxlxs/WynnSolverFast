@@ -352,13 +352,39 @@ function _fast_ehp_precheck(running_sm) {
 
 // ── Per-candidate stat assembly ─────────────────────────────────────────────
 
+// ── Atree scaling optimization state (computed once per worker) ─────────────
+// When no non-slider stat_scaling reads a build stat, the scaling output is
+// constant for this search's fixed button/slider states and is computed once.
+// When no effect produces a 'prop'-type bonus, the per-call ability clone in
+// atree_compute_scaling is skipped (skip_edit).
+let _atree_scaling_ready = false;
+let _atree_scaled_cache = null;   // Map | null
+let _atree_skip_edit = false;
+const _ATREE_SCALING_OPTS = { cached: null, skip_edit: false };
+
+function _atree_scaling_setup() {
+    if (_atree_scaling_ready) return;
+    _atree_scaling_ready = true;
+    const a = atree_scaling_analysis(_cfg.atree_merged);
+    _atree_skip_edit = !a.has_prop_outputs;
+    if (!a.stat_dependent) {
+        const [, scaled] = atree_compute_scaling(
+            _cfg.atree_merged, new Map(), _cfg.button_states, _cfg.slider_states,
+            null, _atree_skip_edit);
+        _atree_scaled_cache = scaled;
+    }
+    _ATREE_SCALING_OPTS.cached = _atree_scaled_cache;
+    _ATREE_SCALING_OPTS.skip_edit = _atree_skip_edit;
+}
+
 function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
         { pre_scale: _scratch_pre_scale, pre_scale_nested: _scratch_pre_scale_nested,
           combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
-          atree: _scratch_atree });
+          atree: _scratch_atree },
+        _ATREE_SCALING_OPTS);
 }
 
 function _assemble_threshold_stats(combo_base) {
@@ -863,8 +889,14 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 P.set(skp_order[i], total_sp[i] + _trial_raw_skp[i]);
             }
-            const [, atree_scaled_stats] = atree_compute_scaling(
-                _cfg.atree_merged, P, _cfg.button_states, _cfg.slider_states, _scratch_atree);
+            let atree_scaled_stats;
+            if (_atree_scaled_cache) {
+                atree_scaled_stats = _atree_scaled_cache;
+            } else {
+                [, atree_scaled_stats] = atree_compute_scaling(
+                    _cfg.atree_merged, P, _cfg.button_states, _cfg.slider_states,
+                    _scratch_atree, _atree_skip_edit);
+            }
             _merge_into_undo(P, atree_scaled_stats);
             _merge_into_undo(P, _cfg.static_boosts);
             const s = _eval_score(P, P);
@@ -1606,6 +1638,7 @@ self.onmessage = function (e) {
             _build_constraint_prechecks();
             _build_sp_constraints();
             _vec_setup();
+            _atree_scaling_setup();
         } catch (err) {
             console.error('[w] prechecks crashed:', err.message, err.stack);
             postMessage({ type: 'done', worker_id: msg.worker_id, checked: 0, feasible: 0, met_req: 0, top5: [] });
