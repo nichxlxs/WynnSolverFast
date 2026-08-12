@@ -2345,6 +2345,7 @@ impl Objective {
 // original (token, match, bonus) order so the float sequence — and thus
 // every result bit — is unchanged.
 
+#[derive(PartialEq, Clone, Copy)]
 pub enum CompiledBonusKind { Stat, DamMult, DefMult }
 
 pub struct CompiledBonus {
@@ -2967,6 +2968,11 @@ pub struct DenseCtx {
     /// Direct leaf build (no Obj base for gated leaves); None → build the
     /// Obj base and lower it per leaf instead.
     pub direct: Option<DenseDirect>,
+    /// row_canon[i] = smallest row index whose (per_cast, flat) computation
+    /// is identical to row i's — same modified spell, boost deltas, and DPS
+    /// parameters. Within one eval the canonical result is computed once and
+    /// reused (pure memoization; the inputs are bit-identical).
+    pub row_canon: Vec<usize>,
 }
 
 pub struct DenseLeaf {
@@ -3381,9 +3387,44 @@ impl DenseCtx {
             dd
         });
 
+        // Row-group canonicalization for per-eval memoization.
+        let bonuses_eq = |a: &[CompiledBonus], b: &[CompiledBonus]| -> bool {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| {
+                x.kind == y.kind && x.key == y.key
+                    && x.contrib.to_bits() == y.contrib.to_bits()
+                    && x.use_max == y.use_max
+            })
+        };
+        let dps_eq = |a: &Option<(String, f64, String)>, b: &Option<(String, f64, String)>| -> bool {
+            match (a, b) {
+                (None, None) => true,
+                (Some((n1, h1, r1)), Some((n2, h2, r2))) =>
+                    n1 == n2 && h1.to_bits() == h2.to_bits() && r1 == r2,
+                _ => false,
+            }
+        };
+        let mut row_canon: Vec<usize> = (0..compiled.len()).collect();
+        for i in 0..compiled.len() {
+            let (ri, ci) = (&rows[i], &compiled[i]);
+            if ci.mod_spell.is_none() || ri.qty <= 0.0 || ri.pseudo { continue; }
+            for j in 0..i {
+                let (rj, cj) = (&rows[j], &compiled[j]);
+                if row_canon[j] != j { continue; }
+                if cj.mod_spell.is_none() || rj.qty <= 0.0 || rj.pseudo { continue; }
+                let same = ci.mod_spell == cj.mod_spell
+                    && bonuses_eq(&ci.bonuses, &cj.bonuses)
+                    && dps_eq(&ci.dps, &cj.dps)
+                    && ci.fallback_root == cj.fallback_root
+                    && ri.dps_per_hit_name == rj.dps_per_hit_name
+                    && ri.dps_hits.to_bits() == rj.dps_hits.to_bits()
+                    && ri.dps_hits_override.map(f64::to_bits) == rj.dps_hits_override.map(f64::to_bits);
+                if same { row_canon[i] = j; break; }
+            }
+        }
+
         let n = keys.len();
         Some(DenseCtx {
-            direct,
+            direct, row_canon,
             idx, n, skp_idx, class_def_idx, dex_idx, atk_tier_idx,
             conv_base_idx, dam_add_min_idx, dam_add_max_idx,
             sd_pct_idx, md_pct_idx, dam_pct_idx, sd_raw_idx, md_raw_idx, dam_raw_idx,
@@ -3844,30 +3885,39 @@ pub fn dense_combo_damage(
         tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex })
     };
     let mut journal: Vec<DenseUndo> = Vec::new();
+    let mut row_cache: Vec<Option<(f64, f64)>> = vec![None; d.row_canon.len()];
     let mut total_damage = 0.0;
-    for ((row, comp), drow) in rows.iter().zip(compiled).zip(&d.rows) {
+    for (ri, ((row, comp), drow)) in rows.iter().zip(compiled).zip(&d.rows).enumerate() {
         if comp.mod_spell.is_none() { continue; }
         if row.qty <= 0.0 || row.pseudo { continue; }
 
-        let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
-        let mut eff_dps_hits = row.dps_hits;
-        let mut chain_root: Option<&str> = None;
-        if eff_dps_name.is_none() {
-            if let Some((name, hits, root)) = &comp.dps {
-                eff_dps_name = Some(name);
-                eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
-                chain_root = Some(root);
-            }
-        }
-        let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
-        let plan = comp.plan.as_ref().expect("dense requires plans");
+        let canon = d.row_canon[ri];
+        let (per_cast, flat_per_cast) = match row_cache[canon] {
+            Some(pair) => pair,
+            None => {
+                let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
+                let mut eff_dps_hits = row.dps_hits;
+                let mut chain_root: Option<&str> = None;
+                if eff_dps_name.is_none() {
+                    if let Some((name, hits, root)) = &comp.dps {
+                        eff_dps_name = Some(name);
+                        eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
+                        chain_root = Some(root);
+                    }
+                }
+                let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
+                let plan = comp.plan.as_ref().expect("dense requires plans");
 
-        dense_apply_row(s, drow, &mut journal);
-        let (mut per_cast, flat) = dense_spell_plan(
-            d, s, plan, drow, crit, tables, eff_dps_name.is_some());
-        dense_undo_row(s, &mut journal);
-        if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
-        let flat_per_cast = if final_root.is_some() { flat } else { 0.0 };
+                dense_apply_row(s, drow, &mut journal);
+                let (mut per_cast, flat) = dense_spell_plan(
+                    d, s, plan, drow, crit, tables, eff_dps_name.is_some());
+                dense_undo_row(s, &mut journal);
+                if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
+                let flat_per_cast = if final_root.is_some() { flat } else { 0.0 };
+                row_cache[canon] = Some((per_cast, flat_per_cast));
+                (per_cast, flat_per_cast)
+            }
+        };
 
         let eff_qty = if row.is_melee_time {
             let melee_period = match row.melee_cd_override {
