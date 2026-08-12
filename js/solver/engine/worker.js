@@ -99,6 +99,21 @@ const _default_sp_caps = new Int32Array([150, 150, 150, 150, 150]);
 
 const PROGRESS_INTERVAL = 5000;
 const PROGRESS_INTERVAL_LONG = 50000;
+
+// Progress reporting is checkpoint-based rather than modulo-based: subtree
+// crediting (illegal-set skips, SP/restriction pruning) advances _checked in
+// large jumps that step over interval multiples, which silently starved the
+// modulo check of progress (and therefore anytime top-5) messages.
+// (Adopted from PR #3's _take_progress_checkpoint.)
+const _progress_checkpoint = { next: PROGRESS_INTERVAL };
+function _take_progress_checkpoint(checked) {
+    if (checked < _progress_checkpoint.next) return false;
+    do {
+        _progress_checkpoint.next += _progress_checkpoint.next < 1_000_000
+            ? PROGRESS_INTERVAL : PROGRESS_INTERVAL_LONG;
+    } while (_progress_checkpoint.next <= checked);
+    return true;
+}
 let _checked = 0;
 let _precheck_pass = 0;
 let _precheck_reject = 0;
@@ -744,8 +759,7 @@ function _run_level_enum() {
     // ── Progress reporting ──────────────────────────────────────────────────
 
     function _maybe_progress() {
-        const interval = _checked < 1_000_000 ? PROGRESS_INTERVAL : PROGRESS_INTERVAL_LONG;
-        if (_checked % interval === 0) {
+        if (_take_progress_checkpoint(_checked)) {
             const msg = {
                 type: 'progress',
                 worker_id: _cfg.worker_id,
@@ -1150,12 +1164,22 @@ function _run_level_enum() {
 
     // ── Stat tracking helpers ────────────────────────────────────────────────
 
+    // Precompile each pool item's vector entries onto its wrapper so the hot
+    // place/unplace path reads a plain property instead of a WeakMap.
+    if (_running_is_vec) {
+        for (const pool of [...Object.values(pools), ring_pool ?? []]) {
+            if (!pool) continue;
+            for (const item of pool) {
+                if (!item._vec_entries) item._vec_entries = _vec_entries(item.statMap);
+            }
+        }
+    }
     const _place_item = _running_is_vec
-        ? (item_sm) => _vec_add_item(running_sm, item_sm)
-        : (item_sm) => _incr_add_item(running_sm, item_sm);
+        ? (item) => _vec_add_entries(running_sm, item._vec_entries)
+        : (item) => _incr_add_item(running_sm, item.statMap);
     const _unplace_item = _running_is_vec
-        ? (item_sm) => _vec_remove_item(running_sm, item_sm)
-        : (item_sm) => _incr_remove_item(running_sm, item_sm);
+        ? (item) => _vec_remove_entries(running_sm, item._vec_entries)
+        : (item) => _incr_remove_item(running_sm, item.statMap);
 
     // ── Level-based enumeration over free armor/accessory slots ─────────────
     //
@@ -1493,7 +1517,7 @@ function _run_level_enum() {
                 if (!tracker.blocks(is, iname)) {
                     if (is) tracker.add(is, iname);
                     partial[slot] = item;
-                    _place_item(item.statMap);
+                    _place_item(item);
                     _sp_place_free_item(item.statMap, slot_idx);
                     if (_sp_leaf_feasible()) {
                         _evaluate_leaf();
@@ -1503,7 +1527,7 @@ function _run_level_enum() {
                         _maybe_progress();
                     }
                     _sp_unplace_free_item(item.statMap, slot_idx);
-                    _unplace_item(item.statMap);
+                    _unplace_item(item);
                     if (is) tracker.remove(is, iname);
                 } else {
                     // Illegal-set blocked — the single leaf for this tuple is still
@@ -1540,7 +1564,7 @@ function _run_level_enum() {
             if (is) tracker.add(is, iname);
 
             partial[slot] = item;
-            _place_item(item.statMap);
+            _place_item(item);
             _sp_place_free_item(item.statMap, slot_idx);
 
             if (is_ring1) {
@@ -1567,7 +1591,7 @@ function _run_level_enum() {
             }
 
             _sp_unplace_free_item(item.statMap, slot_idx);
-            _unplace_item(item.statMap);
+            _unplace_item(item);
             if (is) tracker.remove(is, iname);
         }
         partial[slot] = locked[slot] ?? none_items_wrapped[_cfg.none_idx_map[slot]];
@@ -1669,6 +1693,7 @@ self.onmessage = function (e) {
             _last_sent_top5_version = 0;
             _checked_at_last_top5_change = 0;
             _current_L = 0;
+            _progress_checkpoint.next = PROGRESS_INTERVAL;
             _reset_trace();
             try {
                 _run_level_enum();
@@ -1703,6 +1728,7 @@ self.onmessage = function (e) {
         _checked_at_last_top5_change = 0;
         _current_L = 0;
         _cancelled = false;
+        _progress_checkpoint.next = PROGRESS_INTERVAL;
         _reset_trace();
 
         try {

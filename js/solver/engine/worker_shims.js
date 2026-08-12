@@ -138,6 +138,19 @@ function _vec_remove_item(vec, item_sm) {
     for (let i = 0; i < idxs.length; i++) vec[idxs[i]] -= vals[i];
 }
 
+// Entry-based variants: the worker precompiles each pool item's entries onto
+// the pool wrapper at enumeration setup, skipping the per-call WeakMap lookup
+// on the hot place/unplace path. (Shape adopted from PR #3.)
+function _vec_add_entries(vec, entries) {
+    const idxs = entries.idxs, vals = entries.vals;
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] += vals[i];
+}
+
+function _vec_remove_entries(vec, entries) {
+    const idxs = entries.idxs, vals = entries.vals;
+    for (let i = 0; i < idxs.length; i++) vec[idxs[i]] -= vals[i];
+}
+
 /** Materialize the running vector into a statMap (base keys + nonzero rest). */
 function _vec_materialize(vec, target) {
     target.clear();
