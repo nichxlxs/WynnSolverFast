@@ -2306,9 +2306,27 @@ pub fn leaf_pipeline_gated(
 
     // Mana-doom precheck: mana feasibility depends on the greedy SP only
     // through Int (monotone — more Int means more starting mana and cheaper
-    // spells), so a single sim at Int=150 upper-bounds every greedy/rescue
-    // outcome. Admissible only when no atree var effect couples stats into
-    // the mana-relevant set (l2.mana_doom_ok).
+    // spells), so a single sim at the highest Int this leaf can reach
+    // upper-bounds every greedy/rescue outcome. Admissible only when no atree
+    // var effect couples stats into the mana-relevant set (l2.mana_doom_ok).
+    //
+    // That highest Int is rarely 150, and testing 150 asks whether a build
+    // could sustain with skill points it cannot have. Every point that ends up
+    // in Int is added by the greedy or moved there by the mana rescue, and
+    // both raise `base_sp[2]` and `total_sp[2]` together while respecting
+    // `base_sp[2] < 100` and `total_sp[2] < 150`; the rescue can only relocate
+    // points the greedy placed, so between them they add at most `remaining`.
+    // Hence the reachable ceiling below. On the ehp benchmark it averages 59
+    // against the 150 that was being tested — every leaf, without exception.
+    //
+    // `SCORE_DOOM_INT=150` restores the old ceiling, which is what the
+    // equivalence check compares against: tightening an admissible bound must
+    // not change which leaves get *scored*, only how early the rest are cut.
+    let doom_int = if std::env::var("SCORE_DOOM_INT").as_deref() == Ok("150") { 150.0 } else {
+        let rem = (consts.sp_budget - assigned_sp).max(0);
+        let room = rem.min(100 - base_sp[2]).min(150 - total_sp[2]).max(0);
+        (total_sp[2] + room) as f64
+    };
     let mut doom_reject_expected = false;
     // Bounded doom availability: sound whenever var effects don't couple
     // into atkTier, and start-mana couplings (maxMana/int) only under
@@ -2336,7 +2354,7 @@ pub fn leaf_pipeline_gated(
             let mut doom_sp = [0f64; 5];
             let mut sp_lo = [0f64; 5];
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
-            doom_sp[2] = 150.0;
+            doom_sp[2] = doom_int;
             if let Some((d, w)) = dwork.as_mut() {
                 let DenseWork { leaf, scratch, .. } = &mut **w;
                 if l2.mana_doom_ok {
@@ -2358,9 +2376,12 @@ pub fn leaf_pipeline_gated(
             }
         });
         if doomed {
-            // Tripwire: under check mode a bounded-doom reject falls through
-            // to the full pipeline, which must also reject (asserted below).
-            if !(dense_check && bounded_doom_ok && !l2.mana_doom_ok) {
+            // Tripwire: under check mode EVERY doom reject falls through to the
+            // full pipeline, which must also reject (asserted below). This used
+            // to cover only the bounded-doom case, which left the reachable-Int
+            // ceiling — the part that decides how many leaves are cut — with no
+            // check at all on the scenarios where it fires most.
+            if !dense_check {
                 return Ok(LeafOutcome::ManaReject);
             }
             doom_reject_expected = true;
@@ -2434,7 +2455,7 @@ pub fn leaf_pipeline_gated(
         let saved_rescue_total = total_sp;
         let _ = (saved_rescue_base, saved_rescue_total);
         if mana_ok {
-            assert!(!doom_reject_expected, "bounded doom would have rejected a scored leaf");
+            assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
                 let DenseWork { leaf, scratch, sim_memo } = &mut **w;
                 let v = match dynamic {
@@ -2474,7 +2495,7 @@ pub fn leaf_pipeline_gated(
             ok
         });
         if rescued {
-            assert!(!doom_reject_expected, "bounded doom would have rejected a rescued leaf");
+            assert!(!doom_reject_expected, "doom precheck would have rejected a rescued leaf");
             {
                 let (d2, w2) = dwork.as_mut().unwrap();
                 if !d2.thresholds.is_empty()
@@ -2518,6 +2539,7 @@ pub fn leaf_pipeline_gated(
         }
     }
 
+    assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
     let score = phase!(FINAL_NS, obj_score(&mut combo_base));
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }

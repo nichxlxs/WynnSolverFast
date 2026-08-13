@@ -17,7 +17,7 @@ ordered roughly by expected user impact within each section.
 | ~~A3~~ | Blood Pact — **SUPPORTED** (unless a slider is declared) | Shaman HP-cost casting + BP boost injection | The health-cost payment branch is in the fast sim now, so the mana verdict is exact. Damage is only affected when `damage_boost.slider_name` is set (that is what `inject_blood_pact_boosts` injects); with no slider declared, injection adds nothing and the damage rows are unchanged, so those builds solve. **This previously produced silently wrong answers** — the exporter shipped `health_config` and the engine never read it, so BP builds were mana-rejected and dropped from results rather than refused. |
 | ~~A6~~ | Dynamic sliders — **SUPPORTED** | `damage_boost.slider_name` / `buff_state.slider_name` | These are the JS `has_dyn` condition: `eval_combo_damage_with_bp` injects simulation-derived values into the damage rows **per leaf** via `inject_blood_pact_boosts`. Such scenarios now run the whole chain per leaf — simulate, unroll if needed, recompute recast penalties, inject, score — on the Obj path with the compiled rows, dense lowering, ceiling gate and every bound switched off (all of them assume parse-time-constant rows). Verified live: the same buff state with no slider declared scores identically to no buff state at all (`8.192296800e+06`), and declaring the slider moves it to `8.222605726e+06`. |
 | ~~A7~~ | ~~Multi-partition scenarios~~ | — | **NOT A GAP (corrected).** The Rust engine enumerates the whole space in one process (work-stealing over first-slot offsets), and checks the identical leaf count as the JS run (3,100,680 on the restricted-melee scenario). The one JS-only top entry is the **seeded current UI build** (`_eval_current_build` → `_insert_top5`), which the solver inserts as a baseline and which no enumeration would produce. |
-| A8 | Non-lowered atree plans (`scaling_kind == "full"`) — **narrowed to one cause** | Trees the exporter cannot lower to cached/split | Was four causes; three are now lowered. **Dotted / multiplier-map var outputs** (`damMult.Surge`) were refused out of caution, but Rust already handled them: `eval_var_effects` routes outputs through `merge_stat` exactly as the JS does, `merge_into` recombines the partitions the same way, and the dense lowering declines them (`nested_prefix`) so they take the validated Obj path — proved by `var_effect_check`, 17 synthetic effect lists bit-exact against the JS. **Const/var key collisions** are lowered when every contribution is integral: the full pass interleaves const and var terms in effect order while the split sums each partition apart, and float addition is not associative — but integers below 2^53 sum exactly in *any* order, so the two agree bit-for-bit. `test_scaling_association.js` pins both halves (fractional terms diverge within a few trials; 200k integral trials never do) and the 2^53 boundary the rule is stated against. **Three causes are still `full`** — `var_has_prop_io`, a bare multiplier-root var output, and a non-integral const/var collision — **but none of them occurs in any ability tree Wynncraft has shipped**: `test_atree_lowering_coverage.js` classifies the all-nodes tree of every class across all 35 data versions in the repo (2.0.1.1 → 2.2.2.0, 175 class trees, 337 variable effects) through the real `atree_collect_stat_effects`, and finds zero. All three conditions are monotone in the node set, so a clean superset means every real build is clean too. Doing the port would be writing code for a shape the game has never produced; the test is the standing watch instead — if a data update introduces one, it fails and names the class and ability. |
+| ~~A8~~ | Non-lowered atree plans (`scaling_kind == "full"`) — **no shipped tree hits one** | Trees the exporter cannot lower to cached/split | Was four causes; three are now lowered. **Dotted / multiplier-map var outputs** (`damMult.Surge`) were refused out of caution, but Rust already handled them: `eval_var_effects` routes outputs through `merge_stat` exactly as the JS does, `merge_into` recombines the partitions the same way, and the dense lowering declines them (`nested_prefix`) so they take the validated Obj path — proved by `var_effect_check`, 17 synthetic effect lists bit-exact against the JS. **Const/var key collisions** are lowered when every contribution is integral: the full pass interleaves const and var terms in effect order while the split sums each partition apart, and float addition is not associative — but integers below 2^53 sum exactly in *any* order, so the two agree bit-for-bit. `test_scaling_association.js` pins both halves (fractional terms diverge within a few trials; 200k integral trials never do) and the 2^53 boundary the rule is stated against. **Three causes are still `full`** — `var_has_prop_io`, a bare multiplier-root var output, and a non-integral const/var collision — **but none of them occurs in any ability tree Wynncraft has shipped**: `test_atree_lowering_coverage.js` classifies the all-nodes tree of every class across all 35 data versions in the repo (2.0.1.1 → 2.2.2.0, 175 class trees, 337 variable effects) through the real `atree_collect_stat_effects`, and finds zero. All three conditions are monotone in the node set, so a clean superset means every real build is clean too. Doing the port would be writing code for a shape the game has never produced; the test is the standing watch instead — if a data update introduces one, it fails and names the class and ability. |
 
 ### Both engines (nobody solves these today)
 
@@ -32,7 +32,41 @@ ordered roughly by expected user impact within each section.
 
 | # | Case | Why slow | Speed today | Possible fix |
 |---|------|----------|-------------|--------------|
-| B1 | Defensive objectives (ehp/ehpr/hpr/total_hp) | The ceiling gate discriminates poorly on defensively-flat pools, so most leaves reach the mana simulation | ~9x slower than damage goals. **Profiled** (`SCORE_TRACE=1`, `spell_ehp`, 1.9M leaves): mana 10.2 s + doom precheck 4.6 s = **78% of a 19 s run**, against 2.5 s greedy and 0.4 s SP | Reduce the *number* of leaves reaching the simulation, not the cost per simulation — see the tried-and-rejected note below |
+| B1 | Defensive objectives (ehp/ehpr/hpr/total_hp) | The ceiling gate discriminates poorly on defensively-flat pools, so most leaves reach the mana simulation | Was ~9x slower than damage goals, with mana + doom **78% of the run**. The doom precheck now tests the highest Int the leaf can actually *reach* instead of a flat 150: **1.46x** on `spell_ehp` (126,035 against 86,154 leaves/s), mana 22.25 s → 9.13 s, greedy trials 31.1M → 21.9M | Reducing the *number* of leaves reaching the simulation is what works — the per-leaf cost is not the problem (see the rejected memo below) |
+
+**The doom precheck was asking the wrong question.** It simulates one leaf at
+maximum Int to prove no SP allocation can make it mana-feasible — mana
+feasibility is monotone in Int, so if the best case is dead, every case is.
+It used a flat `Int = 150`. But **every point that ends up in Int is either
+added by the greedy or moved there by the mana rescue**, and both raise
+`base_sp[2]` and `total_sp[2]` together under `base_sp[2] < 100` and
+`total_sp[2] < 150`, while the rescue can only relocate points the greedy
+placed. So between them they add at most `remaining`, and the reachable
+ceiling is
+
+    total_sp[2] + min(remaining, 100 - base_sp[2], 150 - total_sp[2])
+
+which is a valid upper bound and a much tighter one. On `spell_ehp` it
+averages **59**, and it is below 150 on **100% of doom checks** — on every
+benchmark, not just that one. The old check was asking whether builds could
+sustain with skill points they cannot have, so it passed leaves the mana
+check would later reject, after paying for the greedy.
+
+**1.46x** on `spell_ehp` (126,035 against 86,154 leaves/s over a 60 s window).
+The work moves out of the expensive stages: mana 22.25 s → 9.13 s, greedy
+trials 31.1M → 21.9M, doom 9.68 s → 14.41 s (more leaves reach it, same cost
+each). Damage scenarios are unaffected — byte-identical counters, and
+`armor4`'s full space is within noise.
+
+Validated by making the tripwire actually cover it. `SCORE_DENSE_CHECK=1` now
+falls a doom rejection through to the full pipeline and asserts the pipeline
+rejects it too; it previously did that only for the *bounded* doom, leaving
+the Int ceiling — the part that decides how many leaves get cut — unchecked on
+the scenarios where it fires most. The Obj-path scoring exit had no tripwire at
+all. With both closed, 436,712 rejections on `spell_ehp` pass. Single-threaded
+`scored` counts and top-15 are identical to `SCORE_DOOM_INT=150` on every
+fixture, which is the sharp test: a wrongly doomed leaf is one that would
+otherwise have been scored.
 
 **Tried and rejected: memoizing the mana verdict.** The simulation reads only `DenseCtx::mana_keys`, so its verdict can be cached by exact stat values. First attempt hit 0.7% — `hp`/`hpBonus` are in the key and vary on nearly every defensive item. Narrowing the key was sound and worked: those two reach the verdict only through `has_hp_warning`, which needs an HP cost to exist (a row `hp_cost`, Blood Pact, or an HP-draining buff state), so with none of those they can be dropped. Hit rate went to **66%** and the doom phase fell from 4.6 s to 2.5 s.
 
@@ -165,12 +199,11 @@ identical output with the per-trial check clean.
 
 ## Remaining work, in the order I'd tackle it
 
-1. **Speed, not coverage.** Every section-A gap the engine used to refuse is
-   now supported. What remains is that dynamic-row scenarios still score on
-   the Obj path rather than the dense one (B9), a measured 28x. Three
-   tried-and-rejected attempts are recorded above — B1's mana memo, the
-   assumption that row *construction* was B9's cost, and a per-trial
-   recompile — each plausible, each measured, each wrong.
+1. ~~**Speed, not coverage**~~ — B9 is closed (19x) and B1's doom precheck is
+   1.46x. What is left in section B needs new bound *shapes* rather than
+   tuning: B3 and B4 have no admissible ceiling at all today, and B5 needs a
+   two-sided doom bound. Six tried-and-rejected attempts are recorded above;
+   each was plausible and each was wrong until measured.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no
    `SharedArrayBuffer` or cross-origin isolation needed. Exact (verified at
@@ -178,14 +211,14 @@ identical output with the per-trial check clean.
    each partition re-derives its own score cutoff, and gated on search size
    because worker startup would otherwise dominate a short solve. True
    shared-cutoff threading still wants SharedArrayBuffer.
-3. ~~**wasm threads (old note)** (SharedArrayBuffer + COOP/COEP): full core scaling in
-   the browser on top of the single-threaded engine already shipping.
 3. ~~**A6 dynamic sliders / A8 non-lowered ability trees**~~: A6 is supported.
    A8's three remaining causes are unreachable in every ability tree the game
    has shipped, and `test_atree_lowering_coverage.js` now watches for that
    changing — port them if it ever fails, not before.
-4. **B-section speedups**: B1 (defensive objectives, mana-sim bound) has
-   the most headroom; B2/B3 need interval-style bounds to prune at all.
+4. **A9-A12** (tome / weapon / powder / ingredient search) are the only
+   remaining *capability* gaps, and neither engine does them. They change the
+   enumeration space and the UI in both, so they are a product call rather
+   than a port.
 
 ## Verification status
 
