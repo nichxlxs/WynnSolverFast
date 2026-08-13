@@ -1,0 +1,86 @@
+{
+  "name": "solver_family_cancelstack_large",
+  "description": "Trance cancelstack large search. 3 ideal-build items provided; helmet, chestplate, leggings, boots, ring1, bracelet free.",
+  "benchmark_family": "cancelstack",
+  "benchmark_size": "large",
+  "seed_build_id": "ubg-trance-trance-riftwalker-melee-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+  "core_weapon": "Trance",
+  "seed_score": 476516.7353716639,
+  "seed_item_names": [
+    "Shawl of Gaea",
+    "Lithosphere",
+    "Writhing Growth",
+    "Boulderstorm",
+    "Vivisected",
+    "Vivisected",
+    "Ironleaf Bangle",
+    "Recalcitrance"
+  ],
+  "provided_ideal_item_count": 3,
+  "provided_ideal_items": [
+    "Vivisected",
+    "Recalcitrance",
+    "Trance"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring1",
+    "bracelet"
+  ],
+  "url_hash": "CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2_GN8Poa9xhnG0s74000",
+  "scoring_target": "combo_damage",
+  "free_mask": 95,
+  "lvl_min": 100,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "ls",
+      "op": "ge",
+      "value": 0
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -200
+    },
+    {
+      "stat": "mainAttackRange",
+      "op": "ge",
+      "value": -20
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 1024391180736,
+  "calibrated_search_combinations": 195827198400,
+  "combination_budget": {
+    "input_min": 768293385552,
+    "input_max": 1280488975920,
+    "search_min": 146870398800,
+    "search_max": 244783998000
+  },
+  "locked_items": {
+    "ring2": {
+      "name": "Vivisected",
+      "stat_hash": "36ef2665b9dcb1c6431a25ded492b0b30d704ce24f76bbb4414f0239146d71d7"
+    },
+    "necklace": {
+      "name": "Recalcitrance",
+      "stat_hash": "30f3045d85a52bcf1bac66f3f97a5a0d7b397176e398d983c0a4ee68f1413562"
+    }
+  },
+  "created": "2026-08-13T03:59:28.088Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

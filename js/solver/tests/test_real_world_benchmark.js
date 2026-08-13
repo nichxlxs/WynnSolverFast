@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { TestRunner } = require('./harness');
 const { parseSolverOutput, compareVariants } = require('../benchmarks/real_world_lib');
 
@@ -41,6 +43,40 @@ t.assert(seeded.bestScore === 470163, 'seeded incumbent score is preserved in ou
 let invalidRejected = false;
 try { parseSolverOutput('not solver output'); } catch (err) { invalidRejected = true; }
 t.assert(invalidRejected, 'invalid solver output is rejected');
+
+const familyManifest = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'benchmarks', 'family_suite.json'),
+    'utf8',
+));
+const expectedSizes = ['small', 'medium', 'large'];
+t.assert(familyManifest.families.length === 6, 'family manifest covers six build families');
+t.assert(familyManifest.families.every((family) =>
+    family.variants.map((variant) => variant.size).join(',') === expectedSizes.join(',')),
+'each family has ordered small, medium, and large variants');
+t.assert(familyManifest.families.every((family) =>
+    family.variants[0].calibrated_search_combinations
+        >= familyManifest.minimum_small_search_combinations),
+'every small family variant exceeds one million search combinations');
+t.assert(familyManifest.families.every((family) =>
+    family.variants[2].calibrated_search_combinations
+        <= familyManifest.maximum_large_search_combinations),
+'every large family variant stays at or below 1.88 trillion search combinations');
+t.assert(familyManifest.families.every((family) =>
+    family.variants[2].calibrated_input_combinations
+        <= familyManifest.maximum_large_input_combinations),
+'every large family variant stays at or below 1.88 trillion input combinations');
+t.assert(familyManifest.families.every((family) =>
+    family.variants.every((variant, index, variants) => index === 0
+        || variant.calibrated_search_combinations > variants[index - 1].calibrated_search_combinations)),
+'search spaces increase strictly within every family');
+t.assert(familyManifest.families.every((family) =>
+    family.variants.every((variant, index, variants) => index === 0
+        || variant.calibrated_input_combinations > variants[index - 1].calibrated_input_combinations)),
+'input spaces increase strictly within every family');
+t.assert(familyManifest.families.every((family) =>
+    family.variants.every((variant, index, variants) => index === 0
+        || variant.provided_ideal_item_count < variants[index - 1].provided_ideal_item_count)),
+'larger variants are created by providing fewer ideal-build items');
 
 const summary = t.summary();
 if (require.main === module && summary.fail > 0) process.exit(1);

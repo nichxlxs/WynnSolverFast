@@ -1,0 +1,81 @@
+{
+  "name": "solver_family_spellsteal_large",
+  "description": "Oblivion spellsteal large search. 3 ideal-build items provided; helmet, chestplate, leggings, boots, ring1, ring2 free.",
+  "benchmark_family": "spellsteal",
+  "benchmark_size": "large",
+  "seed_build_id": "ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+  "core_weapon": "Oblivion",
+  "seed_score": 96191.52388364627,
+  "seed_item_names": [
+    "Prosencephalon",
+    "Umbral Mail",
+    "Chaos-Woven Greaves",
+    "Stardew",
+    "Yang",
+    "Photon",
+    "Misalignment",
+    "Metamorphosis"
+  ],
+  "provided_ideal_item_count": 3,
+  "provided_ideal_items": [
+    "Misalignment",
+    "Metamorphosis",
+    "Oblivion"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring1",
+    "ring2"
+  ],
+  "url_hash": "CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4_GN4Poa9xdq12iB80140W120WW0000",
+  "scoring_target": "combo_damage",
+  "free_mask": 63,
+  "lvl_min": 106,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -250
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 61499733120,
+  "calibrated_search_combinations": 29639243088,
+  "combination_budget": {
+    "input_min": 46124799840,
+    "input_max": 76874666400,
+    "search_min": 22229432316,
+    "search_max": 37049053860
+  },
+  "locked_items": {
+    "bracelet": {
+      "name": "Misalignment",
+      "stat_hash": "8906ab1659ea54810129d7c6c3bc4a731b0c75ab83f14dab748be8366517690c"
+    },
+    "necklace": {
+      "name": "Metamorphosis",
+      "stat_hash": "02246fdfdd468f54bac8004064d7e5dc64cddc47fadd98152d3e49998031f167"
+    }
+  },
+  "created": "2026-08-13T03:59:36.887Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

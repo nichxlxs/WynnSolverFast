@@ -30,12 +30,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const JS_ROOT = path.join(REPO_ROOT, 'js');
 const SNAP_DIR = path.join(__dirname, 'snapshots');
 // Must track the last entry of wynn_version_names in js/data/load_item.js.
-// Items come from data/baseline (always the newest patch), but atree, majid,
-// aspects and encoding_consts are read out of data/<LATEST_VERSION>/ — so
-// letting this drift silently pairs current items with an old ability tree,
-// which is exactly the class of mismatch these tests exist to catch. It had
-// drifted to 2.2.0.21 while the site served 2.2.2.0.
 const LATEST_VERSION = '2.2.3.0';
+const VERSIONED_ITEM_DATA_PATH = path.join(REPO_ROOT, 'data', LATEST_VERSION, 'items.json');
+const FALLBACK_ITEM_DATA_PATH = path.join(REPO_ROOT, 'data', 'baseline', 'compressed', 'compress.json');
+const ITEM_DATA_PATH = fs.existsSync(VERSIONED_ITEM_DATA_PATH)
+    ? VERSIONED_ITEM_DATA_PATH
+    : FALLBACK_ITEM_DATA_PATH;
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 
@@ -222,9 +222,9 @@ function _clean_item(item, ctx) {
  */
 function loadGameData(ctx) {
     // ── Items + Sets ──
-    const compress = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data', 'baseline', 'compressed', 'compress.json'), 'utf8'));
-    let items = compress.items;
-    const raw_sets = compress.sets;
+    const itemPayload = JSON.parse(fs.readFileSync(ITEM_DATA_PATH, 'utf8'));
+    let items = itemPayload.items;
+    const raw_sets = itemPayload.sets;
 
     // Build sets Map.
     const sets = new Map();
@@ -1077,7 +1077,7 @@ function extractEquipmentStats(decoded, ctx) {
 function saveSnapshot(name, data) {
     data.created = new Date().toISOString();
     // locked_items is set by the caller before saving.
-    data.compress_hash = computeFileHash(path.join(REPO_ROOT, 'data', 'baseline', 'compressed', 'compress.json'));
+    data.compress_hash = computeFileHash(ITEM_DATA_PATH);
     data.atree_hash = computeFileHash(path.join(REPO_ROOT, 'data', LATEST_VERSION, 'atree.json'));
     const p = path.join(SNAP_DIR, name + '.snap.json');
     fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n');
@@ -1115,9 +1115,9 @@ function checkSnapshotFreshness(snap, runner, currentLockedStats, hasFreeSlots) 
 
     // Compress hash — only when there are free slots (pool enumeration).
     if (hasFreeSlots && snap.compress_hash) {
-        const curCompress = computeFileHash(path.join(REPO_ROOT, 'data', 'baseline', 'compressed', 'compress.json'));
+        const curCompress = computeFileHash(ITEM_DATA_PATH);
         if (snap.compress_hash !== curCompress) {
-            runner.warn(`Game data (data/baseline/compressed/compress.json) changed since snapshot "${snap.name}" was created.`);
+            runner.warn(`Item data changed since snapshot "${snap.name}" was created.`);
         }
     }
 }

@@ -1,0 +1,81 @@
+{
+  "name": "solver_family_spell_sustained_large",
+  "description": "Divzer spell_sustained large search. 3 ideal-build items provided; helmet, chestplate, leggings, boots, ring1, ring2 free.",
+  "benchmark_family": "spell_sustained",
+  "benchmark_size": "large",
+  "seed_build_id": "ubg-divzer-divzer-spell-boltslinger-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30",
+  "core_weapon": "Divzer",
+  "seed_score": 1476409.9923970918,
+  "seed_item_names": [
+    "Jailbroken",
+    "Bete Noire",
+    "Chaos-Woven Greaves",
+    "Static Cling",
+    "Lodestone",
+    "Lodestone",
+    "Diamond Static Bracelet",
+    "Stormleader"
+  ],
+  "provided_ideal_item_count": 3,
+  "provided_ideal_items": [
+    "Diamond Static Bracelet",
+    "Stormleader",
+    "Divzer"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring1",
+    "ring2"
+  ],
+  "url_hash": "CX0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30_GN4Poa9xdn12280034001200X0000",
+  "scoring_target": "combo_damage",
+  "free_mask": 63,
+  "lvl_min": 100,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 8000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -300
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 452328573312,
+  "calibrated_search_combinations": 170775063990,
+  "combination_budget": {
+    "input_min": 339246429984,
+    "input_max": 565410716640,
+    "search_min": 128081297992,
+    "search_max": 213468829988
+  },
+  "locked_items": {
+    "bracelet": {
+      "name": "Diamond Static Bracelet",
+      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
+    },
+    "necklace": {
+      "name": "Stormleader",
+      "stat_hash": "e7e5c4bbbe044f59f6fa2ee0ab58596617544bc8f91ea8a57cfad9ffa050eb3a"
+    }
+  },
+  "created": "2026-08-13T03:59:40.008Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

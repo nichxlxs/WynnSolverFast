@@ -1,0 +1,94 @@
+{
+  "name": "solver_family_heavy_melee_known_good",
+  "description": "Vengeance heavy_melee exact known-good seed with all equipment slots locked.",
+  "benchmark_family": "heavy_melee",
+  "benchmark_size": "known_good",
+  "seed_build_id": "ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+  "core_weapon": "Vengeance",
+  "provided_ideal_item_count": 9,
+  "provided_ideal_items": [
+    "Obsidian-Framed Helmet",
+    "Taurus",
+    "Babel",
+    "Blind Thrust",
+    "Ad Terram",
+    "Ad Terram",
+    "Silent Grove",
+    "Auxetic Capacitor",
+    "Vengeance"
+  ],
+  "free_equipment_slots": [],
+  "url_hash": "CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB_GJ8Poa9xC4Wz1100",
+  "scoring_target": "combo_damage",
+  "free_mask": 0,
+  "lvl_min": 104,
+  "lvl_max": 121,
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "ls",
+      "op": "ge",
+      "value": 0
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -100
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 1,
+  "calibrated_search_combinations": 1,
+  "combination_budget": {
+    "input_min": 1,
+    "input_max": 1,
+    "search_min": 1,
+    "search_max": 1
+  },
+  "known_good_seed_verification": true,
+  "locked_items": {
+    "helmet": {
+      "name": "Obsidian-Framed Helmet",
+      "stat_hash": "4cb2a136096d18cac08e793431f4ccef1252684290612ed8f6a0844df21a43f3"
+    },
+    "chestplate": {
+      "name": "Taurus",
+      "stat_hash": "4220aa9fe706d884925bbe0a43d4e0003a4584b95d74d9ff743493b6f7147fde"
+    },
+    "leggings": {
+      "name": "Babel",
+      "stat_hash": "ba4ad2b7ce80ec5c32b2c7e52f57c2cd3aa2296e223847eaace7b98dbfdc9303"
+    },
+    "boots": {
+      "name": "Blind Thrust",
+      "stat_hash": "7e6fb866735048b5cbc56cc3ce0a3c121530029c7e3a2df59f58fe249c1bb2a9"
+    },
+    "ring1": {
+      "name": "Ad Terram",
+      "stat_hash": "201bddf441f8c668a15318e8b7fe5364219634bceb57d22732f754568c1d1495"
+    },
+    "ring2": {
+      "name": "Ad Terram",
+      "stat_hash": "201bddf441f8c668a15318e8b7fe5364219634bceb57d22732f754568c1d1495"
+    },
+    "bracelet": {
+      "name": "Silent Grove",
+      "stat_hash": "430d75f8f078900c611c820c1323571b64e1dc66b33390b66233a41aec844edd"
+    },
+    "necklace": {
+      "name": "Auxetic Capacitor",
+      "stat_hash": "a6dd3d4ddb39a0450cc322a560fa0e783faa514523c23f61ac0b6767928b2d1e"
+    }
+  },
+  "created": "2026-08-13T03:59:30.754Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

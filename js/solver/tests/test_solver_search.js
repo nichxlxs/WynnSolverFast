@@ -1396,6 +1396,13 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
     const combinations = countCombinations(freePools);
     console.log(`  [${snapName}] search combinations: ${combinations}`);
+    if (snap.combination_budget) {
+        const budget = snap.combination_budget;
+        t.assert(inputCombinations >= budget.input_min && inputCombinations <= budget.input_max,
+            `${snapName}: input combinations ${inputCombinations} within calibrated band ${budget.input_min}-${budget.input_max}`);
+        t.assert(combinations >= budget.search_min && combinations <= budget.search_max,
+            `${snapName}: search combinations ${combinations} within calibrated band ${budget.search_min}-${budget.search_max}`);
+    }
 
     // 8. Serialize for worker transfer
     const poolsSer = ctx._serialize_pools(freePools);
@@ -1466,8 +1473,12 @@ async function runSolverTest(snapName) {
     // Match the real solver's worker count: min(hardwareConcurrency - 2, 16), at least 1.
     const numWorkers = Number(process.env.SOLVER_BENCH_WORKERS)
         || snap.num_workers || Math.max(1, Math.min((os.cpus().length || 4) - 2, 16));
-    const timeLimitMs = (Number(process.env.SOLVER_BENCH_SECONDS)
-        || snap.time_limit_seconds || 30) * 1000;
+    const requestedTimeLimitSeconds = Number(process.env.SOLVER_BENCH_SECONDS)
+        || snap.time_limit_seconds || 30;
+    const timeLimitSeconds = snap.benchmark_family
+        ? Math.min(requestedTimeLimitSeconds, snap.time_limit_seconds || 30)
+        : requestedTimeLimitSeconds;
+    const timeLimitMs = timeLimitSeconds * 1000;
     // Real solver creates 4× worker count partitions for work-stealing.
     const numPartitions = Math.max(numWorkers * 4, numWorkers);
     const partitions = ctx._partition_work(freePools, locked, numPartitions);

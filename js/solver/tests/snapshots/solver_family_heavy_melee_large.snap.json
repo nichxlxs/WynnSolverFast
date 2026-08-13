@@ -1,0 +1,81 @@
+{
+  "name": "solver_family_heavy_melee_large",
+  "description": "Vengeance heavy_melee large search. 3 ideal-build items provided; helmet, chestplate, leggings, boots, ring1, bracelet free.",
+  "benchmark_family": "heavy_melee",
+  "benchmark_size": "large",
+  "seed_build_id": "ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+  "core_weapon": "Vengeance",
+  "seed_score": 38613.608150629116,
+  "seed_item_names": [
+    "Obsidian-Framed Helmet",
+    "Taurus",
+    "Babel",
+    "Blind Thrust",
+    "Ad Terram",
+    "Ad Terram",
+    "Silent Grove",
+    "Auxetic Capacitor"
+  ],
+  "provided_ideal_item_count": 3,
+  "provided_ideal_items": [
+    "Ad Terram",
+    "Auxetic Capacitor",
+    "Vengeance"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring1",
+    "bracelet"
+  ],
+  "url_hash": "CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB_GN8Poa9xhpG0s74000",
+  "scoring_target": "combo_damage",
+  "free_mask": 95,
+  "lvl_min": 104,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "ls",
+      "op": "ge",
+      "value": 0
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -100
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 290060786484,
+  "calibrated_search_combinations": 50276160000,
+  "combination_budget": {
+    "input_min": 217545589863,
+    "input_max": 362575983105,
+    "search_min": 37707120000,
+    "search_max": 62845200000
+  },
+  "locked_items": {
+    "ring2": {
+      "name": "Ad Terram",
+      "stat_hash": "201bddf441f8c668a15318e8b7fe5364219634bceb57d22732f754568c1d1495"
+    },
+    "necklace": {
+      "name": "Auxetic Capacitor",
+      "stat_hash": "a6dd3d4ddb39a0450cc322a560fa0e783faa514523c23f61ac0b6767928b2d1e"
+    }
+  },
+  "created": "2026-08-13T03:59:31.022Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

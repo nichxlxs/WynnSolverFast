@@ -3,6 +3,8 @@
 *.json
 !data/**/*.json
 !js/solver/tests/**/*.json
+!js/solver/benchmarks/family_suite.json
+!research/build-database/family-seed-browser-validation.json
 data/temp/
 sets/
 
