@@ -859,6 +859,13 @@ pub struct Row {
     pub delay: Option<f64>,
     pub recast_penalties: Vec<f64>,
     pub has_loop_marker: bool,
+    /// `row.loop_start` as (condition type, condition value). Only the
+    /// stateful sim consumes this; the loop-free paths reject or unroll
+    /// before they see it.
+    pub loop_start: Option<(i64, f64)>,
+    pub loop_end: bool,
+    /// JS destructures `auto_delay = true`, i.e. absent means true.
+    pub auto_delay: bool,
     // Static spell fields hoisted for the mana sim (reads the ORIGINAL
     // spell, which is parse-time constant).
     pub sim_cost_present: bool,
@@ -963,6 +970,14 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
             recast_penalties: r.get("recast_penalties").map(arr_f64).unwrap_or_default(),
             has_loop_marker: r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false)
                 || r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
+            loop_start: r.get("loop_start").filter(|v| !v.is_null()).map(|c| (
+                c.get("type").and_then(|v| v.as_i64()).unwrap_or(-1),
+                // JS `condition.value || 1` — absent/0/NaN all fall back to 1.
+                c.get("value").and_then(|v| v.as_f64()).filter(|v| *v != 0.0 && !v.is_nan())
+                    .unwrap_or(1.0),
+            )),
+            loop_end: r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
+            auto_delay: r.get("auto_delay").and_then(|v| v.as_bool()).unwrap_or(true),
             static_dps: spell_ref.as_ref()
                 .and_then(|s| compute_dps_spell_hits_info(s))
                 .map(|i| (i.per_hit_name, i.max_hits, i.dps_chain_root)),
@@ -1494,7 +1509,8 @@ pub fn simulate_mana_fast_ff(
         let unclamped_cost = if is_spell {
             match compiled {
                 Some(c) => row_cost_compiled(combo_base, spell, &c[row_idx], tables, consts),
-                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts),
+                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables,
+                    consts.skillpoint_final_mult_2),
             }
         } else { 0.0 };
         let is_melee_scaling = row.sim_melee_scaling;
@@ -1570,7 +1586,7 @@ pub fn simulate_mana_fast_ff(
 /// row_unclamped_spell_cost (pure/boost.js).
 pub fn row_unclamped_spell_cost(
     base_stats: &Obj, spell: &Value, tokens: &[Token], registry: &[Value],
-    tables: &Tables, consts: &L2Consts,
+    tables: &Tables, skillpoint_final_mult_2: f64,
 ) -> f64 {
     let bs = spell.get("mana_derived_from").and_then(|v| v.as_i64())
         .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
@@ -1605,7 +1621,7 @@ pub fn row_unclamped_spell_cost(
         }
     }
 
-    let int_reduction = tables.sp_to_pct(v_int) * consts.skillpoint_final_mult_2;
+    let int_reduction = tables.sp_to_pct(v_int) * skillpoint_final_mult_2;
     let mut cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN) * (1.0 - int_reduction);
     cost += v_raw;
     cost *= 1.0 + v_pct / 100.0;
@@ -1617,7 +1633,7 @@ pub struct L2Consts {
     pub mana_tick_seconds: f64,
     pub spell_cast_time: f64,
     pub spell_cast_delay: f64,
-    skillpoint_final_mult_2: f64,
+    pub skillpoint_final_mult_2: f64,
     pub combo_time: f64,
     pub allow_downtime: bool,
     pub hp_casting: bool,
@@ -2234,6 +2250,49 @@ pub struct ScoringCtx {
     pub spell_base_costs: HashMap<i64, f64>,
 }
 
+/// Returns `Some(reason)` when `layer2.health_config` describes mechanics the
+/// loop-free scoring path cannot reproduce: generic buff states, Blood Pact
+/// health-cost casting, or dynamic sliders fed from the simulation.
+///
+/// Mirrors the JS conditions in `eval_combo_mana_check` (health_cost > 0 with
+/// hp_casting) and `eval_combo_damage_with_bp` (`has_dyn`).
+fn unsupported_health_config(fixture: &Value, consts: &L2Consts) -> Option<String> {
+    let hc = fixture.get("layer2")?.get("health_config")?;
+    if hc.is_null() {
+        return None;
+    }
+    // `simulate_combo_mana_hp` takes the health-cost branch on `health_cost > 0`
+    // alone — the `hp_casting` flag only selects which sim the JS caller runs.
+    // So gate on the cost itself, not on the flag, or an hp_casting=false
+    // scenario with a nonzero cost would slip through and be mana-rejected
+    // here while the JS pays it from HP.
+    let health_cost = hc.get("health_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    if health_cost > 0.0 || consts.hp_casting {
+        return Some(format!(
+            "Blood Pact not supported (health_cost {health_cost}, hp_casting \
+             {}): spell costs paid from HP change both the mana verdict and, \
+             through inject_blood_pact_boosts, the damage (matrix A3)",
+            consts.hp_casting));
+    }
+    let buff_states = hc.get("buff_states").and_then(|v| v.as_array())
+        .map(|a| a.as_slice()).unwrap_or(&[]);
+    if !buff_states.is_empty() {
+        return Some(format!(
+            "buff states not supported ({} declared): they change mana regen, \
+             drain and HP over the combo, which the loop-free fast sim does not \
+             model (matrix A2)", buff_states.len()));
+    }
+    // Dynamic sliders: a damage_boost slider with no buff states still feeds
+    // simulation-derived values into the damage rows.
+    let has_dyn_slider = hc.get("damage_boost").and_then(|d| d.get("slider_name"))
+        .map(|v| !v.is_null()).unwrap_or(false);
+    if has_dyn_slider {
+        return Some("dynamic damage-boost slider not supported: its value comes \
+                     from the mana simulation (matrix A6)".into());
+    }
+    None
+}
+
 impl ScoringCtx {
     pub fn load(fixture: &Value) -> Result<ScoringCtx, String> {
         let layer2 = Layer2::parse(fixture).ok_or("missing/invalid layer2 data")?;
@@ -2241,6 +2300,15 @@ impl ScoringCtx {
             return Err(format!("unsupported scaling plan: {}", layer2.scaling_kind));
         }
         let consts = L2Consts::parse(fixture).ok_or("missing layer2 constants")?;
+        // The fast mana sim models neither buff states nor Blood Pact, and the
+        // scoring path has no per-leaf boost-token injection. Such a scenario
+        // would silently produce a *different* verdict than the JS engine
+        // (rejecting builds it accepts), so refuse it loudly instead. The
+        // stateful sim itself is ported and validated in `crate::mana_sim`;
+        // wiring it through leaf evaluation is the remaining step.
+        if let Some(reason) = unsupported_health_config(fixture, &consts) {
+            return Err(reason);
+        }
         let mut hit_refs: HashMap<i64, HashMap<String, Obj>> = HashMap::new();
         if let Some(hr) = fixture["atree_hit_refs"].as_object() {
             for (bs, parts) in hr {
@@ -2476,7 +2544,7 @@ pub enum Objective {
     Custom(Vec<(String, f64)>),
 }
 
-fn raw_to_pct(raw: f64, pct: f64) -> f64 {
+pub fn raw_to_pct(raw: f64, pct: f64) -> f64 {
     if raw < 0.0 {
         js_min(0.0, raw - raw * pct)
     } else if raw > 0.0 {
@@ -2486,7 +2554,7 @@ fn raw_to_pct(raw: f64, pct: f64) -> f64 {
     }
 }
 
-fn js_min(a: f64, b: f64) -> f64 {
+pub fn js_min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() { f64::NAN } else if a < b { a } else { b }
 }
 

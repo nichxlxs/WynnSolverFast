@@ -348,5 +348,6 @@ pub mod clock;
 pub mod wasm_api;
 pub mod enumerate;
 pub mod scoring;
+pub mod mana_sim;
 #[cfg(feature = "gpu")]
 pub mod gpu;
