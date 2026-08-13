@@ -126,6 +126,7 @@ const readState = (page) => page.evaluate(() => ({
     checked: _solver_state.checked,
     running: _solver_state.running,
     engine_used: _solver_state.engine_used,
+    engine_fallback_reason: _solver_state.engine_fallback_reason,
     partitions: _solver_state.partitions,
     worker_count: _solver_state.workers.length,
     top: _solver_state.top5.slice(0, 15).map((r) => ({
@@ -134,6 +135,16 @@ const readState = (page) => page.evaluate(() => ({
         base_sp: r.base_sp, total_sp: r.total_sp, assigned_sp: r.assigned_sp,
     })),
 }));
+
+/** Wait for the browser's live-worker list to empty; returns the final count. */
+async function drainWorkers(page, timeout_ms) {
+    const deadline = Date.now() + timeout_ms;
+    while (Date.now() < deadline) {
+        if (page.workers().length === 0) return 0;
+        await page.waitForTimeout(250);
+    }
+    return page.workers().length;
+}
 
 async function clickRun(page) {
     await page.evaluate(() => {
@@ -281,6 +292,8 @@ async function cancelPhase(page, url, engine, cfg) {
                                null, { timeout: 60000 });
     await page.waitForTimeout(1200);
     const mid = await readState(page);
+    // Live workers as the BROWSER sees them, not as the app reports them.
+    const live_before = page.workers().length;
 
     await page.evaluate(() => {
         const btn = document.getElementById('solver-run-btn');
@@ -288,14 +301,40 @@ async function cancelPhase(page, url, engine, cfg) {
     });
     await page.waitForTimeout(1500);
     const after = await readState(page);
+    // Chromium tears workers down asynchronously: `page.workers()` keeps
+    // listing a terminated worker for a second or two, so a fixed wait here
+    // fails on correct code. Poll until the list drains. A worker that was
+    // never terminated keeps running the search and never leaves the list, so
+    // this still fails on the regression it is here to catch.
+    const live_after = await drainWorkers(page, 20000);
 
     ok(mid.running,
        `cancel/${engine}: the search was still running when cancelled `
        + `(checked=${mid.checked})`);
+
+    // Without this the phase is vacuous: if the Rust engine declines the wide
+    // scenario it falls back to the JS workers, and a cancel of the JS engine
+    // satisfies every other assertion here while proving nothing about Rust.
+    ok(mid.engine_used === engine,
+       `cancel/${engine}: the cancelled search really used the ${engine} engine `
+       + `(engine_used=${mid.engine_used}${mid.engine_fallback_reason
+            ? `, reason: ${mid.engine_fallback_reason}` : ''})`);
+
     ok(!after.running, `cancel/${engine}: the search stopped (running=${after.running})`);
-    ok(after.worker_count === 0,
-       `cancel/${engine}: every worker was terminated (${after.worker_count} left) — `
-       + `a leaked worker keeps burning a core after the user hits stop`);
+
+    // `_solver_state.workers` is NOT evidence of termination: `_stop_solver()`
+    // assigns `workers = []` unconditionally after its terminate loop, so an
+    // assertion against it reads zero even if the loop were deleted or threw —
+    // it would pass under the exact leaked-core regression it claims to catch.
+    // `page.workers()` is the browser's own list of live dedicated workers, so
+    // a worker that was never terminated still appears in it.
+    ok(live_before > 0,
+       `cancel/${engine}: the browser really had workers running before the stop `
+       + `(${live_before})`);
+    ok(live_after === 0,
+       `cancel/${engine}: every worker was terminated (${live_after} still live in the `
+       + `browser after 20s) — a leaked worker keeps burning a core after the user `
+       + `hits stop`);
 
     // The real risk of a cancel bug is not the stop itself but the state it
     // leaves behind: the next search must still work. Reload first — freeing a
@@ -307,6 +346,9 @@ async function cancelPhase(page, url, engine, cfg) {
     ok(again.top.length > 0 && !again.running,
        `cancel/${engine}: a fresh search runs correctly after a cancel `
        + `(${again.top.length} results, checked=${again.checked})`);
+    ok(again.engine_used === engine,
+       `cancel/${engine}: the post-cancel search also used the ${engine} engine `
+       + `(engine_used=${again.engine_used})`);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
