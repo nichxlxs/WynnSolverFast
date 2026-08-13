@@ -240,57 +240,99 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
 
     // ── Lodestone-style closure fast path ───────────────────────────────────
     //
-    // When no ordering item has a negative SP bonus lane, activation is
-    // monotone: activating an item can only raise the available SP, so a
-    // greedy closure at assign = post_floor is order-independent and
-    // complete, and intermediate sustainability holds automatically
-    // (avail' = avail + skp_n >= req_n + skp_n right after activation, and
-    // avail never decreases afterwards). If the closure activates every
-    // ordering item, assign = post_floor is feasible — and post_floor is
-    // already a lower bound, so it is optimal and the ordering search can be
-    // skipped entirely. (Adapted from the Lodestone algorithm's worst-case
+    // Greedily activate ordering items at assign = post_floor, repeating until
+    // no further item becomes activatable. If every ordering item activates,
+    // the activation sequence is a path _bt itself could walk on which assign
+    // never has to rise above post_floor: each activation demand is
+    // req_n - free - running_bonus <= post_floor by the activation test, and
+    // each sustain demand is req_m + skp_m - free - running_bonus <= post_floor
+    // by the sustain test below. Its leaf value is therefore exactly
+    // lb_total = sum(post_floor), which is a lower bound on every leaf, so the
+    // ordering search can be skipped. best_assign is unambiguous at that
+    // value: any leaf scoring lb_total has best_assign >= post_floor
+    // componentwise and summing to sum(post_floor), i.e. post_floor exactly —
+    // so this cannot pick a different one of several tied optima than the
+    // search would have. (Adapted from the Lodestone algorithm's worst-case
     // greedy fixpoint, SP-Algorithm-Bounty.)
+    //
+    // The sustain re-check is what lets this run with negative SP lanes
+    // present. This path used to be skipped outright whenever any ordering item
+    // had one, which was expensive in practice: negative lanes are common on
+    // endgame items, and a wide search can hit builds that have one on
+    // essentially every leaf, sending all of them into the full k! search.
+    //
+    // The re-check is only needed when the item being activated is itself the
+    // one with a negative lane: activating an item whose lanes are all >= 0 can
+    // only raise running_bonus, so anything already sustained stays sustained.
+    // neg_mask therefore gates it per item rather than per build — a build with
+    // one negative-lane accessory pays the re-check on that one activation, not
+    // on all k of them, and an all-non-negative build runs exactly the code it
+    // ran before.
     let closure_solved = false;
     {
-        let has_neg_ord = false;
-        for (let n = 0; n < k && !has_neg_ord; n++) {
+        let neg_mask = 0;
+        for (let n = 0; n < k; n++) {
             const skp_n = ord_skp[n];
             for (let j = 0; j < 5; j++) {
-                if (skp_n[j] < 0) { has_neg_ord = true; break; }
+                if (skp_n[j] < 0) { neg_mask |= 1 << n; break; }
             }
         }
-        if (!has_neg_ord) {
-            let activated_count = 0;
-            let activated_mask = 0;
-            let progress = true;
-            while (progress && activated_count < k) {
-                progress = false;
-                for (let n = 0; n < k; n++) {
-                    if (activated_mask & (1 << n)) continue;
-                    const req_n = ord_reqs[n];
-                    let ok = true;
+        let activated_count = 0;
+        let activated_mask = 0;
+        let progress = true;
+        while (progress && activated_count < k) {
+            progress = false;
+            for (let n = 0; n < k; n++) {
+                if (activated_mask & (1 << n)) continue;
+                const req_n = ord_reqs[n];
+                let ok = true;
+                for (let j = 0; j < 5; j++) {
+                    if (req_n[j] > 0
+                        && req_n[j] > post_floor[j] + free_bonus[j] + running_bonus[j]) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (!ok) continue;
+
+                const skp_n = ord_skp[n];
+                for (let j = 0; j < 5; j++) running_bonus[j] += skp_n[j];
+
+                // Items already activated must stay self-sustaining once n's
+                // bonus (which may be negative in some lane) is in play —
+                // mirrors _bt's intermediate sustainability check, evaluated
+                // against the pre-update mask.
+                const needs_sustain_check = (neg_mask & (1 << n)) !== 0;
+                let sustain_ok = true;
+                for (let m = 0; needs_sustain_check && m < k && sustain_ok; m++) {
+                    if (!(activated_mask & (1 << m))) continue;
+                    const req_m = ord_reqs[m];
+                    const skp_m = ord_skp[m];
                     for (let j = 0; j < 5; j++) {
-                        if (req_n[j] > 0
-                            && req_n[j] > post_floor[j] + free_bonus[j] + running_bonus[j]) {
-                            ok = false;
+                        if (req_m[j] > 0
+                            && req_m[j] + skp_m[j] - free_bonus[j] - running_bonus[j] > post_floor[j]) {
+                            sustain_ok = false;
                             break;
                         }
                     }
-                    if (ok) {
-                        const skp_n = ord_skp[n];
-                        for (let j = 0; j < 5; j++) running_bonus[j] += skp_n[j];
-                        activated_mask |= 1 << n;
-                        activated_count++;
-                        progress = true;
-                    }
                 }
+                if (!sustain_ok) {
+                    // Roll back and leave n for a later pass — activating it
+                    // now would break an item that is already up.
+                    for (let j = 0; j < 5; j++) running_bonus[j] -= skp_n[j];
+                    continue;
+                }
+
+                activated_mask |= 1 << n;
+                activated_count++;
+                progress = true;
             }
-            for (let j = 0; j < 5; j++) running_bonus[j] = 0;
-            if (activated_count === k) {
-                closure_solved = true;
-                best_total = lb_total;
-                for (let j = 0; j < 5; j++) best_assign[j] = post_floor[j];
-            }
+        }
+        for (let j = 0; j < 5; j++) running_bonus[j] = 0;
+        if (activated_count === k) {
+            closure_solved = true;
+            best_total = lb_total;
+            for (let j = 0; j < 5; j++) best_assign[j] = post_floor[j];
         }
     }
 

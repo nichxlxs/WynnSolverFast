@@ -40,14 +40,18 @@ function calculateSpellDamage(stats, weapon, _conversions, use_spell_damage, ign
     else {
         weapon_damages = damage_keys.map(x => weapon.get(x));
     }
-    let present = structuredClone(weapon.get(damage_present_key));
+    // Both of these are flat 6-element arrays of primitives (booleans /
+    // numbers), so a shallow copy is an exact copy. structuredClone() goes
+    // through the serializer and costs ~1000x more per call; at solver leaf
+    // rates that alone was ~8% of total search time.
+    let present = weapon.get(damage_present_key).slice();
 
     // Also theres prop and rainbow!!
     const damage_elements = ['n'].concat(skp_elements); // netwfa
 
     // 2. Conversions.
     // 2.0: First, modify conversions.
-    let conversions = structuredClone(_conversions);
+    let conversions = _conversions.slice();
     if (part_filter !== undefined) {
         const conv_postfix = ':' + part_filter;
         for (let i in damage_elements) {

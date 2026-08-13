@@ -1,0 +1,22 @@
+{
+  "name": "solver_mage_gaia_6free_lvl50",
+  "description": "Mage/Gaia, 6 free slots (leggings, boots, rings, bracelet, necklace), lvl_min 50 — 6 stat restrictions (ehp>=20000, atkTier>=4, total_hp>=10000, ls>=0, hpr>=-200, spd>=-50)",
+  "scoring_target": "combo_damage",
+  "url_hash": "CZ0831454c1+QQuGP4r9K24ASKgfXuKH0u-hcf1_GV6Z6DQa-PiQ088Ef4438E-dKEJWGS2204Wz0000",
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "benchmark_only": true,
+  "locked_items": {
+    "helmet": {
+      "name": "Sureshot",
+      "stat_hash": "2e842d7198406c7a3b98e47cf1e0b34fd958b38a5c561af85b5f6cb7daf577a5"
+    },
+    "chestplate": {
+      "name": "Twilight-Gilded Cloak",
+      "stat_hash": "2de9b59158c1ef24fd66c4404ae18ee19de25950b4d5b85a9d53f9345b12e798"
+    }
+  },
+  "created": "2026-08-13T00:56:14.265Z",
+  "compress_hash": "cdc99a2213d372827a56bb31520f9e0ba0448789a2daba46bcb6c249f98ce65f",
+  "atree_hash": "88657abc7e0cccad546539a7ccfe13796b22a0e35923f4a38e13c4ceb138d24c"
+}
