@@ -237,11 +237,36 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                     const m = const_scaled.get(root);
                     return m instanceof Map ? m.has(sub) : false;
                 };
+                // A collision is only *observable* when some contribution is
+                // fractional. Every term integral (and the total under 2^53)
+                // makes the sum exact in any association, so the split and
+                // the full pass agree bit-for-bit — see
+                // test_scaling_association.js, which shows random fractional
+                // terms diverging within a few trials and integral ones never
+                // diverging in 200k.
+                //
+                // A var effect's output is integral when it rounds (floor of
+                // round_near) and its max cap, which JS assigns raw, is not
+                // fractional.
+                const varIntegral = (key) => plan.var_effects.every((e) => {
+                    const outs = Array.isArray(e.output) ? e.output : [e.output];
+                    if (!outs.some((o) => o && o.type === 'stat' && o.name === key)) return true;
+                    if (e.round === false) return false;
+                    return !('max' in e) || Number.isInteger(e.max);
+                });
+                const constIntegral = (key) => {
+                    const dot = key.indexOf('.');
+                    const v = dot < 0 ? const_scaled.get(key)
+                                      : const_scaled.get(key.slice(0, dot))?.get(key.slice(dot + 1));
+                    return typeof v === 'number' && Number.isInteger(v);
+                };
                 for (const key of plan.var_keys) {
                     // A var effect writing a whole mult map (bare root) has no
                     // sub-key to reason about; leave those unlowered.
                     if (MULT_ROOTS.includes(key)) return { kind: 'full' };
-                    if (constWrites(key)) return { kind: 'full' };
+                    if (!constWrites(key)) continue;
+                    if (constIntegral(key) && varIntegral(key)) continue;
+                    return { kind: 'full' };
                 }
                 const lowered = plan.var_effects.map(effect => {
                     const scaling = effect.scaling ?? [0];
