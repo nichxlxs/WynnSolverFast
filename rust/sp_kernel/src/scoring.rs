@@ -2071,7 +2071,12 @@ pub fn leaf_pipeline_gated(
     // the all-150-SP ceiling is not an upper bound once the rows themselves
     // change per leaf. Force the Obj path here so no caller can forget.
     let dynamic = consts.dynamic.as_ref();
-    let compiled = if dynamic.is_some() { None } else { compiled };
+    // Dynamic rows still rule out the dense lowering and the ceiling, but a
+    // no-unroll scenario keeps its compiled rows — see the obj_score branch.
+    let compiled = match dynamic {
+        Some(dy) if dy.needs_unroll => None,
+        _ => compiled,
+    };
     let dense = if dynamic.is_some() { None } else { dense };
     let gate_cutoff = if dynamic.is_some() { None } else { gate_cutoff };
 
@@ -2079,19 +2084,31 @@ pub fn leaf_pipeline_gated(
         if let Some(dy) = dynamic {
             let damage_rows = phase!(DYN_NS,
                 dynamic_damage_rows(cb, rows, registry, tables, consts, dy));
-            // Scored uncompiled on purpose. Compiling this leaf's rows and
-            // using the compiled scorer is correct — verified, identical
-            // top-1 — but measured *slower* (11.0 s against 10.4 s): a
-            // per-trial `compile_rows` over every row costs more than the
-            // compiled scorer saves, because it rebuilds each row's
-            // mod_spell, plan and DPS analysis as well as its bonuses.
-            //
-            // The win needs the compile hoisted out of the trial: in the
-            // slider case the rows line up 1:1 with the originals, so the
-            // load-time compiled rows stay valid and only the injected
-            // tokens' bonuses need appending per leaf. That means threading
-            // extra bonuses through `score_compiled`, which is a real change
-            // rather than a swap.
+            // With no unroll the rows line up 1:1 with the compiled ones, so
+            // only the *appended* tokens need bonuses — compiling those (one
+            // or two tokens per row) is far cheaper than the uncompiled
+            // scorer re-resolving every token for every row on every greedy
+            // trial. A prop-bonus on an injected token would change the row's
+            // mod_spell, which the compiled row baked in at load, so that
+            // case falls back rather than silently using a stale spell.
+            if !dy.needs_unroll && !compiled.unwrap_or(&[]).is_empty() {
+                let n_static: Vec<usize> = rows.iter().map(|r| r.tokens.len()).collect();
+                let mut extra: Vec<Vec<CompiledBonus>> = Vec::with_capacity(damage_rows.len());
+                let mut props: HashMap<String, PropOverride> = HashMap::new();
+                let mut ok = true;
+                for (i, r) in damage_rows.iter().enumerate() {
+                    let base_n = n_static.get(i).copied().unwrap_or(r.tokens.len());
+                    let mut b = Vec::new();
+                    props.clear();
+                    compile_token_bonuses(&r.tokens[base_n..], registry, &mut b, &mut props);
+                    if !props.is_empty() { ok = false; break; }
+                    extra.push(b);
+                }
+                if ok {
+                    return objective.score_compiled_extra(
+                        cb, weapon, &damage_rows, compiled.unwrap(), tables, &extra);
+                }
+            }
             return objective.score(cb, weapon, &damage_rows, registry, hit_refs, tables);
         }
         match compiled {
@@ -2647,10 +2664,14 @@ impl ScoringCtx {
         };
         let rows_parsed = parse_rows(&rows_value);
         let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
-        // Dynamic scenarios never consult the compiled rows (leaf_pipeline_gated
-        // forces them off), and rows still carrying loop markers are not a
-        // shape the compiler expects — so skip building them entirely.
-        let compiled_rows = if consts.dynamic.is_some() { Vec::new() } else {
+        // Rows carrying loop markers are not a shape the compiler expects, and
+        // a per-leaf unroll changes the row count, so those stay uncompiled.
+        // A declared-slider scenario keeps its row list — injection only
+        // *appends* tokens — so the load-time compiled rows stay valid and
+        // only the injected tokens need per-leaf bonuses (see
+        // `score_compiled_extra`).
+        let needs_unroll = consts.dynamic.as_ref().map(|d| d.needs_unroll).unwrap_or(false);
+        let compiled_rows = if needs_unroll { Vec::new() } else {
             compile_rows(&rows_parsed, &registry_parsed, &hit_refs)
         };
         let tables = Tables::parse(&fixture["tables"]);
@@ -3071,13 +3092,26 @@ impl Objective {
 
     /// Hot-path score over precompiled rows (bit-identical to score()).
     pub fn score_compiled(
-        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow],
+        tables: &Tables,
+    ) -> f64 {
+        self.score_compiled_extra(combo_base, weapon, rows, compiled, tables, &[])
+    }
+
+    /// `score_compiled` with per-row bonuses for tokens appended after
+    /// compilation — the per-leaf injected sliders. This is what lets a
+    /// dynamic-row scenario keep the load-time compiled rows instead of
+    /// falling back to the uncompiled scorer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn score_compiled_extra(
+        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow],
+        tables: &Tables, extra: &[Vec<CompiledBonus>],
     ) -> f64 {
         match self {
             Objective::ComboDamage =>
-                eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables),
+                eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables, extra),
             Objective::TotalHealing =>
-                eval_combo_healing_compiled(combo_base, rows, compiled, tables),
+                eval_combo_healing_compiled(combo_base, rows, compiled, tables, extra),
             Objective::Indirect(stat) =>
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
@@ -3089,13 +3123,13 @@ impl Objective {
                             Some(d) => d,
                             None => {
                                 let d = eval_combo_damage_compiled(
-                                    combo_base, weapon, rows, compiled, tables);
+                                    combo_base, weapon, rows, compiled, tables, extra);
                                 damage = Some(d);
                                 d
                             }
                         }
                     } else if target == "total_healing" {
-                        eval_combo_healing_compiled(combo_base, rows, compiled, tables)
+                        eval_combo_healing_compiled(combo_base, rows, compiled, tables, extra)
                     } else {
                         eval_indirect_stat(&StatsView::Borrowed(combo_base), target, tables)
                     };
@@ -3192,6 +3226,68 @@ pub struct CompiledRow {
     pub plan: Option<SpellPlan>,
 }
 
+/// Compiles one token list's registry matches into stat deltas and prop
+/// overrides, in the exact (token, match, bonus) order the uncompiled path
+/// applies them — so appending a later token's bonuses is equivalent to
+/// having compiled the longer token list from the start.
+///
+/// Shared by `compile_rows` and the per-leaf injected-token path, so the two
+/// cannot drift.
+pub fn compile_token_bonuses(
+    tokens: &[Token], registry: &[Value],
+    bonuses: &mut Vec<CompiledBonus>, prop_overrides: &mut HashMap<String, PropOverride>,
+) {
+for token in tokens {
+    for (entry, effective_value) in find_all_matching_boosts(token, registry) {
+        for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
+            if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
+                contrib = round_near(contrib).floor();
+            }
+            if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
+                if mx > 0.0 && contrib > mx { contrib = mx; }
+                else if mx < 0.0 && contrib < mx { contrib = mx; }
+            }
+            let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
+            let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
+            let (kind, sub) = if let Some(sub) = key.strip_prefix("damMult.") {
+                (CompiledBonusKind::DamMult, sub)
+            } else if let Some(sub) = key.strip_prefix("defMult.") {
+                (CompiledBonusKind::DefMult, sub)
+            } else {
+                (CompiledBonusKind::Stat, key)
+            };
+            let use_max = match kind {
+                CompiledBonusKind::Stat => mode_max,
+                _ => mode_max || sub == "Potion" || sub == "Vulnerability",
+            };
+            bonuses.push(CompiledBonus { kind, key: sub.to_string(), contrib, use_max });
+        }
+        for p in entry.get("prop_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let vpu = p.get("value_per_unit").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let mut contrib = vpu * effective_value;
+            if p.get("round").and_then(|v| v.as_bool()) == Some(true) {
+                contrib = round_near(contrib).floor();
+            }
+            if let Some(mx) = p.get("max").and_then(|v| v.as_f64()) {
+                if mx > 0.0 && contrib > mx { contrib = mx; }
+                else if mx < 0.0 && contrib < mx { contrib = mx; }
+            }
+            let rf = p.get("ref").and_then(|r| r.as_str()).unwrap_or("").to_string();
+            let base_v = p.get("base").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let existing = prop_overrides.entry(rf).or_insert(PropOverride {
+                replace: None, add: 0.0, base: base_v,
+            });
+            if p.get("mode").and_then(|m| m.as_str()) == Some("add") {
+                existing.add += contrib;
+            } else {
+                existing.replace = Some(existing.replace.unwrap_or(0.0) + contrib);
+            }
+        }
+    }
+}
+}
+
 pub fn compile_rows(
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>,
@@ -3199,55 +3295,7 @@ pub fn compile_rows(
     rows.iter().map(|row| {
         let mut bonuses = Vec::new();
         let mut prop_overrides: HashMap<String, PropOverride> = HashMap::new();
-        for token in &row.tokens {
-            for (entry, effective_value) in find_all_matching_boosts(token, registry) {
-                for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                    let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
-                    if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
-                        contrib = round_near(contrib).floor();
-                    }
-                    if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && contrib > mx { contrib = mx; }
-                        else if mx < 0.0 && contrib < mx { contrib = mx; }
-                    }
-                    let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
-                    let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
-                    let (kind, sub) = if let Some(sub) = key.strip_prefix("damMult.") {
-                        (CompiledBonusKind::DamMult, sub)
-                    } else if let Some(sub) = key.strip_prefix("defMult.") {
-                        (CompiledBonusKind::DefMult, sub)
-                    } else {
-                        (CompiledBonusKind::Stat, key)
-                    };
-                    let use_max = match kind {
-                        CompiledBonusKind::Stat => mode_max,
-                        _ => mode_max || sub == "Potion" || sub == "Vulnerability",
-                    };
-                    bonuses.push(CompiledBonus { kind, key: sub.to_string(), contrib, use_max });
-                }
-                for p in entry.get("prop_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                    let vpu = p.get("value_per_unit").and_then(|v| v.as_f64()).unwrap_or(1.0);
-                    let mut contrib = vpu * effective_value;
-                    if p.get("round").and_then(|v| v.as_bool()) == Some(true) {
-                        contrib = round_near(contrib).floor();
-                    }
-                    if let Some(mx) = p.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && contrib > mx { contrib = mx; }
-                        else if mx < 0.0 && contrib < mx { contrib = mx; }
-                    }
-                    let rf = p.get("ref").and_then(|r| r.as_str()).unwrap_or("").to_string();
-                    let base_v = p.get("base").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let existing = prop_overrides.entry(rf).or_insert(PropOverride {
-                        replace: None, add: 0.0, base: base_v,
-                    });
-                    if p.get("mode").and_then(|m| m.as_str()) == Some("add") {
-                        existing.add += contrib;
-                    } else {
-                        existing.replace = Some(existing.replace.unwrap_or(0.0) + contrib);
-                    }
-                }
-            }
-        }
+        compile_token_bonuses(&row.tokens, registry, &mut bonuses, &mut prop_overrides);
         let mut cost_bonuses: Vec<(u8, f64, bool)> = Vec::new();
         let mut cost_keys: Option<(String, String, String)> = None;
         if let Some(spell) = &row.spell {
@@ -3357,14 +3405,15 @@ pub fn apply_compiled_boosts<'a>(base: &'a Obj, compiled: &CompiledRow) -> Stats
 /// original bits, so results are bit-identical while touching only
 /// len(bonuses) entries instead of cloning ~200.
 pub fn with_row_overlay<R>(
-    base: &mut Obj, comp: &CompiledRow, f: impl FnOnce(&Obj) -> R,
+    base: &mut Obj, comp: &CompiledRow, extra: &[CompiledBonus], f: impl FnOnce(&Obj) -> R,
 ) -> R {
-    if comp.bonuses.is_empty() {
+    if comp.bonuses.is_empty() && extra.is_empty() {
         return f(base);
     }
     // (kind, key, previous value or None-if-absent)
-    let mut journal: Vec<(u8, &str, Option<Value>)> = Vec::with_capacity(comp.bonuses.len());
-    for b in &comp.bonuses {
+    let mut journal: Vec<(u8, &str, Option<Value>)> =
+        Vec::with_capacity(comp.bonuses.len() + extra.len());
+    for b in comp.bonuses.iter().chain(extra) {
         let (kind_tag, target): (u8, &mut Obj) = match b.kind {
             CompiledBonusKind::Stat => (0, base),
             CompiledBonusKind::DamMult => (1, base.get_mut("damMult")
@@ -3400,14 +3449,18 @@ pub fn with_row_overlay<R>(
 /// eval_combo_healing over precompiled rows: uses each row's pre-patched
 /// mod_spell and journaled boost overlay, exactly like the damage variant,
 /// so results match the uncompiled path bit-for-bit.
+/// `extra[i]` holds bonuses for tokens appended to row `i` after compilation
+/// (the per-leaf injected sliders). Empty for every static scenario.
 pub fn eval_combo_healing_compiled(
     combo_base: &mut Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    extra: &[Vec<CompiledBonus>],
 ) -> f64 {
     let mut total = 0.0;
-    for (row, comp) in rows.iter().zip(compiled) {
+    for (i, (row, comp)) in rows.iter().zip(compiled).enumerate() {
+        let extra_i: &[CompiledBonus] = extra.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
         let Some(mod_spell) = &comp.mod_spell else { continue };
         if row.qty <= 0.0 || row.pseudo { continue; }
-        let heal_per_cast = with_row_overlay(combo_base, comp, |b| {
+        let heal_per_cast = with_row_overlay(combo_base, comp, extra_i, |b| {
             compute_spell_healing_total(&StatsView::Borrowed(b), mod_spell, tables)
         });
         let eff_qty = if row.is_melee_time {
@@ -3420,8 +3473,10 @@ pub fn eval_combo_healing_compiled(
 }
 
 /// eval_combo_damage over precompiled rows — the hot-path variant.
+/// See `eval_combo_healing_compiled` for `extra`.
 pub fn eval_combo_damage_compiled(
     combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    extra: &[Vec<CompiledBonus>],
 ) -> f64 {
     let crit = {
         let bv = StatsView::Borrowed(combo_base);
@@ -3430,7 +3485,8 @@ pub fn eval_combo_damage_compiled(
     };
 
     let mut total_damage = 0.0;
-    for (row, comp) in rows.iter().zip(compiled) {
+    for (i, (row, comp)) in rows.iter().zip(compiled).enumerate() {
+        let extra_i: &[CompiledBonus] = extra.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
         let Some(mod_spell) = &comp.mod_spell else { continue };
         if row.qty <= 0.0 || row.pseudo { continue; }
 
@@ -3446,7 +3502,7 @@ pub fn eval_combo_damage_compiled(
         }
         let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
 
-        let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, |b| {
+        let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, extra_i, |b| {
             let stats = StatsView::Borrowed(b);
             if let Some(plan) = &comp.plan {
                 let (mut per_cast, flat) = eval_spell_plan(

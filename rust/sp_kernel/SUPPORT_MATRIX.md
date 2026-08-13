@@ -73,24 +73,26 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the compiled and dense lowerings are both off and scoring falls back to the uncompiled Obj path | **~500x per greedy trial.** Same 496-leaf space, same ~10,130 trials: plain runs them in 0.02 s on the dense path, a slider scenario takes 10.40 s. Broken down on the same scenario: dense 0.06 s -> Obj-with-compiled-rows 1.75 s (**28x**) -> uncompiled 10.4 s (**a further 6x**) | Hoist the compile out of the trial — see below |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | The dense lowering is off — it bakes row damage in at build time, which is exactly what a per-leaf token changes | **Was ~500x per greedy trial; the compiled half is now recovered (1.55x, 10.4 s -> 6.7 s on a 496-leaf slider scenario).** What remains is the dense-versus-Obj gap, measured at 28x on the same scenario | Teach the dense lowering to take a per-leaf slider value. Harder than the compiled half: dense bakes damage in at build time |
 
-**Where B9's 500x actually is, and one more rejected fix.** The 6x from
-compiled to uncompiled looked like the easy half, so I tried compiling each
-leaf's injected rows and scoring through the compiled path. It is correct
-(identical top-1) and **slower** — 11.0 s against 10.4 s — because a
-per-trial `compile_rows` rebuilds every row's `mod_spell`, plan and DPS
-analysis, not just its bonuses.
+**How the compiled half was recovered.** Injection only *appends* tokens, and
+with no unroll the rows line up 1:1 with the originals — so the load-time
+compiled rows stay valid and only the appended tokens need bonuses.
+`compile_token_bonuses` (extracted from `compile_rows`, so the two cannot
+drift) compiles those one or two tokens per row, and
+`score_compiled_extra` applies them after the static ones, preserving the
+(token, match, bonus) order the uncompiled path uses.
 
-The win needs the compile hoisted out of the trial. In the slider case
-`needs_unroll` is false, so the injected rows line up 1:1 with the originals
-and the load-time compiled rows stay valid; only the injected tokens'
-bonuses need appending per leaf. That means threading extra bonuses through
-`score_compiled` rather than swapping one call for another. The remaining
-28x (Obj versus dense) is harder still: the dense lowering bakes row damage
-in at build time, which is exactly what a per-leaf token changes.
+A prop bonus on an injected token would change that row's `mod_spell`, which
+the compiled row baked in at load — that case falls back to the uncompiled
+scorer rather than silently scoring against a stale spell.
 
-| B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
+The earlier attempt — recompiling each leaf's rows outright — was correct but
+*slower* (11.0 s), because `compile_rows` rebuilds every row's `mod_spell`,
+plan and DPS analysis, not just its bonuses. Hoisting the compile out of the
+trial is what made the difference.
+
+| B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
 
@@ -104,11 +106,11 @@ in at build time, which is exactly what a per-leaf token changes.
 ## Remaining work, in the order I'd tackle it
 
 1. **Speed, not coverage.** Every section-A gap the engine used to refuse is
-   now supported; what remains is that dynamic-row scenarios (B9) score on
-   the uncompiled Obj path and pay ~500x per greedy trial for it. Two
-   tried-and-rejected attempts are recorded above (B1's mana memo, and the
-   assumption that row *construction* was B9's cost) — both were measured
-   rather than reasoned about, and both were wrong.
+   now supported. What remains is that dynamic-row scenarios still score on
+   the Obj path rather than the dense one (B9), a measured 28x. Three
+   tried-and-rejected attempts are recorded above — B1's mana memo, the
+   assumption that row *construction* was B9's cost, and a per-trial
+   recompile — each plausible, each measured, each wrong.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no
    `SharedArrayBuffer` or cross-origin isolation needed. Exact (verified at
