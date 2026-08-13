@@ -7,6 +7,7 @@ const _solver_state = {
     running: false,
     engine_used: 'javascript',  // 'rust' | 'javascript' — which engine actually ran
     partitions: 1,         // how many Rust partitions the last run used
+    engine_fallback_reason: '',  // why Rust declined, when it did
     top5: [],              // [{score, items:[Item×8], base_sp, total_sp, assigned_sp}] (up to _TOP_N entries)
     seed_build: null,      // seeded from current UI build (survives worker merges)
     checked: 0,
@@ -739,6 +740,15 @@ function _update_solver_progress_ui() {
             } else if (_solver_state.engine_phase) {
                 el_status.textContent = `Rust/WASM: ${_solver_state.engine_phase}`;
                 el_status.className = 'text-info';
+            } else if (_solver_state.engine_fallback_reason) {
+                // The Rust engine was selected but declined this scenario. The
+                // JS workers give the same answer, so nothing looks wrong —
+                // they are just far slower (measured ~120x on a combo_damage
+                // search through the page), and a user watching a long solve
+                // deserves to know why it is long.
+                el_status.textContent =
+                    `JavaScript engine — ${_solver_state.engine_fallback_reason}`;
+                el_status.className = 'text-warning';
             } else {
                 el_status.textContent = '';
                 el_status.className = '';
@@ -1637,6 +1647,8 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
     if ((snap.tome_opt ?? 0) >= 1) {
         console.info('[solver] tome optimisation is on — using the JS engine '
             + '(the Rust engine does not search tome combinations yet)');
+        _solver_state.engine_fallback_reason =
+            'tome optimisation is not supported by the Rust engine yet';
         return false;
     }
     try {
@@ -1666,6 +1678,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
                 console.warn('[solver] Rust fixture build failed, using JS workers:',
                              err && err.message, err && err.stack);
                 _solver_state.engine_used = 'javascript';
+                _solver_state.engine_fallback_reason = 'the Rust engine could not prepare this scenario';
                 if (on_unsupported) on_unsupported();
             });
             return true;
@@ -1674,6 +1687,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         return true;
     } catch (e) {
         console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message, e && e.stack);
+        _solver_state.engine_fallback_reason = 'the Rust engine could not start';
         return false;
     }
 }
@@ -1805,6 +1819,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         console.warn(`[solver] Rust engine (${code}): ${message} — using the JS workers`);
         _solver_state.engine_phase = '';
         _solver_state.engine_used = 'javascript';
+        _solver_state.engine_fallback_reason = `the Rust engine stopped (${code})`;
         for (const st of states) {
             try { st.worker.terminate(); } catch (e) { }
         }
@@ -2340,6 +2355,7 @@ function start_solver_search() {
     // actually starts, and every fallback resets it. See _rust_solve_in_worker.
     _solver_state.engine_used = 'javascript';
     _solver_state.partitions = 1;
+    _solver_state.engine_fallback_reason = '';
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
     _solver_state.checked = 0;
