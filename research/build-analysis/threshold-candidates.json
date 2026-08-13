@@ -1,0 +1,737 @@
+{
+  "metadata": {
+    "schema_version": 1,
+    "generated_at": "2026-08-13T04:07:00.567Z",
+    "source_build_database": "research/build-database/functional-builds.json",
+    "local_game_data_version": "2.2.3.0",
+    "source_build_count": 129,
+    "evaluated_build_profile_rows": 220,
+    "unique_builds_evaluated": 55,
+    "failure_count": 296,
+    "roll_profiles": {
+      "median": {
+        "damage": 50,
+        "mana": 50,
+        "healing": 50,
+        "misc": 50
+      },
+      "upper_quartile_proxy": {
+        "damage": 75,
+        "mana": 75,
+        "healing": 75,
+        "misc": 75
+      },
+      "solver_default": {
+        "damage": 85,
+        "mana": 100,
+        "healing": 85,
+        "misc": 85
+      },
+      "maximum": {
+        "damage": 100,
+        "mana": 100,
+        "healing": 100,
+        "misc": 100
+      }
+    },
+    "warning": "The source is a curated forum catalogue, not a random population sample. Quantiles are empirical descriptions and provisional optimizer guardrails, not estimates of a normally distributed player-build population."
+  },
+  "candidates": [
+    {
+      "family": "family_unclassified",
+      "build_count": 36,
+      "status": "provisional",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 9894.8535,
+          "robust_floor_p10": 12684.9511,
+          "typical_p50": 25219.5394,
+          "strong_p75": 36765.6633
+        },
+        "ehp_no_agi": {
+          "observed_floor": 6611.4932,
+          "robust_floor_p10": 11445.5416,
+          "typical_p50": 17234.2702,
+          "strong_p75": 23884.0761
+        },
+        "total_hp": {
+          "observed_floor": 6585,
+          "robust_floor_p10": 10872.5,
+          "typical_p50": 14011.5,
+          "strong_p75": 16491.25
+        },
+        "hpr": {
+          "observed_floor": -992.5,
+          "robust_floor_p10": -590.99,
+          "typical_p50": 0,
+          "strong_p75": 139.2525
+        },
+        "ls": {
+          "observed_floor": -900,
+          "robust_floor_p10": -278,
+          "typical_p50": 134,
+          "strong_p75": 376
+        },
+        "effective_ls": {
+          "observed_floor": -1527.6486,
+          "robust_floor_p10": -612.7652,
+          "typical_p50": 295.0178,
+          "strong_p75": 721.5201
+        },
+        "total_mr": {
+          "observed_floor": -8,
+          "robust_floor_p10": 12.5,
+          "typical_p50": 35.5,
+          "strong_p75": 47.5
+        },
+        "ms": {
+          "observed_floor": -32,
+          "robust_floor_p10": -12,
+          "typical_p50": 12,
+          "strong_p75": 19.5
+        },
+        "total_mana": {
+          "observed_floor": 92,
+          "robust_floor_p10": 100,
+          "typical_p50": 158,
+          "strong_p75": 199.5
+        },
+        "main_attack_range_pct": {
+          "observed_floor": -50,
+          "robust_floor_p10": -20,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 0,
+          "robust_floor_p10": 951.7506,
+          "typical_p50": 2880.9038,
+          "strong_p75": 5049.1961
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 11399.3696,
+          "robust_floor_p10": 15259.7398,
+          "typical_p50": 26823.0655,
+          "strong_p75": 45114.1205
+        },
+        "poison": {
+          "observed_floor": -12000,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        }
+      }
+    },
+    {
+      "family": "family_hybrid",
+      "build_count": 2,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 12142.3077,
+          "robust_floor_p10": 14114.3755,
+          "typical_p50": 22002.6467,
+          "strong_p75": 26932.8162
+        },
+        "ehp_no_agi": {
+          "observed_floor": 9834.6154,
+          "robust_floor_p10": 10065.3846,
+          "typical_p50": 10988.4616,
+          "strong_p75": 11565.3846
+        },
+        "total_hp": {
+          "observed_floor": 12785,
+          "robust_floor_p10": 13085,
+          "typical_p50": 14285,
+          "strong_p75": 15035
+        },
+        "hpr": {
+          "observed_floor": -209.3,
+          "robust_floor_p10": -188.37,
+          "typical_p50": -104.65,
+          "strong_p75": -52.325
+        },
+        "ls": {
+          "observed_floor": 326,
+          "robust_floor_p10": 348.4,
+          "typical_p50": 438,
+          "strong_p75": 494
+        },
+        "effective_ls": {
+          "observed_floor": 423.0769,
+          "robust_floor_p10": 462.0155,
+          "typical_p50": 617.7697,
+          "strong_p75": 715.1161
+        },
+        "total_mr": {
+          "observed_floor": 16,
+          "robust_floor_p10": 16.9,
+          "typical_p50": 20.5,
+          "strong_p75": 22.75
+        },
+        "ms": {
+          "observed_floor": 16,
+          "robust_floor_p10": 16.4,
+          "typical_p50": 18,
+          "strong_p75": 19
+        },
+        "total_mana": {
+          "observed_floor": 87,
+          "robust_floor_p10": 88.3,
+          "typical_p50": 93.5,
+          "strong_p75": 96.75
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 0,
+          "robust_floor_p10": 2.2,
+          "typical_p50": 11,
+          "strong_p75": 16.5
+        },
+        "main_attack_dps": {
+          "observed_floor": 10232.443,
+          "robust_floor_p10": 10407.3786,
+          "typical_p50": 11107.1211,
+          "strong_p75": 11544.4601
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 105454.802,
+          "robust_floor_p10": 108796.234,
+          "typical_p50": 122161.9621,
+          "strong_p75": 130515.5421
+        },
+        "poison": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        }
+      }
+    },
+    {
+      "family": "family_spell_sustained",
+      "build_count": 8,
+      "status": "provisional",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 6310,
+          "robust_floor_p10": 8629.1538,
+          "typical_p50": 20734.3743,
+          "strong_p75": 26946.572
+        },
+        "ehp_no_agi": {
+          "observed_floor": 6310,
+          "robust_floor_p10": 7978.0041,
+          "typical_p50": 12369.7258,
+          "strong_p75": 16918.0326
+        },
+        "total_hp": {
+          "observed_floor": 6310,
+          "robust_floor_p10": 7671.5,
+          "typical_p50": 11672.5,
+          "strong_p75": 13066.25
+        },
+        "hpr": {
+          "observed_floor": -292.6,
+          "robust_floor_p10": -87.78,
+          "typical_p50": 0,
+          "strong_p75": 67.375
+        },
+        "ls": {
+          "observed_floor": -324,
+          "robust_floor_p10": -324,
+          "typical_p50": 0,
+          "strong_p75": 249.25
+        },
+        "effective_ls": {
+          "observed_floor": -626.6714,
+          "robust_floor_p10": -607.9469,
+          "typical_p50": 0,
+          "strong_p75": 409.1903
+        },
+        "total_mr": {
+          "observed_floor": -111,
+          "robust_floor_p10": -48,
+          "typical_p50": 2,
+          "strong_p75": 13.75
+        },
+        "ms": {
+          "observed_floor": -19,
+          "robust_floor_p10": -12,
+          "typical_p50": 5,
+          "strong_p75": 10.75
+        },
+        "total_mana": {
+          "observed_floor": 133,
+          "robust_floor_p10": 134.4,
+          "typical_p50": 146,
+          "strong_p75": 152.25
+        },
+        "main_attack_range_pct": {
+          "observed_floor": -50,
+          "robust_floor_p10": -15,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 1111.9235,
+          "robust_floor_p10": 1538.0375,
+          "typical_p50": 3087.3998,
+          "strong_p75": 5367.9587
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 22747.9712,
+          "robust_floor_p10": 25049.5477,
+          "typical_p50": 35083.6358,
+          "strong_p75": 48435.2082
+        },
+        "poison": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 8500
+        }
+      }
+    },
+    {
+      "family": "family_spellsteal",
+      "build_count": 2,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 13105,
+          "robust_floor_p10": 15257.7794,
+          "typical_p50": 23868.8971,
+          "strong_p75": 29250.8456
+        },
+        "ehp_no_agi": {
+          "observed_floor": 13105,
+          "robust_floor_p10": 15180.3412,
+          "typical_p50": 23481.7061,
+          "strong_p75": 28670.0591
+        },
+        "total_hp": {
+          "observed_floor": 13105,
+          "robust_floor_p10": 13305.5,
+          "typical_p50": 14107.5,
+          "strong_p75": 14608.75
+        },
+        "hpr": {
+          "observed_floor": 0,
+          "robust_floor_p10": 114.1,
+          "typical_p50": 570.5,
+          "strong_p75": 855.75
+        },
+        "ls": {
+          "observed_floor": -250,
+          "robust_floor_p10": -225,
+          "typical_p50": -125,
+          "strong_p75": -62.5
+        },
+        "effective_ls": {
+          "observed_floor": -573.0112,
+          "robust_floor_p10": -515.7101,
+          "typical_p50": -286.5056,
+          "strong_p75": -143.2528
+        },
+        "total_mr": {
+          "observed_floor": -13,
+          "robust_floor_p10": -2.8,
+          "typical_p50": 38,
+          "strong_p75": 63.5
+        },
+        "ms": {
+          "observed_floor": 0,
+          "robust_floor_p10": 4.6,
+          "typical_p50": 23,
+          "strong_p75": 34.5
+        },
+        "total_mana": {
+          "observed_floor": 153,
+          "robust_floor_p10": 161.8,
+          "typical_p50": 197,
+          "strong_p75": 219
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 1003.3284,
+          "robust_floor_p10": 1859.6727,
+          "typical_p50": 5285.0501,
+          "strong_p75": 7425.9109
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 15631.5826,
+          "robust_floor_p10": 16072.3913,
+          "typical_p50": 17835.6261,
+          "strong_p75": 18937.6479
+        },
+        "poison": {
+          "observed_floor": 0,
+          "robust_floor_p10": 850,
+          "typical_p50": 4250,
+          "strong_p75": 6375
+        }
+      }
+    },
+    {
+      "family": "family_heavy_melee",
+      "build_count": 2,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 22254.7149,
+          "robust_floor_p10": 25841.42,
+          "typical_p50": 40188.2406,
+          "strong_p75": 49155.0035
+        },
+        "ehp_no_agi": {
+          "observed_floor": 22254.7149,
+          "robust_floor_p10": 25841.42,
+          "typical_p50": 40188.2406,
+          "strong_p75": 49155.0035
+        },
+        "total_hp": {
+          "observed_floor": 14565,
+          "robust_floor_p10": 14914.5,
+          "typical_p50": 16312.5,
+          "strong_p75": 17186.25
+        },
+        "hpr": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "ls": {
+          "observed_floor": 300,
+          "robust_floor_p10": 402,
+          "typical_p50": 810,
+          "strong_p75": 1065
+        },
+        "effective_ls": {
+          "observed_floor": 458.3875,
+          "robust_floor_p10": 837.359,
+          "typical_p50": 2353.245,
+          "strong_p75": 3300.6738
+        },
+        "total_mr": {
+          "observed_floor": 9,
+          "robust_floor_p10": 11.2,
+          "typical_p50": 20,
+          "strong_p75": 25.5
+        },
+        "ms": {
+          "observed_floor": 10,
+          "robust_floor_p10": 10.4,
+          "typical_p50": 12,
+          "strong_p75": 13
+        },
+        "total_mana": {
+          "observed_floor": 122,
+          "robust_floor_p10": 123.9,
+          "typical_p50": 131.5,
+          "strong_p75": 136.25
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 24,
+          "robust_floor_p10": 27.2,
+          "typical_p50": 40,
+          "strong_p75": 48
+        },
+        "main_attack_dps": {
+          "observed_floor": 22262.8222,
+          "robust_floor_p10": 22541.7858,
+          "typical_p50": 23657.6402,
+          "strong_p75": 24355.0492
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 12604.8374,
+          "robust_floor_p10": 15798.4757,
+          "typical_p50": 28573.0291,
+          "strong_p75": 36557.125
+        },
+        "poison": {
+          "observed_floor": 50,
+          "robust_floor_p10": 981,
+          "typical_p50": 4705,
+          "strong_p75": 7032.5
+        }
+      }
+    },
+    {
+      "family": "family_cancelstack",
+      "build_count": 3,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 16369.0693,
+          "robust_floor_p10": 17031.0014,
+          "typical_p50": 19678.73,
+          "strong_p75": 20539.2644
+        },
+        "ehp_no_agi": {
+          "observed_floor": 11235,
+          "robust_floor_p10": 11363.6975,
+          "typical_p50": 11878.4874,
+          "strong_p75": 16639.1431
+        },
+        "total_hp": {
+          "observed_floor": 6016,
+          "robust_floor_p10": 7059.8,
+          "typical_p50": 11235,
+          "strong_p75": 12574.5
+        },
+        "hpr": {
+          "observed_floor": -182,
+          "robust_floor_p10": -167.44,
+          "typical_p50": -109.2,
+          "strong_p75": 653.34
+        },
+        "ls": {
+          "observed_floor": 0,
+          "robust_floor_p10": 14,
+          "typical_p50": 70,
+          "strong_p75": 500.5
+        },
+        "effective_ls": {
+          "observed_floor": 0,
+          "robust_floor_p10": 20.3976,
+          "typical_p50": 101.988,
+          "strong_p75": 766.9353
+        },
+        "total_mr": {
+          "observed_floor": 25,
+          "robust_floor_p10": 25,
+          "typical_p50": 25,
+          "strong_p75": 30
+        },
+        "ms": {
+          "observed_floor": -8,
+          "robust_floor_p10": -6.4,
+          "typical_p50": 0,
+          "strong_p75": 12
+        },
+        "total_mana": {
+          "observed_floor": 100,
+          "robust_floor_p10": 100,
+          "typical_p50": 100,
+          "strong_p75": 118
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 949.4602,
+          "robust_floor_p10": 3781.609,
+          "typical_p50": 15110.2044,
+          "strong_p75": 24986.177
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 8759.184,
+          "robust_floor_p10": 10800.4679,
+          "typical_p50": 18965.6035,
+          "strong_p75": 36792.4637
+        },
+        "poison": {
+          "observed_floor": 0,
+          "robust_floor_p10": 640,
+          "typical_p50": 3200,
+          "strong_p75": 5836
+        }
+      }
+    },
+    {
+      "family": "family_lootrun",
+      "build_count": 1,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 38192.7998,
+          "robust_floor_p10": 38192.7998,
+          "typical_p50": 38192.7998,
+          "strong_p75": 38192.7998
+        },
+        "ehp_no_agi": {
+          "observed_floor": 11788.3333,
+          "robust_floor_p10": 11788.3333,
+          "typical_p50": 11788.3333,
+          "strong_p75": 11788.3333
+        },
+        "total_hp": {
+          "observed_floor": 14146,
+          "robust_floor_p10": 14146,
+          "typical_p50": 14146,
+          "strong_p75": 14146
+        },
+        "hpr": {
+          "observed_floor": -1305,
+          "robust_floor_p10": -1305,
+          "typical_p50": -1305,
+          "strong_p75": -1305
+        },
+        "ls": {
+          "observed_floor": 368,
+          "robust_floor_p10": 368,
+          "typical_p50": 368,
+          "strong_p75": 368
+        },
+        "effective_ls": {
+          "observed_floor": 993.5636,
+          "robust_floor_p10": 993.5636,
+          "typical_p50": 993.5636,
+          "strong_p75": 993.5636
+        },
+        "total_mr": {
+          "observed_floor": 11,
+          "robust_floor_p10": 11,
+          "typical_p50": 11,
+          "strong_p75": 11
+        },
+        "ms": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "total_mana": {
+          "observed_floor": 166,
+          "robust_floor_p10": 166,
+          "typical_p50": 166,
+          "strong_p75": 166
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 3891.1683,
+          "robust_floor_p10": 3891.1683,
+          "typical_p50": 3891.1683,
+          "strong_p75": 3891.1683
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 32972.7902,
+          "robust_floor_p10": 32972.7902,
+          "typical_p50": 32972.7902,
+          "strong_p75": 32972.7902
+        },
+        "poison": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        }
+      }
+    },
+    {
+      "family": "family_tierstack",
+      "build_count": 1,
+      "status": "insufficient_sample",
+      "roll_profile": "median",
+      "use": "Use p10 as a permissive regression guardrail, p50 as a typical target, and p75 as a strong target. The median profile evaluates every rolled ID at the midpoint of its displayed range. Do not treat these curated-sample quantiles as population percentiles.",
+      "thresholds": {
+        "ehp": {
+          "observed_floor": 22715.9803,
+          "robust_floor_p10": 22715.9803,
+          "typical_p50": 22715.9803,
+          "strong_p75": 22715.9803
+        },
+        "ehp_no_agi": {
+          "observed_floor": 14195.9527,
+          "robust_floor_p10": 14195.9527,
+          "typical_p50": 14195.9527,
+          "strong_p75": 14195.9527
+        },
+        "total_hp": {
+          "observed_floor": 10510,
+          "robust_floor_p10": 10510,
+          "typical_p50": 10510,
+          "strong_p75": 10510
+        },
+        "hpr": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "ls": {
+          "observed_floor": -90,
+          "robust_floor_p10": -90,
+          "typical_p50": -90,
+          "strong_p75": -90
+        },
+        "effective_ls": {
+          "observed_floor": -194.5231,
+          "robust_floor_p10": -194.5231,
+          "typical_p50": -194.5231,
+          "strong_p75": -194.5231
+        },
+        "total_mr": {
+          "observed_floor": 25,
+          "robust_floor_p10": 25,
+          "typical_p50": 25,
+          "strong_p75": 25
+        },
+        "ms": {
+          "observed_floor": 13,
+          "robust_floor_p10": 13,
+          "typical_p50": 13,
+          "strong_p75": 13
+        },
+        "total_mana": {
+          "observed_floor": 100,
+          "robust_floor_p10": 100,
+          "typical_p50": 100,
+          "strong_p75": 100
+        },
+        "main_attack_range_pct": {
+          "observed_floor": 0,
+          "robust_floor_p10": 0,
+          "typical_p50": 0,
+          "strong_p75": 0
+        },
+        "main_attack_dps": {
+          "observed_floor": 12700.6194,
+          "robust_floor_p10": 12700.6194,
+          "typical_p50": 12700.6194,
+          "strong_p75": 12700.6194
+        },
+        "spell_display_avg_max": {
+          "observed_floor": 24586.8868,
+          "robust_floor_p10": 24586.8868,
+          "typical_p50": 24586.8868,
+          "strong_p75": 24586.8868
+        },
+        "poison": {
+          "observed_floor": 4000,
+          "robust_floor_p10": 4000,
+          "typical_p50": 4000,
+          "strong_p75": 4000
+        }
+      }
+    }
+  ]
+}

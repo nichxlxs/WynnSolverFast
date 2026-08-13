@@ -1,0 +1,256 @@
+{
+  "source": "data/2.2.2.0/items.json",
+  "snapshot_version": "2.2.2.0",
+  "attack_speed_rank": {
+    "SUPER_SLOW": 0,
+    "VERY_SLOW": 1,
+    "SLOW": 2,
+    "NORMAL": 3,
+    "FAST": 4,
+    "VERY_FAST": 5,
+    "SUPER_FAST": 6
+  },
+  "overlap_warning": "An item can contribute to multiple element groups. These are descriptive correlations, not item design laws.",
+  "elements": {
+    "earth": {
+      "sample_definition": "Level 90+ Rare-or-higher equipment whose WynnBuilder element list includes the element",
+      "equipment_count": 449,
+      "weapon_count": 175,
+      "single_element_weapon_count": 35,
+      "weapon_attack_speed_distribution": {
+        "FAST": 21,
+        "NORMAL": 16,
+        "SLOW": 28,
+        "SUPER_FAST": 18,
+        "SUPER_SLOW": 37,
+        "VERY_FAST": 22,
+        "VERY_SLOW": 33
+      },
+      "median_weapon_attack_speed_rank": 2,
+      "median_single_element_weapon_dps": 622,
+      "mean_single_element_weapon_dps": 554.629,
+      "positive_id_presence_percent": {
+        "poison": 10.7,
+        "mana_regen": 16.3,
+        "mana_steal": 23.2,
+        "life_steal": 20.3,
+        "raw_health_regen": 14.3,
+        "health_bonus": 7.1,
+        "walk_speed": 19.2,
+        "attack_speed_tier": 6.7,
+        "raw_main_attack": 18.0,
+        "raw_spell_damage": 5.8
+      },
+      "negative_id_presence_percent": {
+        "raw_health_regen": 8.0,
+        "walk_speed": 19.8,
+        "attack_speed_tier": 13.4,
+        "mana_regen": 4.0
+      },
+      "median_raw_ids": {
+        "poison": 0,
+        "mr": 0,
+        "ms": 0,
+        "ls": 0,
+        "hprRaw": 0,
+        "hpBonus": 0,
+        "spd": 0,
+        "atkTier": 0,
+        "mdRaw": 0,
+        "sdRaw": 0
+      }
+    },
+    "thunder": {
+      "sample_definition": "Level 90+ Rare-or-higher equipment whose WynnBuilder element list includes the element",
+      "equipment_count": 434,
+      "weapon_count": 171,
+      "single_element_weapon_count": 30,
+      "weapon_attack_speed_distribution": {
+        "FAST": 31,
+        "NORMAL": 17,
+        "SLOW": 20,
+        "SUPER_FAST": 24,
+        "SUPER_SLOW": 27,
+        "VERY_FAST": 29,
+        "VERY_SLOW": 23
+      },
+      "median_weapon_attack_speed_rank": 3,
+      "median_single_element_weapon_dps": 604.0,
+      "mean_single_element_weapon_dps": 619.4,
+      "positive_id_presence_percent": {
+        "poison": 4.8,
+        "mana_regen": 12.9,
+        "mana_steal": 33.9,
+        "life_steal": 27.2,
+        "raw_health_regen": 3.9,
+        "health_bonus": 4.4,
+        "walk_speed": 23.3,
+        "attack_speed_tier": 8.5,
+        "raw_main_attack": 15.0,
+        "raw_spell_damage": 11.8
+      },
+      "negative_id_presence_percent": {
+        "raw_health_regen": 8.1,
+        "walk_speed": 12.2,
+        "attack_speed_tier": 10.4,
+        "mana_regen": 6.7
+      },
+      "median_raw_ids": {
+        "poison": 0.0,
+        "mr": 0.0,
+        "ms": 0.0,
+        "ls": 0.0,
+        "hprRaw": 0.0,
+        "hpBonus": 0.0,
+        "spd": 0.0,
+        "atkTier": 0.0,
+        "mdRaw": 0.0,
+        "sdRaw": 0.0
+      }
+    },
+    "water": {
+      "sample_definition": "Level 90+ Rare-or-higher equipment whose WynnBuilder element list includes the element",
+      "equipment_count": 410,
+      "weapon_count": 152,
+      "single_element_weapon_count": 30,
+      "weapon_attack_speed_distribution": {
+        "FAST": 32,
+        "NORMAL": 36,
+        "SLOW": 22,
+        "SUPER_FAST": 12,
+        "SUPER_SLOW": 16,
+        "VERY_FAST": 17,
+        "VERY_SLOW": 17
+      },
+      "median_weapon_attack_speed_rank": 3.0,
+      "median_single_element_weapon_dps": 576.5,
+      "mean_single_element_weapon_dps": 545.5,
+      "positive_id_presence_percent": {
+        "poison": 2.2,
+        "mana_regen": 39.3,
+        "mana_steal": 26.6,
+        "life_steal": 10.5,
+        "raw_health_regen": 15.4,
+        "health_bonus": 6.3,
+        "walk_speed": 13.9,
+        "attack_speed_tier": 2.0,
+        "raw_main_attack": 3.2,
+        "raw_spell_damage": 12.4
+      },
+      "negative_id_presence_percent": {
+        "raw_health_regen": 6.1,
+        "walk_speed": 14.1,
+        "attack_speed_tier": 6.6,
+        "mana_regen": 5.6
+      },
+      "median_raw_ids": {
+        "poison": 0.0,
+        "mr": 0.0,
+        "ms": 0.0,
+        "ls": 0.0,
+        "hprRaw": 0.0,
+        "hpBonus": 0.0,
+        "spd": 0.0,
+        "atkTier": 0.0,
+        "mdRaw": 0.0,
+        "sdRaw": 0.0
+      }
+    },
+    "fire": {
+      "sample_definition": "Level 90+ Rare-or-higher equipment whose WynnBuilder element list includes the element",
+      "equipment_count": 436,
+      "weapon_count": 173,
+      "single_element_weapon_count": 36,
+      "weapon_attack_speed_distribution": {
+        "FAST": 24,
+        "NORMAL": 32,
+        "SLOW": 29,
+        "SUPER_FAST": 19,
+        "SUPER_SLOW": 33,
+        "VERY_FAST": 14,
+        "VERY_SLOW": 22
+      },
+      "median_weapon_attack_speed_rank": 3,
+      "median_single_element_weapon_dps": 553.0,
+      "mean_single_element_weapon_dps": 559.194,
+      "positive_id_presence_percent": {
+        "poison": 2.5,
+        "mana_regen": 19.7,
+        "mana_steal": 18.1,
+        "life_steal": 20.0,
+        "raw_health_regen": 27.5,
+        "health_bonus": 15.8,
+        "walk_speed": 15.4,
+        "attack_speed_tier": 3.4,
+        "raw_main_attack": 9.9,
+        "raw_spell_damage": 6.0
+      },
+      "negative_id_presence_percent": {
+        "raw_health_regen": 6.9,
+        "walk_speed": 21.3,
+        "attack_speed_tier": 10.3,
+        "mana_regen": 4.1
+      },
+      "median_raw_ids": {
+        "poison": 0.0,
+        "mr": 0.0,
+        "ms": 0.0,
+        "ls": 0.0,
+        "hprRaw": 0.0,
+        "hpBonus": 0.0,
+        "spd": 0.0,
+        "atkTier": 0.0,
+        "mdRaw": 0.0,
+        "sdRaw": 0.0
+      }
+    },
+    "air": {
+      "sample_definition": "Level 90+ Rare-or-higher equipment whose WynnBuilder element list includes the element",
+      "equipment_count": 433,
+      "weapon_count": 176,
+      "single_element_weapon_count": 29,
+      "weapon_attack_speed_distribution": {
+        "FAST": 44,
+        "NORMAL": 19,
+        "SLOW": 17,
+        "SUPER_FAST": 21,
+        "SUPER_SLOW": 22,
+        "VERY_FAST": 37,
+        "VERY_SLOW": 16
+      },
+      "median_weapon_attack_speed_rank": 4.0,
+      "median_single_element_weapon_dps": 550,
+      "mean_single_element_weapon_dps": 588.483,
+      "positive_id_presence_percent": {
+        "poison": 2.1,
+        "mana_regen": 16.4,
+        "mana_steal": 23.1,
+        "life_steal": 18.5,
+        "raw_health_regen": 10.2,
+        "health_bonus": 7.2,
+        "walk_speed": 47.1,
+        "attack_speed_tier": 7.2,
+        "raw_main_attack": 13.2,
+        "raw_spell_damage": 8.3
+      },
+      "negative_id_presence_percent": {
+        "raw_health_regen": 6.9,
+        "walk_speed": 6.5,
+        "attack_speed_tier": 6.5,
+        "mana_regen": 5.8
+      },
+      "median_raw_ids": {
+        "poison": 0,
+        "mr": 0,
+        "ms": 0,
+        "ls": 0,
+        "hprRaw": 0,
+        "hpBonus": 0,
+        "spd": 0,
+        "atkTier": 0,
+        "mdRaw": 0,
+        "sdRaw": 0
+      }
+    }
+  }
+}

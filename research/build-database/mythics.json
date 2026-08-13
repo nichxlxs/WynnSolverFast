@@ -1,0 +1,6841 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-13T01:15:52.506763+00:00",
+  "source": "https://api.wynncraft.com/v3/item/database?fullResult",
+  "source_kind": "official_live_api",
+  "official_api_version": "v3.7.2",
+  "official_api_date": "Thu, 13 Aug 2026 01:15:54 GMT",
+  "local_wynnbuilder_version": "2.2.2.0",
+  "live_fetch_error": null,
+  "counts": {
+    "all_mythic_records": 124,
+    "mythic_weapon_records": 71,
+    "unique_mythic_weapon_names": 55
+  },
+  "items": [
+    {
+      "display_name": "Boreal",
+      "internal_name": "Boreal",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 93,
+      "class_requirement": null,
+      "skill_requirements": {
+        "agility": 65,
+        "defence": 75
+      },
+      "elements": [
+        "fire",
+        "air"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 5000,
+        "baseAirDefence": 375,
+        "baseFireDefence": 250
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "reflection": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "airDefence": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "earthDamage": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "fireDefence": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "healthRegen": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "thunderDamage": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "healthRegenRaw": {
+          "min": 148,
+          "raw": 492,
+          "max": 640
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The last known crafts of Theorick before his fall in battle were pieces of armour crafted out of pure ice, all of which have melted save for these shimmering boots. The coldest gales and most suffocating heat nurture and repair the wearer instead of being stifling or deadly."
+    },
+    {
+      "display_name": "Crusade Sabatons",
+      "internal_name": "Crusade Sabatons",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 90,
+      "class_requirement": null,
+      "skill_requirements": {
+        "defence": 70,
+        "strength": 60
+      },
+      "elements": [
+        "earth",
+        "fire"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 5050,
+        "baseFireDefence": 200,
+        "baseEarthDefence": 125
+      },
+      "identifications": {
+        "thorns": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "rawHealth": {
+          "min": 525,
+          "raw": 1750,
+          "max": 2275
+        },
+        "walkSpeed": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        },
+        "rawDefence": 25,
+        "fireDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "healthRegen": {
+          "min": 4,
+          "raw": 14,
+          "max": 18
+        },
+        "rawStrength": 20,
+        "earthDefence": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "One of the very few physically-powerful artifacts of the Villagers, these boots were used in the initial crusades against the Green-skins, to overpower the Orcs via raw physical might. Though effective, they have not seen use in a long time."
+    },
+    {
+      "display_name": "Dawnbreak",
+      "internal_name": "Dawnbreak",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 96,
+      "class_requirement": null,
+      "skill_requirements": {
+        "defence": 65,
+        "dexterity": 65
+      },
+      "elements": [
+        "thunder",
+        "fire"
+      ],
+      "attack_speed": null,
+      "powder_slots": 2,
+      "base": {
+        "baseHealth": 4225,
+        "baseAirDefence": -125,
+        "baseFireDefence": 200,
+        "baseWaterDefence": -125,
+        "baseThunderDefence": 200
+      },
+      "identifications": {
+        "exploding": {
+          "min": 7,
+          "raw": 23,
+          "max": 30
+        },
+        "lifeSteal": {
+          "min": 120,
+          "raw": 400,
+          "max": 520
+        },
+        "manaSteal": {
+          "min": 4,
+          "raw": 12,
+          "max": 16
+        },
+        "fireDamage": {
+          "min": 8,
+          "raw": 27,
+          "max": 35
+        },
+        "thunderDamage": {
+          "min": 8,
+          "raw": 27,
+          "max": 35
+        },
+        "rawAttackSpeed": -14,
+        "rawMainAttackDamage": {
+          "min": 810,
+          "raw": 2700,
+          "max": 3510
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Many prophecies foretell of new eras. Most are fabricated or proven false in time. One passed through the Dogun caverns, however, tells of a dawn soon to break, in which the earth shall run red and return to flame. Fanatical sects whisper the coming of a new demonic god."
+    },
+    {
+      "display_name": "Galleon",
+      "internal_name": "Galleon",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 92,
+      "class_requirement": null,
+      "skill_requirements": {
+        "strength": 60,
+        "intelligence": 60
+      },
+      "elements": [
+        "earth",
+        "water"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 4500,
+        "baseAirDefence": -175,
+        "baseEarthDefence": 200,
+        "baseWaterDefence": 250
+      },
+      "identifications": {
+        "stealing": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "lootBonus": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "manaSteal": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "earthDamage": {
+          "min": 16,
+          "raw": 54,
+          "max": 70
+        },
+        "rawMaxMana": {
+          "min": 21,
+          "raw": 69,
+          "max": 90
+        },
+        "waterDamage": {
+          "min": 16,
+          "raw": 54,
+          "max": 70
+        },
+        "rawAttackSpeed": -1,
+        "mainAttackDamage": {
+          "min": 35,
+          "raw": 115,
+          "max": 150
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Forged with the raw powers of both the earth and the sea, these boots were initially an attempt at creating a method of foot-travel over the seas. Despite the spectacular failure of that application, they remain a formidable and reliable set of armor."
+    },
+    {
+      "display_name": "Moontower",
+      "internal_name": "Moontower",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 95,
+      "class_requirement": null,
+      "skill_requirements": {
+        "agility": 80,
+        "intelligence": 70
+      },
+      "elements": [
+        "water",
+        "air"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 4150,
+        "baseAirDefence": 125,
+        "baseFireDefence": 75,
+        "baseEarthDefence": 75,
+        "baseWaterDefence": 125,
+        "baseThunderDefence": 225
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "airDefence": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawAgility": 60,
+        "rawDefence": -40,
+        "rawStrength": -10,
+        "rawDexterity": -10,
+        "waterDefence": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawIntelligence": 35
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "For the belief of the cosmos' defilement, the moon was noted to remain unchanged. Those with this belief live only for the light of the moon, desperately seeking to maintain it through means that would only darken the soul of the most devout. Such from them comes the word lunacy."
+    },
+    {
+      "display_name": "Resurgence",
+      "internal_name": "Resurgence",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 91,
+      "class_requirement": null,
+      "skill_requirements": {
+        "defence": 80,
+        "intelligence": 65
+      },
+      "elements": [
+        "water",
+        "fire"
+      ],
+      "attack_speed": null,
+      "powder_slots": 4,
+      "base": {
+        "baseHealth": 4550,
+        "baseFireDefence": 125,
+        "baseWaterDefence": 175
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "walkSpeed": {
+          "min": -18,
+          "raw": -14,
+          "max": -10
+        },
+        "spellDamage": {
+          "min": -32,
+          "raw": -25,
+          "max": -17
+        },
+        "healthRegenRaw": {
+          "min": 210,
+          "raw": 700,
+          "max": 910
+        },
+        "rawIntelligence": 25,
+        "mainAttackDamage": {
+          "min": -58,
+          "raw": -45,
+          "max": -31
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "An antique passed from the Caritat wreckage into the hands of the outcast elves of Efilim. So to honor the memory of the selfless family as inspired their self-imposed exile, their strongest healing spells were imbued into it, and sent to those who needed them most."
+    },
+    {
+      "display_name": "Revenant",
+      "internal_name": "Revenant",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 99,
+      "class_requirement": null,
+      "skill_requirements": {
+        "agility": 70,
+        "strength": 70
+      },
+      "elements": [
+        "earth",
+        "air"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 6500,
+        "baseAirDefence": 140,
+        "baseEarthDefence": 140
+      },
+      "identifications": {
+        "airDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "manaSteal": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawHealth": {
+          "min": -3250,
+          "raw": -2500,
+          "max": -1750
+        },
+        "reflection": {
+          "min": 36,
+          "raw": 120,
+          "max": 156
+        },
+        "walkSpeed": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "earthDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "4thSpellCost": {
+          "min": -8,
+          "raw": -28,
+          "max": -36
+        },
+        "mainAttackDamage": {
+          "min": -91,
+          "raw": -70,
+          "max": -49
+        },
+        "rawMainAttackDamage": {
+          "min": 208,
+          "raw": 692,
+          "max": 900
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Those whose souls are lost to the Canyon of the Lost eternally seek form. They inhabit those who wear these boots, unknowingly dragging the soul of the wearer into their ranks if worn for too long, leaving a wandering husk."
+    },
+    {
+      "display_name": "Slayer",
+      "internal_name": "Slayer",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 94,
+      "class_requirement": null,
+      "skill_requirements": {
+        "agility": 60,
+        "dexterity": 75
+      },
+      "elements": [
+        "thunder",
+        "air"
+      ],
+      "attack_speed": null,
+      "powder_slots": 2,
+      "base": {
+        "baseHealth": 3775,
+        "baseWaterDefence": -100
+      },
+      "identifications": {
+        "stealing": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 27,
+          "max": 35
+        },
+        "rawDexterity": 20,
+        "3rdSpellCost": {
+          "min": -9,
+          "raw": -30,
+          "max": -39
+        },
+        "healthRegenRaw": {
+          "min": -637,
+          "raw": -490,
+          "max": -343
+        },
+        "rawAttackSpeed": 1,
+        "rawMainAttackDamage": {
+          "min": 105,
+          "raw": 350,
+          "max": 455
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Many artifacts are found to incite rage in the wearer, and wizards old and new alike conjecture as to the purpose of them. Very few increase the latent abilities of the wearers to ensure havoc, and none to such a degree as these boots."
+    },
+    {
+      "display_name": "Stardew",
+      "internal_name": "Stardew",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 97,
+      "class_requirement": null,
+      "skill_requirements": {
+        "dexterity": 65,
+        "intelligence": 75
+      },
+      "elements": [
+        "thunder",
+        "water"
+      ],
+      "attack_speed": null,
+      "powder_slots": 2,
+      "base": {
+        "baseHealth": 4075,
+        "baseAirDefence": -100,
+        "baseFireDefence": -100,
+        "baseEarthDefence": -100,
+        "baseWaterDefence": 150,
+        "baseThunderDefence": 150
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": -21,
+          "raw": -16,
+          "max": -11
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "reflection": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "waterDamage": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "thunderDamage": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "rawSpellDamage": {
+          "min": 88,
+          "raw": 292,
+          "max": 380
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Wybels have a strange attraction to cosmic magic, and many an owner will find them staring through the window at night. One, however, claims to have seen her Wybel making something out of white stardust. The abode was robbed shortly after, and the supposed item gone missing without confirmation of its existence."
+    },
+    {
+      "display_name": "Warchief",
+      "internal_name": "Warchief",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "boots",
+      "level": 98,
+      "class_requirement": null,
+      "skill_requirements": {
+        "strength": 80,
+        "dexterity": 80
+      },
+      "elements": [
+        "earth",
+        "thunder"
+      ],
+      "attack_speed": null,
+      "powder_slots": 3,
+      "base": {
+        "baseHealth": 5225,
+        "baseAirDefence": -100,
+        "baseFireDefence": -100,
+        "baseEarthDefence": -150,
+        "baseWaterDefence": -100,
+        "baseThunderDefence": -150
+      },
+      "identifications": {
+        "exploding": {
+          "min": 5,
+          "raw": 18,
+          "max": 23
+        },
+        "walkSpeed": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        },
+        "earthDamage": {
+          "min": 9,
+          "raw": 29,
+          "max": 38
+        },
+        "rawStrength": 20,
+        "rawDexterity": 10,
+        "thunderDamage": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "mainAttackDamage": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "rawMainAttackDamage": {
+          "min": 95,
+          "raw": 315,
+          "max": 410
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Sheer strength exudes from these Orcish relics, simple sandals ill-fitting to humans or Villagers. Enchanted with power and rage rather than magic, the strength that is provided when they are worn is unparalleled."
+    },
+    {
+      "display_name": "Discoverer",
+      "internal_name": "Discoverer",
+      "ascended_variant": false,
+      "item_type": "armour",
+      "subtype": "chestplate",
+      "level": 89,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lootBonus": {
+          "min": 46,
+          "raw": 154,
+          "max": 200
+        },
+        "combatExperience": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "lootchest",
+      "lore": "Wealth and riches...but at what cost?"
+    },
+    {
+      "display_name": "Everlasting Tome of Defensive Mastery II",
+      "internal_name": "Everlasting Tome of Defensive Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        },
+        "healthRegenRaw": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Everlasting Tome of Defensive Mastery III",
+      "internal_name": "Everlasting Tome of Defensive Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "rawHealth": {
+          "min": 105,
+          "raw": 350,
+          "max": 455
+        },
+        "healthRegenRaw": {
+          "min": 17,
+          "raw": 56,
+          "max": 73
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Everlasting Tome of Defensive Mastery II֎",
+      "internal_name": "Blooming Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        },
+        "healthRegenRaw": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Everlasting Tome of Defensive Mastery II֎֎",
+      "internal_name": "Radiant Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        },
+        "healthRegenRaw": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Everlasting Tome of Defensive Mastery II֎֎֎",
+      "internal_name": "Oceanic Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        },
+        "healthRegenRaw": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Vampiric Tome of Defensive Mastery II",
+      "internal_name": "Vampiric Tome of Defensive Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lifeSteal": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Vampiric Tome of Defensive Mastery III",
+      "internal_name": "Vampiric Tome of Defensive Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lifeSteal": {
+          "min": 24,
+          "raw": 80,
+          "max": 104
+        },
+        "rawHealth": {
+          "min": 105,
+          "raw": 350,
+          "max": 455
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Vampiric Tome of Defensive Mastery II֎",
+      "internal_name": "Pulsing Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lifeSteal": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Vampiric Tome of Defensive Mastery II֎֎",
+      "internal_name": "Courageous Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lifeSteal": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Vampiric Tome of Defensive Mastery II֎֎֎",
+      "internal_name": "Clouded Tome of Armour Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "armour_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "lifeSteal": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "rawHealth": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Tome of Remedial Expertise II",
+      "internal_name": "Tome of Remedial Expertise II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "expertise_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "healingEfficiency": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Tome of Remedial Expertise III",
+      "internal_name": "Tome of Remedial Expertise III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "expertise_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "healingEfficiency": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Dragon's Tome of Mysticism II",
+      "internal_name": "Dragon's Tome of Mysticism II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "3rdSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Dragon's Tome of Mysticism III",
+      "internal_name": "Dragon's Tome of Mysticism III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "3rdSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Faerie's Tome of Mysticism II",
+      "internal_name": "Faerie's Tome of Mysticism II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "1stSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Faerie's Tome of Mysticism III",
+      "internal_name": "Faerie's Tome of Mysticism III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "1stSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Golem's Tome of Mysticism II",
+      "internal_name": "Golem's Tome of Mysticism II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "4thSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Golem's Tome of Mysticism III",
+      "internal_name": "Golem's Tome of Mysticism III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "4thSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Pegasus' Tome of Mysticism II",
+      "internal_name": "Pegasus' Tome of Mysticism II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 100,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "2ndSpellCost": {
+          "min": -2,
+          "raw": -6,
+          "max": -8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Pegasus' Tome of Mysticism III",
+      "internal_name": "Pegasus' Tome of Mysticism III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "mysticism_tome",
+      "level": 120,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "2ndSpellCost": {
+          "min": -2,
+          "raw": -8,
+          "max": -10
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Abyssal Tome of Combat Mastery II",
+      "internal_name": "Abyssal Tome of Combat Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "waterDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Abyssal Tome of Combat Mastery III",
+      "internal_name": "Abyssal Tome of Combat Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "waterDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Abyssal Tome of Combat Mastery III֎",
+      "internal_name": "Abyssal Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "waterDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Abyssal Tome of Combat Mastery II֎",
+      "internal_name": "Abyssal Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "waterDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Cyclonic Tome of Combat Mastery II",
+      "internal_name": "Cyclonic Tome of Combat Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "airDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Cyclonic Tome of Combat Mastery III",
+      "internal_name": "Cyclonic Tome of Combat Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "airDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Cyclonic Tome of Combat Mastery III֎",
+      "internal_name": "Cyclonic Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "airDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Cyclonic Tome of Combat Mastery II֎",
+      "internal_name": "Cyclonic Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "airDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery II",
+      "internal_name": "Infernal Tome of Combat Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery III",
+      "internal_name": "Infernal Tome of Combat Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery III֎",
+      "internal_name": "Infernal Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery III֎֎",
+      "internal_name": "Astral Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery II֎",
+      "internal_name": "Infernal Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Infernal Tome of Combat Mastery II֎֎",
+      "internal_name": "Astral Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "fireDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Seismic Tome of Combat Mastery II",
+      "internal_name": "Seismic Tome of Combat Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "earthDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Seismic Tome of Combat Mastery III",
+      "internal_name": "Seismic Tome of Combat Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "earthDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Seismic Tome of Combat Mastery III֎",
+      "internal_name": "Seismic Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "earthDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Seismic Tome of Combat Mastery II֎",
+      "internal_name": "Seismic Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "earthDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Voltaic Tome of Combat Mastery II",
+      "internal_name": "Voltaic Tome of Combat Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "thunderDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Voltaic Tome of Combat Mastery III",
+      "internal_name": "Voltaic Tome of Combat Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "thunderDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Voltaic Tome of Combat Mastery III֎",
+      "internal_name": "Voltaic Tome of Weapon Mastery III",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 105,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 4,
+          "max": 5
+        },
+        "thunderDamage": {
+          "min": 2,
+          "raw": 7,
+          "max": 9
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Voltaic Tome of Combat Mastery II֎",
+      "internal_name": "Voltaic Tome of Weapon Mastery II",
+      "ascended_variant": false,
+      "item_type": "tome",
+      "subtype": "weapon_tome",
+      "level": 80,
+      "class_requirement": null,
+      "skill_requirements": {},
+      "elements": [],
+      "attack_speed": null,
+      "powder_slots": null,
+      "base": {},
+      "identifications": {
+        "damage": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "thunderDamage": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": ""
+    },
+    {
+      "display_name": "Az",
+      "internal_name": "Az",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 74,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "dexterity": 80
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 5,
+      "base": {
+        "baseDamage": {
+          "min": 110,
+          "raw": 110,
+          "max": 170
+        },
+        "baseThunderDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 250
+        }
+      },
+      "identifications": {
+        "fireDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawDefence": 15,
+        "waterDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "1stSpellCost": {
+          "min": -7,
+          "raw": -23,
+          "max": -30
+        },
+        "rawIntelligence": 15,
+        "combatExperience": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Mysterious runes, held by inexplicable ancient guardians, were once moulded together for study purposes. The experiment went awry, as the runic words Nii, Az, and Ek were combined in a reaction that resulted in the collapse of a civilization."
+    },
+    {
+      "display_name": "Az",
+      "internal_name": "Masterwork Az",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 98,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "dexterity": 80
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 5,
+      "base": {
+        "baseDamage": {
+          "min": 120,
+          "raw": 120,
+          "max": 190
+        },
+        "baseThunderDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 265
+        }
+      },
+      "identifications": {
+        "fireDamage": {
+          "min": 23,
+          "raw": 77,
+          "max": 100
+        },
+        "rawDefence": 15,
+        "waterDamage": {
+          "min": 23,
+          "raw": 77,
+          "max": 100
+        },
+        "1stSpellCost": {
+          "min": -7,
+          "raw": -23,
+          "max": -30
+        },
+        "3rdSpellCost": {
+          "min": -7,
+          "raw": -25,
+          "max": -32
+        },
+        "rawIntelligence": 15,
+        "combatExperience": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Fallout",
+          "description": "Bomb Arrow gains +7.5 range, +50%, severely increased recoil, and 25% self-damage."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Mysterious runes, held by inexplicable ancient guardians, were once moulded together for study purposes. The experiment went awry, as the runic words Nii, Az, and Ek were combined in a reaction that resulted in the collapse of a civilization."
+    },
+    {
+      "display_name": "Divzer",
+      "internal_name": "Divzer",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 97,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "dexterity": 115
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 23,
+          "raw": 23,
+          "max": 24
+        },
+        "baseThunderDamage": {
+          "min": 199,
+          "raw": 199,
+          "max": 199
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": 274,
+          "raw": 912,
+          "max": 1186
+        },
+        "manaSteal": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "fireDamage": {
+          "min": -715,
+          "raw": -550,
+          "max": -385
+        },
+        "rawAgility": -550,
+        "rawDefence": -73,
+        "waterDamage": {
+          "min": -715,
+          "raw": -550,
+          "max": -385
+        },
+        "rawDexterity": 37,
+        "rawAttackSpeed": 1,
+        "rawSpellDamage": {
+          "min": 76,
+          "raw": 253,
+          "max": 329
+        },
+        "rawMainAttackDamage": {
+          "min": 161,
+          "raw": 536,
+          "max": 697
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Unruly magics of void and darkness are tamed within this bow's string. While those energies are never to be released, arrows fired from it fire at such blinding speeds so as to phase out of existence when they hit their target."
+    },
+    {
+      "display_name": "Epoch",
+      "internal_name": "Epoch",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 102,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 70,
+        "dexterity": 70
+      },
+      "elements": [
+        "thunder",
+        "air"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 450,
+          "raw": 450,
+          "max": 620
+        },
+        "baseAirDamage": {
+          "min": 480,
+          "raw": 480,
+          "max": 560
+        },
+        "baseThunderDamage": {
+          "min": 440,
+          "raw": 440,
+          "max": 600
+        }
+      },
+      "identifications": {
+        "sprint": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "lifeSteal": {
+          "min": 233,
+          "raw": 775,
+          "max": 1008
+        },
+        "manaSteal": {
+          "min": -8,
+          "raw": -6,
+          "max": -4
+        },
+        "walkSpeed": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "spellDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "raw1stSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        },
+        "raw4thSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        },
+        "rawMainAttackDamage": {
+          "min": 92,
+          "raw": 308,
+          "max": 400
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "This ornate bow holds a sinister beauty. Each rediscovery marks impending disaster, against any force that attempts to overcome it. Such is the inevitability of fate: irreverent to the will of masses, an epoch starts anew."
+    },
+    {
+      "display_name": "Epoch",
+      "internal_name": "Masterwork Epoch",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 114,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 70,
+        "dexterity": 70
+      },
+      "elements": [
+        "thunder",
+        "air"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 520,
+          "raw": 520,
+          "max": 660
+        },
+        "baseAirDamage": {
+          "min": 530,
+          "raw": 530,
+          "max": 600
+        },
+        "baseThunderDamage": {
+          "min": 510,
+          "raw": 510,
+          "max": 620
+        }
+      },
+      "identifications": {
+        "sprint": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "lifeSteal": {
+          "min": 277,
+          "raw": 923,
+          "max": 1200
+        },
+        "manaSteal": {
+          "min": -8,
+          "raw": -6,
+          "max": -4
+        },
+        "walkSpeed": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "spellDamage": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "mainAttackRange": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "raw1stSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        },
+        "raw4thSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        },
+        "rawMainAttackDamage": {
+          "min": 231,
+          "raw": 769,
+          "max": 1000
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": "This ornate bow holds a sinister beauty. Each rediscovery marks impending disaster, against any force that attempts to overcome it. Such is the inevitability of fate: irreverent to the will of masses, an epoch starts anew."
+    },
+    {
+      "display_name": "Eschaton",
+      "internal_name": "Eschaton",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 119,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 60,
+        "defence": 60,
+        "dexterity": 60
+      },
+      "elements": [
+        "thunder",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 2,
+      "base": {
+        "baseAirDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 90
+        },
+        "baseFireDamage": {
+          "min": 50,
+          "raw": 50,
+          "max": 70
+        },
+        "baseThunderDamage": {
+          "min": 20,
+          "raw": 20,
+          "max": 120
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "rawHealth": {
+          "min": -2860,
+          "raw": -2200,
+          "max": -1540
+        },
+        "waterDefence": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "4thSpellCost": {
+          "min": -7,
+          "raw": -25,
+          "max": -32
+        },
+        "rawFireDamage": {
+          "min": 60,
+          "raw": 200,
+          "max": 260
+        },
+        "rawAttackSpeed": 1
+      },
+      "major_ids": [
+        {
+          "name": "Death Sentence",
+          "description": "Courage will immediately combust Guardian Angels, dealing 4000% and enkindling Buckshot's arrows with 20% Main Attack damage."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "The end comes in threes: first a deep and neverending shadow, suffocating all within its grasp. Then, a piercing blinding radiance, overtaking all within its sight. Finally, the in-between: chaos, bloodshed, war, a conflict which will sweep the land. Each end inevitable; but none a guarantee."
+    },
+    {
+      "display_name": "Freedom",
+      "internal_name": "Freedom",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 93,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 40,
+        "defence": 40,
+        "strength": 40,
+        "dexterity": 40,
+        "intelligence": 40
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 4,
+      "base": {
+        "baseAirDamage": {
+          "min": 45,
+          "raw": 45,
+          "max": 135
+        },
+        "baseFireDamage": {
+          "min": 65,
+          "raw": 65,
+          "max": 115
+        },
+        "baseEarthDamage": {
+          "min": 75,
+          "raw": 75,
+          "max": 105
+        },
+        "baseWaterDamage": {
+          "min": 55,
+          "raw": 55,
+          "max": 125
+        },
+        "baseThunderDamage": {
+          "min": 35,
+          "raw": 35,
+          "max": 145
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawHealth": {
+          "min": 281,
+          "raw": 935,
+          "max": 1216
+        },
+        "walkSpeed": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "rawAgility": 30,
+        "rawSpellDamage": {
+          "min": 60,
+          "raw": 200,
+          "max": 260
+        },
+        "rawMainAttackDamage": {
+          "min": 60,
+          "raw": 200,
+          "max": 260
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Freedom of soul, mind, and body are forced upon all those that this bow's arrows impact, and freedom of caring from the atrocities that such a dangerous weapon can inflict is given to all those that hold it."
+    },
+    {
+      "display_name": "Grandmother",
+      "internal_name": "Grandmother",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 95,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "strength": 110
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 120,
+          "raw": 120,
+          "max": 250
+        },
+        "baseEarthDamage": {
+          "min": 410,
+          "raw": 410,
+          "max": 565
+        }
+      },
+      "identifications": {
+        "lootBonus": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "walkSpeed": {
+          "min": -8,
+          "raw": -6,
+          "max": -4
+        },
+        "rawAgility": 55,
+        "healthRegen": {
+          "min": -45,
+          "raw": -35,
+          "max": -24
+        },
+        "rawStrength": 15,
+        "spellDamage": {
+          "min": 6,
+          "raw": 21,
+          "max": 27
+        },
+        "healthRegenRaw": {
+          "min": -1365,
+          "raw": -1050,
+          "max": -735
+        },
+        "combatExperience": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "mainAttackDamage": {
+          "min": 6,
+          "raw": 21,
+          "max": 27
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The very first crossbow in existence was claimed to be utterly indestructible, but it is only true to a fault. The item cannot be broken, but solely because all damage to it is instead reflected onto the user. As its age is uncountably ancient, wielders will find themselves rapidly aging and withering away with even a mere touch."
+    },
+    {
+      "display_name": "Ignis",
+      "internal_name": "Ignis",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 95,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "defence": 105
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 130,
+          "raw": 130,
+          "max": 210
+        },
+        "baseFireDamage": {
+          "min": 140,
+          "raw": 140,
+          "max": 225
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 900,
+          "raw": 3000,
+          "max": 3900
+        },
+        "airDefence": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "rawDefence": 20,
+        "fireDefence": {
+          "min": 30,
+          "raw": 100,
+          "max": 130
+        },
+        "healthRegen": {
+          "min": 5,
+          "raw": 17,
+          "max": 22
+        },
+        "4thSpellCost": {
+          "min": -10,
+          "raw": -35,
+          "max": -45
+        },
+        "healthRegenRaw": {
+          "min": 168,
+          "raw": 560,
+          "max": 728
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Dragon's Breath",
+          "description": "Buckshot will heal allies for 100% of your total Health Regen."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "This bow, used by the dwarves to land the final blow in the slaughter of Garaheth, is extremely powerful. Special fire resistant gloves must be worn at all times to prevent burns to the user."
+    },
+    {
+      "display_name": "Labyrinth",
+      "internal_name": "Labyrinth",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 104,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "defence": 85,
+        "strength": 70
+      },
+      "elements": [
+        "earth",
+        "fire"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 2,
+      "base": {
+        "baseFireDamage": {
+          "min": 470,
+          "raw": 470,
+          "max": 530
+        },
+        "baseEarthDamage": {
+          "min": 485,
+          "raw": 485,
+          "max": 515
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 3,
+          "raw": 11,
+          "max": 14
+        },
+        "slowEnemy": {
+          "min": 3,
+          "raw": 11,
+          "max": 14
+        },
+        "fireDamage": {
+          "min": 7,
+          "raw": 23,
+          "max": 30
+        },
+        "rawDefence": 20,
+        "earthDamage": {
+          "min": 7,
+          "raw": 23,
+          "max": 30
+        },
+        "3rdSpellCost": {
+          "min": -6,
+          "raw": -19,
+          "max": -25
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Twisting Threads",
+          "description": "Tangled Traps ropes gain +1 range, can overlap up to 3 times, and deal 65%. Gain +12 traps with 66% duration that cannot be triggered by enemies."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Left. Right. Left. Right. They are desperate for an escape, merely playthings in a maze of your design. Left. Left. Right. Turn back. When mountains of stone can shift at your command, their world is reduced to a single path. Left. Right. Does it ever end?"
+    },
+    {
+      "display_name": "Revolution",
+      "internal_name": "Revolution",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 111,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 65,
+        "strength": 60,
+        "intelligence": 55
+      },
+      "elements": [
+        "earth",
+        "water",
+        "air"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 190,
+          "raw": 190,
+          "max": 260
+        },
+        "baseAirDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 300
+        },
+        "baseEarthDamage": {
+          "min": 210,
+          "raw": 210,
+          "max": 250
+        },
+        "baseWaterDamage": {
+          "min": 180,
+          "raw": 180,
+          "max": 280
+        }
+      },
+      "identifications": {
+        "knockback": {
+          "min": 39,
+          "raw": 131,
+          "max": 170
+        },
+        "manaSteal": {
+          "min": 4,
+          "raw": 14,
+          "max": 18
+        },
+        "rawHealth": {
+          "min": -3150,
+          "raw": -2423,
+          "max": -1696
+        },
+        "rawIntelligence": 25,
+        "mainAttackRange": {
+          "min": -47,
+          "raw": -36,
+          "max": -25
+        },
+        "raw2ndSpellCost": {
+          "min": -3,
+          "raw": -9,
+          "max": -12
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Regicide",
+          "description": "You deal 2% more damage for every block you are away from your target (Max 120%)."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A boiling rage has been gathering, the pain of an entire empire yearning to be freed. With all the power of the downtrodden and the overlooked and the starved, you echo out a shout with ten thousand voices, each too quiet to hear by itself, but together a catastrophic force to make the heavens cower."
+    },
+    {
+      "display_name": "Spring",
+      "internal_name": "Spring",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 98,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "intelligence": 120
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 135,
+          "raw": 135,
+          "max": 185
+        },
+        "baseWaterDamage": {
+          "min": 170,
+          "raw": 170,
+          "max": 310
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "slowEnemy": {
+          "min": 6,
+          "raw": 19,
+          "max": 25
+        },
+        "rawStrength": 15,
+        "waterDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "weakenEnemy": {
+          "min": 6,
+          "raw": 19,
+          "max": 25
+        },
+        "rawDexterity": -40,
+        "thunderDamage": {
+          "min": -65,
+          "raw": -50,
+          "max": -35
+        },
+        "rawIntelligence": 15
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Arrows fired by this bow are pure ice, but when they hit the enemy, burst into magical water, flash-freezing all that it touches. The frost burns will never heal."
+    },
+    {
+      "display_name": "Stratiformis",
+      "internal_name": "Masterwork Stratiformis",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 110,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 115
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 85,
+          "raw": 85,
+          "max": 185
+        },
+        "baseAirDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 320
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": -2600,
+          "raw": -2000,
+          "max": -1400
+        },
+        "reflection": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "walkSpeed": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        },
+        "rawAgility": 35,
+        "spellDamage": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "raw2ndSpellCost": {
+          "min": -2,
+          "raw": -8,
+          "max": -10
+        },
+        "rawAirMainAttackDamage": {
+          "min": 231,
+          "raw": 769,
+          "max": 1000
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Elven Current",
+          "description": "Escape can be re-cast twice in mid-air."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The Elves managed to harness the power of air itself, forming a bow made entirely of air currents, allowing the user to move swift like the wind, but vulnerable to attacks."
+    },
+    {
+      "display_name": "Stratiformis",
+      "internal_name": "Stratiformis",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "bow",
+      "level": 99,
+      "class_requirement": "archer",
+      "skill_requirements": {
+        "agility": 115
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 75,
+          "raw": 75,
+          "max": 175
+        },
+        "baseAirDamage": {
+          "min": 140,
+          "raw": 140,
+          "max": 300
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": -2600,
+          "raw": -2000,
+          "max": -1400
+        },
+        "reflection": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "walkSpeed": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        },
+        "rawAgility": 35,
+        "spellDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawAirMainAttackDamage": {
+          "min": 144,
+          "raw": 481,
+          "max": 625
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The Elves managed to harness the power of air itself, forming a bow made entirely of air currents, allowing the user to move swift like the wind, but vulnerable to attacks."
+    },
+    {
+      "display_name": "Archangel",
+      "internal_name": "Archangel",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 69,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "agility": 70
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 20,
+          "raw": 20,
+          "max": 60
+        },
+        "baseAirDamage": {
+          "min": 145,
+          "raw": 145,
+          "max": 175
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 570,
+          "raw": 1900,
+          "max": 2470
+        },
+        "walkSpeed": {
+          "min": 12,
+          "raw": 41,
+          "max": 53
+        },
+        "rawAgility": 15,
+        "rawDefence": 10,
+        "healthRegen": {
+          "min": 4,
+          "raw": 13,
+          "max": 17
+        },
+        "healthRegenRaw": {
+          "min": 63,
+          "raw": 210,
+          "max": 273
+        },
+        "mainAttackRange": {
+          "min": 38,
+          "raw": 125,
+          "max": 163
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The unwieldy, yet imposing stature of this massive sickle strikes awe into those who view it. Those who have the will to wield it, however, seem to garner respect from all those around them, as though they had become a god."
+    },
+    {
+      "display_name": "Archangel",
+      "internal_name": "Masterwork Archangel",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 94,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "agility": 70
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 70
+        },
+        "baseAirDamage": {
+          "min": 180,
+          "raw": 180,
+          "max": 200
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 570,
+          "raw": 1900,
+          "max": 2470
+        },
+        "walkSpeed": {
+          "min": 12,
+          "raw": 41,
+          "max": 53
+        },
+        "rawAgility": 15,
+        "rawDefence": 10,
+        "healthRegen": {
+          "min": 7,
+          "raw": 23,
+          "max": 30
+        },
+        "weakenEnemy": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "healthRegenRaw": {
+          "min": 147,
+          "raw": 490,
+          "max": 637
+        },
+        "mainAttackRange": {
+          "min": 38,
+          "raw": 125,
+          "max": 163
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Grand Influence",
+          "description": "While above 80% maximum health, allies within 12 blocks gain 15% increased health gain from all sources and 25% Walk Speed."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The unwieldy, yet imposing stature of this massive sickle strikes awe into those who view it. Those who have the will to wield it, however, seem to garner respect from all those around them, as though they had become a god."
+    },
+    {
+      "display_name": "Architect",
+      "internal_name": "Architect",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 109,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "defence": 55,
+        "strength": 55,
+        "intelligence": 65
+      },
+      "elements": [
+        "earth",
+        "water",
+        "fire"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 5,
+      "base": {
+        "baseDamage": {
+          "min": 180,
+          "raw": 180,
+          "max": 400
+        },
+        "baseFireDamage": {
+          "min": 35,
+          "raw": 35,
+          "max": 65
+        },
+        "baseEarthDamage": {
+          "min": 45,
+          "raw": 45,
+          "max": 55
+        },
+        "baseWaterDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 60
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": -975,
+          "raw": -750,
+          "max": -525
+        },
+        "manaRegen": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawHealth": {
+          "min": 450,
+          "raw": 1500,
+          "max": 1950
+        },
+        "slowEnemy": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawAgility": 15,
+        "rawDefence": 15,
+        "rawStrength": 15,
+        "rawDexterity": 15,
+        "rawIntelligence": 15,
+        "healingEfficiency": {
+          "min": 4,
+          "raw": 12,
+          "max": 16
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Living Museum",
+          "description": "Players within 10 blocks of Mirage, Shadow, or Another Self clones will get 20% resistance, and be healed 8%, 15%, or 50% max health when the respective clone is destroyed."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Allies are exhausting, with their egos and beliefs, and pesky moral codes. Followers are much better-soldiers in your own perfect image, whose deaths are merely scaffolds to a world of your design."
+    },
+    {
+      "display_name": "Cataclysm",
+      "internal_name": "Cataclysm",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 96,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "dexterity": 120
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 110
+        },
+        "baseThunderDamage": {
+          "min": 45,
+          "raw": 45,
+          "max": 240
+        }
+      },
+      "identifications": {
+        "thorns": {
+          "min": 6,
+          "raw": 21,
+          "max": 27
+        },
+        "stealing": {
+          "min": 2,
+          "raw": 5,
+          "max": 7
+        },
+        "rawHealth": {
+          "min": -7800,
+          "raw": -6000,
+          "max": -4200
+        },
+        "rawDexterity": 20,
+        "thunderDamage": {
+          "min": 5,
+          "raw": 17,
+          "max": 22
+        },
+        "raw1stSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Despite the existence of the Nether Portal, few believe that it is possible to open such rifts with sheer force alone. None believe that a tool with enough power to accomplish such a monumental feat could exist. And yet..."
+    },
+    {
+      "display_name": "Cataclysm",
+      "internal_name": "Masterwork Cataclysm",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 113,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "dexterity": 120
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 120
+        },
+        "baseThunderDamage": {
+          "min": 45,
+          "raw": 45,
+          "max": 260
+        }
+      },
+      "identifications": {
+        "thorns": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "stealing": {
+          "min": 2,
+          "raw": 5,
+          "max": 7
+        },
+        "rawHealth": {
+          "min": -7800,
+          "raw": -6000,
+          "max": -4200
+        },
+        "rawDexterity": 30,
+        "thunderDamage": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "raw1stSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        },
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": "Despite the existence of the Nether Portal, few believe that it is possible to open such rifts with sheer force alone. None believe that a tool with enough power to accomplish such a monumental feat could exist. And yet..."
+    },
+    {
+      "display_name": "Grimtrap",
+      "internal_name": "Grimtrap",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 96,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "strength": 100
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 220
+        },
+        "baseEarthDamage": {
+          "min": 285,
+          "raw": 285,
+          "max": 405
+        }
+      },
+      "identifications": {
+        "poison": {
+          "min": 3750,
+          "raw": 12500,
+          "max": 16250
+        },
+        "thorns": {
+          "min": 21,
+          "raw": 70,
+          "max": 91
+        },
+        "lifeSteal": {
+          "min": 260,
+          "raw": 865,
+          "max": 1125
+        },
+        "healthRegen": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "rawStrength": 15,
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -3,
+          "max": -4
+        },
+        "raw4thSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Torment Liturgy",
+          "description": "Shadow Siphon now immediately refreshes Vanish when triggered, but reduces Surprise Strike's multiplier by -30%."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Found at the site of the Caritat Mansion, a curse falls upon on all who don this glove; a decay of the body, to fester in their wounds, and a decay of the mind, to muddle all thought. With it, a notion takes hold: to suffer together is to suffer no more."
+    },
+    {
+      "display_name": "Hanafubuki",
+      "internal_name": "Hanafubuki",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 102,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "agility": 85,
+        "intelligence": 65
+      },
+      "elements": [
+        "water",
+        "air"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": null,
+      "base": {
+        "baseDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 220
+        }
+      },
+      "identifications": {
+        "jumpHeight": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "rawStrength": 15,
+        "earthDefence": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "3rdSpellCost": {
+          "min": 20,
+          "raw": 15,
+          "max": 11
+        },
+        "4thSpellCost": {
+          "min": 13,
+          "raw": 10,
+          "max": 7
+        },
+        "elementalDamage": {
+          "min": 77,
+          "raw": 256,
+          "max": 333
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Efflorescence",
+          "description": "Serpent's Garden now centers to where you land with Swan Dive. Damage of Swan Dive, Serpent's Garden and Jasmine Bloom are distributed across all elements."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The most dangerous enemy is one you cannot see. Hidden amidst a flurry of petals comes an avalanche of blows, in one moment dissolving mountains and forests into a growing amalgam, leaving a wake of vibrant bloom in the next."
+    },
+    {
+      "display_name": "Inferno",
+      "internal_name": "Inferno",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 97,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "defence": 105
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 3,
+      "base": {
+        "baseFireDamage": {
+          "min": 795,
+          "raw": 795,
+          "max": 985
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 450,
+          "raw": 1500,
+          "max": 1950
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "fireDamage": {
+          "min": 14,
+          "raw": 46,
+          "max": 60
+        },
+        "rawDefence": 15,
+        "healthRegen": {
+          "min": -36,
+          "raw": -28,
+          "max": -20
+        },
+        "waterDefence": {
+          "min": -52,
+          "raw": -40,
+          "max": -28
+        },
+        "raw1stSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        },
+        "rawMainAttackDamage": {
+          "min": 231,
+          "raw": 769,
+          "max": 1000
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The Dogun God Garaheth was actually an immense fire demon occupying the bowels of Molten Heights. Although unwise, the Dwarves forged a demonic dagger using his tooth in celebration of his slaughter."
+    },
+    {
+      "display_name": "Nirvana",
+      "internal_name": "Masterwork Nirvana",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 111,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "intelligence": 110
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseWaterDamage": {
+          "min": 330,
+          "raw": 330,
+          "max": 370
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 4,
+          "raw": 14,
+          "max": 18
+        },
+        "manaSteal": {
+          "min": -13,
+          "raw": -10,
+          "max": -7
+        },
+        "rawHealth": {
+          "min": -2600,
+          "raw": -2000,
+          "max": -1400
+        },
+        "reflection": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "spellDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawIntelligence": 40,
+        "mainAttackDamage": {
+          "min": -104,
+          "raw": -80,
+          "max": -56
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Enlightenment",
+          "description": "25% chance for spells to cost no mana and instead refund 25% of their original cost."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Spiritual enlightenment is a goal that many monks hope to one day grasp the barest glimpse of, often thought to be a goal that must be worked towards over a lifetime. Holding this polished, translucent blade will instantly induce that lofty state until it is let go."
+    },
+    {
+      "display_name": "Nirvana",
+      "internal_name": "Nirvana",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 97,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "intelligence": 110
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseWaterDamage": {
+          "min": 300,
+          "raw": 300,
+          "max": 340
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "manaSteal": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "rawHealth": {
+          "min": -2600,
+          "raw": -2000,
+          "max": -1400
+        },
+        "reflection": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "spellDamage": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawIntelligence": 40,
+        "mainAttackDamage": {
+          "min": -104,
+          "raw": -80,
+          "max": -56
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Transcendence",
+          "description": "25% chance for spells to cost no mana when casted."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Spiritual enlightenment is a goal that many monks hope to one day grasp the barest glimpse of, often thought to be a goal that must be worked towards over a lifetime. Holding this polished, translucent blade will instantly induce that lofty state until it is let go."
+    },
+    {
+      "display_name": "Nullification",
+      "internal_name": "Nullification",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 95,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "agility": 30,
+        "defence": 30,
+        "strength": 30,
+        "dexterity": 30,
+        "intelligence": 30
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 95
+        },
+        "baseFireDamage": {
+          "min": 35,
+          "raw": 35,
+          "max": 85
+        },
+        "baseEarthDamage": {
+          "min": 55,
+          "raw": 55,
+          "max": 65
+        },
+        "baseWaterDamage": {
+          "min": 45,
+          "raw": 45,
+          "max": 75
+        },
+        "baseThunderDamage": {
+          "min": 15,
+          "raw": 15,
+          "max": 105
+        }
+      },
+      "identifications": {
+        "poison": {
+          "min": -15600,
+          "raw": -12000,
+          "max": -8400
+        },
+        "lifeSteal": {
+          "min": 150,
+          "raw": 500,
+          "max": 650
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 16,
+          "max": 21
+        },
+        "reflection": {
+          "min": 30,
+          "raw": 100,
+          "max": 130
+        },
+        "rawDefence": 40,
+        "elementalDefence": {
+          "min": 46,
+          "raw": 154,
+          "max": 200
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Punishment",
+          "description": "Reflected damage blinds enemies for 1s and makes them 10% more vulnerable to attacks for 3s."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "The diminutive stature of this item belies its abilities. Absorbing and expelling magical energy in precise bursts, it protects the user from all manner of attacks while punishing those who dare strike."
+    },
+    {
+      "display_name": "Oblivion",
+      "internal_name": "Oblivion",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 101,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "dexterity": 75,
+        "intelligence": 65
+      },
+      "elements": [
+        "thunder",
+        "water"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 200
+        },
+        "baseWaterDamage": {
+          "min": 500,
+          "raw": 500,
+          "max": 999
+        },
+        "baseThunderDamage": {
+          "min": 500,
+          "raw": 500,
+          "max": 999
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 4,
+          "raw": 14,
+          "max": 18
+        },
+        "manaRegen": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "rawDexterity": 15,
+        "rawSpellDamage": {
+          "min": 74,
+          "raw": 245,
+          "max": 319
+        },
+        "raw2ndSpellCost": {
+          "min": -6,
+          "raw": -20,
+          "max": -26
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "This sacrificial kris, fallen from the peak of the Tower of Ascension, is completely hollow. To wield it is to invite to yourself the same hollowness. To become such an aberration, to unwrite yourself in pursuit of power...it must be fed of its wielder til only the barest existence remains."
+    },
+    {
+      "display_name": "Vengeance",
+      "internal_name": "Vengeance",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 116,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "defence": 50,
+        "strength": 60,
+        "dexterity": 60
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "fire"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 500,
+          "raw": 500,
+          "max": 800
+        },
+        "baseFireDamage": {
+          "min": 200,
+          "raw": 200,
+          "max": 400
+        },
+        "baseEarthDamage": {
+          "min": 250,
+          "raw": 250,
+          "max": 350
+        },
+        "baseThunderDamage": {
+          "min": 150,
+          "raw": 150,
+          "max": 450
+        }
+      },
+      "identifications": {
+        "damage": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "manaSteal": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        },
+        "healthRegen": {
+          "min": 100,
+          "raw": 333,
+          "max": 433
+        },
+        "3rdSpellCost": {
+          "min": -4,
+          "raw": -14,
+          "max": -18
+        },
+        "healthRegenRaw": {
+          "min": -9100,
+          "raw": -7000,
+          "max": -4900
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Manic Edge",
+          "description": "While vanished, lose 5% of your max mana per second. Surprise Strike further increases your damage by 3% per mana lost from this effect, up to 70%."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A strength fueled by rage, merciless, unending. A hatred, all-consuming, that erodes all other thought, all sense of being. An ally so fickle, so selfish, that leaves you aimless at the moment of pyrrhic triumph."
+    },
+    {
+      "display_name": "Weathered",
+      "internal_name": "Weathered",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "dagger",
+      "level": 96,
+      "class_requirement": "assassin",
+      "skill_requirements": {
+        "agility": 110
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 80
+        },
+        "baseAirDamage": {
+          "min": 130,
+          "raw": 130,
+          "max": 220
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": -65,
+          "raw": -50,
+          "max": -35
+        },
+        "airDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 16,
+          "max": 21
+        },
+        "reflection": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawAgility": 20,
+        "rawAttackSpeed": 1
+      },
+      "major_ids": [
+        {
+          "name": "Roving Assassin",
+          "description": "Vanish will no longer block mana and health regeneration."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A relic of the past in Time Valley was weathered down to a dagger by the sheer power of the wind. When used in battle, mysterious intertwined wind and time magic give it no physical presence."
+    },
+    {
+      "display_name": "Absolution",
+      "internal_name": "Absolution",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 97,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "defence": 115
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": null,
+      "base": {
+        "baseFireDamage": {
+          "min": 175,
+          "raw": 175,
+          "max": 185
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 5,
+          "raw": 16,
+          "max": 21
+        },
+        "rawHealth": {
+          "min": 900,
+          "raw": 3000,
+          "max": 3900
+        },
+        "fireDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "earthDefence": {
+          "min": 14,
+          "raw": 45,
+          "max": 59
+        },
+        "thunderDefence": {
+          "min": 14,
+          "raw": 45,
+          "max": 59
+        },
+        "raw1stSpellCost": {
+          "min": -6,
+          "raw": -20,
+          "max": -26
+        },
+        "healingEfficiency": {
+          "min": 17,
+          "raw": 58,
+          "max": 75
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "A deep regret stains this weapon-once a healing implement of the scholar-priest, its gentle power was turned and twisted as his ideals and resolve were tested, and faltered. With its wielder long passed, perhaps it can finally be absolved of the atrocities committed by his hand... and remember the peace it has long forgotten."
+    },
+    {
+      "display_name": "Aftershock",
+      "internal_name": "Aftershock",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 77,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "strength": 80
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 80,
+          "raw": 80,
+          "max": 85
+        },
+        "baseEarthDamage": {
+          "min": 1245,
+          "raw": 1245,
+          "max": 1430
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 555,
+          "raw": 1850,
+          "max": 2405
+        },
+        "rawDefence": 20,
+        "earthDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawStrength": 20,
+        "spellDamage": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "earthDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "4thSpellCost": {
+          "min": -8,
+          "raw": -28,
+          "max": -36
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The Fracturing brought Ahms into a shattered sky, sundering cliffs into an archipelago against the void. The tremors that linger carry an ancient power, bringing mountains to heel with ease and leaving devastation in its wake."
+    },
+    {
+      "display_name": "Aftershock",
+      "internal_name": "Masterwork Aftershock",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 100,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "strength": 80
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 100,
+          "raw": 100,
+          "max": 110
+        },
+        "baseEarthDamage": {
+          "min": 1300,
+          "raw": 1300,
+          "max": 1500
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawHealth": {
+          "min": 555,
+          "raw": 1850,
+          "max": 2405
+        },
+        "slowEnemy": {
+          "min": 4,
+          "raw": 12,
+          "max": 16
+        },
+        "rawDefence": 20,
+        "earthDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawStrength": 20,
+        "spellDamage": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "earthDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "4thSpellCost": {
+          "min": -13,
+          "raw": -42,
+          "max": -55
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": "The Fracturing brought Ahms into a shattered sky, sundering cliffs into an archipelago against the void. The tremors that linger carry an ancient power, bringing mountains to heel with ease and leaving devastation in its wake."
+    },
+    {
+      "display_name": "Fantasia",
+      "internal_name": "Fantasia",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 96,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 45,
+        "defence": 45,
+        "strength": 45,
+        "dexterity": 45,
+        "intelligence": 45
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 205,
+          "raw": 205,
+          "max": 255
+        },
+        "baseFireDamage": {
+          "min": 175,
+          "raw": 175,
+          "max": 285
+        },
+        "baseEarthDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 300
+        },
+        "baseWaterDamage": {
+          "min": 190,
+          "raw": 190,
+          "max": 270
+        },
+        "baseThunderDamage": {
+          "min": 220,
+          "raw": 220,
+          "max": 240
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "manaSteal": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "spellDamage": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "1stSpellCost": {
+          "min": -13,
+          "raw": -42,
+          "max": -55
+        },
+        "2ndSpellCost": {
+          "min": -13,
+          "raw": -42,
+          "max": -55
+        },
+        "3rdSpellCost": {
+          "min": -13,
+          "raw": -42,
+          "max": -55
+        },
+        "4thSpellCost": {
+          "min": -13,
+          "raw": -42,
+          "max": -55
+        },
+        "rawIntelligence": 50
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The confusion of sentience creates unknown and marvelous threads and soundscapes. Joy, grief, hate, love, shock, calm, they reflect back into the pattern and song of the universe. The glow of the Weave, and this brilliant, breathtaking, pale imitation of it, too, resounds in the chorus of existence-one extra layer."
+    },
+    {
+      "display_name": "Fate",
+      "internal_name": "Fate",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 108,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 50,
+        "defence": 50,
+        "strength": 60
+      },
+      "elements": [
+        "earth",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 215,
+          "raw": 215,
+          "max": 285
+        },
+        "baseAirDamage": {
+          "min": 205,
+          "raw": 205,
+          "max": 395
+        },
+        "baseFireDamage": {
+          "min": 255,
+          "raw": 255,
+          "max": 345
+        },
+        "baseEarthDamage": {
+          "min": 235,
+          "raw": 235,
+          "max": 365
+        }
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "rawAgility": 10,
+        "rawDefence": 10,
+        "rawStrength": 10,
+        "weakenEnemy": {
+          "min": 4,
+          "raw": 13,
+          "max": 17
+        },
+        "3rdSpellCost": {
+          "min": 47,
+          "raw": 36,
+          "max": 25
+        },
+        "raw4thSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        },
+        "rawElementalMainAttackDamage": {
+          "min": 300,
+          "raw": 1000,
+          "max": 1300
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Starcrossed",
+          "description": "Hitting an enemy with Haunting Memory makes it Linked. You can have up to two targets Linked at once. When one Linked enemy takes damage, the other Linked enemy takes that damage as well. Haunted Memory's duration is increased by 5 seconds and its range is increased by 10 blocks."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A brilliant waltz on the razor's edge. Dance, dance through the fields of broken bodies and the vacant cities of empty people. Become the inevitable; the hands of time announce your interminable arrival. Raise your symphony to a crescendo, now: you are the dealer, and fate is the deck. The whole world will know your song."
+    },
+    {
+      "display_name": "Hadal",
+      "internal_name": "Hadal",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 94,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "intelligence": 130
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseWaterDamage": {
+          "min": 1625,
+          "raw": 1625,
+          "max": 2025
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "rawMaxMana": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "spellDamage": {
+          "min": 23,
+          "raw": 75,
+          "max": 98
+        },
+        "3rdSpellCost": {
+          "min": 65,
+          "raw": 50,
+          "max": 35
+        },
+        "4thSpellCost": {
+          "min": 65,
+          "raw": 50,
+          "max": 35
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Carved from unknown parts of a sea creature unseen, the goliath scales of this effigy of the deep bring forth...a pull. A weight, a pressure. A terrible, crushing depth brought onto the holder, blanketing them like nostalgia. Their owner watches, part of itself acutely aware of its missing pieces."
+    },
+    {
+      "display_name": "Immolation",
+      "internal_name": "Immolation",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 101,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 75,
+        "defence": 75
+      },
+      "elements": [
+        "fire",
+        "air"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 295,
+          "raw": 295,
+          "max": 325
+        },
+        "baseFireDamage": {
+          "min": 175,
+          "raw": 175,
+          "max": 445
+        }
+      },
+      "identifications": {
+        "airDamage": {
+          "min": 14,
+          "raw": 45,
+          "max": 59
+        },
+        "fireDamage": {
+          "min": 14,
+          "raw": 45,
+          "max": 59
+        },
+        "rawAgility": 75,
+        "rawDefence": 75,
+        "healthRegen": {
+          "min": -104,
+          "raw": -80,
+          "max": -56
+        },
+        "3rdSpellCost": {
+          "min": -6,
+          "raw": -20,
+          "max": -26
+        },
+        "healingEfficiency": {
+          "min": -650,
+          "raw": -500,
+          "max": -350
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The act of self-immolation is never taken lightly, and is always a sacrifice. This idol was carved to honor one such instance, in which a master of flame burned through his life force in a final act of heroism-purging an encroaching army of the undead, saving the people of the jungle from destruction."
+    },
+    {
+      "display_name": "Immolation",
+      "internal_name": "Masterwork Immolation",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 113,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 75,
+        "defence": 75
+      },
+      "elements": [
+        "fire",
+        "air"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 325,
+          "raw": 325,
+          "max": 355
+        },
+        "baseFireDamage": {
+          "min": 205,
+          "raw": 205,
+          "max": 475
+        }
+      },
+      "identifications": {
+        "airDamage": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        },
+        "fireDamage": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        },
+        "rawAgility": 75,
+        "rawDefence": 75,
+        "healthRegen": {
+          "min": -104,
+          "raw": -80,
+          "max": -56
+        },
+        "1stSpellCost": {
+          "min": -6,
+          "raw": -19,
+          "max": -25
+        },
+        "3rdSpellCost": {
+          "min": -8,
+          "raw": -27,
+          "max": -35
+        },
+        "healingEfficiency": {
+          "min": -650,
+          "raw": -500,
+          "max": -350
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Blazing Effigy",
+          "description": "Regeneration increases Totem's damage by +14% +6% instead of restoring health."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The act of self-immolation is never taken lightly, and is always a sacrifice. This idol was carved to honor one such instance, in which a master of flame burned through his life force in a final act of heroism-purging an encroaching army of the undead, saving the people of the jungle from destruction."
+    },
+    {
+      "display_name": "Olympic",
+      "internal_name": "Masterwork Olympic",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 109,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 105
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 350,
+          "raw": 350,
+          "max": 380
+        }
+      },
+      "identifications": {
+        "airDamage": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "walkSpeed": {
+          "min": 14,
+          "raw": 46,
+          "max": 60
+        },
+        "airDefence": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "jumpHeight": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        },
+        "rawAgility": 35,
+        "raw1stSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        },
+        "raw2ndSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Lightweight",
+          "description": "You no longer take fall damage."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "When one has climbed the highest mountain, traversed the vastest plain, what is left to conquer? One challenges the human limit, and attempts to push beyond what any has accomplished before. Sculpted in honor of the first champion, this idol emboldens you to best your greatest opponent: yourself."
+    },
+    {
+      "display_name": "Olympic",
+      "internal_name": "Olympic",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 93,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 105
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 325,
+          "raw": 325,
+          "max": 355
+        }
+      },
+      "identifications": {
+        "airDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "walkSpeed": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "airDefence": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "jumpHeight": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        },
+        "rawAgility": 25,
+        "raw1stSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        },
+        "raw2ndSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Lightweight",
+          "description": "You no longer take fall damage."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "When one has climbed the highest mountain, traversed the vastest plain, what is left to conquer? One challenges the human limit, and attempts to push beyond what any has accomplished before. Sculpted in honor of the first champion, this idol emboldens you to best your greatest opponent: yourself."
+    },
+    {
+      "display_name": "Resonance",
+      "internal_name": "Resonance",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 104,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "strength": 75,
+        "intelligence": 75
+      },
+      "elements": [
+        "earth",
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 55
+        },
+        "baseEarthDamage": {
+          "min": 130,
+          "raw": 130,
+          "max": 190
+        },
+        "baseWaterDamage": {
+          "min": 110,
+          "raw": 110,
+          "max": 210
+        }
+      },
+      "identifications": {
+        "sprint": {
+          "min": -36,
+          "raw": -28,
+          "max": -20
+        },
+        "manaRegen": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "airDefence": {
+          "min": -58,
+          "raw": -45,
+          "max": -31
+        },
+        "rawDefence": 25,
+        "healthRegen": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "4thSpellCost": {
+          "min": -6,
+          "raw": -19,
+          "max": -25
+        },
+        "elementalSpellDamage": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Lifestream",
+          "description": "Blood Sorrow has 4 times the damage and overhealth, but its duration is shortened by 75%."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The power to join oneself with the lifeblood of the earth has long eluded sects of fanatical druids and shamans. One such cult found a way, and subsequently wiped itself out in the process, their flesh turning to stone and veins forming new rivers."
+    },
+    {
+      "display_name": "Sunstar",
+      "internal_name": "Sunstar",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 95,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "dexterity": 115
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "verySlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 245,
+          "raw": 245,
+          "max": 355
+        },
+        "baseThunderDamage": {
+          "min": 785,
+          "raw": 785,
+          "max": 1015
+        }
+      },
+      "identifications": {
+        "thorns": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "lifeSteal": {
+          "min": 210,
+          "raw": 700,
+          "max": 910
+        },
+        "reflection": {
+          "min": 27,
+          "raw": 90,
+          "max": 117
+        },
+        "thunderDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawAttackSpeed": 1,
+        "healingEfficiency": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        },
+        "rawMainAttackDamage": {
+          "min": 306,
+          "raw": 1019,
+          "max": 1325
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Once known as the Doomsday Weapon, it was ultimately never used for its intended purpose - its solar focus was cracked upon the day of its completion. All but a fraction of its energy was expelled, obliterating its creators, but overwhelming magical force still pulses and thrums through the web of fractures in its design."
+    },
+    {
+      "display_name": "Toxoplasmosis",
+      "internal_name": "Toxoplasmosis",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 96,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "strength": 110
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 2,
+      "base": {
+        "baseEarthDamage": {
+          "min": 3,
+          "raw": 3,
+          "max": 3
+        }
+      },
+      "identifications": {
+        "poison": {
+          "min": 15000,
+          "raw": 50000,
+          "max": 65000
+        },
+        "lifeSteal": {
+          "min": 150,
+          "raw": 500,
+          "max": 650
+        },
+        "lootBonus": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 18,
+          "max": 23
+        },
+        "walkSpeed": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Outbreak",
+          "description": "When you are within Totem range, the Totem becomes Primed, adding 4% of your Poison ID every 0.25s. Hitting a Primed totem with Uproot will create a 6 block wide poison cloud instantly dealing the stored Poison."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Can you feel the burning inside? Something has made itself at home. Time to tuck away the parts of you it has no need for, to shuffle your little brain around so you may Carry. Carry and Spread. Give it a new home-melting you down is how it says thank you. Be grateful, won't you?"
+    },
+    {
+      "display_name": "Transfiguration",
+      "internal_name": "Transfiguration",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "relik",
+      "level": 117,
+      "class_requirement": "shaman",
+      "skill_requirements": {
+        "agility": 55,
+        "strength": 70,
+        "dexterity": 70
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "air"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 100
+        },
+        "baseEarthDamage": {
+          "min": 60,
+          "raw": 60,
+          "max": 70
+        },
+        "baseThunderDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 130
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawAgility": 20,
+        "rawMaxMana": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "sprintRegen": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "rawAttackSpeed": 5,
+        "rawElementalDamage": {
+          "min": 66,
+          "raw": 220,
+          "max": 286
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Flain Remnants",
+          "description": "Destroying a Puppet with Friendly Fire calls forth a Remnant. (Max 5) Each Remnant lasts for 20 seconds, fires an explosive tracking projectile every second that deals 95%, and increases your Main Attack damage by 15%."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Desperation breeds creativity. What would it take to force your will upon the world? To bend and break and weave existence, to bypass the immutable? The result is different, wrong, anathema to your being... but it is freedom from the chains that bind you. It is enough."
+    },
+    {
+      "display_name": "Alkatraz",
+      "internal_name": "Alkatraz",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 94,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "strength": 110
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": null,
+      "base": {
+        "baseEarthDamage": {
+          "min": 1170,
+          "raw": 1170,
+          "max": 1500
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawAgility": -10,
+        "rawDefence": -10,
+        "earthDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawStrength": 40,
+        "rawDexterity": -10,
+        "rawIntelligence": -10,
+        "mainAttackDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "Soul-locking magic is one outlawed by Gavellian governments, only used by the most insidious and cruel of mages. One such enchantment looms dormant in this mundane-looking maul. Continued usage of the weapon threatens to release it upon the wielder, permanently binding them to the weapon."
+    },
+    {
+      "display_name": "Apocalypse",
+      "internal_name": "Apocalypse",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 81,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 95
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 375,
+          "raw": 375,
+          "max": 575
+        },
+        "baseFireDamage": {
+          "min": 500,
+          "raw": 500,
+          "max": 800
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 14,
+          "raw": 46,
+          "max": 60
+        },
+        "lifeSteal": {
+          "min": 300,
+          "raw": 1000,
+          "max": 1300
+        },
+        "rawDefence": 35,
+        "fireDefence": {
+          "min": 75,
+          "raw": 250,
+          "max": 325
+        },
+        "healthRegen": {
+          "min": -162,
+          "raw": -125,
+          "max": -87
+        },
+        "waterDamage": {
+          "min": -65,
+          "raw": -50,
+          "max": -35
+        },
+        "waterDefence": {
+          "min": -91,
+          "raw": -70,
+          "max": -49
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Hellfire",
+          "description": "Bash is replaced by a single hit, gaining +3 radius and dealing +85%, +10%, and +60%. Boiling Blood's cooldown is set to 2s, gains +40%, +50%, and burns twice as fast for 1s, but can't slow."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "To forge a weapon such as this from the cursed lava of the portal basin requires dozens, for each smith would lose themselves to the force of corruption before it is finished. The nightmarishly hooked blade serves no purpose but destruction, as intended."
+    },
+    {
+      "display_name": "Apocalypse",
+      "internal_name": "Masterwork Apocalypse",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 102,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 95
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 375,
+          "raw": 375,
+          "max": 575
+        },
+        "baseFireDamage": {
+          "min": 550,
+          "raw": 550,
+          "max": 850
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 14,
+          "raw": 46,
+          "max": 60
+        },
+        "lifeSteal": {
+          "min": 300,
+          "raw": 1000,
+          "max": 1300
+        },
+        "rawDefence": 35,
+        "fireDefence": {
+          "min": 75,
+          "raw": 250,
+          "max": 325
+        },
+        "healthRegen": {
+          "min": -162,
+          "raw": -125,
+          "max": -87
+        },
+        "waterDamage": {
+          "min": -65,
+          "raw": -50,
+          "max": -35
+        },
+        "waterDefence": {
+          "min": -91,
+          "raw": -70,
+          "max": -49
+        },
+        "1stSpellCost": {
+          "min": -7,
+          "raw": -25,
+          "max": -32
+        },
+        "mainAttackRange": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "fireMainAttackDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Hellfire",
+          "description": "Bash is replaced by a single hit, gaining +3 radius and dealing +85%, +10%, and +60%. Boiling Blood's cooldown is set to 2s, gains +40%, +50%, and burns twice as fast for 1s, but can't slow."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "To forge a weapon such as this from the cursed lava of the portal basin requires dozens, for each smith would lose themselves to the force of corruption before it is finished. The nightmarishly hooked blade serves no purpose but destruction, as intended."
+    },
+    {
+      "display_name": "Ascendancy",
+      "internal_name": "Ascendancy",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 112,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "agility": 60,
+        "defence": 60,
+        "intelligence": 60
+      },
+      "elements": [
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 30
+        },
+        "baseAirDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 100
+        },
+        "baseFireDamage": {
+          "min": 50,
+          "raw": 50,
+          "max": 75
+        },
+        "baseWaterDamage": {
+          "min": 50,
+          "raw": 50,
+          "max": 75
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": 808,
+          "raw": 2692,
+          "max": 3500
+        },
+        "reflection": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "fireDamage": {
+          "min": 17,
+          "raw": 58,
+          "max": 75
+        },
+        "jumpHeight": {
+          "min": 1,
+          "raw": 3,
+          "max": 4
+        },
+        "rawStrength": -250,
+        "rawDexterity": -250,
+        "rawSpellDamage": {
+          "min": 75,
+          "raw": 250,
+          "max": 325
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Divine Right",
+          "description": "Your Maximum Health is reduced by 75%. For every 100 HP lost, Sacred Surge's damage is increased by 3%."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "There is very little outside the purview of those with power. No matter the circumstance, those in a higher position can, will, and have justified their actions in different ways. Some reasons are fine, some are weak. But what sort of justification is there, for those in the highest position? You have the floor."
+    },
+    {
+      "display_name": "Bloodbath",
+      "internal_name": "Bloodbath",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 103,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "strength": 80,
+        "dexterity": 80
+      },
+      "elements": [
+        "earth",
+        "thunder"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 20
+        },
+        "baseEarthDamage": {
+          "min": 195,
+          "raw": 195,
+          "max": 220
+        },
+        "baseThunderDamage": {
+          "min": 100,
+          "raw": 100,
+          "max": 315
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": 185,
+          "raw": 615,
+          "max": 800
+        },
+        "manaRegen": {
+          "min": -130,
+          "raw": -100,
+          "max": -70
+        },
+        "rawHealth": {
+          "min": -5200,
+          "raw": -4000,
+          "max": -2800
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawStrength": 30,
+        "rawDexterity": 30,
+        "raw1stSpellCost": {
+          "min": -3,
+          "raw": -10,
+          "max": -13
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "never",
+      "lore": "Blood. Carnage. Death. Destruction. This is all Annihilation knows. A fury written into its very core, a violent rage building from an endless War. If it were to have its way, all of Wynn would fall to chaos."
+    },
+    {
+      "display_name": "Collapse",
+      "internal_name": "Collapse",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 97,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "agility": 35,
+        "defence": 35,
+        "strength": 35,
+        "dexterity": 35,
+        "intelligence": 35
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 115,
+          "raw": 115,
+          "max": 145
+        },
+        "baseAirDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 460
+        },
+        "baseFireDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 460
+        },
+        "baseEarthDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 460
+        },
+        "baseWaterDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 460
+        },
+        "baseThunderDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 460
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 100,
+          "raw": 333,
+          "max": 433
+        },
+        "manaSteal": {
+          "min": 5,
+          "raw": 18,
+          "max": 23
+        },
+        "rawStrength": 45,
+        "elementalDefence": {
+          "min": -84,
+          "raw": -65,
+          "max": -45
+        },
+        "mainAttackDamage": {
+          "min": 20,
+          "raw": 65,
+          "max": 85
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Fission",
+          "description": "Explosions from your Exploding ID are twice as big and twice as strong."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Despite the light weight of the weapon, the spearhead has been made from incredibly dense cosmic stone. A strong enough impact can directly destroy matter. Due to this danger, it is sought after to be destroyed."
+    },
+    {
+      "display_name": "Convergence",
+      "internal_name": "Convergence",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 104,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 75,
+        "intelligence": 65
+      },
+      "elements": [
+        "water",
+        "fire"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 85,
+          "raw": 85,
+          "max": 120
+        },
+        "baseFireDamage": {
+          "min": 80,
+          "raw": 80,
+          "max": 100
+        },
+        "baseWaterDamage": {
+          "min": 75,
+          "raw": 75,
+          "max": 105
+        }
+      },
+      "identifications": {
+        "airDefence": {
+          "min": 11,
+          "raw": 35,
+          "max": 46
+        },
+        "earthDamage": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        },
+        "healthRegen": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "sprintRegen": {
+          "min": 13,
+          "raw": 43,
+          "max": 56
+        },
+        "3rdSpellCost": {
+          "min": -14,
+          "raw": -46,
+          "max": -60
+        },
+        "thunderDamage": {
+          "min": 23,
+          "raw": 76,
+          "max": 99
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "As the void approaches nearer and nearer, the barrier between realms thins almost to a point... And yet, no matter how far you fall or how fast you fly, it will always lie just out of reach. Such is the indeterminate nature of the void, and its power that you harness."
+    },
+    {
+      "display_name": "Guardian",
+      "internal_name": "Guardian",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 93,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 110
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 90
+        },
+        "baseFireDamage": {
+          "min": 145,
+          "raw": 145,
+          "max": 205
+        }
+      },
+      "identifications": {
+        "thorns": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "manaRegen": {
+          "min": 3,
+          "raw": 9,
+          "max": 12
+        },
+        "rawHealth": {
+          "min": 1800,
+          "raw": 6000,
+          "max": 7800
+        },
+        "rawDefence": 20,
+        "fireDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "earthDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "waterDefence": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "healthRegenRaw": {
+          "min": 270,
+          "raw": 900,
+          "max": 1170
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Guardian",
+          "description": "Devout Union gains +20% damage redirection and +4 radius."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A vow of protection hangs over this spear, now inhabited by the spirit of a legendary heroine. Even simply a glimpse of the burning blade will instill a feeling of protection and security, and that feeling will hold true if one is brave enough to wield it."
+    },
+    {
+      "display_name": "Guardian",
+      "internal_name": "Masterwork Guardian",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 109,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 110
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 50,
+          "raw": 50,
+          "max": 95
+        },
+        "baseFireDamage": {
+          "min": 155,
+          "raw": 155,
+          "max": 220
+        }
+      },
+      "identifications": {
+        "thorns": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "manaRegen": {
+          "min": 4,
+          "raw": 14,
+          "max": 18
+        },
+        "rawHealth": {
+          "min": 2308,
+          "raw": 7692,
+          "max": 10000
+        },
+        "rawDefence": 20,
+        "fireDefence": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "earthDefence": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "waterDefence": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "healthRegenRaw": {
+          "min": 270,
+          "raw": 900,
+          "max": 1170
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Heroine's Blessing",
+          "description": "Devout Union gains +25% damage redirection and +8 radius. Additionally, Mantles given by Enlightenment have +20% damage reduction."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "A vow of protection hangs over this spear, now inhabited by the spirit of a legendary heroine. Even simply a glimpse of the burning blade will instill a feeling of protection and security, and that feeling will hold true if one is brave enough to wield it."
+    },
+    {
+      "display_name": "Hero",
+      "internal_name": "Hero",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 91,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "agility": 110
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 35,
+          "raw": 35,
+          "max": 55
+        },
+        "baseAirDamage": {
+          "min": 85,
+          "raw": 85,
+          "max": 120
+        }
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawAgility": 30,
+        "healthRegen": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawStrength": 10,
+        "rawDexterity": 10,
+        "mainAttackDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Saviour's Sacrifice",
+          "description": "While under 50% maximum health, allies within 8 blocks gain 15% bonus damage and defence."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Enigmatically, this weapon will only show itself to those who believe themselves to be worth nothing, or to be weak. While utilizing this weapon will greatly strengthen one's resolve, it will disappear when it is no longer needed, going to the next wielder."
+    },
+    {
+      "display_name": "Idol",
+      "internal_name": "Idol",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 95,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "intelligence": 120
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseWaterDamage": {
+          "min": 220,
+          "raw": 220,
+          "max": 300
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "reflection": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "waterDefence": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "rawIntelligence": 26,
+        "rawSpellDamage": {
+          "min": 79,
+          "raw": 264,
+          "max": 343
+        },
+        "raw2ndSpellCost": {
+          "min": -15,
+          "raw": -50,
+          "max": -65
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Tidal Drift",
+          "description": "Flying Kick will instead send you forwards. This effect is limited to once per Charge cast."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Intricate carvings and images, almost like that of a totem pole, cover the shaft of this marvelous trident, dredged up from the Seavale Reef. Foreign magics heighten the senses of its user in battle, but also instills a longing for the ocean. Many have succumbed to this urge and drowned themselves."
+    },
+    {
+      "display_name": "Idol",
+      "internal_name": "Masterwork Idol",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 111,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "intelligence": 120
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseWaterDamage": {
+          "min": 240,
+          "raw": 240,
+          "max": 330
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 5,
+          "raw": 18,
+          "max": 23
+        },
+        "reflection": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "waterDefence": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "rawIntelligence": 26,
+        "rawSpellDamage": {
+          "min": 113,
+          "raw": 377,
+          "max": 490
+        },
+        "raw2ndSpellCost": {
+          "min": -18,
+          "raw": -60,
+          "max": -78
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Tidal Drift",
+          "description": "Flying Kick will instead send you forwards. This effect is limited to once per Charge cast."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Intricate carvings and images, almost like that of a totem pole, cover the shaft of this marvelous trident, dredged up from the Seavale Reef. Foreign magics heighten the senses of its user in battle, but also instills a longing for the ocean. Many have succumbed to this urge and drowned themselves."
+    },
+    {
+      "display_name": "Restitution",
+      "internal_name": "Restitution",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 120,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "defence": 60,
+        "dexterity": 45,
+        "intelligence": 60
+      },
+      "elements": [
+        "thunder",
+        "water",
+        "fire"
+      ],
+      "attack_speed": "normal",
+      "powder_slots": 3,
+      "base": {
+        "baseFireDamage": {
+          "min": 90,
+          "raw": 90,
+          "max": 110
+        },
+        "baseWaterDamage": {
+          "min": 75,
+          "raw": 75,
+          "max": 125
+        },
+        "baseThunderDamage": {
+          "min": 0,
+          "raw": 0,
+          "max": 200
+        }
+      },
+      "identifications": {
+        "manaRegen": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawHealth": {
+          "min": 635,
+          "raw": 2115,
+          "max": 2750
+        },
+        "walkSpeed": {
+          "min": -26,
+          "raw": -20,
+          "max": -14
+        },
+        "earthDefence": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        },
+        "rawDexterity": 20,
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -3,
+          "max": -4
+        },
+        "thunderSpellDamage": {
+          "min": 17,
+          "raw": 58,
+          "max": 75
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Old Spark",
+          "description": "Whirlwind transforms into a travelling projectile, exploding on contact and knocking enemies into the air. Crouch to rise with them."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "recnal il il. alac toc, pasad il, atlruc il, kaclahpokc il cefos. lahes il nikcrolad kec pahsofmal uc ifrah tofnikcsif. etlefrofmad uc, etlaces uc tofnikcsoftahal. rofmel lahrakctriltod uc tofpahnuc. lahic cof efrofmad il pahsadiled uc tofifrah. etlalnes ah rofmedes uc tofpestal. pasad uc tofmahatskritsec. etlrakc kec. etlrakc kec."
+    },
+    {
+      "display_name": "Thrundacrack",
+      "internal_name": "Thrundacrack",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "spear",
+      "level": 96,
+      "class_requirement": "warrior",
+      "skill_requirements": {
+        "dexterity": 105
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 80
+        },
+        "baseThunderDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 190
+        }
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": 3,
+          "raw": 9,
+          "max": 12
+        },
+        "healthRegen": {
+          "min": -78,
+          "raw": -60,
+          "max": -42
+        },
+        "waterDamage": {
+          "min": 18,
+          "raw": 60,
+          "max": 78
+        },
+        "rawDexterity": 35,
+        "thunderDamage": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The raw aspect of thunder, though claimed to be harnessed by a mage in a wand, has only been truly tamed by this mighty blade. Combined electric and life-draining magic intertwine and bring forth the truest, most frightening power of all Thunder."
+    },
+    {
+      "display_name": "Fatal",
+      "internal_name": "Fatal",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 99,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "dexterity": 110
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 3,
+      "base": {
+        "baseThunderDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 310
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 2,
+          "raw": 6,
+          "max": 8
+        },
+        "walkSpeed": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "spellDamage": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawDexterity": 25,
+        "1stSpellCost": {
+          "min": 36,
+          "raw": 28,
+          "max": 20
+        },
+        "2ndSpellCost": {
+          "min": -15,
+          "raw": -49,
+          "max": -64
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Unstable Reaction",
+          "description": "Judrajim no longer ramps in damage after each hit. When it expires, it releases 115% of its potential in an explosion of 20 blocks."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "A mage by the name of Lero claims to have harnessed the sheer power of lightning using a magical staff, however, the weapon is very unreliable in a pinch."
+    },
+    {
+      "display_name": "Fatal",
+      "internal_name": "Masterwork Fatal",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 111,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "dexterity": 110
+      },
+      "elements": [
+        "thunder"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 3,
+      "base": {
+        "baseThunderDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 330
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 3,
+          "raw": 11,
+          "max": 14
+        },
+        "walkSpeed": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "spellDamage": {
+          "min": 9,
+          "raw": 31,
+          "max": 40
+        },
+        "rawDexterity": 25,
+        "1stSpellCost": {
+          "min": 36,
+          "raw": 28,
+          "max": 20
+        },
+        "2ndSpellCost": {
+          "min": -15,
+          "raw": -49,
+          "max": -64
+        },
+        "3rdSpellCost": {
+          "min": -4,
+          "raw": -15,
+          "max": -19
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Unstable Reaction",
+          "description": "Judrajim no longer ramps in damage after each hit. When it expires, it releases 115% of its potential in an explosion of 20 blocks."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "A mage by the name of Lero claims to have harnessed the sheer power of lightning using a magical staff, however, the weapon is very unreliable in a pinch."
+    },
+    {
+      "display_name": "Gaia",
+      "internal_name": "Gaia",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 97,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "strength": 105
+      },
+      "elements": [
+        "earth"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 220,
+          "raw": 220,
+          "max": 280
+        },
+        "baseEarthDamage": {
+          "min": 680,
+          "raw": 680,
+          "max": 820
+        }
+      },
+      "identifications": {
+        "poison": {
+          "min": 6000,
+          "raw": 20000,
+          "max": 26000
+        },
+        "thorns": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "rawStrength": 25,
+        "raw4thSpellCost": {
+          "min": -3,
+          "raw": -9,
+          "max": -12
+        },
+        "mainAttackDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "rawMainAttackDamage": {
+          "min": 159,
+          "raw": 531,
+          "max": 690
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Earthen Splinter",
+          "description": "Quake channels nature energy into a powerful root, travelling underground and emerging under the nearest mob for 1200%."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "The Dernel tribes revere various nature deities, each in their own unique fashions. One of the most notable was that of a lost tribe, who fashioned this blossoming stave as tribute to their deity of the earth itself."
+    },
+    {
+      "display_name": "Halcyon",
+      "internal_name": "Halcyon",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 118,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 50,
+        "dexterity": 50,
+        "intelligence": 60
+      },
+      "elements": [
+        "air",
+        "thunder",
+        "water"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": 3,
+      "base": {
+        "baseAirDamage": {
+          "min": 50,
+          "raw": 50,
+          "max": 80
+        },
+        "baseFireDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 1
+        },
+        "baseEarthDamage": {
+          "min": 1,
+          "raw": 1,
+          "max": 1
+        },
+        "baseWaterDamage": {
+          "min": 60,
+          "raw": 60,
+          "max": 70
+        },
+        "baseThunderDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 90
+        }
+      },
+      "identifications": {
+        "rawHealth": {
+          "min": -4290,
+          "raw": -3300,
+          "max": -2310
+        },
+        "reflection": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "rawStrength": -50,
+        "elementalDefence": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "raw4thSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        },
+        "healingEfficiency": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "rawElementalSpellDamage": {
+          "min": 90,
+          "raw": 300,
+          "max": 390
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Blinding Lights",
+          "description": "All Ophanim orbs deal 250% damage, gain +5 Crystallize per hit, and instead orbit around you. Using Main Attack causes all orbs to travel faster."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "As a flashing star shot through the night sky, a sole observer witnessed its brilliance. It was then, wreathed in prismatic light, he decided. Someday, he would shine as bright as that star, and overtake those beneath him. No matter the cost."
+    },
+    {
+      "display_name": "Lament",
+      "internal_name": "Lament",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 96,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "intelligence": 110
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 60,
+          "raw": 60,
+          "max": 90
+        },
+        "baseWaterDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 190
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": -780,
+          "raw": -600,
+          "max": -420
+        },
+        "manaSteal": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "waterDamage": {
+          "min": 23,
+          "raw": 77,
+          "max": 100
+        },
+        "1stSpellCost": {
+          "min": -8,
+          "raw": -27,
+          "max": -35
+        },
+        "rawIntelligence": 20,
+        "healingEfficiency": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "When the lost city of Sarnfic sunk beneath the depths, nothing but the bubbles of screams and this single wand surfaced. When used, you can still hear the town's lament."
+    },
+    {
+      "display_name": "Lament",
+      "internal_name": "Masterwork Lament",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 110,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "intelligence": 110
+      },
+      "elements": [
+        "water"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 70,
+          "raw": 70,
+          "max": 100
+        },
+        "baseWaterDamage": {
+          "min": 180,
+          "raw": 180,
+          "max": 200
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": -780,
+          "raw": -600,
+          "max": -420
+        },
+        "manaSteal": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        },
+        "waterDamage": {
+          "min": 30,
+          "raw": 100,
+          "max": 130
+        },
+        "1stSpellCost": {
+          "min": -8,
+          "raw": -27,
+          "max": -35
+        },
+        "rawIntelligence": 35,
+        "healingEfficiency": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Requiem",
+          "description": "Sunflare regenerates twice the health and mana."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "When the lost city of Sarnfic sunk beneath the depths, nothing but the bubbles of screams and this single wand surfaced. When used, you can still hear the town's lament."
+    },
+    {
+      "display_name": "Monster",
+      "internal_name": "Monster",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 98,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "defence": 110
+      },
+      "elements": [
+        "fire"
+      ],
+      "attack_speed": "slow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 90,
+          "raw": 90,
+          "max": 140
+        },
+        "baseFireDamage": {
+          "min": 150,
+          "raw": 150,
+          "max": 210
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": 150,
+          "raw": 500,
+          "max": 650
+        },
+        "manaSteal": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawHealth": {
+          "min": 900,
+          "raw": 3000,
+          "max": 3900
+        },
+        "fireDamage": {
+          "min": 8,
+          "raw": 25,
+          "max": 33
+        },
+        "rawDefence": 40,
+        "raw1stSpellCost": {
+          "min": 5,
+          "raw": 4,
+          "max": 3
+        },
+        "mainAttackDamage": {
+          "min": 12,
+          "raw": 40,
+          "max": 52
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "This wand merges with the user on touch, bringing about horrific changes to them. Elongated nails, sharp teeth and the ability to breathe fire are trademarks of the beast."
+    },
+    {
+      "display_name": "Pure",
+      "internal_name": "Masterwork Pure",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 91,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 30,
+        "intelligence": 50
+      },
+      "elements": [
+        "water",
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": null,
+      "base": {
+        "baseDamage": {
+          "min": 5,
+          "raw": 5,
+          "max": 5
+        },
+        "baseAirDamage": {
+          "min": 15,
+          "raw": 15,
+          "max": 55
+        },
+        "baseWaterDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 40
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "reflection": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "spellDamage": {
+          "min": 150,
+          "raw": 500,
+          "max": 650
+        },
+        "combatExperience": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -5,
+          "max": -6
+        },
+        "mainAttackDamage": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Cosmic Capture",
+          "description": "Meteor falls twice as fast, has +3 blast radius, and pulls enemies upon impact."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Carved directly from the mysterious rock that hit Gavel 50 years ago, this pure white wand glows with cosmic energy unknown."
+    },
+    {
+      "display_name": "Pure",
+      "internal_name": "Pure",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 65,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 30,
+        "intelligence": 50
+      },
+      "elements": [
+        "water",
+        "air"
+      ],
+      "attack_speed": "fast",
+      "powder_slots": null,
+      "base": {
+        "baseDamage": {
+          "min": 5,
+          "raw": 5,
+          "max": 5
+        },
+        "baseAirDamage": {
+          "min": 15,
+          "raw": 15,
+          "max": 50
+        },
+        "baseWaterDamage": {
+          "min": 20,
+          "raw": 20,
+          "max": 40
+        }
+      },
+      "identifications": {
+        "manaSteal": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "reflection": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "spellDamage": {
+          "min": 120,
+          "raw": 400,
+          "max": 520
+        },
+        "combatExperience": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "mainAttackDamage": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Gravity Well",
+          "description": "Meteor has increased blast radius and pulls enemies instead."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "Carved directly from the mysterious rock that hit Gavel 50 years ago, this pure white wand glows with cosmic energy unknown."
+    },
+    {
+      "display_name": "Quetzalcoatl",
+      "internal_name": "Quetzalcoatl",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 103,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 70,
+        "strength": 70
+      },
+      "elements": [
+        "earth",
+        "air"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 4,
+      "base": {
+        "baseDamage": {
+          "min": 20,
+          "raw": 20,
+          "max": 40
+        },
+        "baseAirDamage": {
+          "min": 35,
+          "raw": 35,
+          "max": 75
+        },
+        "baseEarthDamage": {
+          "min": 40,
+          "raw": 40,
+          "max": 70
+        }
+      },
+      "identifications": {
+        "lifeSteal": {
+          "min": 450,
+          "raw": 1500,
+          "max": 1950
+        },
+        "walkSpeed": {
+          "min": 8,
+          "raw": 28,
+          "max": 36
+        },
+        "jumpHeight": {
+          "min": 1,
+          "raw": 2,
+          "max": 3
+        },
+        "rawSpellDamage": {
+          "min": 77,
+          "raw": 255,
+          "max": 332
+        },
+        "healingEfficiency": {
+          "min": -78,
+          "raw": -60,
+          "max": -42
+        },
+        "rawMainAttackDamage": {
+          "min": 150,
+          "raw": 500,
+          "max": 650
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The great serpent of Ahms was said to be a bringer of wisdom in days long past, revered by the inhabitants of the region. Totems like this one were crafted as an act of worship, though as belief faded over time, so too were these idols lost and destroyed. Only one remains."
+    },
+    {
+      "display_name": "Riptide",
+      "internal_name": "Riptide",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 110,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "strength": 60,
+        "dexterity": 40,
+        "intelligence": 70
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 150,
+          "raw": 150,
+          "max": 190
+        },
+        "baseEarthDamage": {
+          "min": 270,
+          "raw": 270,
+          "max": 350
+        },
+        "baseWaterDamage": {
+          "min": 245,
+          "raw": 245,
+          "max": 375
+        },
+        "baseThunderDamage": {
+          "min": 115,
+          "raw": 115,
+          "max": 235
+        }
+      },
+      "identifications": {
+        "knockback": {
+          "min": -195,
+          "raw": -150,
+          "max": -105
+        },
+        "manaSteal": {
+          "min": 4,
+          "raw": 12,
+          "max": 16
+        },
+        "rawDefence": -25,
+        "rawMaxMana": {
+          "min": 24,
+          "raw": 80,
+          "max": 104
+        },
+        "rawIntelligence": 20,
+        "raw3rdSpellCost": {
+          "min": -1,
+          "raw": -4,
+          "max": -5
+        },
+        "rawWaterSpellDamage": {
+          "min": 75,
+          "raw": 250,
+          "max": 325
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Wavebreak",
+          "description": "Meteor's  damage is replaced by  damage. Psychokinesis can bounce up to 5 times, dealing 100% and 50% area damage, as well as 200% and 100% direct hit damage, increasing by 10% after each bounce. Mana Bank gains 3 less mana from Meteor."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "The waves are not like men; they do not brazenly assault and catastrophically fail. They do not burn fast and wink out. They bide their time, they wait, and they encroach upon the world with an insidious, unstoppable force, dragging you away to the dark side of the sea."
+    },
+    {
+      "display_name": "Singularity",
+      "internal_name": "Masterwork Singularity",
+      "ascended_variant": true,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 112,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 42,
+        "defence": 42,
+        "strength": 42,
+        "dexterity": 42,
+        "intelligence": 42
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 15,
+      "base": {
+        "baseAirDamage": {
+          "min": 95,
+          "raw": 95,
+          "max": 300
+        },
+        "baseFireDamage": {
+          "min": 120,
+          "raw": 120,
+          "max": 275
+        },
+        "baseEarthDamage": {
+          "min": 170,
+          "raw": 170,
+          "max": 225
+        },
+        "baseWaterDamage": {
+          "min": 145,
+          "raw": 145,
+          "max": 250
+        },
+        "baseThunderDamage": {
+          "min": 70,
+          "raw": 70,
+          "max": 325
+        }
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": -52,
+          "raw": -40,
+          "max": -28
+        },
+        "spellDamage": {
+          "min": 6,
+          "raw": 20,
+          "max": 26
+        },
+        "rawDexterity": 35,
+        "healthRegenRaw": {
+          "min": 132,
+          "raw": 440,
+          "max": 572
+        },
+        "rawSpellDamage": {
+          "min": 75,
+          "raw": 250,
+          "max": 325
+        },
+        "mainAttackDamage": {
+          "min": 8,
+          "raw": 27,
+          "max": 35
+        },
+        "rawMainAttackDamage": {
+          "min": 254,
+          "raw": 846,
+          "max": 1100
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Accretion Chain",
+          "description": "Chain Lightning hits slower, rebounds, adds 6 chains, and pulls mobs closer for a 9999% explosion spell."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "The existence of all things is reflected in the otherworldly jewels of this grand staff, dense enough to have its own gravitational pull. Users have reported their limbs being stretched after usage."
+    },
+    {
+      "display_name": "Singularity",
+      "internal_name": "Singularity",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 99,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 42,
+        "defence": 42,
+        "strength": 42,
+        "dexterity": 42,
+        "intelligence": 42
+      },
+      "elements": [
+        "earth",
+        "thunder",
+        "water",
+        "fire",
+        "air"
+      ],
+      "attack_speed": "superSlow",
+      "powder_slots": 15,
+      "base": {
+        "baseAirDamage": {
+          "min": 85,
+          "raw": 85,
+          "max": 280
+        },
+        "baseFireDamage": {
+          "min": 110,
+          "raw": 110,
+          "max": 255
+        },
+        "baseEarthDamage": {
+          "min": 160,
+          "raw": 160,
+          "max": 205
+        },
+        "baseWaterDamage": {
+          "min": 135,
+          "raw": 135,
+          "max": 230
+        },
+        "baseThunderDamage": {
+          "min": 60,
+          "raw": 60,
+          "max": 305
+        }
+      },
+      "identifications": {
+        "walkSpeed": {
+          "min": -52,
+          "raw": -40,
+          "max": -28
+        },
+        "spellDamage": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "rawDexterity": 35,
+        "healthRegenRaw": {
+          "min": 105,
+          "raw": 350,
+          "max": 455
+        },
+        "rawSpellDamage": {
+          "min": 67,
+          "raw": 222,
+          "max": 289
+        },
+        "mainAttackDamage": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "rawMainAttackDamage": {
+          "min": 231,
+          "raw": 769,
+          "max": 1000
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Orbital Chain",
+          "description": "Chain Lightning hits slower, rebounds, adds 6 chains, and pulls mobs closer for a 8000% explosion spell."
+        }
+      ],
+      "drop_restriction": "normal",
+      "lore": "The existence of all things is reflected in the otherworldly jewels of this grand staff, dense enough to have its own gravitational pull. Users have reported their limbs being stretched after usage."
+    },
+    {
+      "display_name": "Trance",
+      "internal_name": "Trance",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 104,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "defence": 70,
+        "dexterity": 80
+      },
+      "elements": [
+        "thunder",
+        "fire"
+      ],
+      "attack_speed": "superFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 20,
+          "raw": 20,
+          "max": 52
+        },
+        "baseFireDamage": {
+          "min": 25,
+          "raw": 25,
+          "max": 35
+        },
+        "baseThunderDamage": {
+          "min": 10,
+          "raw": 10,
+          "max": 50
+        }
+      },
+      "identifications": {
+        "stealing": {
+          "min": 3,
+          "raw": 10,
+          "max": 13
+        },
+        "lifeSteal": {
+          "min": 225,
+          "raw": 750,
+          "max": 975
+        },
+        "manaSteal": {
+          "min": 9,
+          "raw": 30,
+          "max": 39
+        },
+        "walkSpeed": {
+          "min": -19,
+          "raw": -15,
+          "max": -10
+        },
+        "rawAttackSpeed": 10,
+        "mainAttackDamage": {
+          "min": -52,
+          "raw": -40,
+          "max": -28
+        }
+      },
+      "major_ids": [
+        {
+          "name": "Fixate",
+          "description": "Distortion decays at a halved rate and Devitalize effects are doubled. However, Distortion effects on abilities are reduced by 40% and Meteor Shower now requires +50% Distortion per Meteor."
+        }
+      ],
+      "drop_restriction": "never",
+      "lore": "Down. Your enemies will fall slack. Deeper. Do you know this compulsion you bring? Deeper still. This implement, reaching from within and without. Even deeper. Souls and wills to command at the flex of a finger. Almost gone. It is my compulsion, too great to ignore. It is my implement, too strong to resist. My puppets, too deep to escape. Drop."
+    },
+    {
+      "display_name": "Warp",
+      "internal_name": "Warp",
+      "ascended_variant": false,
+      "item_type": "weapon",
+      "subtype": "wand",
+      "level": 99,
+      "class_requirement": "mage",
+      "skill_requirements": {
+        "agility": 125
+      },
+      "elements": [
+        "air"
+      ],
+      "attack_speed": "veryFast",
+      "powder_slots": 3,
+      "base": {
+        "baseDamage": {
+          "min": 30,
+          "raw": 30,
+          "max": 60
+        },
+        "baseAirDamage": {
+          "min": 125,
+          "raw": 125,
+          "max": 145
+        }
+      },
+      "identifications": {
+        "exploding": {
+          "min": 15,
+          "raw": 50,
+          "max": 65
+        },
+        "airDamage": {
+          "min": 5,
+          "raw": 15,
+          "max": 20
+        },
+        "manaRegen": {
+          "min": -58,
+          "raw": -45,
+          "max": -31
+        },
+        "reflection": {
+          "min": 27,
+          "raw": 90,
+          "max": 117
+        },
+        "walkSpeed": {
+          "min": 54,
+          "raw": 180,
+          "max": 234
+        },
+        "rawAgility": 25,
+        "healthRegen": {
+          "min": -195,
+          "raw": -150,
+          "max": -105
+        },
+        "healthRegenRaw": {
+          "min": -1092,
+          "raw": -840,
+          "max": -588
+        },
+        "raw2ndSpellCost": {
+          "min": -90,
+          "raw": -299,
+          "max": -389
+        },
+        "healingEfficiency": {
+          "min": -39,
+          "raw": -30,
+          "max": -21
+        }
+      },
+      "major_ids": [],
+      "drop_restriction": "normal",
+      "lore": "The notorious and erratic magical inventor Gawrick once attempted to make teleportation scrolls obsolete, by creating items which would allow the user to phase into an ethereal state to move unhindered. He did not account for the physical ramifications of this process, however."
+    }
+  ]
+}

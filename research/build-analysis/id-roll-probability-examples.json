@@ -1,0 +1,464 @@
+{
+  "schema_version": 1,
+  "model": "inclusive integer internal rolls with equal case weights",
+  "positive_domain": [
+    30,
+    130
+  ],
+  "negative_domain": [
+    70,
+    130
+  ],
+  "star_probabilities": {
+    "no_star": 0.7029702970297029,
+    "one_star_only": 0.2376237623762376,
+    "two_star_only": 0.04950495049504951,
+    "three_star": 0.009900990099009901,
+    "at_least_one_star": 0.297029702970297,
+    "at_least_two_stars": 0.0594059405940594
+  },
+  "examples": {
+    "positive_base_10": [
+      {
+        "displayed_value": 3,
+        "internal_rolls": [
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "cases": 5,
+        "probability": 0.04950495049504951
+      },
+      {
+        "displayed_value": 4,
+        "internal_rolls": [
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 5,
+        "internal_rolls": [
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 6,
+        "internal_rolls": [
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 7,
+        "internal_rolls": [
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 8,
+        "internal_rolls": [
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 9,
+        "internal_rolls": [
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 10,
+        "internal_rolls": [
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 11,
+        "internal_rolls": [
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 12,
+        "internal_rolls": [
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124
+        ],
+        "cases": 10,
+        "probability": 0.09900990099009901
+      },
+      {
+        "displayed_value": 13,
+        "internal_rolls": [
+          125,
+          126,
+          127,
+          128,
+          129,
+          130
+        ],
+        "cases": 6,
+        "probability": 0.0594059405940594
+      }
+    ],
+    "positive_base_5": [
+      {
+        "displayed_value": 2,
+        "internal_rolls": [
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49
+        ],
+        "cases": 20,
+        "probability": 0.19801980198019803
+      },
+      {
+        "displayed_value": 3,
+        "internal_rolls": [
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69
+        ],
+        "cases": 20,
+        "probability": 0.19801980198019803
+      },
+      {
+        "displayed_value": 4,
+        "internal_rolls": [
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89
+        ],
+        "cases": 20,
+        "probability": 0.19801980198019803
+      },
+      {
+        "displayed_value": 5,
+        "internal_rolls": [
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109
+        ],
+        "cases": 20,
+        "probability": 0.19801980198019803
+      },
+      {
+        "displayed_value": 6,
+        "internal_rolls": [
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129
+        ],
+        "cases": 20,
+        "probability": 0.19801980198019803
+      },
+      {
+        "displayed_value": 7,
+        "internal_rolls": [
+          130
+        ],
+        "cases": 1,
+        "probability": 0.009900990099009901
+      }
+    ],
+    "negative_base_minus_10": [
+      {
+        "displayed_value": -13,
+        "internal_rolls": [
+          126,
+          127,
+          128,
+          129,
+          130
+        ],
+        "cases": 5,
+        "probability": 0.08196721311475409
+      },
+      {
+        "displayed_value": -12,
+        "internal_rolls": [
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125
+        ],
+        "cases": 10,
+        "probability": 0.16393442622950818
+      },
+      {
+        "displayed_value": -11,
+        "internal_rolls": [
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115
+        ],
+        "cases": 10,
+        "probability": 0.16393442622950818
+      },
+      {
+        "displayed_value": -10,
+        "internal_rolls": [
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105
+        ],
+        "cases": 10,
+        "probability": 0.16393442622950818
+      },
+      {
+        "displayed_value": -9,
+        "internal_rolls": [
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95
+        ],
+        "cases": 10,
+        "probability": 0.16393442622950818
+      },
+      {
+        "displayed_value": -8,
+        "internal_rolls": [
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85
+        ],
+        "cases": 10,
+        "probability": 0.16393442622950818
+      },
+      {
+        "displayed_value": -7,
+        "internal_rolls": [
+          70,
+          71,
+          72,
+          73,
+          74,
+          75
+        ],
+        "cases": 6,
+        "probability": 0.09836065573770492
+      }
+    ]
+  },
+  "joint_examples": {
+    "five_positive_ids_at_least_one_star": 0.002312061620884399,
+    "five_positive_ids_at_least_two_stars": 7.398597186830078e-7,
+    "five_positive_ids_three_star": 9.514656876067489e-11
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "solver_family_cancelstack_known_good",
+  "description": "Trance cancelstack exact known-good seed with all equipment slots locked.",
+  "benchmark_family": "cancelstack",
+  "benchmark_size": "known_good",
+  "seed_build_id": "ubg-trance-trance-riftwalker-melee-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+  "core_weapon": "Trance",
+  "provided_ideal_item_count": 9,
+  "provided_ideal_items": [
+    "Shawl of Gaea",
+    "Lithosphere",
+    "Writhing Growth",
+    "Boulderstorm",
+    "Vivisected",
+    "Vivisected",
+    "Ironleaf Bangle",
+    "Recalcitrance",
+    "Trance"
+  ],
+  "free_equipment_slots": [],
+  "url_hash": "CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2_GJ8Poa9RC4Wz1100",
+  "scoring_target": "combo_damage",
+  "free_mask": 0,
+  "lvl_min": 100,
+  "lvl_max": 121,
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "ls",
+      "op": "ge",
+      "value": 0
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -200
+    },
+    {
+      "stat": "mainAttackRange",
+      "op": "ge",
+      "value": -20
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 1,
+  "calibrated_search_combinations": 1,
+  "combination_budget": {
+    "input_min": 1,
+    "input_max": 1,
+    "search_min": 1,
+    "search_max": 1
+  },
+  "known_good_seed_verification": true,
+  "locked_items": {
+    "helmet": {
+      "name": "Shawl of Gaea",
+      "stat_hash": "65972dd60e3042dc3e3563e9b446407155ac33173301e609df98a577fd70cb16"
+    },
+    "chestplate": {
+      "name": "Lithosphere",
+      "stat_hash": "f9776b61098b4240be8467bf7f8957dcb3224bb9468f2be29c2ab35d49e6890e"
+    },
+    "leggings": {
+      "name": "Writhing Growth",
+      "stat_hash": "921502112ee1f64ca741f330aeab2bf55000fd6231e7fc22255ada4664bc4e8c"
+    },
+    "boots": {
+      "name": "Boulderstorm",
+      "stat_hash": "aff6024f4836f7dfaceb7832304d2cf49cad7147eb058fa9ec1938e3e8d16537"
+    },
+    "ring1": {
+      "name": "Vivisected",
+      "stat_hash": "36ef2665b9dcb1c6431a25ded492b0b30d704ce24f76bbb4414f0239146d71d7"
+    },
+    "ring2": {
+      "name": "Vivisected",
+      "stat_hash": "36ef2665b9dcb1c6431a25ded492b0b30d704ce24f76bbb4414f0239146d71d7"
+    },
+    "bracelet": {
+      "name": "Ironleaf Bangle",
+      "stat_hash": "ce2f1a3cfff6ecedd3b5654700be1ab559613b349221718023f630e245c3c26f"
+    },
+    "necklace": {
+      "name": "Recalcitrance",
+      "stat_hash": "30f3045d85a52bcf1bac66f3f97a5a0d7b397176e398d983c0a4ee68f1413562"
+    }
+  },
+  "created": "2026-08-13T03:59:27.831Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}
