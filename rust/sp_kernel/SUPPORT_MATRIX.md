@@ -117,7 +117,7 @@ needs — `base` went from 0.00 s to 0.13 s on `hp2`. The dense path assembles
 both SP states from the lowered leaf and needs no Obj base at all.
 
 | B3 | Atrees failing `ceiling_vars_ok` (negative stat-input factors, or `atkTier`/`*ConvBase` var outputs) | All-150 SP is not an upper bound → gate + bounds off (matches JS) | Unpruned | Extremal-per-output ceiling assemble (like the bounded doom) could re-arm the gate soundly |
-| B4 | `hp_casting` builds | Gate off (JS parity); HP-sim path heavier | Unpruned | Prove/derive an hp-casting-safe ceiling |
+| ~~B4~~ | `hp_casting` builds — **gate re-armed, 3.85x** | Was gate-off for JS parity, so every leaf was fully scored | **48,021 → 184,640 checked/s** on spell_wide. Greedy 32.5 s → 0.14 s, trials 22.0M → 93K | Done. The exclusion was conservative, not necessary — see below |
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
@@ -200,6 +200,39 @@ would show up as a thread-count-dependent answer); and rebuilding with the
 table shrunk to **one slot**, so every single trial collides, still produces
 identical output with the per-trial check clean.
 
+**B4: an exclusion that was copied, not derived.** The score-ceiling gate was
+off for `hp_casting` builds, matching a JS condition whose comment groups them
+with dynamic sliders as "sim-coupled damage". Only the slider half is coupled.
+HP-cost casting reaches damage solely through the Blood Pact bonus, and that
+bonus reaches the rows solely through `inject_blood_pact_boosts`, which does
+nothing without a declared `damage_boost.slider_name` — and a declared one
+makes the scenario `dynamic`, where `gate_cutoff` is already `None`.
+Everything else `hp_casting` touches (the mana check, the mana rescue, the
+doom bound) decides *feasibility*, which only ever removes candidates, so the
+all-150 assemble still bounds every allocation the greedy can reach.
+
+Removing it: **48,021 → 184,640 checked/s**, greedy 32.5 s → 0.14 s, trials
+22.0M → 93K.
+
+The argument above is why it should be admissible; this is the evidence that
+it is. The gate skips per-leaf work without changing which leaves are
+enumerated, so capping both runs at the same leaf budget compares them over an
+identical prefix — same leaves, same order, same cutoff sequence. At three
+budgets on `spell_wide`:
+
+| leaves | visited on/off | gated | scored on/off | top-15 |
+|---|---|---|---|---|
+| 800K | 800,008 / 800,008 | 494,844 | 3,050 / 207,848 | identical |
+| 3M | 3,000,016 / 3,000,016 | 2,045,513 | 3,751 / 737,899 | identical |
+| 12M | 12,000,000 / 12,000,000 | 8,451,019 | 3,995 / 2,922,901 | identical |
+
+`feasible` matches exactly too, which is the check that the gate is skipping
+*scoring* and not *enumeration*. A first attempt at this used `gaia2m`, where
+the comparison passed while `gate` stayed at 0.00 s — the gate never fired, so
+the equivalence was vacuous. Worth stating because a gating change that is
+never exercised looks exactly like a gating change that is correct.
+`SCORE_HPCAST_GATE=0` restores the old behaviour for re-checking.
+
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
@@ -213,10 +246,10 @@ identical output with the per-trial check clean.
 
 ## Remaining work, in the order I'd tackle it
 
-1. ~~**Speed, not coverage**~~ — B9 is closed (16.7x) and B1's doom precheck is
-   1.46x. What is left in section B needs new bound *shapes* rather than
-   tuning: B3 and B4 have no admissible ceiling at all today, and B5 needs a
-   two-sided doom bound. Six tried-and-rejected attempts are recorded above;
+1. ~~**Speed, not coverage**~~ — B9 is closed (16.7x), B1's doom precheck is
+   1.46x, and B4's gate is re-armed (3.85x). What is left in section B needs
+   new bound *shapes* rather than tuning: B3 still has no admissible ceiling,
+   and B5 needs a two-sided doom bound. Six tried-and-rejected attempts are recorded above;
    each was plausible and each was wrong until measured.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no

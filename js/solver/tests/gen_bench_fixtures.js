@@ -24,7 +24,7 @@
 // fixtures are for is timing.
 //
 // Run: node js/solver/tests/gen_bench_fixtures.js
-// Out: rust/sp_kernel/fixtures/score_{slider,blend_pos,blend_neg,blend_mixed}.json
+// Out: rust/sp_kernel/fixtures/score_{slider,hpcast,hpcast_2m,blend_pos,blend_neg,blend_mixed}.json
 
 'use strict';
 
@@ -34,6 +34,12 @@ const { REPO_ROOT } = require('./harness');
 
 const FIXTURES = path.join(REPO_ROOT, 'rust', 'sp_kernel', 'fixtures');
 const BASE = path.join(FIXTURES, 'score_spell2.json');
+// The ceiling-gate benchmark needs a search big enough for a gate to prune;
+// spell2's 961 combinations finish before it matters, spell_wide is ~39.4bn.
+const WIDE_PATH = path.join(FIXTURES, 'score_spell_wide.json');
+// And one that runs to completion, so gated and ungated top-15s are
+// comparable — 3.1M combinations, combo_damage.
+const GAIA2M_PATH = path.join(FIXTURES, 'score_gaia2m.json');
 
 // `fixtures/` is gitignored — everything in it is a derived artifact — so on a
 // clean checkout the base has to be exported first. Say which command rather
@@ -50,12 +56,15 @@ if (!fs.existsSync(BASE)) {
 }
 
 const base = JSON.parse(fs.readFileSync(BASE, 'utf8'));
+const load = (p) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null);
+const WIDE = load(WIDE_PATH);
+const GAIA2M = load(GAIA2M_PATH);
 
-/** A copy of the base with no per-case expectations. See the header. */
-function blank() {
-    const f = JSON.parse(JSON.stringify(base));
+/** A copy of a base fixture with no per-case expectations. See the header. */
+function blank(from = base, name = 'score_spell2.json') {
+    const f = JSON.parse(JSON.stringify(from));
     f.cases = [];
-    f.meta = { ...f.meta, cases: 0, attempts: 0, derived_from: 'score_spell2.json' };
+    f.meta = { ...f.meta, cases: 0, attempts: 0, derived_from: name };
     return f;
 }
 
@@ -98,6 +107,45 @@ const out = [];
         exit_triggers: [],
     };
     out.push(['score_slider.json', f]);
+}
+
+// ── HP-cost casting with no declared slider (B4) ────────────────────────────
+//
+// Blood Pact pays a spell's unaffordable mana from health. `damage_boost`
+// with `slider_name: null` is the shape that matters for the ceiling gate:
+// the simulation still computes a blood-pact bonus, but with no slider to
+// inject it under, `inject_blood_pact_boosts` adds nothing and the damage
+// rows are unchanged. So damage is NOT sim-coupled here, even though the
+// build is HP-casting — which is what makes the all-150-SP ceiling still an
+// upper bound. Declaring a slider would make it coupled, and that case is
+// caught separately by `dynamic.is_some()`.
+//
+// Two of them, because the gate needs two different things proved. Whether
+// it is ADMISSIBLE has to be shown on a search that runs to completion, so
+// gated and ungated top-15s are comparable — `gaia2m`, 3.1M combinations,
+// combo_damage. Whether it is WORTH anything needs a search big enough for
+// pruning to matter — `spell_wide`, ~39.4 billion. spell2's 961 finish
+// before either question arises.
+for (const [name, src, base_name] of [
+    ['score_hpcast_2m.json', GAIA2M, 'score_gaia2m.json'],
+    ['score_hpcast.json', WIDE, 'score_spell_wide.json'],
+]) {
+    if (!src) {
+        console.warn(`skipping ${name} — fixtures/${base_name} not exported`);
+        continue;
+    }
+    const f = blank(src, base_name);
+    f.meta.scoring_target = 'combo_damage';
+    f.meta.note = 'benchmark only — HP-cost casting, no declared slider';
+    f.layer2.hp_casting = true;
+    f.layer2.health_config = {
+        hp_casting: true,
+        health_cost: 30,
+        damage_boost: { min: 5, max: 20, slider_name: null },
+        buff_states: [],
+        exit_triggers: [],
+    };
+    out.push([name, f]);
 }
 
 // ── Two-sided ceiling: blends whose weights differ in sign (B2) ─────────────

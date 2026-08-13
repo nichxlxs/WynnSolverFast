@@ -13,8 +13,9 @@ has none. Export the base ones with the `SOLVER_EXPORT_RUST` /
 node js/solver/tests/gen_bench_fixtures.js
 ```
 
-That adds four scenario shapes the exported corpus does not contain, all
-derived from `score_spell2.json` and all pairing with `enum_spell2.txt`:
+That adds six scenario shapes the exported corpus does not contain, most
+derived from `score_spell2.json` and pairing with `enum_spell2.txt` (the two
+hp_casting ones name their own base and pairing):
 
 | Fixture | Shape | What it measures |
 |---|---|---|
@@ -22,6 +23,8 @@ derived from `score_spell2.json` and all pairing with `enum_spell2.txt`:
 | `score_blend_pos.json` | weights all non-negative | the two-sided ceiling must be a no-op here |
 | `score_blend_neg.json` | one negative weight | B2 |
 | `score_blend_mixed.json` | both signs | the shape the gate was unsound on |
+| `score_hpcast.json` | HP-cost casting, no declared slider | the ceiling gate on `hp_casting` (B4); pairs with `enum_spell_wide.txt` |
+| `score_hpcast_2m.json` | the same, on a space that completes | for exhaustive on/off comparison |
 
 They are **benchmark-only** — their `cases[]` is empty on purpose, because the
 scenario is a synthetic edit and the exported per-case expectations no longer

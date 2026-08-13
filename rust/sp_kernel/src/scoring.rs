@@ -2240,8 +2240,24 @@ pub fn leaf_pipeline_gated(
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
         let two_sided_off = objective.needs_two_sided_ceiling() && !Objective::two_sided_enabled();
-        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting
-            && !two_sided_off {
+        // The JS excludes `hp_casting` here, describing it as sim-coupled
+        // damage alongside dynamic sliders. Only the slider half is: HP-cost
+        // casting reaches damage exclusively through the Blood Pact bonus,
+        // and that bonus reaches the rows exclusively through
+        // `inject_blood_pact_boosts`, which does nothing without a declared
+        // `damage_boost.slider_name`. A declared one makes the scenario
+        // `dynamic`, and `gate_cutoff` is already None for those.
+        //
+        // Everything else `hp_casting` touches — the mana check, the mana
+        // rescue, the doom bound — decides FEASIBILITY. Those only ever
+        // remove candidates, so the all-150 assemble still bounds the score
+        // of every allocation the greedy can reach, which is all the gate
+        // needs. Disabling the rescue in particular shrinks the reachable
+        // set, and a ceiling over a superset is still a ceiling.
+        let gate_env_off = std::env::var("SCORE_HPCAST_GATE").as_deref() == Ok("0")
+            && consts.hp_casting;
+        if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
+            && !gate_env_off {
             if (dwork.is_none() || dense_check) && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
