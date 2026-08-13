@@ -777,6 +777,37 @@ function _fill_build_into_ui(result) {
             sel.dispatchEvent(new Event('change'));
         }
     }
+
+    // Apply the chosen weapon/armour tomes into their slots so the displayed
+    // stats and the generated build link match the ranked score. Only slots
+    // that are empty or that the solver itself filled are touched — a tome the
+    // user equipped is a lock and is never overwritten. This runs even for
+    // results with no tome fields (the seed build, default mode): the chosen
+    // list is then empty, which CLEARS solver-filled leftovers from a
+    // previously applied result instead of leaving stale tomes under a score
+    // that never assumed them. All entries carry solverFilled so the next
+    // search still treats them as optimisable.
+    {
+        for (const type of ['weaponTome', 'armorTome']) {
+            const chosen = [...(result.tome_names?.[type] ?? [])];
+            for (let ti = 0; ti < tome_fields.length; ti++) {
+                if (!tome_fields[ti].startsWith(type)) continue;
+                const input = document.getElementById(tome_fields[ti] + '-choice');
+                if (!input) continue;
+                const user_locked = input.value !== '' && input.dataset.solverFilled !== 'true';
+                if (user_locked) continue;
+                const next = chosen.shift() ?? '';
+                if (input.value !== next) {
+                    input.dataset.solverFilled = next ? 'true' : '';
+                    input.value = next;
+                    input.dispatchEvent(new Event('change'));
+                    any_item_changed = true;
+                } else if (next) {
+                    input.dataset.solverFilled = 'true';
+                }
+            }
+        }
+    }
     _solver_filling_ui = false;
     _schedule_solver_hash_update();
 
@@ -803,7 +834,9 @@ function _build_result_row(r, i, target) {
         const g = GUILD_TOMES[r.guild_tome_idx];
         if (g && g.key !== 'none') tome_bits.push('Guild: ' + g.label);
     }
-    if (r.tome_names?.length) tome_bits.push('Tomes: ' + r.tome_names.join(', '));
+    const flat_tomes = r.tome_names
+        ? [...(r.tome_names.weaponTome ?? []), ...(r.tome_names.armorTome ?? [])] : [];
+    if (flat_tomes.length) tome_bits.push('Tomes: ' + flat_tomes.join(', '));
     if (tome_bits.length) names_str += ' \u2022 ' + tome_bits.join(' \u2022 ');
     const result_hash = solver_compute_result_hash(r);
     let new_tab_link = '';
@@ -1091,18 +1124,32 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     if (!guild_locked) {
         const cands = [{ idx: 0, sm: new Item(none_tomes[2]).statMap }];
         for (let i = 1; i < GUILD_TOMES.length; i++) {
+            // Guild tomes are level-gated items (all currently level 100). A
+            // build below that level cannot equip any of them, so offering
+            // them would let the optimiser rank builds on skill points the
+            // player cannot have. Look the level up from the real tome so a
+            // future data change is honoured automatically.
+            const real = GUILD_TOMES[i].item ? tomeMap.get(GUILD_TOMES[i].item) : null;
+            if ((real?.lvl ?? 100) > snap.level) continue;
             cands.push({ idx: i, sm: guild_tome_statmap(i) });
         }
-        snap.guild_tome_candidates = cands;
+        // Only "none" qualified → there is nothing to optimise; leave the
+        // candidates null so the worker runs the plain single-solve path.
+        snap.guild_tome_candidates = cands.length > 1 ? cands : null;
     }
 
     if (mode !== TOME_OPT_ALL) return;
 
-    // Empty weapon/armour tome slots are the ones bundles may fill.
+    // Empty weapon/armour tome slots are the ones bundles may fill. A slot the
+    // SOLVER filled when a previous result was applied counts as empty too —
+    // mirroring gear-slot semantics, where dataset.solverFilled distinguishes
+    // "user equipped this" (a lock) from "the last result put this here".
     const empty = { weaponTome: 0, armorTome: 0 };
     for (let ti = 0; ti < tome_fields.length; ti++) {
         const type = tome_fields[ti].replace(/[0-9]/g, '');
         if (!(type in empty)) continue;
+        const input = document.getElementById(tome_fields[ti] + '-choice');
+        if (input?.dataset?.solverFilled === 'true') { empty[type]++; continue; }
         const v = solver_item_final_nodes[9 + ti]?.value;
         if (!v || v.statMap.has('NONE')) empty[type]++;
     }
@@ -1135,6 +1182,12 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     for (const k of dominance_stats.lower ?? []) {
         if (tome_keys.has(k) && !keys.includes(k)) { keys.push(k); signs.push(-1); }
     }
+    // Equality-scoped stats (score-positive but le-capped): neither direction
+    // is safely better, so a dominator must match them exactly. Without this a
+    // higher-tier tome could prune the only cap-compliant variant.
+    for (const k of dominance_stats.equal ?? []) {
+        if (tome_keys.has(k) && !keys.includes(k)) { keys.push(k); signs.push(0); }
+    }
     if (keys.length === 0) {
         // The search reads nothing a tome can carry — a single empty bundle
         // keeps guild optimisation working without a pointless front.
@@ -1159,21 +1212,23 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     const bundles = [];
     for (const wb of fronts.weaponTome) {
         for (const ab of fronts.armorTome) {
-            const picks = [...wb.picks, ...ab.picks];
             const stats = new Map();
-            const names = [];
-            for (const sm of picks) {
-                if (sm === none_sm) continue;
-                const rolled = sm.get('maxRolls');
-                if (rolled) {
-                    for (const k of rolled.keys()) {
-                        const v = tome_stat(sm, k);
-                        if (v) stats.set(k, (stats.get(k) ?? 0) + v);
+            const names = { weaponTome: [], armorTome: [] };
+            for (const [type, picklist] of [['weaponTome', wb.picks], ['armorTome', ab.picks]]) {
+                for (const sm of picklist) {
+                    if (sm === none_sm) continue;
+                    const rolled = sm.get('maxRolls');
+                    if (rolled) {
+                        for (const k of rolled.keys()) {
+                            const v = tome_stat(sm, k);
+                            if (v) stats.set(k, (stats.get(k) ?? 0) + v);
+                        }
                     }
+                    names[type].push(sm.get('displayName') ?? sm.get('name') ?? '?');
                 }
-                names.push(sm.get('displayName') ?? sm.get('name') ?? '?');
             }
-            bundles.push({ stats: stats.size ? stats : null, names: names.length ? names : null });
+            const any_names = names.weaponTome.length || names.armorTome.length;
+            bundles.push({ stats: stats.size ? stats : null, names: any_names ? names : null });
         }
     }
     snap.tome_wa_bundles = bundles;

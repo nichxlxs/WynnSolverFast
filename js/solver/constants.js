@@ -354,9 +354,15 @@ function tome_stat(sm, key) {
  * or threshold on, or a genuinely better tome can be discarded.
  */
 function tome_prune_dominated(statmaps, keys, signs = null) {
-    // signs[i] = -1 flips key i so "more is better" holds universally — used
-    // for stats under an 'le' restriction, where less is better.
-    const vecs = statmaps.map(sm => keys.map((k, i) => tome_stat(sm, k) * (signs ? signs[i] : 1)));
+    // signs[i] = -1 flips key i so "more is better" holds universally (stats
+    // under an 'le' restriction, where less is better). signs[i] = 0 marks an
+    // EQUALITY key — a stat that is both score-positive and le-capped, where
+    // neither direction is safely better — and a dominator must match it
+    // exactly, mirroring _build_dominance_stats' `equal` class for items.
+    const vecs = statmaps.map(sm => keys.map((k, i) => {
+        const sgn = signs ? signs[i] : 1;
+        return tome_stat(sm, k) * (sgn === 0 ? 1 : sgn);
+    }));
     const keep = [];
     for (let i = 0; i < statmaps.length; i++) {
         let dominated = false;
@@ -364,6 +370,10 @@ function tome_prune_dominated(statmaps, keys, signs = null) {
             if (i === j) continue;
             let ge_all = true, gt_any = false;
             for (let k = 0; k < keys.length; k++) {
+                if (signs && signs[k] === 0) {
+                    if (vecs[j][k] !== vecs[i][k]) { ge_all = false; break; }
+                    continue;
+                }
                 if (vecs[j][k] < vecs[i][k]) { ge_all = false; break; }
                 if (vecs[j][k] > vecs[i][k]) gt_any = true;
             }
@@ -396,7 +406,10 @@ function tome_bundles(statmaps, count, keys, signs = null) {
     if (count <= 0 || statmaps.length === 0) return [{ vec: keys.map(() => 0), picks: [] }];
     const out = [];
     const cur = [];
-    const vecs = statmaps.map(sm => keys.map((k, i) => tome_stat(sm, k) * (signs ? signs[i] : 1)));
+    const vecs = statmaps.map(sm => keys.map((k, i) => {
+        const sgn = signs ? signs[i] : 1;
+        return tome_stat(sm, k) * (sgn === 0 ? 1 : sgn);
+    }));
     (function pick(start, depth, acc) {
         if (depth === count) {
             out.push({ vec: acc.slice(), picks: cur.slice() });
@@ -409,11 +422,12 @@ function tome_bundles(statmaps, count, keys, signs = null) {
             cur.pop();
         }
     })(0, 0, keys.map(() => 0));
-    return pareto_prune_bundles(out);
+    return pareto_prune_bundles(out, signs);
 }
 
-/** Keep only bundles no other bundle matches or beats on every stat. */
-function pareto_prune_bundles(bundles) {
+/** Keep only bundles no other bundle matches or beats on every stat.
+ *  signs[k] === 0 marks an equality key: dominator must match it exactly. */
+function pareto_prune_bundles(bundles, signs = null) {
     const keep = [];
     for (let i = 0; i < bundles.length; i++) {
         let dominated = false;
@@ -422,6 +436,10 @@ function pareto_prune_bundles(bundles) {
             const a = bundles[i].vec, b = bundles[j].vec;
             let ge_all = true, gt_any = false;
             for (let k = 0; k < a.length; k++) {
+                if (signs && signs[k] === 0) {
+                    if (b[k] !== a[k]) { ge_all = false; break; }
+                    continue;
+                }
                 if (b[k] < a[k]) { ge_all = false; break; }
                 if (b[k] > a[k]) gt_any = true;
             }

@@ -101,6 +101,32 @@ t.assert(JSON.stringify(synth.pair_vecs).includes('[6,4]'),
     `duplicates are legal, so a doubled tome bundle exists (got ${JSON.stringify(synth.pair_vecs)})`);
 t.assert(synth.single_len === 2, 'a 1-slot bundle set is just the pruned pool');
 
+// ── Equality-scoped keys (score-positive but le-capped stats) ──────────────
+//
+// signs[i] === 0 marks a stat where neither direction is safely better; a
+// dominator must match it exactly, or the only cap-compliant tome could be
+// pruned in favour of one that violates the cap.
+
+const eq = run(`
+    const mk = obj => { const m = new Map(); const r = new Map();
+        for (const [k, v] of Object.entries(obj)) r.set(k, v);
+        m.set('maxRolls', r); return m; };
+    const KEYS = ['a', 'b'];
+    // t1 beats t2 on 'a' but differs on 'b'.
+    const pool = [mk({a: 3, b: 5}), mk({a: 1, b: 2})];
+    return JSON.stringify({
+        with_eq:    tome_prune_dominated(pool, KEYS, [1, 0]).length,
+        without_eq: tome_prune_dominated(pool, KEYS, [1, 1]).length,
+        bundles_eq: tome_bundles(pool, 1, KEYS, [1, 0]).length,
+    });
+`);
+t.assert(eq.with_eq === 2,
+    `tomes differing on an equality key are both kept (got ${eq.with_eq})`);
+t.assert(eq.without_eq === 1,
+    `sanity: without the equality mark the dominated tome is pruned (got ${eq.without_eq})`);
+t.assert(eq.bundles_eq === 2,
+    `bundle Pareto also respects equality keys (got ${eq.bundles_eq})`);
+
 // ── The optimistic bound is an upper bound on every real bundle ────────────
 
 const bound = run(`
