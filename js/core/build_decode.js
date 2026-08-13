@@ -695,8 +695,8 @@ function decodeSolverParams(b64_str) {
             return null;
         }
 
-        // ── Presence bitmask (10 bits) ──
-        const presence = cursor.advanceBy(10);
+        // ── Presence bitmask (10 bits pre-v11, 16 from v11) ──
+        const presence = cursor.advanceBy(version >= 11 ? 16 : 10);
 
         // ── Conditional fixed fields (defaults from _SOLVER_DEFAULTS) ──
         // v2: single 7-bit roll → all groups get that value.
@@ -760,6 +760,9 @@ function decodeSolverParams(b64_str) {
         // v11+: bit 9 carries per-slot item-level overrides. Older versions
         // never set it (it was flat_mana in v5 and removed in v6), so nothing
         // to skip on the legacy path.
+        // Written before lvl_overrides so the two stay in bit order.
+        const tome_opt = (version >= 11 && (presence & (1 << 10))) ? cursor.advanceBy(2) : 0;
+
         const lvl_overrides = {};
         if (version >= 11 && (presence & (1 << 9))) {
             const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
@@ -887,7 +890,7 @@ function decodeSolverParams(b64_str) {
         }
 
         return {
-            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, nomaj, gtome, dtime, mana_disabled,
+            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, tome_opt, nomaj, gtome, dtime, mana_disabled,
             restrictions, combo_rows, blacklist_ids, custom_weights
         };
     } catch (e) {

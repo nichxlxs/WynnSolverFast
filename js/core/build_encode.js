@@ -605,7 +605,7 @@ const _SOLVER_DEFAULTS = {
  *
  * Binary layout (EncodingBitVector):
  *   [3]   version (111 = v7; 000 = extension signal → [4] extended_version)
- *   [10]  field_present bitmask (1 = non-default, field encoded below)
+ *   [10]  field_present bitmask pre-v11; [16] from v11 (1 = non-default)
  *          bit 0: roll_groups (default {85,100,85,85})
  *          bit 1: sfree      (default 0)
  *          bit 2: dir        (default 0x1F)
@@ -616,6 +616,8 @@ const _SOLVER_DEFAULTS = {
  *          bit 7: dtime      (default false)
  *          bit 8: mana_disabled (default false) — bare flag, no payload
  *          bit 9: lvl_overrides (v11+; was flat_mana in v5, removed in v6)
+ *          bit 10: tome_opt   (v11+; default 0 = off)
+ *          bits 11-15: reserved for the remaining tome fields
  *   --- conditional fixed fields (only if presence bit = 1) ---
  *   NOTE: Bit widths below have corresponding range constants in
  *         constants.js (e.g. COMBO_QTY_MAX, BOOST_SLIDER_MAX,
@@ -730,6 +732,7 @@ function encodeSolverParams(params) {
     const gtome = params.gtome & 0x7;   // v11: 3 bits (0-6), was 2 bits pre-v11
     const dtime = params.dtime ? 1 : 0;
     const mana_disabled = params.mana_disabled ? 1 : 0;
+    const tome_opt = (params.tome_opt ?? 0) & 0x3;   // 0 off, 1 guild only, 2 all tomes
 
     // v11: per-slot level overrides. Only slots whose resolved range differs
     // from the global range are encoded, so a build that never touches the
@@ -755,6 +758,7 @@ function encodeSolverParams(params) {
     }
 
     let presence = 0;
+    const PRESENCE_BITS_V11 = 16;
     const rd = _SOLVER_DEFAULTS.roll_groups;
     if (roll_dmg !== rd.damage || roll_mana !== rd.mana || roll_heal !== rd.healing || roll_misc !== rd.misc) presence |= (1 << 0);
     if (sfree !== _SOLVER_DEFAULTS.sfree) presence |= (1 << 1);
@@ -766,8 +770,9 @@ function encodeSolverParams(params) {
     if (dtime !== 0) presence |= (1 << 7);
     if (mana_disabled) presence |= (1 << 8);
     if (lvl_override_mask !== 0) presence |= (1 << 9);
+    if (tome_opt !== 0) presence |= (1 << 10);
 
-    bv.append(presence, 10);
+    bv.append(presence, PRESENCE_BITS_V11);   // v11: 16 bits, was 10
 
     // ── Conditional fixed fields ──
     if (presence & (1 << 0)) {
@@ -784,6 +789,7 @@ function encodeSolverParams(params) {
     if (presence & (1 << 6)) bv.append(gtome, 3);   // v11: 3 bits
     if (presence & (1 << 7)) bv.append(dtime, 1);
     // bit 8 (mana_disabled): bare flag — no payload bits
+    if (presence & (1 << 10)) bv.append(tome_opt, 2);
     if (presence & (1 << 9)) {
         bv.append(lvl_override_mask, 7);
         for (const e of lvl_override_entries) {

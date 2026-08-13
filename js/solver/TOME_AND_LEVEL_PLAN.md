@@ -104,6 +104,42 @@ design (that is the feature — gearsets only viable *with* tomes must survive).
 The multiplier is whatever the bound's looseness turns out to be, and it has to
 be measured rather than assumed.
 
+### Measured bundle sizes (2026-08-13, 80% roll)
+
+With `tome_prune_dominated` over the full 23-key combat stat set, then multiset
+enumeration and Pareto pruning:
+
+| type | pool | pruned | slots | bundles |
+|---|---:|---:|---:|---:|
+| guildTome | 6 | 6 | 1 | 6 |
+| weaponTome | 23 | 9 | 2 | 45 |
+| armorTome | 20 | 7 | 4 | 210 |
+
+Guild alone is trivially cheap. **Weapon + armour + guild together is
+210 × 45 × 6 = 56,700 bundles**, which is far too many to evaluate per leaf even
+at the ~0.3% of leaves that pass the ceiling gate — that would be hundreds of
+millions of evaluations. Phase D therefore needs one more reduction before it is
+viable:
+
+**Prune the front against the stats this search actually scores on, not all 23.**
+The numbers above dominate over every combat stat, so an armour tome that only
+differs in `eDefPct` survives even in a pure spell-damage search that never
+reads it. Building the front from the search's own damage weights plus its
+restriction stats — the same set item dominance already uses via
+`_build_dominance_stats` — should collapse these dramatically. That must be
+measured before Phase D is claimed to be viable; the table above is the
+worst case, not the expected case.
+
+### A trap worth recording
+
+Rolled tome IDs are **not** top-level statMap keys. `_apply_roll_mode_to_item`
+rewrites the `maxRolls` map in place and leaf assembly reads from there, so
+`sm.get('hpBonus')` on a tome returns `undefined`. Anything inspecting tome
+stats must go through `tome_stat()`; reading top-level keys silently yields zero
+for every rolled stat, which is every stat that matters on weapon and armour
+tomes. This was caught by measurement (all pools "pruned" to 1 tome) rather than
+by the code failing, so it would have shipped as a silent wrong answer.
+
 Two mitigations to build in from the start:
 
 1. **Precompute tome bundles once per search, not per leaf.** Weapon pairs and
