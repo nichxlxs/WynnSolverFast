@@ -356,3 +356,30 @@ use wasm_bindgen::prelude::*;
 pub fn solve_json(input: &str) -> String {
     engine::solve_json(input)
 }
+
+pub fn solve_json_with_progress<F>(input: &str, progress: F) -> String
+where
+    F: FnMut(search_core::ProgressSnapshot),
+{
+    engine::solve_json_with_progress(input, progress)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = solve_json_with_progress)]
+pub fn solve_json_with_progress_wasm(input: &str, callback: &js_sys::Function) -> String {
+    solve_json_with_progress(input, |snapshot| {
+        let top_n: Vec<serde_json::Value> = snapshot.top_n.into_iter()
+            .map(|(score, item_names)| serde_json::json!({ "score": score, "item_names": item_names }))
+            .collect();
+        let payload = serde_json::json!({
+            "checked": snapshot.checked,
+            "total": snapshot.total,
+            "precheck_reject": snapshot.precheck_reject,
+            "precheck_pass": snapshot.precheck_pass,
+            "feasible": snapshot.feasible,
+            "scored": snapshot.scored,
+            "top_n": top_n
+        }).to_string();
+        let _ = callback.call1(&JsValue::NULL, &JsValue::from_str(&payload));
+    })
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { initSync, solve_json } from '../wasm/pkg/sp_kernel.js';
+import { initSync, solve_json, solve_json_with_progress } from '../wasm/pkg/sp_kernel.js';
 
 const wasmPath = fileURLToPath(new URL('../wasm/pkg/sp_kernel_bg.wasm', import.meta.url));
 const fixturePath = fileURLToPath(
@@ -18,11 +18,12 @@ const rejected = JSON.parse(solve_json(JSON.stringify({
 assert.equal(rejected.status, 'error');
 assert.equal(rejected.error.code, 'unsupported_schema_version');
 
-const result = JSON.parse(solve_json(JSON.stringify({
+const snapshots = [];
+const result = JSON.parse(solve_json_with_progress(JSON.stringify({
     schema_version: 1,
     data_version: 'wasm-smoke-test',
     enumeration_fixture: readFileSync(fixturePath, 'utf8'),
-})));
+}), (payload) => snapshots.push(JSON.parse(payload))));
 
 assert.equal(result.status, 'completed');
 assert.equal(result.engine.target, 'wasm32');
@@ -30,5 +31,8 @@ assert.equal(result.exhaustive, true);
 assert.equal(result.counters.checked, 36);
 assert.equal(result.counters.feasible, 31);
 assert.deepEqual(result.top_n, []);
+assert.ok(snapshots.length > 0);
+assert.equal(snapshots.at(-1).checked, 36);
+assert.equal(snapshots.at(-1).total, 36);
 
 console.log('Rust/WASM SearchJob smoke test passed');

@@ -16,7 +16,10 @@ fn error_result(code: &str, message: impl Into<String>, details: Value) -> Value
     })
 }
 
-pub fn solve_json(input: &str) -> String {
+fn solve_json_inner(
+    input: &str,
+    progress: Option<&mut dyn FnMut(crate::search_core::ProgressSnapshot)>,
+) -> String {
     let job: Value = match serde_json::from_str(input) {
         Ok(job) => job,
         Err(error) => {
@@ -66,7 +69,11 @@ pub fn solve_json(input: &str) -> String {
     };
     let scoring_fixture = job.get("scoring_fixture").filter(|value| !value.is_null());
 
-    let result = match crate::search_core::solve_single(enumeration_fixture, scoring_fixture) {
+    let result = match crate::search_core::solve_single_with_progress(
+        enumeration_fixture,
+        scoring_fixture,
+        progress,
+    ) {
         Ok(result) => result,
         Err(message) => {
             return error_result("unsupported_search_job", message, Value::Null).to_string()
@@ -103,4 +110,15 @@ pub fn solve_json(input: &str) -> String {
         "top_n": top_n
     })
     .to_string()
+}
+
+pub fn solve_json(input: &str) -> String {
+    solve_json_inner(input, None)
+}
+
+pub fn solve_json_with_progress<F>(input: &str, mut progress: F) -> String
+where
+    F: FnMut(crate::search_core::ProgressSnapshot),
+{
+    solve_json_inner(input, Some(&mut progress))
 }

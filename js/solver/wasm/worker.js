@@ -1,4 +1,4 @@
-import init, { solve_json } from './pkg/sp_kernel.js';
+import init, { solve_json_with_progress } from './pkg/sp_kernel.js';
 
 let moduleReady;
 
@@ -12,8 +12,39 @@ self.onmessage = async (event) => {
     if (message.type !== 'solve') return;
 
     try {
+        self.postMessage({
+            type: 'progress',
+            worker_id: message.worker_id ?? 0,
+            phase: 'loading engine',
+            checked: 0,
+            total: 0,
+        });
         await loadModule();
-        const result = JSON.parse(solve_json(JSON.stringify(message.job)));
+        self.postMessage({
+            type: 'progress',
+            worker_id: message.worker_id ?? 0,
+            phase: 'preparing search',
+            checked: 0,
+            total: 0,
+        });
+        const result = JSON.parse(solve_json_with_progress(
+            JSON.stringify(message.job),
+            (payload) => {
+                const progress = JSON.parse(payload);
+                self.postMessage({
+                    type: 'progress',
+                    worker_id: message.worker_id ?? 0,
+                    phase: 'searching',
+                    checked: progress.checked,
+                    total: progress.total,
+                    precheck_pass: progress.precheck_pass,
+                    precheck_reject: progress.precheck_reject,
+                    feasible: progress.feasible,
+                    met_req: progress.scored,
+                    top5_names: progress.top_n,
+                });
+            },
+        ));
         if (result.status !== 'completed') {
             self.postMessage({
                 type: 'worker_error',

@@ -22,6 +22,7 @@ const _solver_state = {
     _prev_topN_fingerprint: '',   // for change detection
     top15_expanded: false,        // UI expand state
     progress_expanded: false,     // progress details expand state
+    engine_phase: '',             // Rust/WASM startup/search phase label
 };
 
 // Bitmask tracking which equipment slots were last filled by the solver.
@@ -546,6 +547,11 @@ function _format_compact(n) {
     return `${display} ${suffixes[tier]}`;
 }
 
+function solver_format_average_check_rate(checked, elapsed_ms) {
+    if (!(checked > 0) || !(elapsed_ms > 0)) return '0/s';
+    return `${_format_compact(checked * 1000 / elapsed_ms).replace(' ', '')}/s`;
+}
+
 // ── Solver target metadata ─────────────────────────────────────────────────
 
 const SOLVER_TARGET_LABELS = {
@@ -601,7 +607,10 @@ function _show_solver_stopped_progress(label, elapsed_s) {
     const el_left = document.getElementById('solver-progress-left');
     const el_right = document.getElementById('solver-progress-right');
     if (el_left) el_left.textContent = `${label} - Checked: ${_format_compact(_solver_state.checked)} / ${_format_compact(_solver_state.total)}`;
-    if (el_right) el_right.textContent = `Time: ${_format_duration(elapsed_s)}`;
+    if (el_right) {
+        const averageRate = solver_format_average_check_rate(_solver_state.checked, elapsed_s * 1000);
+        el_right.textContent = `Time: ${_format_duration(elapsed_s)} | Avg: ${averageRate}`;
+    }
     const el_precheck = document.getElementById('solver-precheck-count');
     if (el_precheck) el_precheck.textContent = _format_compact(_solver_state.precheck_pass ?? 0);
     const el_feasible = document.getElementById('solver-feasible-count');
@@ -654,7 +663,10 @@ function _update_solver_progress_ui() {
     const checked_str = `Checked: ${_format_compact(_solver_state.checked)} / ${_format_compact(_solver_state.total)}`;
 
     if (el_left) el_left.textContent = checked_str;
-    if (el_right) el_right.textContent = elapsed_str;
+    if (el_right) {
+        const averageRate = solver_format_average_check_rate(_solver_state.checked, elapsed_ms);
+        el_right.textContent = `${elapsed_str} | Avg: ${averageRate}`;
+    }
     if (el_precheck) el_precheck.textContent = _format_compact(_solver_state.precheck_pass ?? 0);
     if (el_feasible) el_feasible.textContent = _format_compact(_solver_state.feasible);
     if (el_met_req) el_met_req.textContent = _format_compact(_solver_state.met_req);
@@ -699,7 +711,10 @@ function _update_solver_progress_ui() {
                 el_status.innerHTML = '\u26A0 Very slow iteration \u2014 results may take a long time on this device';
                 el_status.className = 'text-danger';
             } else {
-                el_status.textContent = '';
+                el_status.textContent = _solver_state.engine_phase
+                    ? `Rust/WASM: ${_solver_state.engine_phase}`
+                    : '';
+                el_status.className = '';
             }
         }
     }
@@ -1242,7 +1257,7 @@ function _debug_reeval_top1() {
 
 function _on_all_workers_done(workers_snapshot) {
     const search_completed = _solver_state.running;  // true only if finished naturally
-    const elapsed_s = Math.floor((Date.now() - _solver_state.start) / 1000);
+    const elapsed_s = (Date.now() - _solver_state.start) / 1000;
 
     // Aggregate final stats before stopping (which clears _solver_state.workers)
     _solver_state.checked = 0;
@@ -1354,7 +1369,7 @@ function _run_rust_wasm_search(init, ring_pool, snap) {
 
     let worker;
     try {
-        worker = new Worker('../js/solver/wasm/worker.js?v=1', { type: 'module' });
+        worker = new Worker('../js/solver/wasm/worker.js?v=2', { type: 'module' });
     } catch (error) {
         _show_rust_solver_error(error?.message ?? 'Worker initialization failed');
         return;
@@ -1386,7 +1401,19 @@ function _run_rust_wasm_search(init, ring_pool, snap) {
             _show_rust_solver_error(message.message);
             return;
         }
+        if (message.type === 'progress') {
+            _solver_state.engine_phase = message.phase ?? 'searching';
+            state._cur_checked = message.checked ?? 0;
+            state._cur_precheck_pass = message.precheck_pass ?? 0;
+            state._cur_precheck_reject = message.precheck_reject ?? 0;
+            state._cur_feasible = message.feasible ?? 0;
+            state._cur_met_req = message.met_req ?? 0;
+            if (message.top5_names) state._cur_top5 = message.top5_names;
+            if (message.total > 0) _solver_state.total = message.total;
+            return;
+        }
         if (message.type !== 'done') return;
+        _solver_state.engine_phase = '';
         state.done = true;
         state.checked = message.checked;
         state.precheck_pass = message.precheck_pass ?? 0;
@@ -1406,9 +1433,13 @@ function _run_rust_wasm_search(init, ring_pool, snap) {
 
     _solver_state.progress_timer = setInterval(() => {
         if (!_solver_state.running) return;
-        const status = document.getElementById('solver-status-msg');
-        if (status) status.textContent = 'Rust/WASM search running';
-    }, 1000);
+        _solver_state.checked = state.checked + state._cur_checked;
+        _solver_state.precheck_pass = state.precheck_pass + state._cur_precheck_pass;
+        _solver_state.precheck_reject = state.precheck_reject + state._cur_precheck_reject;
+        _solver_state.feasible = state.feasible + state._cur_feasible;
+        _solver_state.met_req = state.met_req + state._cur_met_req;
+        _update_solver_progress_ui();
+    }, 500);
 }
 
 function _run_solver_search_workers(pools, locked, snap) {
@@ -1651,7 +1682,7 @@ function toggle_solver() {
     if (_solver_state.running) {
         // Save worker references before _stop_solver clears them
         const saved_workers = [..._solver_state.workers];
-        const elapsed_s = Math.floor((Date.now() - _solver_state.start) / 1000);
+        const elapsed_s = (Date.now() - _solver_state.start) / 1000;
         _stop_solver();
         const btn = document.getElementById('solver-run-btn');
         btn.textContent = 'Solve';
@@ -1790,6 +1821,7 @@ function start_solver_search() {
     _solver_state._prev_topN_fingerprint = '';
     _solver_state.top15_expanded = false;
     _solver_state.progress_expanded = false;
+    _solver_state.engine_phase = '';
     const _status_el = document.getElementById('solver-status-msg');
     if (_status_el) _status_el.textContent = '';
 

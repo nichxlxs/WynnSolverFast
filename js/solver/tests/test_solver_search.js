@@ -65,6 +65,7 @@ vm.runInContext(`
     globalThis._apply_roll_mode_to_item = _apply_roll_mode_to_item;
     globalThis._partition_work = _partition_work;
     globalThis._TOP_N = typeof _TOP_N !== 'undefined' ? _TOP_N : 15;
+    globalThis.solver_format_average_check_rate = solver_format_average_check_rate;
     globalThis.build_combo_boost_registry = typeof build_combo_boost_registry !== 'undefined' ? build_combo_boost_registry : null;
     globalThis.node_ref_to_boost_name = typeof node_ref_to_boost_name !== 'undefined' ? node_ref_to_boost_name : null;
     globalThis.node_id_to_spell_value = typeof node_id_to_spell_value !== 'undefined' ? node_id_to_spell_value : null;
@@ -73,6 +74,9 @@ vm.runInContext(`
     globalThis.compute_recast_penalties = typeof compute_recast_penalties !== 'undefined' ? compute_recast_penalties : null;
     globalThis.compute_dps_spell_hits_info = typeof compute_dps_spell_hits_info !== 'undefined' ? compute_dps_spell_hits_info : null;
 `, ctx);
+
+t.assert(ctx.solver_format_average_check_rate(1_250_000, 2_500) === '500K/s',
+    'progress UI formats average checked-per-second rate');
 
 // ── Slot constants ───────────────────────────────────────────────────────────
 

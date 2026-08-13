@@ -269,7 +269,7 @@ fn parse_fixture(text: &str) -> Fixture {
     }
 }
 
-struct Search<'a> {
+struct Search<'a, 'p> {
     fx: &'a Fixture,
     n_free: usize,
     l_max: usize,
@@ -316,6 +316,7 @@ struct Search<'a> {
     next_report: f64,
     report_every: f64,
     report_calls: u64,
+    progress: Option<&'p mut dyn FnMut(ProgressSnapshot)>,
 
     // Multithreading: first-slot offset bounds (inclusive) and the shared
     // progress counter this thread flushes its local `checked` delta into.
@@ -361,7 +362,7 @@ struct Search<'a> {
     prefix_offsets: [u8; 8],
 }
 
-impl<'a> Search<'a> {
+impl<'a, 'p> Search<'a, 'p> {
     fn new(fx: &'a Fixture) -> Self {
         let n_free = fx.slots.len();
         let n_pc = fx.pc_thresholds.len();
@@ -585,6 +586,7 @@ impl<'a> Search<'a> {
             next_report: 0.0,
             report_every: 0.0,
             report_calls: 0,
+            progress: None,
             part_lo: 0,
             part_hi: i64::MAX,
             shared_checked: None,
@@ -710,11 +712,36 @@ impl<'a> Search<'a> {
         }
     }
 
-    /// Progress line with rate + ETA, every ~5 seconds (time check amortized
-    /// over 65k credit/leaf events so Instant::now() stays off the hot path).
+    fn progress_snapshot(&self) -> ProgressSnapshot {
+        ProgressSnapshot {
+            checked: self.checked,
+            total: self.total_space,
+            precheck_reject: self.precheck_reject,
+            precheck_pass: self.precheck_pass,
+            feasible: self.feasible,
+            scored: self.scored,
+            top_n: self.top_n.clone(),
+        }
+    }
+
+    fn emit_progress(&mut self) {
+        let snapshot = self.progress_snapshot();
+        if let Some(progress) = self.progress.as_mut() {
+            progress(snapshot);
+        }
+    }
+
+    /// Progress line/callback with the time check amortized over search events.
+    /// Browser scoring can make each leaf expensive, so the callback path
+    /// samples more frequently than the native CLI reporting path.
     fn maybe_report(&mut self) {
         self.report_calls += 1;
-        if self.report_calls & 0xFFFF != 0 {
+        let report_mask = if self.progress.is_some() {
+            0x3F
+        } else {
+            0xFFFF
+        };
+        if self.report_calls & report_mask != 0 {
             return;
         }
         if let Some(f) = self.stop_flag {
@@ -733,6 +760,11 @@ impl<'a> Search<'a> {
         }
         let elapsed = self.started.elapsed().as_secs_f64();
         if elapsed < self.next_report {
+            return;
+        }
+        if self.progress.is_some() {
+            self.next_report = elapsed + 0.5;
+            self.emit_progress();
             return;
         }
         self.next_report = elapsed + 5.0;
@@ -1445,7 +1477,7 @@ impl<'a> Search<'a> {
         self.total_space = total.max(1.0);
         self.started = Instant::now();
         self.report_every = 1.0;
-        self.next_report = 5.0;
+        self.next_report = if self.progress.is_some() { 0.5 } else { 5.0 };
 
         if self.n_free == 0 {
             self.evaluate_leaf();
@@ -1459,6 +1491,9 @@ impl<'a> Search<'a> {
         while band_lo <= l_max {
             let band_hi = l_max.min(band_lo + band_width - 1);
             self.enumerate(0, band_lo, band_hi);
+            if self.progress.is_some() {
+                self.emit_progress();
+            }
             band_lo = band_hi + 1;
             band_width *= 2;
         }
@@ -1508,9 +1543,28 @@ pub struct CoreResult {
     pub top_n: Vec<(f64, Vec<String>)>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ProgressSnapshot {
+    pub checked: f64,
+    pub total: f64,
+    pub precheck_reject: f64,
+    pub precheck_pass: u64,
+    pub feasible: u64,
+    pub scored: u64,
+    pub top_n: Vec<(f64, Vec<String>)>,
+}
+
 pub fn solve_single(
     enumeration_fixture: &str,
     scoring_fixture: Option<&serde_json::Value>,
+) -> Result<CoreResult, String> {
+    solve_single_with_progress(enumeration_fixture, scoring_fixture, None)
+}
+
+pub fn solve_single_with_progress(
+    enumeration_fixture: &str,
+    scoring_fixture: Option<&serde_json::Value>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
 ) -> Result<CoreResult, String> {
     let fx = parse_fixture(enumeration_fixture);
     let scoring_ctx = scoring_fixture
@@ -1574,9 +1628,11 @@ pub fn solve_single(
     search.bound_max_depth = 0;
     search.bound_tail = bound_tail;
     search.dense_bound = dense_bound.as_ref();
+    search.progress = progress;
     search.init_equip_names();
     search.next_report = f64::INFINITY;
     search.run();
+    search.emit_progress();
 
     Ok(CoreResult {
         exhaustive: !search.stop,

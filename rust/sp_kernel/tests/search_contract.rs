@@ -56,3 +56,27 @@ fn search_job_returns_structured_exhaustive_counters() {
     assert_eq!(result["counters"]["scored"], 0);
     assert_eq!(result["top_n"], json!([]));
 }
+
+#[test]
+fn search_job_streams_progress_before_the_final_result() {
+    let job = json!({
+        "schema_version": 1,
+        "data_version": "progress-test",
+        "enumeration_fixture": include_str!("fixtures/oracle_armor2.enum.txt")
+    })
+    .to_string();
+    let mut snapshots = Vec::new();
+
+    let result: Value =
+        serde_json::from_str(&sp_kernel::solve_json_with_progress(&job, |snapshot| {
+            snapshots.push(snapshot)
+        }))
+        .expect("engine must return a JSON SearchResult envelope");
+
+    assert_eq!(result["status"], "completed");
+    assert!(snapshots.len() >= 2, "a solve must stream progress before completion");
+    let final_progress = snapshots.last().expect("progress snapshot");
+    assert_eq!(final_progress.checked, 36.0);
+    assert_eq!(final_progress.total, 36.0);
+    assert_eq!(final_progress.feasible, 31);
+}

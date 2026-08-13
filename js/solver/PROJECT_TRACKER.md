@@ -27,7 +27,7 @@ bounds may remove search space from a run advertised as exhaustive.
   armor slots, and four armor slots using a checked-in WynnSolver README build.
 - **DONE** The supplied tier-stack Gaia build now has 0.84M, 3.19M, and 8.14M
   combination variants with 30-second original/current anytime baselines.
-- **IN PROGRESS** The fixture corpus now covers 258 assertions across solver,
+- **IN PROGRESS** The fixture corpus now covers 259 assertions across solver,
   combo-damage, mana, dominance, display, enumeration, and benchmark paths.
   Nine warnings still identify missing combo/class/target coverage, so P0.6 is
   not complete.
@@ -74,6 +74,11 @@ bounds may remove search space from a run advertised as exhaustive.
   score 15,095, and identical winning items. The generated Wasm module passed
   its direct smoke test, and the local UI completed a real 754/754 exhaustive
   EHP search with rendered top builds.
+- **DONE** Rust/WASM live observability (2026-08-13): the engine streams
+  phase, checked/total, precheck, feasible, scored, and interim top-N snapshots
+  through the existing worker progress seam. Both engines now show average
+  checked/s live and in stopped/completed summaries. The reported 19.7B Gaia
+  case advanced visibly from 6.3M to 347.2M checked before manual cancellation.
 - **IN PROGRESS** Browser Rust remains one worker, v1 jobs embed the canonical
   text/JSON payloads, and unsupported combo/scaling inputs return typed errors.
   Download/startup/memory benchmarks, capability coverage, and compact typed
