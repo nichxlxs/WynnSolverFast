@@ -393,6 +393,13 @@ function _restore_from_url(solver_params) {
         if (sel) sel.value = String(solver_params.gtome);
     }
 
+    // Tome optimisation mode
+    if (solver_params.tome_opt) {
+        const sel = document.getElementById('restr-tome-opt');
+        if (sel) sel.value = String(solver_params.tome_opt);
+        _refresh_tome_opt_state();
+    }
+
     // Stat threshold rows (binary: structured array of {stat_index, op, value})
     if (solver_params.restrictions && solver_params.restrictions.length > 0) {
         for (const r of solver_params.restrictions) {
@@ -458,6 +465,23 @@ function _restore_from_url(solver_params) {
     }
 }
 
+/**
+ * Reflect the tome optimisation mode in the guild tome dropdown: when the
+ * solver is choosing the guild tome, the manual selection is inert, so grey it
+ * out rather than let it look load-bearing. An equipped tome in the guildTome1
+ * item slot still locks the choice regardless of this dropdown.
+ */
+function _refresh_tome_opt_state() {
+    const mode = parseInt(document.getElementById('restr-tome-opt')?.value) || 0;
+    const gsel = document.getElementById('restr-guild-tome');
+    if (gsel) {
+        gsel.disabled = mode >= 1;
+        gsel.title = mode >= 1
+            ? 'Chosen automatically by tome optimization (equip a tome in the guild tome slot to lock it instead)'
+            : 'Which guild tome is equipped. Every guild tome grants a fixed per-attribute skill point bonus, so the exact tome must be chosen — the bonus cannot be split across attributes.';
+    }
+}
+
 /** Wire all event listeners for restriction inputs, equipment slots, tooltips, and locks. */
 function _wire_event_listeners() {
     // Wire static restriction inputs so URL stays in sync as user edits them
@@ -477,6 +501,11 @@ function _wire_event_listeners() {
     }
     const restr_guild_tome = document.getElementById('restr-guild-tome');
     if (restr_guild_tome) restr_guild_tome.addEventListener('change', _schedule_solver_hash_update);
+    const restr_tome_opt = document.getElementById('restr-tome-opt');
+    if (restr_tome_opt) restr_tome_opt.addEventListener('change', () => {
+        _refresh_tome_opt_state();
+        _schedule_solver_hash_update();
+    });
 
     // When the user manually edits an equipment slot, update its lock state.
     // Entering an item → locked (solver keeps it).

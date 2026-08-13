@@ -285,6 +285,9 @@ function _collect_solver_params() {
     // Guild tome
     const gtome = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
 
+    // Tome optimisation mode (0 off, 1 guild only, 2 all tomes)
+    const tome_opt = parseInt(document.getElementById('restr-tome-opt')?.value) || 0;
+
     // Calculate Mana toggle (default: ON = mana enabled)
     const mana_disabled = !(document.getElementById('combo-mana-btn')?.classList.contains('toggleOn') ?? true);
 
@@ -447,6 +450,6 @@ function _collect_solver_params() {
         }
     }
 
-    return { roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, nomaj, gtome, dtime, mana_disabled,
+    return { roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, tome_opt, nomaj, gtome, dtime, mana_disabled,
              restrictions, combo_rows, blacklist_ids, custom_weights };
 }
