@@ -68,6 +68,20 @@ all. With both closed, 436,712 rejections on `spell_ehp` pass. Single-threaded
 fixture, which is the sharp test: a wrongly doomed leaf is one that would
 otherwise have been scored.
 
+**What is left in B1 is irreducible per-leaf work.** After the change the
+60 s `spell_ehp` window is doom 14.41 s, mana 9.13 s, dense leaf fill 6.36 s,
+greedy 5.71 s. The doom sim is ~5.6 µs per leaf and there is no repetition to
+exploit: keying it the way `SimMemo` keys the B9 simulation gives **0.0%** —
+1,958,602 distinct keys in 1,959,464 checks. That is the difference between
+the two memos. B9's repeats *within* a leaf across greedy trials, which move
+one skill point at a time; this one would have to repeat *across* leaves,
+where every item swap changes `mr`/`ms`/`maxMana`/`hp`. It also confirms why
+the earlier attempt below only reached 66% by dropping stats from the key.
+
+Going further needs the ceiling gate to discriminate on defensively-flat
+pools — it prunes 20% here against far more on damage goals — which is the
+same missing capability as B3, not more tuning of this path.
+
 **Tried and rejected: memoizing the mana verdict.** The simulation reads only `DenseCtx::mana_keys`, so its verdict can be cached by exact stat values. First attempt hit 0.7% — `hp`/`hpBonus` are in the key and vary on nearly every defensive item. Narrowing the key was sound and worked: those two reach the verdict only through `has_hp_warning`, which needs an HP cost to exist (a row `hp_cost`, Blood Pact, or an HP-draining buff state), so with none of those they can be dropped. Hit rate went to **66%** and the doom phase fell from 4.6 s to 2.5 s.
 
 It still made the run **2% slower** — 12.05 s versus 11.79 s over repeated 1M-leaf runs. Building and hashing the key costs about what the simulation it replaces costs; the fast mana sim is simply cheap. Two things worth keeping from it: the per-leaf cost is not the problem (the leaf *count* is), and the final mana check is a worse memo target than the doom check, because it runs at the greedy-chosen Int rather than a fixed Int=150, so its key almost never repeats.
