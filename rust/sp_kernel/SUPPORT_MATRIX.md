@@ -119,7 +119,7 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | ~~B3~~ | Atrees failing `ceiling_vars_ok` (negative stat-input factors, or `atkTier`/`*ConvBase` var outputs) | All-150 SP is not an upper bound → gate + bounds off (matches JS) | **Never triggered**: no shipped ability tree has either shape | Same answer as A8 — `test_atree_lowering_coverage.js` now asserts it across all 35 data versions, and every scaling factor in them is a plain non-negative number. An extremal-per-output ceiling would be code for a shape the game has not produced; build it if the test ever fails |
 | ~~B4~~ | `hp_casting` builds — **gate re-armed, 3.85x** | Was gate-off for JS parity, so every leaf was fully scored | **48,021 → 184,640 checked/s** on spell_wide. Greedy 32.5 s → 0.14 s, trials 22.0M → 93K | Done. The exclusion was conservative, not necessary — see below |
 | ~~B5~~ | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | **Never triggered**: the bounded doom already covers every coupling the real trees have | The trees write `mr`, `ms` and `hpBonus` from variable effects — all direction +1, all bounded — and never `maxMana`, `int` or `atkTier`, which are the only outputs the bounded doom gives up on. Guarded by the same test as A8/B3. A two-sided start-minus-end bound would be for a shape the game has not produced |
-| B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
+| ~~B6~~ | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | **Nothing measurable.** "Scenario-dependent" was honest but untested — measured, the precheck removes 98.9–99.997% of every scenario that carries an ehp threshold, and they all finish in 0.055–4.2 s | Nothing to win. See below for the numbers |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
 | B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed: 16.7x** (0.24 s against 4.00 s), top-15 identical at every step. Dense lowering for injected tokens 4.00→2.55 s; not cloning the row set per trial 2.55→0.87 s; memoizing the simulation 0.87→0.24 s. Reproduce with `fixtures/score_slider.json` (see `gen_bench_fixtures.js`) against `enum_spell2` | Nothing measurable left here. The scenario now scores in the same ballpark as a static one |
 
@@ -233,6 +233,31 @@ the equivalence was vacuous. Worth stating because a gating change that is
 never exercised looks exactly like a gating change that is correct.
 `SCORE_HPCAST_GATE=0` restores the old behaviour for re-checking.
 
+**B6: the precheck was never the problem.** The row said the additive
+prechecks are weaker than the exact leaf check, so ehp thresholds only reject
+at the leaf, and proposed folding atree scaling into the precheck. The premise
+is true. The consequence is not.
+
+Only the `gaia` family carries an ehp threshold (`ehp ge 20000`,
+`PRECHECKS 4`), and on every one of them the precheck removes almost the whole
+space:
+
+| Scenario | Combinations | Precheck rejects | Passes | Wall |
+|---|---:|---:|---:|---:|
+| gaia2m | 3,100,680 | 3,067,230 (98.9%) | 4,125 | 0.055 s |
+| gaia_135m | 31,465,368 | 31,388,928 (99.76%) | 23,243 | 0.088 s |
+| gaia_all_free | 144,740,692,800 | 144,739,917,014 (99.9995%) | 155,238 | 0.80 s |
+| gaia_colossal | 334,843,891,200 | 334,835,140,901 (99.997%) | 771,696 | 4.24 s |
+
+The residual false-passes are real — on `gaia2m` the exact check rejects 1,387
+of the 1,460 leaves that survive to it, a 95% false-pass rate — but that is
+1,387 leaves, and the entire leaf pipeline there runs in **0.02 s**. A perfect
+precheck would save a rounding error.
+
+Measured on the one scenario that has both an ehp threshold and a score
+fixture; the larger `gaia` fixtures have no score fixture, so their leaf
+pipeline is not measured, only their enumeration. Both point the same way.
+
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
@@ -249,10 +274,12 @@ never exercised looks exactly like a gating change that is correct.
 1. ~~**Speed, not coverage**~~ — B9 is closed (16.7x), B1's doom precheck is
    1.46x, and B4's gate is re-armed (3.85x). B3 and B5 both turned out to be
    unreachable in shipped data, like A8, and all three are now guarded by the
-   same test. What remains in section B is B6 (fold atree scaling into the
-   ehp threshold precheck) and B8 (port the improvements back to the JS
-   engine) — no item left is blocked on a missing bound *shape*. Six tried-and-rejected attempts are recorded above;
-   each was plausible and each was wrong until measured.
+   same test, and B6 measured out to nothing (the precheck already removes
+   98.9-99.997% of every thresholded scenario, and they finish in 0.055-4.2 s).
+   **B8 — porting the improvements back to the JS engine — is the only
+   section-B item left**, and it is ordinary work rather than a missing proof.
+   Six tried-and-rejected attempts are recorded above; each was plausible and
+   each was wrong until measured.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no
    `SharedArrayBuffer` or cross-origin isolation needed. Exact (verified at
