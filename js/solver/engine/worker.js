@@ -188,6 +188,12 @@ function _insert_top5(score, candidateFactory) {
 
 let _cached_hp_sim = null;  // cached simulate_combo_mana_hp result (avoids double-sim)
 
+// Tome optimisation state. Null when optimisation is off, which is the default
+// and leaves every path below behaving exactly as before.
+//   _tome_guild_optimistic — per-lane maximum over the enabled guild tomes,
+//     used as an admissible feasibility bound in the leaf SP gate.
+let _tome_guild_optimistic = null;
+
 const _scratch_finalize = new Map();
 const _scratch_combo_base = new Map();
 const _scratch_combo_base_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
@@ -236,7 +242,13 @@ function _build_constraint_prechecks() {
     // Compute fixed stat contributions (constant across all candidates).
     // atree_raw and static_boosts are both Maps.
     const fixed = (stat) => {
-        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0);
+        // _cfg.tome_bound is the per-key maximum over every enabled tome bundle.
+        // Including it here keeps the precheck admissible when tome optimisation
+        // is on: a gearset is only rejected if it fails even with the best
+        // conceivable tomes. It is null (contributing 0) when optimisation is
+        // off, so the default path is unchanged.
+        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0)
+            + (_cfg.tome_bound?.get(stat) ?? 0);
     };
 
     for (const { stat, op, value } of thresholds) {
@@ -487,13 +499,13 @@ function _ceiling_gate_setup(analysis) {
     _ceiling_gate_ok = true;
 }
 
-function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
+function _assemble_combo_stats(build_sm, total_sp, weapon_sm, extra_stats) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
         { combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
           atree: _scratch_atree },
-        _ATREE_SCALING_OPTS);
+        _ATREE_SCALING_OPTS, extra_stats);
 }
 
 function _assemble_threshold_stats(combo_base) {
@@ -1268,7 +1280,14 @@ function _run_level_enum() {
 
         // SP input: 8 equips + guild_tome (reuse scratch)
         for (let i = 0; i < 8; i++) _scratch_sp_input[i] = _scratch_equip_8[i];
-        _scratch_sp_input[8] = guild_tome_sm;
+        // When the solver is choosing the guild tome, the feasibility pass uses
+        // the OPTIMISTIC tome — the per-lane maximum over the enabled set. No
+        // guild tome carries a requirement, so it can only ever make a build
+        // more feasible; a gearset infeasible against the per-lane maximum is
+        // infeasible for every real choice, which makes this prune admissible.
+        // Gearsets that only work *with* a tome therefore survive to the search
+        // below instead of being discarded here.
+        _scratch_sp_input[8] = _tome_guild_optimistic ?? guild_tome_sm;
 
         // Combined SP feasibility check + full calculation (single pass).
         const sp_t0 = _trace_start('sp');

@@ -124,11 +124,22 @@ viable:
 **Prune the front against the stats this search actually scores on, not all 23.**
 The numbers above dominate over every combat stat, so an armour tome that only
 differs in `eDefPct` survives even in a pure spell-damage search that never
-reads it. Building the front from the search's own damage weights plus its
-restriction stats — the same set item dominance already uses via
-`_build_dominance_stats` — should collapse these dramatically. That must be
-measured before Phase D is claimed to be viable; the table above is the
-worst case, not the expected case.
+reads it.
+
+**Measured 2026-08-13** — scoping the front to a realistic per-search stat set
+collapses it:
+
+| scope | guild | weapon | armour | combined |
+|---|---:|---:|---:|---:|
+| all 23 combat stats | 6 | 45 | 210 | **56,700** |
+| spell damage + EHP restrictions | 6 | 6 | 1 | **36** |
+| spell damage only | 6 | 6 | 1 | **36** |
+| melee damage + EHP | 6 | 6 | 1 | **36** |
+
+36 bundles at the ~0.3% of leaves that pass the ceiling gate is entirely
+affordable, so Phase D is viable — provided the front is built from the
+search's own stat set (what `_build_dominance_stats` already computes) and
+never from the full combat stat list.
 
 ### A trap worth recording
 
@@ -241,7 +252,31 @@ that discriminates the old model: an item needing dex 100 + int 100 + def 4 is
 accepted `assign [0,100,100,4,0]`; now a +4 **Str** tome correctly leaves it
 infeasible and only a +4 **Def** tome makes it work.
 
-### C2 — automatic guild tome selection — not started
+### C2 — automatic guild tome selection — IN PROGRESS
+
+Scaffolding landed and inert (every hook is null unless optimisation is turned
+on, so the default path is byte-for-byte the previous behaviour):
+
+- `tome_opt` encoded in the URL (0 off / 1 guild / 2 all).
+- `_cfg.tome_bound` folded into `_build_constraint_prechecks`' fixed
+  contribution, so a tome-aware precheck stays admissible.
+- `assemble_combo_stats` takes an `extra_stats` map, merged last like
+  `static_boosts` — the per-candidate tome bundle goes here.
+- `_tome_guild_optimistic` used for the leaf SP feasibility gate.
+
+**Still to do:** the candidate loop itself. After the ceiling gate passes,
+re-solve SP per guild candidate and keep the best-scoring feasible one, then
+report which tome was chosen. This is a refactor of `_evaluate_leaf` — the
+hottest function in the engine — and was deliberately not rushed.
+
+Two properties make it cheap, both verified:
+
+- Guild tomes contribute **only** skill points, so `build_sm`, the prechecks and
+  the ceiling gate are all guild-tome-independent. The gate runs once and only
+  gate-passing leaves (~0.3%) pay the candidate loop.
+- Six candidates, so at most six extra SP solves on that 0.3%.
+
+### C2 — automatic guild tome selection — design notes
 
 Let the solver choose among the seven rather than the user pre-committing.
 Cheap: seven options, and the only tome type that touches the SP kernel (see
