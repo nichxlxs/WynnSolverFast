@@ -1205,6 +1205,23 @@ pub struct Layer2 {
     pub item_registry: HashMap<String, Obj>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
+    /// Tome optimisation (0 = off, 1 = guild, 2 = guild + weapon/armour).
+    /// When non-zero the tome is a SEARCHED dimension and `tome_sms` /
+    /// `guild_tome_sm` describe only the currently fixed choice, which the
+    /// leaf loop replaces with each candidate.
+    pub tome_opt: i64,
+    /// Guild tome choices: the "none" option plus each owned guild tome.
+    /// Each carries requirements and skill points, so each needs its own SP
+    /// solve rather than just a different stat sum.
+    pub guild_tome_cands: Vec<TomeCand>,
+    /// Pareto front of weapon+armour tome bundles. `stats` is a flat additive
+    /// sum over the bundle's rolled IDs; it may include `damMobs`/`defMobs`,
+    /// which reach the damMult/defMult "tome" entries through the ordinary
+    /// dense-indexed slots (see `dense_apply`), so a bundle lowers exactly
+    /// like any other item.
+    pub tome_wa_bundles: Vec<TomeBundle>,
+    /// Per-key maximum across every bundle, for the ge-prechecks.
+    pub tome_bound: Obj,
     pub atree_raw: Option<Obj>,
     pub static_boosts: Option<Obj>,
     pub scaling_kind: String,
@@ -1277,6 +1294,10 @@ impl Layer2 {
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
                 .map(|a| a.iter().filter_map(|t| as_map(t).cloned()).collect()).unwrap_or_default(),
+            tome_opt: l2.get("tome_opt").and_then(|v| v.as_i64()).unwrap_or(0),
+            guild_tome_cands: parse_tome_cands(l2.get("guild_tome_candidates")),
+            tome_wa_bundles: parse_tome_bundles(l2.get("tome_wa_bundles")),
+            tome_bound: l2.get("tome_bound").and_then(as_map).cloned().unwrap_or_default(),
             atree_raw: l2.get("atree_raw").and_then(as_map).cloned(),
             static_boosts: l2.get("static_boosts").and_then(as_map).cloned(),
             scaling_kind: plan.get("kind").and_then(|k| k.as_str()).unwrap_or("full").to_string(),
@@ -1799,6 +1820,77 @@ pub fn row_unclamped_spell_cost(
     cost += v_raw;
     cost *= 1.0 + v_pct / 100.0;
     cost * (1.0 + v_final / 100.0)
+}
+
+/// One guild-tome choice in a tome-optimisation search.
+///
+/// `unit` feeds the SP solver (slot 8, where the JS worker puts `cand.sm`);
+/// `sm` is the statmap whose stats join the build sum. `idx` is the JS-side
+/// identifier echoed back so the UI can show which tome was chosen.
+#[derive(Clone, Default)]
+pub struct TomeCand {
+    pub idx: i64,
+    pub sm: Obj,
+    pub unit: crate::Unit,
+}
+
+/// One weapon+armour tome bundle.
+#[derive(Clone, Debug, Default)]
+pub struct TomeBundle {
+    /// Flat additive stat sum over the bundle's rolled IDs (may be empty).
+    pub stats: Obj,
+    /// Display names, echoed back with the result. `weaponTome` then
+    /// `armorTome`, matching the JS `names` object.
+    pub weapon_names: Vec<String>,
+    pub armor_names: Vec<String>,
+}
+
+fn parse_unit_from_sm(sm: &Obj) -> crate::Unit {
+    let arr5 = |k: &str| -> [i32; 5] {
+        let mut out = [0i32; 5];
+        if let Some(a) = sm.get(k).and_then(|v| v.as_array()) {
+            for (i, x) in a.iter().take(5).enumerate() {
+                out[i] = x.as_f64().unwrap_or(0.0) as i32;
+            }
+        }
+        out
+    };
+    crate::Unit {
+        crafted: sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
+        reqs: arr5("reqs"),
+        skp: arr5("skillpoints"),
+    }
+}
+
+fn parse_tome_cands(v: Option<&Value>) -> Vec<TomeCand> {
+    let Some(arr) = v.and_then(|x| x.as_array()) else { return Vec::new() };
+    arr.iter().filter_map(|c| {
+        let o = c.as_object()?;
+        let sm = o.get("sm").and_then(as_map).cloned().unwrap_or_default();
+        Some(TomeCand {
+            idx: o.get("idx").and_then(|x| x.as_i64()).unwrap_or(-1),
+            unit: parse_unit_from_sm(&sm),
+            sm,
+        })
+    }).collect()
+}
+
+fn parse_tome_bundles(v: Option<&Value>) -> Vec<TomeBundle> {
+    let Some(arr) = v.and_then(|x| x.as_array()) else { return Vec::new() };
+    let names_of = |o: &serde_json::Map<String, Value>, key: &str| -> Vec<String> {
+        o.get("names").and_then(|n| n.as_object())
+            .and_then(|n| n.get(key)).and_then(|n| n.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    };
+    arr.iter().filter_map(|b| {
+        let o = b.as_object()?;
+        Some(TomeBundle {
+            stats: o.get("stats").and_then(as_map).cloned().unwrap_or_default(),
+            weapon_names: names_of(o, "weaponTome"),
+            armor_names: names_of(o, "armorTome"),
+        })
+    }).collect()
 }
 
 pub struct L2Consts {
