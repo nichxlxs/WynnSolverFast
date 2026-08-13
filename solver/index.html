@@ -1161,7 +1161,19 @@
                             <option value="1">Guild tome</option>
                             <option value="2">All tomes</option>
                         </select>
+                        <span class="text-light small fw-bold ms-2">Tome Roll</span>
+                        <input id="restr-tome-roll" type="number" min="0" max="100" value="80"
+                            class="combo-row-input" style="width:3.5em; text-align:center;"
+                            title="Average roll percentage assumed for tomes the solver chooses. Tomes already equipped in their slots keep their own rolls.">
+                        <span class="text-secondary small">%</span>
+                        <button class="btn btn-sm btn-outline-secondary dir-btn ms-2" id="restr-tome-inventory-toggle"
+                            onclick="toggle_tome_inventory_panel()"
+                            title="Choose which tomes you actually own. The solver only ever proposes tomes ticked here.">My
+                            tomes</button>
                     </div>
+
+                    <!-- Owned-tome inventory (checkboxes are built from tome data on first open) -->
+                    <div id="restr-tome-inventory" style="display:none;" class="px-2 pb-2"></div>
 
                     <hr class="mx-2 my-1 border-secondary">
 

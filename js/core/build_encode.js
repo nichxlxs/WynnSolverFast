@@ -583,6 +583,33 @@ function _encode_timing(bv, seconds, sc) {
 }
 
 /**
+ * Sorted ids of every tome the solver can choose — the universe the owned-tome
+ * inventory is expressed against.
+ *
+ * Both the encoder (to pick the shorter polarity) and the decoder (to expand a
+ * "missing" list back into an owned set) derive it the same way, from the tome
+ * data currently loaded. A data update that ADDS a tome therefore makes that
+ * tome owned by default on links stored as a missing-list, and not-owned on
+ * links stored as an owned-list. Both readings are defensible; the missing-list
+ * one matches the common case ("I own nearly everything") and the owned-list
+ * one matches its own ("I own a handful"), which is why polarity is stored.
+ */
+function _solver_tome_universe() {
+    if (typeof tomeMap === 'undefined' || !tomeMap) return [];
+    const types = (typeof TOME_INVENTORY_TYPES !== 'undefined')
+        ? TOME_INVENTORY_TYPES : ['weaponTome', 'armorTome', 'guildTome'];
+    const ids = [];
+    for (const [, raw] of tomeMap) {
+        if (!types.includes(raw.type)) continue;
+        if (raw.id === undefined || raw.id === null) continue;
+        if ((raw.name || '').startsWith('No ')) continue;
+        ids.push(raw.id);
+    }
+    ids.sort((a, b) => a - b);
+    return ids;
+}
+
+/**
  * Default values for solver fixed-header fields.
  * Fields matching their default are omitted from the binary via a presence bitmask.
  */
@@ -617,7 +644,9 @@ const _SOLVER_DEFAULTS = {
  *          bit 8: mana_disabled (default false) — bare flag, no payload
  *          bit 9: lvl_overrides (v11+; was flat_mana in v5, removed in v6)
  *          bit 10: tome_opt   (v11+; default 0 = off)
- *          bits 11-15: reserved for the remaining tome fields
+ *          bit 11: tome_roll  (v11+; default TOME_ROLL_DEFAULT)
+ *          bit 12: tome_inventory (v11+; default absent = every tome owned)
+ *          bits 13-15: reserved
  *   --- conditional fixed fields (only if presence bit = 1) ---
  *   NOTE: Bit widths below have corresponding range constants in
  *         constants.js (e.g. COMBO_QTY_MAX, BOOST_SLIDER_MAX,
@@ -632,6 +661,14 @@ const _SOLVER_DEFAULTS = {
  *   [3]   gtome  (v11+; 2 bits pre-v11)
  *   [1]   dtime
  *   (bit 8: no payload — presence bit itself is the value)
+ *   --- bit 11 (v11+): tome roll percentage ---
+ *   [7]   tome_roll (0-100)
+ *   --- bit 12 (v11+): owned-tome inventory ---
+ *   [1]   polarity (0 = the ids listed are OWNED, 1 = the ids listed are MISSING)
+ *   [8]   id_count
+ *   [8]   × id_count: tome id
+ *     Whichever polarity is shorter is written, so "I own three tomes" and "I
+ *     own all but three" both cost a handful of bytes.
  *   --- bit 9 (v11+): per-slot item-level overrides ---
  *   [7]   slot mask over LVL_OVERRIDE_SLOTS (bit i = slot i overridden)
  *     Per set bit, in slot order:
@@ -733,6 +770,30 @@ function encodeSolverParams(params) {
     const dtime = params.dtime ? 1 : 0;
     const mana_disabled = params.mana_disabled ? 1 : 0;
     const tome_opt = (params.tome_opt ?? 0) & 0x3;   // 0 off, 1 guild only, 2 all tomes
+    const tome_roll_default = (typeof TOME_ROLL_DEFAULT !== 'undefined') ? TOME_ROLL_DEFAULT : 80;
+    const tome_roll = Math.max(0, Math.min(100, params.tome_roll ?? tome_roll_default));
+
+    // Owned-tome inventory. A null/absent inventory means "owns everything" and
+    // costs no bits; anything else is written as whichever of the owned list or
+    // the missing list is shorter (see the layout note above).
+    const tome_universe = _solver_tome_universe();
+    let tome_inv_polarity = 0;
+    let tome_inv_ids = null;
+    if (params.tome_inventory && tome_universe.length > 0) {
+        const owned = new Set(params.tome_inventory);
+        const owned_ids = tome_universe.filter(id => owned.has(id));
+        const missing_ids = tome_universe.filter(id => !owned.has(id));
+        if (missing_ids.length > 0) {
+            if (missing_ids.length <= owned_ids.length) {
+                tome_inv_polarity = 1;
+                tome_inv_ids = missing_ids;
+            } else {
+                tome_inv_polarity = 0;
+                tome_inv_ids = owned_ids;
+            }
+            if (tome_inv_ids.length > 255) tome_inv_ids = tome_inv_ids.slice(0, 255);
+        }
+    }
 
     // v11: per-slot level overrides. Only slots whose resolved range differs
     // from the global range are encoded, so a build that never touches the
@@ -771,6 +832,8 @@ function encodeSolverParams(params) {
     if (mana_disabled) presence |= (1 << 8);
     if (lvl_override_mask !== 0) presence |= (1 << 9);
     if (tome_opt !== 0) presence |= (1 << 10);
+    if (tome_roll !== tome_roll_default) presence |= (1 << 11);
+    if (tome_inv_ids) presence |= (1 << 12);
 
     bv.append(presence, PRESENCE_BITS_V11);   // v11: 16 bits, was 10
 
@@ -790,6 +853,12 @@ function encodeSolverParams(params) {
     if (presence & (1 << 7)) bv.append(dtime, 1);
     // bit 8 (mana_disabled): bare flag — no payload bits
     if (presence & (1 << 10)) bv.append(tome_opt, 2);
+    if (presence & (1 << 11)) bv.append(tome_roll, 7);
+    if (presence & (1 << 12)) {
+        bv.append(tome_inv_polarity, 1);
+        bv.append(tome_inv_ids.length, 8);
+        for (const id of tome_inv_ids) bv.append(id & 0xFF, 8);
+    }
     if (presence & (1 << 9)) {
         bv.append(lvl_override_mask, 7);
         for (const e of lvl_override_entries) {

@@ -1,6 +1,6 @@
 # Tome optimisation & per-slot level ranges — design
 
-Status: **Phases A, C and D shipped** (guild + all-tomes optimisation live). Phase B (tome roll % + inventory) remains.
+Status: **Phases A, B, C and D shipped** — per-slot level ranges, tome roll % + owned-tome inventory, and guild + all-tomes optimisation are all live.
 Dated 2026-08-13. Supersedes nothing; complements `ARCHITECTURE_PLAN.md`.
 
 ---
@@ -216,19 +216,145 @@ v10 link still decodes unchanged.
 
 ---
 
-## Phase B — tome roll % and available-tome inventory
+## Phase B — tome roll % and available-tome inventory — DONE 2026-08-13
 
-No search changes; data plumbing and UI only.
+No search-algorithm changes; data plumbing and UI.
 
-- **Average tome ID %.** One number, default **80%**, applied to every rolled
-  tome stat via the existing `_apply_roll_mode_to_item` path. Kept separate
-  from `current_roll_mode`'s per-group item percentages because tomes are a
-  different acquisition model — you roll them far less.
-- **Available tomes.** Per-type multi-select of what the user owns. Encoding
-  should be "all enabled" as the default flag plus an exception list rather
-  than a 101-bit mask, so the common case costs a couple of bits.
-- Both feed the pools built in Phase D; until then they only affect the tomes
-  already selected in the UI.
+- **Tome roll %** (`restr-tome-roll`, default 80, URL presence bit 11). Applied
+  by `with_tome_roll(pct, fn)`, which swaps the module-global
+  `current_roll_mode` for the duration of the tome pool expansion and restores
+  it in a `finally`. The restore is the load-bearing half: `getRolledValue`
+  reads that global, so leaking a tome percentage into item expansion would
+  silently reroll every item in the search.
+
+  It applies only to tomes the SOLVER PROPOSES. A tome the user has equipped in
+  its slot has real rolls and keeps the builder's roll mode — the percentage is
+  an assumption about tomes you would go and get, not a claim about ones you
+  already have.
+
+- **Owned-tome inventory** (`restr-tome-inventory`, URL presence bit 12).
+  Checkbox panel built lazily from `tomeMap` (~49 selectable tomes across
+  weapon/armour/guild — tomeMap is keyed by displayName, so same-named tiers
+  collapse). Read as `null` when everything is ticked, which is both the
+  zero-bit URL default and the signal `_prepare_tome_optimisation` uses to skip
+  filtering. An EMPTY inventory is a distinct real state and must not collapse
+  to null, or unticking everything would silently re-enable everything.
+
+  Encoded as a polarity bit plus a list of ids: whichever of the owned list or
+  the missing list is shorter wins, so "I own three" and "I own all but three"
+  both cost a handful of bytes. Both sides return ids in id order so the hash
+  does not churn across read-encode-decode cycles.
+
+- The roll input is greyed out outside All-tomes mode (guild tomes grant a
+  fixed skill point bonus with nothing to roll) and the inventory button
+  outside the two optimising modes.
+
+### The null-candidate trap (Codex P1 on PR #12)
+
+`_prepare_tome_optimisation` used to collapse the guild candidate list to
+`null` when only "none" survived filtering. But `null` does not mean "no guild
+tome" to the worker — `_tome_setup` reads it as **"the guild tome is FIXED"**
+and the leaf pipeline then falls back to `guild_tome_sm`, which is synthesised
+from the `restr-guild-tome` dropdown. That dropdown is greyed out in
+optimisation mode, so its value is stale by construction.
+
+Net effect: pick Strength, turn on tome optimisation, untick every guild tome —
+and the solver hands back builds wearing the Strength tome you just said you do
+not own. Reachable two ways, and only one of them is new:
+
+1. the inventory excludes every guild tome (new in Phase B), and
+2. the build is below level 100, so the level gate excludes them all
+   (pre-existing since C2 — any sub-100 build with a guild tome left in the
+   dropdown).
+
+Fixed in two places, because one alone leaves the trap armed:
+
+- The candidate list is now always kept. When the solver owns the choice it
+  owns it even if the only legal choice is "none", and the result reports
+  `guild_tome_idx` so the UI dropdown reflects what was actually used.
+- The dropdown no longer contributes to `guild_tome_item` at all when
+  optimisation is on and the slot is not locked by a real equipped tome. That
+  kills the stale value at the source, so any *future* path that falls back to
+  `guild_tome_sm` gets "none" rather than a phantom tome.
+
+**A third bug found while tracing this one.** `_sp_compute_fixed_baseline` fed
+`guild_tome_sm` into `_sp_fixed_sum_prov`, the OPTIMISTIC provision used to
+prune subtrees — while the SP solve itself uses `_tome_guild_optimistic` (the
+per-lane max over candidates). With optimisation on and the dropdown at Off,
+the baseline provided 0 while the solve could pick +4, so the precheck pruned
+gearsets a candidate tome would have rescued: silently missed builds, the
+opposite direction from the Codex finding. The baseline now uses
+`_tome_guild_optimistic ?? guild_tome_sm`, matching the solve.
+
+**Measured after the fix** (`solver_bench_tome_guild_complete`, a completing
+bounded search at level 106 with guild optimisation on, 3 alternating A/B
+rounds — blocked A,A,A/B,B,B ordering manufactured a phantom result earlier in
+this project, so never use it):
+
+| baseline | checked | feasible | wall time (3 runs) |
+|---|---|---|---|
+| old (`guild_tome_sm`) | 537,824 | 51,634 | 36.2 / 35.9 / 39.6 s |
+| new (`_tome_guild_optimistic`) | 537,824 | 55,719 | 38.3 / 36.5 / 35.7 s |
+
+`checked` is identical — enumeration is band-bounded, so the prune shows up in
+`feasible`, not `checked`. The new baseline admits **+7.9% more feasible
+gearsets**: precisely the ones the old baseline discarded because it pruned
+against a guild tome the solve was free to improve on. Wall time is unchanged
+within run-to-run spread (the old variant's own spread, 35.9–39.6 s, is wider
+than the gap between variants), so admissibility here costs nothing measurable
+— the rescued gearsets are cheap because most die at the score ceiling anyway.
+
+On this fixture the winner is the same build either way, so there is no
+evidence the bug was costing results *here*. The point is that it now cannot
+cost them anywhere.
+
+### Cost of the combo_damage-only ceiling gate (measured, NOT fixed)
+
+Quantifying the known limit, on an `ehp` target with bounded pools:
+
+| mode | checked | rate | outcome |
+|---|---|---|---|
+| tome off | 4,033,680 in 287 s | ~14,050/s | completed, best 52,513 |
+| all tomes | 700,000 in 300 s | ~2,330/s | timed out at ~17%, best 56,821 |
+
+**~6x slower per node.** The mechanism is simple: `_ceiling_gate_setup` bails
+unless the target is `combo_damage`, so on any other target every feasible leaf
+runs the full guild candidate loop — 7 candidates, 7 SP solves, 7 scorings —
+with nothing able to skip it. 7 candidates ≈ 6x cost is exactly what falls out.
+
+Note the tome run still found a **better build** (+8.2%) while covering only
+~17% of the space, so the feature works on these targets; it is just expensive.
+
+Fixing this means extending the ceiling gate to non-damage targets, which
+requires a **per-target monotonicity proof** of the same kind the combo_damage
+gate rests on (see the derivation above `_ceiling_gate_setup`). An inadmissible
+ceiling silently drops good builds — the exact failure class as the precheck
+bug above — so this is deliberately left as a measured limit rather than
+rushed. `ehp` looks plausibly monotone in def/agi; `total_hp` does not obviously
+depend on SP at all. Each needs its own argument.
+
+**Lesson worth keeping:** a test I wrote in Phase B asserted the buggy
+behaviour (`candidates === null` when nothing qualifies) and passed happily.
+"Nothing to optimise" and "the choice is fixed" are different states; encoding
+both as `null` is what let the dropdown leak through.
+
+### The guild tome name trap (found while wiring the inventory)
+
+`GUILD_TOMES` records each tome's INTERNAL name, but `tomeMap` is keyed by
+`displayName`, and **four of the six ship under a different display name**:
+Psychopath's → Brute's, Warlock's → Mastermind's, Destroyer's → Arsonist's,
+Sycophant's → Ghost's. `tomeMap.get(GUILD_TOMES[i].item)` therefore returned
+undefined for four of six, which silently defeated every check written against
+it — the level gate fell back to its `?? 100` default (harmless only because
+all guild tomes happen to be level 100 today) and the new inventory filter
+waved those four straight through.
+
+Fixed by `guild_tome_real(idx)`, which resolves by SKILL POINT VECTOR. The
+vector is the tome's defining property and what the UI labels are derived from,
+so it survives renames in either direction. `test_guild_tome.js` pins both that
+all six resolve to distinct real tomes and that exactly four are renamed, so a
+future data update that re-aligns the names shows up as a test failure rather
+than as a silent no-op.
 
 ## Phase C — guild tome
 
@@ -292,6 +418,22 @@ Mode 2 ("All tomes") loops the scoped Pareto bundles as `extra_stats`:
   messages forward the tome fields too (the interim `top5_names` mapping is a
   fixed field list and silently dropped them at first).
 
+**Phase B coverage:**
+- `test_solver_url.js` — roll % and inventory round-trip, default costs zero
+  characters, all-but-two is stored as the short missing list, empty inventory
+  stays empty, and a pre-v11 link decodes to the defaults.
+- `test_tome_bundles.js` — `with_tome_roll` moves the numbers and restores the
+  item roll mode even when the body throws; `_prepare_tome_optimisation` end to
+  end shows the inventory shrinking both the guild candidates and the bundle
+  front, and the roll % reaching the precheck bound. The guild-candidate
+  assertion discriminates: with the old name lookup it returns `[0,1,3,4,5]`
+  instead of `[0,3]`.
+- `solver_oracle_tome_inventory` — full oracle run with a 6-tome inventory at a
+  60% roll; exact top-N match against per-variant ground truth.
+- Browser-verified: panel builds 49 checkboxes (23 weapon / 20 armour / 6
+  guild), roll % and inventory survive a real URL round trip and page reload,
+  no page errors beyond the sandbox's blocked Google Fonts request.
+
 **Oracle coverage** (the load-bearing tests):
 - `solver_oracle_tome_guild` — production candidate loop vs the plain oracle
   run once per fixed guild candidate, per-gearset max. Exact top-N match; the
@@ -312,10 +454,8 @@ III (best 73,480 → 77,875), throughput 1.1M checked/15s with optimisation on,
 zero page errors, mode round-trips through the URL.
 
 **Known limits, deliberate for now:**
-- Tomes roll with the ITEM roll groups until Phase B lands the separate tome
-  roll % (default 80) — rolled tome stats do not exist without a roll mode.
-- No per-user tome inventory yet (Phase B): the enabled set is "everything at
-  or below the build's level".
+- ~~Tomes roll with the ITEM roll groups~~ / ~~no per-user tome inventory~~ —
+  both landed in Phase B above.
 - The bundle front is scoped by `_build_dominance_stats`, the same stat basis
   item dominance trusts. A stat that basis misses is invisible to bundles too.
 - Non-damage scoring targets get no ceiling gating (as before), so ALL mode

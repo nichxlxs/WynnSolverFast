@@ -1,0 +1,25 @@
+{
+  "name": "solver_bench_ehp_tome_all",
+  "description": "ehp target, bounded pools. Pair measures the cost of the ceiling gate being combo_damage-only: tome mode gets no gating on this target.",
+  "url_hash": "CV0X60iCme0eDH05yb066M10tqDSw6qIW70yUUbcq6TEj1_GPYXkWG8403bbWA05oI10120XoeGMA00G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94482bHXiKG132KkBGeCAab2AWG0CKM2g0K8B50080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4224XoeGMAeW11At58K65oI1500",
+  "scoring_target": "ehp",
+  "time_limit_seconds": 300,
+  "num_workers": 2,
+  "free_mask": 63,
+  "benchmark_only": true,
+  "locked_items": {
+    "bracelet": {
+      "name": "Diamond Static Bracelet",
+      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
+    },
+    "necklace": {
+      "name": "Achromatic Gloom",
+      "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
+    }
+  },
+  "created": "2026-08-13T03:21:40.143Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9",
+  "tome_opt": 2,
+  "max_pool_size": 14
+}

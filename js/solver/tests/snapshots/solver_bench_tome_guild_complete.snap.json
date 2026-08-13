@@ -1,0 +1,86 @@
+{
+  "name": "solver_bench_tome_guild_complete",
+  "description": "Completing search with guild tome optimisation ON, so the SP precheck baseline change is measured as wall-clock-to-completion rather than a truncated node count.",
+  "benchmark_size": "medium",
+  "seed_build_id": "ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+  "core_weapon": "Oblivion",
+  "seed_score": 96191.52388364627,
+  "seed_item_names": [
+    "Prosencephalon",
+    "Umbral Mail",
+    "Chaos-Woven Greaves",
+    "Stardew",
+    "Yang",
+    "Photon",
+    "Misalignment",
+    "Metamorphosis"
+  ],
+  "provided_ideal_item_count": 4,
+  "provided_ideal_items": [
+    "Yang",
+    "Misalignment",
+    "Metamorphosis",
+    "Oblivion"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring2"
+  ],
+  "url_hash": "CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4_GN4Poa9xbq12iB80140W120WW0000",
+  "scoring_target": "combo_damage",
+  "free_mask": 47,
+  "lvl_min": 106,
+  "lvl_max": 121,
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -250
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 2562488880,
+  "calibrated_search_combinations": 1411392528,
+  "combination_budget": {
+    "input_min": 1921866660,
+    "input_max": 3203111100,
+    "search_min": 1058544396,
+    "search_max": 1764240660
+  },
+  "locked_items": {
+    "ring1": {
+      "name": "Yang",
+      "stat_hash": "9d1d3ef1b4d65a53476fe8b022662f4d9f4c15749a5d79f62a1dd99ded2a7423"
+    },
+    "bracelet": {
+      "name": "Misalignment",
+      "stat_hash": "8906ab1659ea54810129d7c6c3bc4a731b0c75ab83f14dab748be8366517690c"
+    },
+    "necklace": {
+      "name": "Metamorphosis",
+      "stat_hash": "02246fdfdd468f54bac8004064d7e5dc64cddc47fadd98152d3e49998031f167"
+    }
+  },
+  "created": "2026-08-13T03:59:37.831Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9",
+  "tome_opt": 1,
+  "max_pool_size": 14
+}

@@ -109,6 +109,73 @@ const empty_slot = roundtrip({ lvl_overrides: { helmet: { min: null, max: null }
 t.assert(JSON.stringify(empty_slot.d.lvl_overrides) === '{}',
     'a slot with both sides blank is not encoded');
 
+// ── Tome roll percentage (v11 bit 11) ──────────────────────────────────────
+
+const roll_default = vm.runInContext('TOME_ROLL_DEFAULT', ctx);
+t.assert(none.d.tome_roll === roll_default,
+    `an absent tome roll decodes to the default (${roll_default}, got ${none.d.tome_roll})`);
+t.assert(roundtrip({ tome_roll: roll_default }).chars === baseline_chars,
+    'a default tome roll costs no extra characters');
+for (const pct of [0, 55, 100]) {
+    const r = roundtrip({ tome_roll: pct });
+    t.assert(r.d.tome_roll === pct, `tome roll ${pct}% round-trips (got ${r.d.tome_roll})`);
+}
+
+// ── Owned-tome inventory (v11 bit 12) ──────────────────────────────────────
+
+const universe = vm.runInContext(
+    '(function(){ return JSON.stringify(_solver_tome_universe()); })()', ctx);
+const ALL_TOMES = JSON.parse(universe);
+// tomeMap is keyed by displayName, so tomes sharing a name collapse to one
+// entry — the universe is the SELECTABLE tomes, not every row in tomes.json.
+t.assert(ALL_TOMES.length > 40,
+    `the tome universe is the solver-relevant tomes (got ${ALL_TOMES.length})`);
+t.assert(new Set(ALL_TOMES).size === ALL_TOMES.length && ALL_TOMES.every(Number.isInteger),
+    'the universe is distinct integer ids');
+
+t.assert(none.d.tome_inventory === null,
+    'an absent inventory decodes to null (owns everything)');
+t.assert(roundtrip({ tome_inventory: ALL_TOMES }).chars === baseline_chars,
+    'owning every tome is encoded as absent — no wasted characters');
+
+// Owning a handful stores the owned ids; owning all-but-a-handful stores the
+// missing ids. Both must come back as the same owned set.
+const few = ALL_TOMES.slice(0, 3);
+const few_rt = roundtrip({ tome_inventory: few });
+t.assert(JSON.stringify(few_rt.d.tome_inventory) === JSON.stringify(few),
+    `a 3-tome inventory round-trips (got ${JSON.stringify(few_rt.d.tome_inventory)})`);
+
+const most = ALL_TOMES.filter(id => id !== ALL_TOMES[0] && id !== ALL_TOMES[1]);
+const most_rt = roundtrip({ tome_inventory: most });
+t.assert(JSON.stringify(most_rt.d.tome_inventory) === JSON.stringify(most),
+    'an all-but-two inventory round-trips');
+t.assert(most_rt.chars < few_rt.chars + 10,
+    `all-but-two is stored as the short missing list, not ${most.length} ids `
+    + `(${most_rt.chars} chars vs ${few_rt.chars} for 3 owned)`);
+
+// Owning nothing is a real state, distinct from owning everything: it must not
+// collapse to null, or unticking every box would silently re-enable every tome.
+const nil_rt = roundtrip({ tome_inventory: [] });
+t.assert(Array.isArray(nil_rt.d.tome_inventory) && nil_rt.d.tome_inventory.length === 0,
+    `an empty inventory stays empty (got ${JSON.stringify(nil_rt.d.tome_inventory)})`);
+
+// The tome fields must not disturb the fields encoded around them.
+const combined = roundtrip({
+    tome_opt: 2, tome_roll: 65, tome_inventory: few,
+    lvl_overrides: { helmet: { min: 90, max: null } },
+    gtome: 6, lvl_min: 50,
+});
+t.assert(combined.d.tome_opt === 2 && combined.d.tome_roll === 65
+    && combined.d.gtome === 6 && combined.d.lvl_min === 50
+    && combined.d.lvl_overrides.helmet?.min === 90
+    && JSON.stringify(combined.d.tome_inventory) === JSON.stringify(few),
+    'tome_opt + tome_roll + inventory + overrides all coexist in one link');
+
+// Pre-v11 links predate all three fields and must decode to the defaults.
+t.assert(legacy.tome_roll === roll_default && legacy.tome_inventory === null
+    && legacy.tome_opt === 0,
+    'a pre-v11 link decodes with tome optimisation off, default roll, no inventory');
+
 // ── Guild tome helpers used by the UI consumers ────────────────────────────
 
 const helpers = JSON.parse(vm.runInContext(`(function(){

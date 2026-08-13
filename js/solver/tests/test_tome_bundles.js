@@ -188,5 +188,191 @@ t.assert(real.weaponTome.pruned < real.weaponTome.pool,
 t.assert(real.guildTome.pruned === real.guildTome.pool,
     `no guild tome dominates another (${real.guildTome.pruned}/${real.guildTome.pool})`);
 
+// ── Tome roll percentage is scoped, and actually moves the numbers ─────────
+//
+// with_tome_roll swaps the module-global roll mode. The restore matters more
+// than the swap: leaking a tome percentage into item expansion would silently
+// reroll every item in the search.
+
+const roll = run(`
+    current_roll_mode = { damage: 30, mana: 30, healing: 30, misc: 30 };
+    const raw = [...tomeMap.values()].find(x => x.type === 'armorTome' && x.hpBonus);
+    const at = pct => with_tome_roll(pct, () =>
+        tome_stat(_apply_roll_mode_to_item(new Item(raw)).statMap, 'hpBonus'));
+    const lo = at(0), mid = at(50), hi = at(100);
+    const outside = current_roll_mode.damage;
+    // Throwing inside must still restore — otherwise one bad tome poisons the run.
+    let threw = false;
+    try { with_tome_roll(90, () => { throw new Error('boom'); }); }
+    catch (e) { threw = true; }
+    return JSON.stringify({ lo, mid, hi, outside, after_throw: current_roll_mode.damage, threw });
+`);
+t.assert(roll.lo < roll.mid && roll.mid < roll.hi,
+    `a higher tome roll gives a higher stat (${roll.lo} < ${roll.mid} < ${roll.hi})`);
+t.assert(roll.outside === 30,
+    `the item roll mode is restored after with_tome_roll (got ${roll.outside})`);
+t.assert(roll.threw && roll.after_throw === 30,
+    `the roll mode is restored even when the body throws (got ${roll.after_throw})`);
+t.assert(run(`return JSON.stringify(with_tome_roll(undefined, () => current_roll_mode.damage));`)
+    === TOME_ROLL_DEFAULT_VAL(),
+    'an absent percentage falls back to TOME_ROLL_DEFAULT');
+function TOME_ROLL_DEFAULT_VAL() {
+    return run(`return JSON.stringify(TOME_ROLL_DEFAULT);`);
+}
+
+// ── Inventory filtering ────────────────────────────────────────────────────
+
+const inv = run(`
+    const some = [...tomeMap.values()].filter(x => x.type === 'weaponTome' && x.id !== undefined);
+    const owned = new Set([some[0].id]);
+    return JSON.stringify({
+        null_allows_all: some.every(x => tome_inventory_allows(null, x)),
+        owned_allowed:   tome_inventory_allows(owned, some[0]),
+        unowned_blocked: some.slice(1).every(x => !tome_inventory_allows(owned, x)),
+        // A synthetic tome with no id (the "none" placeholders) is never filtered:
+        // an empty slot must stay reachable whatever the user owns.
+        idless_allowed:  tome_inventory_allows(owned, { name: 'No Weapon Tome' }),
+        empty_blocks_all: some.every(x => !tome_inventory_allows(new Set(), x)),
+    });
+`);
+t.assert(inv.null_allows_all, 'a null inventory owns everything');
+t.assert(inv.owned_allowed, 'a ticked tome is allowed');
+t.assert(inv.unowned_blocked, 'an unticked tome is blocked');
+t.assert(inv.idless_allowed, 'an id-less (placeholder) tome is never filtered out');
+t.assert(inv.empty_blocks_all,
+    'an EMPTY inventory blocks every tome — it is not treated as "owns everything"');
+
+// The filter has to shrink the real pool the optimiser searches, not just pass
+// its own unit test: a pool filtered to two tomes must produce fewer bundles.
+const inv_pool = run(`
+    const KEYS = ['hpBonus','hprRaw','mdPct','sdPct'];
+    const all = [], two = [];
+    const owned = new Set();
+    let n = 0;
+    for (const [, raw] of tomeMap) {
+        if (raw.type !== 'armorTome') continue;
+        if ((raw.name || '').startsWith('No ')) continue;
+        if (n++ < 2) owned.add(raw.id);
+    }
+    with_tome_roll(80, () => {
+        for (const [, raw] of tomeMap) {
+            if (raw.type !== 'armorTome') continue;
+            if ((raw.name || '').startsWith('No ')) continue;
+            const sm = _apply_roll_mode_to_item(new Item(raw)).statMap;
+            all.push(sm);
+            if (tome_inventory_allows(owned, raw)) two.push(sm);
+        }
+    });
+    return JSON.stringify({
+        all_pool: all.length, filtered_pool: two.length,
+        all_bundles: tome_bundles(tome_prune_dominated(all, KEYS), 4, KEYS).length,
+        filtered_bundles: tome_bundles(tome_prune_dominated(two, KEYS), 4, KEYS).length,
+    });
+`);
+t.assert(inv_pool.filtered_pool === 2,
+    `the inventory filters the real pool (${inv_pool.all_pool} -> ${inv_pool.filtered_pool})`);
+t.assert(inv_pool.filtered_bundles <= inv_pool.all_bundles && inv_pool.filtered_bundles >= 1,
+    `a filtered pool yields no more bundles and never zero `
+    + `(${inv_pool.all_bundles} -> ${inv_pool.filtered_bundles})`);
+
+// ── End to end through _prepare_tome_optimisation ──────────────────────────
+//
+// The unit checks above prove the pieces; this proves the production entry
+// point actually consults them. An empty solver_item_final_nodes means no tome
+// is equipped anywhere, so every slot is optimisable.
+
+vm.runInContext('globalThis.solver_item_final_nodes = [];', ctx);
+
+const DOM_STATS = `{ higher: new Set(['sdPct','mdPct','hpBonus']), lower: new Set(), equal: new Set() }`;
+
+const prep = run(`
+    const call = (inv, roll) => {
+        const s = { tome_opt: TOME_OPT_ALL, level: 106, tome_roll: roll,
+                    tome_inventory: inv ? new Set(inv) : null };
+        _prepare_tome_optimisation(s, {}, ${DOM_STATS});
+        return s;
+    };
+    // Own two armour tomes, two weapon tomes, and exactly one guild tome.
+    // Level-eligible ones, or the level gate would empty the pool and the
+    // bundle comparison below would prove nothing.
+    const owned = [];
+    let w = 0, a = 0;
+    for (const [, raw] of tomeMap) {
+        if ((raw.name || '').startsWith('No ')) continue;
+        if ((raw.lvl ?? 0) > 106) continue;
+        if (raw.type === 'weaponTome' && w < 2) { owned.push(raw.id); w++; }
+        if (raw.type === 'armorTome' && a < 2) { owned.push(raw.id); a++; }
+    }
+    const one_guild = guild_tome_real(3);   // Intelligence
+    owned.push(one_guild.id);
+
+    const all = call(null, 80);
+    const some = call(owned, 80);
+    const none_owned = call([], 80);
+    // Level 50 is below every guild tome, so the level gate excludes them all —
+    // the other way to reach the "only none survives" case.
+    const low = (() => {
+        const s = { tome_opt: TOME_OPT_ALL, level: 50, tome_roll: 80, tome_inventory: null };
+        _prepare_tome_optimisation(s, {}, ${DOM_STATS});
+        return s;
+    })();
+    return JSON.stringify({
+        all_guild: all.guild_tome_candidates?.length ?? 0,
+        some_guild: some.guild_tome_candidates?.map(c => c.idx) ?? null,
+        none_guild: none_owned.guild_tome_candidates?.map(c => c.idx) ?? null,
+        low_guild: low.guild_tome_candidates?.map(c => c.idx) ?? null,
+        all_bundles: all.tome_wa_bundles?.length ?? 0,
+        some_bundles: some.tome_wa_bundles?.length ?? 0,
+        none_bundles: none_owned.tome_wa_bundles?.length ?? 0,
+    });
+`);
+t.assert(prep.all_guild === GUILD_TOMES_LEN(),
+    `with no inventory every guild tome is a candidate (got ${prep.all_guild})`);
+t.assert(JSON.stringify(prep.some_guild) === JSON.stringify([0, 3]),
+    `owning only the Intelligence tome leaves candidates [none, int] (got ${JSON.stringify(prep.some_guild)})`);
+// Regression (Codex P1 on PR #12): when NO guild tome survives filtering, the
+// candidate list must still contain the "none" candidate rather than collapsing
+// to null. Null means "the guild tome is fixed" to the worker, which then falls
+// back to guild_tome_sm — synthesised from the manual dropdown that the UI
+// greys out in optimisation mode. A user who picked Strength before enabling
+// optimisation would get builds using a tome they just said they do not own.
+t.assert(JSON.stringify(prep.none_guild) === JSON.stringify([0]),
+    `owning no guild tome leaves the "none" candidate active, not null `
+    + `(got ${JSON.stringify(prep.none_guild)})`);
+t.assert(JSON.stringify(prep.low_guild) === JSON.stringify([0]),
+    `a build below every guild tome's level keeps the "none" candidate too `
+    + `(got ${JSON.stringify(prep.low_guild)})`);
+t.assert(prep.some_bundles > 0 && prep.some_bundles <= prep.all_bundles,
+    `the inventory shrinks the bundle front (${prep.all_bundles} -> ${prep.some_bundles})`);
+// No owned weapon/armour tome means no bundle DIMENSION at all, not a bundle
+// front containing one empty option: a null front is the signal that makes the
+// worker run its plain no-bundle path. Guild optimisation is unaffected — the
+// candidates are computed before this point.
+t.assert(prep.none_bundles === 0,
+    `owning no weapon/armour tome removes the bundle dimension (got ${prep.none_bundles})`);
+function GUILD_TOMES_LEN() {
+    return run(`return JSON.stringify(GUILD_TOMES.length);`);
+}
+
+// The roll percentage has to reach the bundles the workers actually receive,
+// not just the pool: the bound is what gates enumeration.
+const prep_roll = run(`
+    const before = current_roll_mode.damage;
+    const call = roll => {
+        const s = { tome_opt: TOME_OPT_ALL, level: 106, tome_roll: roll, tome_inventory: null };
+        _prepare_tome_optimisation(s, {}, ${DOM_STATS});
+        let best = 0;
+        for (const [, v] of (s.tome_bound ?? new Map())) best = Math.max(best, v);
+        return best;
+    };
+    const lo = call(10), hi = call(100);
+    return JSON.stringify({ lo, hi, before, after: current_roll_mode.damage });
+`);
+t.assert(prep_roll.lo < prep_roll.hi,
+    `a higher tome roll raises the precheck bound (${prep_roll.lo} < ${prep_roll.hi})`);
+t.assert(prep_roll.after === prep_roll.before,
+    `_prepare_tome_optimisation leaves the item roll mode untouched `
+    + `(${prep_roll.before} -> ${prep_roll.after})`);
+
 const summary = t.summary();
 if (require.main === module && summary.fail > 0) process.exit(1);

@@ -1,0 +1,51 @@
+{
+  "name": "solver_oracle_tome_inventory",
+  "description": "Oracle: same build as solver_oracle_tome_all, but with an owned-tome inventory and a non-default tome roll \u2014 proves the solver only ever proposes ticked tomes and that the roll percentage reaches the pool.",
+  "url_hash": "CV0X60iCme0eDH05yb066M10tqDSw6qIW70yUUbcq6TEj1_GPYXkWG8403bbWA05oI10120XoeGMA00G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94482bHXiKG132KkBGeCAab2AWG0CKM2g0K8B50080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4224XoeGMAeW11At58K65oI1500",
+  "scoring_target": "combo_damage",
+  "time_limit_seconds": 120,
+  "num_workers": 2,
+  "free_mask": 3,
+  "max_pool_size": 5,
+  "oracle": true,
+  "tome_opt": 2,
+  "tome_guild_locked": true,
+  "locked_items": {
+    "leggings": {
+      "name": "The Crossing",
+      "stat_hash": "a60f90699a82dbd6183668493cf59791a8c877bffc3429bcf65445421cd0541d"
+    },
+    "boots": {
+      "name": "Static Cling",
+      "stat_hash": "d09d8e03dc4d140c6f2f1bc2ae833bc9aeda56b53ae20c87d7a5f8272bdc2b7e"
+    },
+    "ring1": {
+      "name": "Intensity",
+      "stat_hash": "85a8a37c0d9cf62554aa87cef650e5eec02d1394472d0e0d7791a3319d4bd3cb"
+    },
+    "ring2": {
+      "name": "Gloomstone",
+      "stat_hash": "d7e8c1382e9c7e35fecabcc80a78984e6133d6e648ea115af0ec99c744e77615"
+    },
+    "bracelet": {
+      "name": "Diamond Static Bracelet",
+      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
+    },
+    "necklace": {
+      "name": "Achromatic Gloom",
+      "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
+    }
+  },
+  "created": "2026-08-13T05:35:13.919Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9",
+  "tome_inventory": [
+    124,
+    126,
+    135,
+    1,
+    9,
+    117
+  ],
+  "tome_roll": 60
+}

@@ -255,7 +255,15 @@ function _build_solver_snapshot(restrictions) {
     // solver spread the bonus (e.g. [102,102,0,0,0]) — a distribution no guild
     // tome can actually produce. See GUILD_TOMES in solver/constants.js.
     const sp_budget = levelToSkillPoints(level);
-    if (!has_real_guild_tome) {
+    // The dropdown only contributes when the SOLVER is not choosing the guild
+    // tome. With optimisation on the UI greys the dropdown out and says the
+    // choice is automatic, so letting its stale value flow into guild_tome_sm
+    // would contradict that: it skews the SP baseline, seeds the current-build
+    // evaluation with a tome the solver may not pick, and — wherever the
+    // candidate list is absent — gets used outright. An equipped tome in the
+    // item slot is a real lock and still wins over both.
+    const solver_picks_guild_tome = (restrictions.tome_opt ?? 0) >= 1;
+    if (!has_real_guild_tome && !solver_picks_guild_tome) {
         const gtome_choice = GUILD_TOMES[restrictions.guild_tome ?? 0] ?? GUILD_TOMES[0];
         if (gtome_choice.sp.some(v => v !== 0)) {
             const synth = new Map();
@@ -358,6 +366,8 @@ function _build_solver_snapshot(restrictions) {
         restrictions, button_states, slider_states, scoring_target, custom_weights,
         combo_time, allow_downtime, hp_casting, has_dynamic_sliders, health_config, auto_slider_names: [...auto_slider_names], spell_base_costs,
         tome_opt: restrictions.tome_opt ?? 0,
+        tome_roll: restrictions.tome_roll ?? TOME_ROLL_DEFAULT,
+        tome_inventory: restrictions.tome_inventory ?? null,
     };
 }
 
@@ -1121,21 +1131,30 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     const gt_idx = tome_fields.indexOf('guildTome1');
     const gt_val = (gt_idx >= 0) ? solver_item_final_nodes[9 + gt_idx]?.value : null;
     const guild_locked = !!(gt_val && !gt_val.statMap.has('NONE'));
+    const inventory = snap.tome_inventory ?? null;
     if (!guild_locked) {
         const cands = [{ idx: 0, sm: new Item(none_tomes[2]).statMap }];
         for (let i = 1; i < GUILD_TOMES.length; i++) {
             // Guild tomes are level-gated items (all currently level 100). A
             // build below that level cannot equip any of them, so offering
             // them would let the optimiser rank builds on skill points the
-            // player cannot have. Look the level up from the real tome so a
-            // future data change is honoured automatically.
-            const real = GUILD_TOMES[i].item ? tomeMap.get(GUILD_TOMES[i].item) : null;
+            // player cannot have. Resolve the real tome by skill point vector
+            // (see guild_tome_real — a name lookup silently misses four of six)
+            // so both this gate and the inventory check below actually bite.
+            const real = guild_tome_real(i);
             if ((real?.lvl ?? 100) > snap.level) continue;
+            // The inventory constrains what the solver may PROPOSE. A tome the
+            // user equipped by hand is a lock and is never filtered (that path
+            // exits above, via guild_locked).
+            if (real && !tome_inventory_allows(inventory, real)) continue;
             cands.push({ idx: i, sm: guild_tome_statmap(i) });
         }
-        // Only "none" qualified → there is nothing to optimise; leave the
-        // candidates null so the worker runs the plain single-solve path.
-        snap.guild_tome_candidates = cands.length > 1 ? cands : null;
+        // Always keep the list, even when only "none" survived the level gate
+        // and the inventory. A null list means "the guild tome is FIXED" to the
+        // worker, which then falls back to guild_tome_sm — the manual dropdown
+        // that the UI greys out in this mode. Collapsing to null there would
+        // hand back builds wearing a tome the user just excluded.
+        snap.guild_tome_candidates = cands;
     }
 
     if (mode !== TOME_OPT_ALL) return;
@@ -1155,15 +1174,20 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     }
     if (empty.weaponTome === 0 && empty.armorTome === 0) return;
 
-    // Rolled tome pools at the current roll mode. Rolled IDs live in maxRolls
-    // (see tome_stat) — reading top-level keys silently yields zero.
+    // Rolled tome pools at the TOME roll percentage, not the item one: a tome
+    // the solver proposes is hypothetical, so its stats are an assumption about
+    // what the user would roll. Rolled IDs live in maxRolls (see tome_stat) —
+    // reading top-level keys silently yields zero.
     const pools = { weaponTome: [], armorTome: [] };
-    for (const [, raw] of tomeMap) {
-        if (!(raw.type in pools)) continue;
-        if ((raw.name || '').startsWith('No ')) continue;
-        if ((raw.lvl ?? 0) > snap.level) continue;
-        pools[raw.type].push(_apply_roll_mode_to_item(new Item(raw)).statMap);
-    }
+    with_tome_roll(snap.tome_roll, () => {
+        for (const [, raw] of tomeMap) {
+            if (!(raw.type in pools)) continue;
+            if ((raw.name || '').startsWith('No ')) continue;
+            if ((raw.lvl ?? 0) > snap.level) continue;
+            if (!tome_inventory_allows(inventory, raw)) continue;
+            pools[raw.type].push(_apply_roll_mode_to_item(new Item(raw)).statMap);
+        }
+    });
 
     // Scoped key set: dominance stats (the search's scoring surface plus its
     // restriction stats, with direction) limited to keys any tome carries.
@@ -1189,8 +1213,10 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
         if (tome_keys.has(k) && !keys.includes(k)) { keys.push(k); signs.push(0); }
     }
     if (keys.length === 0) {
-        // The search reads nothing a tome can carry — a single empty bundle
-        // keeps guild optimisation working without a pointless front.
+        // Either the search reads nothing a tome can carry, or the inventory
+        // left no tome to read it from. Leaving the front null removes the
+        // bundle dimension entirely so workers run their plain path; guild
+        // optimisation is unaffected, its candidates are already set above.
         return;
     }
 
@@ -1247,6 +1273,9 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     console.log('[solver] tome optimisation:', mode === TOME_OPT_ALL ? 'all' : 'guild',
         '| guild candidates:', snap.guild_tome_candidates?.length ?? 0,
         '| wa bundles:', bundles.length,
+        '| roll:', (snap.tome_roll ?? TOME_ROLL_DEFAULT) + '%',
+        '| pool:', pools.weaponTome.length + 'w/' + pools.armorTome.length + 'a',
+        inventory ? '(inventory-filtered)' : '',
         '| scoped keys:', keys.join(','));
 }
 
