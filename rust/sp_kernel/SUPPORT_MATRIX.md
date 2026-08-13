@@ -40,7 +40,7 @@ ordered roughly by expected user impact within each section.
 | B4 | `hp_casting` builds | Gate off (JS parity); HP-sim path heavier | Unpruned | Prove/derive an hp-casting-safe ceiling |
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
-| B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | Solo-ceiling ranking picks SP-infeasible elites → warm pass seeds nothing | ~1.5s wasted, then organic cutoff | Rank by solo ceiling × SP-feasibility screen |
+| B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
@@ -51,6 +51,23 @@ ordered roughly by expected user impact within each section.
 | C4 | Optional GPU runner | Detection DONE (`--features gpu`, `gpu_probe` bin): ranks real adapters, reports exact-f64 (discrete + SHADER_F64, e.g. 3060 Ti) / prescreen-f32 (typical integrated) / cpu-only tiers with graceful fallback. Batched ceiling evaluation per GPU_PLAN.md is the follow-up. |
 | C2 | Fixture export is test-harness-driven | **DONE**: `js/solver/engine/rust_bridge.js` builds both fixtures from the same `initMsgBase` the solver already assembles, browser-safe (sandbox access injected as `env`; worker-based case sampling gated behind `env.sampling`). Re-export through it is byte-identical. `search.js` calls it behind `_try_run_solver_search_rust`, falling back to JS workers on any problem. **Verified in real Chromium**: full armor4 space in 346ms (9.3M leaves/s, ~651x the JS engine) with an identical best build. |
 | C3 | Rust top-15 tie membership at the boundary | Score sets match JS exactly; which of several EQUAL-scoring builds occupies the last slot can differ (insertion order). Documented, not a correctness issue. |
+
+## Remaining work, in the order I'd tackle it
+
+1. **Stateful simulation port** (A2 buff states, A3 Blood Pact, and the
+   until-OOM half of A1). `simulate_combo_mana_hp` is ~485 lines of dense
+   state/trigger/HP-cost logic, and no existing snapshot exercises it — a
+   test scenario has to be built alongside the port, or bit-exactness
+   cannot be claimed. This is the largest remaining chunk and the one that
+   unlocks the most real builds; it deserves a focused pass, not a rushed
+   one.
+2. **wasm threads** (SharedArrayBuffer + COOP/COEP): full core scaling in
+   the browser on top of the single-threaded engine already shipping.
+3. **A6 dynamic sliders / A8 non-lowered ability trees**: both are
+   exporter-capability questions rather than engine ports; worth scoping
+   before committing.
+4. **B-section speedups**: B1 (defensive objectives, mana-sim bound) has
+   the most headroom; B2/B3 need interval-style bounds to prune at all.
 
 ## Verification status
 
