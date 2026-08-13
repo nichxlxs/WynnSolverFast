@@ -243,6 +243,30 @@ const GUILD_TOMES = [
 const GUILD_TOME_RAINBOW = 6;
 
 /**
+ * Total skill points a guild tome choice grants. Use this instead of testing
+ * the encoded value against a literal: the values changed meaning in v11 (1 was
+ * "Standard", now Strength; 2 was "Rainbow", now Dexterity), so any surviving
+ * `=== 1` / `=== 2` comparison is a latent bug.
+ */
+function guild_tome_sp_total(idx) {
+    const g = GUILD_TOMES[idx] ?? GUILD_TOMES[0];
+    return g.sp.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * A synthetic statMap for a guild tome choice, shaped like an equipped tome so
+ * calculate_skillpoints counts it as bonus skillpoints. Returns null for "Off".
+ */
+function guild_tome_statmap(idx) {
+    const g = GUILD_TOMES[idx] ?? GUILD_TOMES[0];
+    if (!g.sp.some(v => v !== 0)) return null;
+    const sm = new Map();
+    sm.set('skillpoints', g.sp.slice());
+    sm.set('reqs', [0, 0, 0, 0, 0]);
+    return sm;
+}
+
+/**
  * Slots that can carry a per-slot item-level override, in encoding order.
  *
  * WARNING: This order is LOAD-BEARING for URL encoding — solver URLs encode the

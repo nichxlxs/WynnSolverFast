@@ -1162,28 +1162,22 @@ function _compute_sp_overflow_warnings() {
     if (gt_node_val && !gt_node_val.statMap.has('NONE')) {
         gt_sm = gt_node_val.statMap;
     } else {
-        // No specific tome — check restriction dropdown for rainbow synthetic
+        // No specific tome equipped — synthesise the dropdown selection. Every
+        // choice is a real fixed per-attribute bonus (see GUILD_TOMES), so this
+        // must not special-case individual encoded values.
         const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 2) {
-            const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
-            synth.set('reqs', [0, 0, 0, 0, 0]);
-            gt_sm = synth;
-        } else {
-            gt_sm = new Item(none_tomes[2]).statMap;
-        }
+        gt_sm = guild_tome_statmap(gtome_mode) ?? new Item(none_tomes[2]).statMap;
     }
     equip_sms.push(gt_sm);
 
     const weapon = solver_item_final_nodes[8]?.value;
     if (!weapon || weapon.statMap.has('NONE')) return warnings;
 
-    // SP budget: standard mode inflates budget, rainbow uses synthetic tome above
-    let sp_overflow_budget = SP_TOTAL_CAP;
-    if (!gt_node_val || gt_node_val.statMap.has('NONE')) {
-        const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 1) sp_overflow_budget = SP_GUILD_TOME_STD;
-    }
+    // The budget never varies with the guild tome: the tome contributes fixed
+    // per-attribute skill points through gt_sm above, not extra assignable
+    // points. (Pre-v11 this inflated the budget for "Standard", which let the
+    // bonus be split across attributes — see GUILD_TOMES.)
+    const sp_overflow_budget = SP_TOTAL_CAP;
 
     const result = calculate_skillpoints(equip_sms, weapon.statMap, sp_overflow_budget);
     if (!result) {

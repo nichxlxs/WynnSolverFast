@@ -633,8 +633,10 @@ const _SOLVER_DEFAULTS = {
  *   --- bit 9 (v11+): per-slot item-level overrides ---
  *   [7]   slot mask over LVL_OVERRIDE_SLOTS (bit i = slot i overridden)
  *     Per set bit, in slot order:
- *       [7]   lvl_min - 1
- *       [7]   lvl_max - 1
+ *       [2]   side flags (bit 0 = min set, bit 1 = max set)
+ *       [7]   lvl_min - 1  (only if bit 0)
+ *       [7]   lvl_max - 1  (only if bit 1)
+ *     An unset side inherits the global bound at search time.
  *   [4]   restriction_count (0-15)
  *     Per restriction:
  *       [7]   stat_index (index into RESTRICTION_STATS)
@@ -732,17 +734,24 @@ function encodeSolverParams(params) {
     // v11: per-slot level overrides. Only slots whose resolved range differs
     // from the global range are encoded, so a build that never touches the
     // per-slot panel costs zero extra bits.
+    // Each overridden slot records WHICH sides were explicitly set. A blank side
+    // is stored as absent rather than resolved to the current global bound, so
+    // it keeps inheriting later global edits after a URL round trip.
     const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
     const lvl_override_entries = [];
     let lvl_override_mask = 0;
     for (let i = 0; i < slot_names.length; i++) {
         const ov = params.lvl_overrides?.[slot_names[i]];
         if (!ov) continue;
-        const omin = Math.max(0, Math.min(max_lvl - 1, (ov.min || 1) - 1));
-        const omax = Math.max(0, Math.min(max_lvl - 1, (ov.max || max_lvl) - 1));
-        if (omin === lvl_min && omax === lvl_max) continue;  // same as global
+        const has_min = ov.min !== null && ov.min !== undefined;
+        const has_max = ov.max !== null && ov.max !== undefined;
+        if (!has_min && !has_max) continue;
         lvl_override_mask |= (1 << i);
-        lvl_override_entries.push([omin, omax]);
+        lvl_override_entries.push({
+            flags: (has_min ? 1 : 0) | (has_max ? 2 : 0),
+            min: has_min ? Math.max(0, Math.min(max_lvl - 1, ov.min - 1)) : 0,
+            max: has_max ? Math.max(0, Math.min(max_lvl - 1, ov.max - 1)) : 0,
+        });
     }
 
     let presence = 0;
@@ -777,9 +786,10 @@ function encodeSolverParams(params) {
     // bit 8 (mana_disabled): bare flag — no payload bits
     if (presence & (1 << 9)) {
         bv.append(lvl_override_mask, 7);
-        for (const [omin, omax] of lvl_override_entries) {
-            bv.append(omin, 7);
-            bv.append(omax, 7);
+        for (const e of lvl_override_entries) {
+            bv.append(e.flags, 2);
+            if (e.flags & 1) bv.append(e.min, 7);
+            if (e.flags & 2) bv.append(e.max, 7);
         }
     }
 

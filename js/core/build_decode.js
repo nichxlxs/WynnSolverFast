@@ -766,8 +766,9 @@ function decodeSolverParams(b64_str) {
             const mask = cursor.advanceBy(7);
             for (let i = 0; i < slot_names.length; i++) {
                 if (!(mask & (1 << i))) continue;
-                const omin = cursor.advanceBy(7) + 1;
-                const omax = cursor.advanceBy(7) + 1;
+                const flags = cursor.advanceBy(2);
+                const omin = (flags & 1) ? cursor.advanceBy(7) + 1 : null;
+                const omax = (flags & 2) ? cursor.advanceBy(7) + 1 : null;
                 lvl_overrides[slot_names[i]] = { min: omin, max: omax };
             }
         }

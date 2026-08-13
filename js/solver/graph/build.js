@@ -71,13 +71,15 @@ class SolverSKPNode extends ComputeNode {
             let total  = has_override ? ov.assigned_sp : build.assigned_skillpoints;
             // Rainbow guild tome injects a synthetic [1,1,1,1,1] item whose +5 SP
             // count as *bonus* (not assigned).  For display consistency with Standard
-            // tome (which inflates assigned SP by 4, showing "Remaining: -4"), add
-            // the synthetic tome's +5 so Rainbow shows "Remaining: -5".
+            // tome (which inflates assigned SP by its own bonus, showing e.g.
+            // "Remaining: -4"), add the chosen tome's total so the dropdown
+            // selection reads the same way. Routed through guild_tome_sp_total
+            // rather than a literal, since the encoded values changed in v11.
             const gt_idx = tome_fields.indexOf('guildTome1');
             const gt_val = (gt_idx >= 0) ? solver_item_final_nodes[9 + gt_idx]?.value : null;
             if (!gt_val || gt_val.statMap.has('NONE')) {
                 const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-                if (gtome_mode === 2) total += 5;
+                total += guild_tome_sp_total(gtome_mode);
             }
             const budget = levelToSkillPoints(build.level);
             const rem    = budget - total;
@@ -267,9 +269,13 @@ function _collect_solver_params() {
         const has_min = Number.isFinite(min_raw);
         const has_max = Number.isFinite(max_raw);
         if (!has_min && !has_max) continue;
+        // null means "inherit the global bound" and is preserved through the
+        // URL, so a blank field keeps following later edits to the global range
+        // instead of being frozen at whatever the global happened to be when
+        // the link was generated.
         lvl_overrides[slot] = {
-            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : lvl_min,
-            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : lvl_max,
+            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : null,
+            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : null,
         };
     }
 

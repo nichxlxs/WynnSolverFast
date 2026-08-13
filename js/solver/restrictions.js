@@ -331,7 +331,7 @@ function _init_restriction_stat_autocomplete(input_id) {
  *   lvl_min: number,
  *   lvl_max: number,
  *   no_major_id: boolean,
- *   guild_tome: number,   // 0 = off, 1 = standard (+4 SP), 2 = rare (+5 SP)
+ *   guild_tome: number,   // index into GUILD_TOMES (0 = off, 1-5 = +4 to one attr, 6 = rainbow)
  *   stat_thresholds: Array<{stat: string, op: string, value: number}>
  * }}
  */
@@ -354,9 +354,13 @@ function get_restrictions() {
         const has_min = Number.isFinite(min_raw);
         const has_max = Number.isFinite(max_raw);
         if (!has_min && !has_max) continue;
+        // null means "inherit the global bound" and is preserved through the
+        // URL, so a blank field keeps following later edits to the global range
+        // instead of being frozen at whatever the global happened to be when
+        // the link was generated.
         lvl_overrides[slot] = {
-            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : lvl_min,
-            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : lvl_max,
+            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : null,
+            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : null,
         };
     }
 

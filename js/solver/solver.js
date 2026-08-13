@@ -365,10 +365,12 @@ function _restore_from_url(solver_params) {
             const ov = solver_params.lvl_overrides[slot];
             if (!ov) continue;
             any = true;
+            // Only refill sides that were explicitly set; a side stored as null
+            // must stay blank so it keeps inheriting the global bound.
             const mn = document.getElementById('restr-lvl-min-' + slot);
             const mx = document.getElementById('restr-lvl-max-' + slot);
-            if (mn) mn.value = ov.min;
-            if (mx) mx.value = ov.max;
+            if (mn) mn.value = (ov.min === null || ov.min === undefined) ? '' : ov.min;
+            if (mx) mx.value = (ov.max === null || ov.max === undefined) ? '' : ov.max;
         }
         // Open the panel when a link carries overrides, so they are visible
         // rather than hidden behind a collapsed section.
