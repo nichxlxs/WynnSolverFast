@@ -8,6 +8,7 @@
 //! half-up rounding). Healing is not ported (never affects total_damage).
 
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use crate::{Case, Kernel, Unit};
 
@@ -665,10 +666,14 @@ pub fn compute_spell_flat_damage(
 
 // ── Boost application (pure/boost.js) ────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct Token {
     pub name: String,
     pub value: f64,
     pub is_pct: bool,
+    /// User-set slider. `inject_blood_pact_boosts` will not override a
+    /// manual token of the same name.
+    pub manual: bool,
 }
 
 pub struct PropOverride {
@@ -822,8 +827,12 @@ pub fn apply_spell_prop_overrides<'s>(
 
 // ── compute_melee_time_hits (pure/utils.js) ──────────────────────────────────
 
+/// `delay` mirrors the JS third argument: the two simulations pass the row's
+/// effective delay, the damage path passes `SPELL_CAST_DELAY`. `None` means
+/// the latter.
 pub fn compute_melee_time_hits(
     qty_seconds: f64, base_stats: &StatsView, melee_cd_override: Option<f64>, tables: &Tables,
+    delay: Option<f64>,
 ) -> f64 {
     let melee_period = match melee_cd_override {
         Some(p) => p,
@@ -836,11 +845,12 @@ pub fn compute_melee_time_hits(
             1.0 / tables.base_damage_multiplier[adj as usize]
         }
     };
-    qty_seconds / melee_period.max(SPELL_CAST_DELAY)
+    qty_seconds / melee_period.max(delay.unwrap_or(SPELL_CAST_DELAY))
 }
 
 // ── compute_combo_damage_totals (pure/engine.js) ─────────────────────────────
 
+#[derive(Clone)]
 pub struct Row {
     pub qty: f64,
     pub dmg_excl: bool,
@@ -859,6 +869,19 @@ pub struct Row {
     pub delay: Option<f64>,
     pub recast_penalties: Vec<f64>,
     pub has_loop_marker: bool,
+    /// `row.loop_start` as (condition type, condition value). Only the
+    /// stateful sim consumes this; the loop-free paths reject or unroll
+    /// before they see it.
+    pub loop_start: Option<(i64, f64)>,
+    pub loop_end: bool,
+    /// JS destructures `auto_delay = true`, i.e. absent means true.
+    pub auto_delay: bool,
+    /// `row.sim_qty` as set by `_parse_combo_for_search`. Only
+    /// `compute_recast_penalties` reads it (the sim recomputes its own).
+    pub sim_qty: f64,
+    /// `row.recast_penalty_per_cast` — the per-cast average. Carried for
+    /// parity with the JS row shape; the sim reads `recast_penalties`.
+    pub recast_penalty_per_cast: f64,
     // Static spell fields hoisted for the mana sim (reads the ORIGINAL
     // spell, which is parse-time constant).
     pub sim_cost_present: bool,
@@ -871,6 +894,58 @@ pub struct Row {
     pub static_fallback_root: Option<String>,
 }
 
+/// JS `LOOP_COND_COUNT` — the loop repeats a fixed number of times.
+pub const LOOP_COND_COUNT: i64 = 0;
+/// JS `LOOP_SAFETY_CAP`.
+pub const LOOP_SAFETY_CAP: i64 = 255;
+
+/// Unroll count-type loop brackets, mirroring `_unroll_loops_pure`.
+///
+/// A count loop's iteration count is a static constant, so unrolling is
+/// exact and independent of the simulation: the body is emitted N times
+/// and the markers dropped, leaving an ordinary combo that the validated
+/// loop-free pipeline handles bit-for-bit. `until-OOM` loops need the sim's
+/// feedback (iterations depend on when mana runs out) and are NOT unrolled
+/// — callers still reject those.
+pub fn unroll_count_loops(rows: &[Value]) -> Result<Vec<Value>, String> {
+    let is_start = |r: &Value| r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false);
+    let is_end = |r: &Value| r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false);
+    let mut out: Vec<Value> = Vec::with_capacity(rows.len());
+    let mut i = 0usize;
+    while i < rows.len() {
+        let r = &rows[i];
+        if is_start(r) {
+            let Some(end) = (i + 1..rows.len()).find(|&j| is_end(&rows[j])) else {
+                // Unterminated marker: JS skips it.
+                i += 1;
+                continue;
+            };
+            let cond = r.get("loop_start").unwrap();
+            let ty = cond.get("type").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if ty != LOOP_COND_COUNT {
+                return Err("until-OOM loop brackets not supported (iteration count \
+                            depends on the mana simulation)".into());
+            }
+            let iters = cond.get("value").and_then(|v| v.as_i64()).unwrap_or(1).max(1)
+                .min(LOOP_SAFETY_CAP);
+            let body: Vec<&Value> = (i + 1..end)
+                .map(|j| &rows[j])
+                .filter(|b| !is_start(b) && !is_end(b))
+                .collect();
+            for _ in 0..iters {
+                for b in &body { out.push((*b).clone()); }
+            }
+            i = end + 1;
+        } else if is_end(r) {
+            i += 1;
+        } else {
+            out.push(r.clone());
+            i += 1;
+        }
+    }
+    Ok(out)
+}
+
 pub fn parse_rows(v: &Value) -> Vec<Row> {
     let mut rows = Vec::new();
     for r in v.as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
@@ -879,6 +954,7 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
                 name: t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
                 value: t.get("value").and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
                 is_pct: t.get("is_pct").and_then(|x| x.as_bool()).unwrap_or(false),
+                manual: t.get("manual").and_then(|x| x.as_bool()).unwrap_or(false),
             }).collect())
             .unwrap_or_default();
         let spell_ref: Option<Value> = r.get("spell").filter(|s| !s.is_null()).cloned();
@@ -911,6 +987,17 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
             recast_penalties: r.get("recast_penalties").map(arr_f64).unwrap_or_default(),
             has_loop_marker: r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false)
                 || r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
+            loop_start: r.get("loop_start").filter(|v| !v.is_null()).map(|c| (
+                c.get("type").and_then(|v| v.as_i64()).unwrap_or(-1),
+                // JS `condition.value || 1` — absent/0/NaN all fall back to 1.
+                c.get("value").and_then(|v| v.as_f64()).filter(|v| *v != 0.0 && !v.is_nan())
+                    .unwrap_or(1.0),
+            )),
+            loop_end: r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
+            auto_delay: r.get("auto_delay").and_then(|v| v.as_bool()).unwrap_or(true),
+            sim_qty: r.get("sim_qty").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
+            recast_penalty_per_cast: r.get("recast_penalty_per_cast")
+                .and_then(|v| v.as_f64()).unwrap_or(0.0),
             static_dps: spell_ref.as_ref()
                 .and_then(|s| compute_dps_spell_hits_info(s))
                 .map(|i| (i.per_hit_name, i.max_hits, i.dps_chain_root)),
@@ -987,7 +1074,7 @@ pub fn eval_combo_damage(
         }
 
         let eff_qty = if row.is_melee_time {
-            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables)
+            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables, None)
         } else { row.qty };
         let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
         total_damage += row_damage;
@@ -1002,6 +1089,43 @@ pub fn eval_combo_damage(
 // set bonuses → finalizeStatmap → assemble_combo_stats (skp, classDef,
 // atree_raw merge, scaling plan, static_boosts). Validated key-by-key
 // against the exported combo_base, then end-to-end by scoring it.
+
+/// `atree_eval_stat_effects` (js/solver/pure/utils.js:163) over the lowered
+/// var-effect list.
+///
+/// Outputs go through `merge_stat`, so dotted keys land in the nested
+/// `damMult`/`defMult`/`healMult`/`manaMult` maps with the non-stacking
+/// sub-keys taking the max — exactly as the JS does. The dense lowering
+/// declines any var effect writing such a key (`nested_prefix` in
+/// `DenseCtx::build`), so those scenarios evaluate here.
+pub fn eval_var_effects(var_effects: &[Value], pre_scale: &Obj) -> Obj {
+    let mut out = Obj::new();
+    for eff in var_effects {
+        let mut total = 0.0;
+        total += eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
+            let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
+            let v = pre_scale.get(stat).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            total += v * factor;
+        }
+        let round = eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true);
+        let positive = eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true);
+        let mut t = total;
+        if round { t = round_near(t).floor(); }
+        if positive && t < 0.0 { t = 0.0; }
+        if let Some(mx) = eff.get("max").and_then(|v| v.as_f64()) {
+            if mx > 0.0 && t > mx { t = mx; }
+            if mx < 0.0 && t < mx { t = mx; }
+        }
+        for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            if let Some(name) = output.as_str() {
+                merge_stat(&mut out, name, &Value::from(t));
+            }
+        }
+    }
+    out
+}
 
 /// merge_stat (build_utils.js): dotted mult-map keys, non-stacking maxima,
 /// plain additive otherwise.
@@ -1092,6 +1216,12 @@ pub struct Layer2 {
     pub hp_base: f64,
     pub class_def: HashMap<String, f64>,
     pub skp_order: Vec<String>,
+    /// Radiance major-ID scaling: `boost` multiplies each affected stat and
+    /// floors it (positive values, or negative ones for the reversed IDs).
+    /// 1.0 = inactive.
+    pub radiance_boost: f64,
+    pub radiance_affected: Vec<String>,
+    pub radiance_reversed: Vec<String>,
 }
 
 impl Layer2 {
@@ -1159,6 +1289,9 @@ impl Layer2 {
             class_def: consts.get("class_def")?.as_object()?
                 .iter().filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f))).collect(),
             skp_order: strvec(consts.get("skp_order")?),
+            radiance_boost: l2.get("radiance_boost").and_then(|v| v.as_f64()).unwrap_or(1.0),
+            radiance_affected: consts.get("radiance_affected").map(strvec).unwrap_or_default(),
+            radiance_reversed: consts.get("reversed_ids").map(strvec).unwrap_or_default(),
         })
     }
 
@@ -1276,6 +1409,19 @@ impl Layer2 {
         Ok(sm)
     }
 
+    /// _apply_radiance_scale_inplace (pure/utils.js).
+    pub fn apply_radiance(&self, sm: &mut Obj) {
+        if self.radiance_boost == 1.0 { return; }
+        for id in &self.radiance_affected {
+            let Some(val) = sm.get(id).and_then(|v| v.as_f64()) else { continue };
+            let reversed = self.radiance_reversed.iter().any(|r| r == id);
+            let scale = if reversed { val < 0.0 } else { val > 0.0 };
+            if scale {
+                sm.insert(id.clone(), Value::from((val * self.radiance_boost).floor()));
+            }
+        }
+    }
+
     /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
     /// atree_raw merge + atree scaling (cached/split) + static boosts.
     pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
@@ -1289,39 +1435,14 @@ impl Layer2 {
             pre_scale.insert("classDef".into(), Value::from(cd));
         }
         merge_into(&mut pre_scale, self.atree_raw.as_ref());
-        // radiance_boost asserted null at export for supported scenarios.
+        // _apply_radiance_scale_inplace: scale-and-floor the affected stats.
+        self.apply_radiance(&mut pre_scale);
 
         let mut var_out: Option<Obj> = None;
         let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
             "cached" => self.scaled_cached.as_ref(),
             "split" => {
-                // atree_eval_stat_effects on lowered var effects.
-                let mut out = Obj::new();
-                for eff in &self.var_effects {
-                    let mut total = 0.0;
-                    total += eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                        let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
-                        let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
-                        let v = pre_scale.get(stat).and_then(|x| x.as_f64()).unwrap_or(0.0);
-                        total += v * factor;
-                    }
-                    let round = eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let positive = eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let mut t = total;
-                    if round { t = round_near(t).floor(); }
-                    if positive && t < 0.0 { t = 0.0; }
-                    if let Some(mx) = eff.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && t > mx { t = mx; }
-                        if mx < 0.0 && t < mx { t = mx; }
-                    }
-                    for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                        if let Some(name) = output.as_str() {
-                            merge_stat(&mut out, name, &Value::from(t));
-                        }
-                    }
-                }
-                var_out = Some(out);
+                var_out = Some(eval_var_effects(&self.var_effects, &pre_scale));
                 self.const_scaled.as_ref()
             }
             // Callers are gated on scaling_kind at load (ScoringCtx::load /
@@ -1355,12 +1476,19 @@ pub fn simulate_mana_fast(
 /// and a warning fires, the sim returns immediately — mana_check_passes
 /// fails on any warning regardless of the remaining trajectory, so the
 /// verdict is identical and the rest of the combo is skipped.
+///
+/// Fail-fast on a *mana* warning is only valid when the combo has no
+/// until-OOM loop: there, running out of mana is the loop terminator rather
+/// than a failure, so the caller passes `fail_fast = false`.
 #[allow(clippy::too_many_arguments)]
 pub fn simulate_mana_fast_ff(
     rows: &[Row], combo_base: &Obj, has_transcendence: bool,
     registry: &[Value], tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>, fail_fast: bool,
 ) -> (f64, f64, bool, bool) {
+    use crate::mana_sim::{compute_drain_override, loop_condition_met};
+
+    let hc = &consts.health;
     let stats = StatsView::Borrowed(combo_base);
     let mr = stats.num_or0("mr");
     let ms = stats.num_or0("ms");
@@ -1369,7 +1497,9 @@ pub fn simulate_mana_fast_ff(
     let start_mana = 100.0 + item_mana + int_mana;
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
+    let mut total_mana_drain = 0.0;
 
+    let health_cost_pct = hc.health_cost;
     let base_hp = stats.num_or0("hp");
     let hp_bonus = stats.num_or0("hpBonus");
     let max_hp = js_max(5.0, base_hp + hp_bonus);
@@ -1385,62 +1515,139 @@ pub fn simulate_mana_fast_ff(
 
     let mut mana = start_mana;
     let mut hp = max_hp;
+    let mut elapsed_time = 0.0f64;
     let mut has_hp_warning = false;
     let mut has_mana_warning = false;
 
-    // _advance_time_fast (no buff states): regen with cap + wasted tracking.
+    // Minimal per-state tracking: unlike the full sim this keeps no state
+    // *value* and fires no exit triggers — the fast sim only needs the
+    // mana/HP trajectory, not the slider values the damage pass would want.
+    let n_states = hc.buff_states.len();
+    let mut st_active: Vec<bool> = vec![false; n_states];
+    let mut st_at: Vec<f64> = vec![0.0; n_states];
+    let no_buff_states = n_states == 0;
+
+    let mut loop_body_start: i64 = -1;
+    let mut loop_condition: Option<(i64, f64)> = None;
+    let mut loop_iteration: i64 = 0;
+    let mut loop_mana_warn = false;
+    let mut loop_hp_warn = false;
+
+    // _advance_time_fast. Note there is no HP-regen tick here: the JS fast
+    // sim omits it too (the full sim has it), so mirroring means omitting it.
     macro_rules! advance {
         ($dt:expr) => {{
-            let dt = $dt;
-            if dt > 0.0 {
-                let uncapped = mana + mr_per_sec * dt;
-                if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = if uncapped < max_mana { uncapped } else { max_mana };
+            let advance_dt: f64 = $dt;
+            if advance_dt > 0.0 {
+                let prev_time = elapsed_time;
+                elapsed_time += advance_dt;
+                let mut mana_regen_dt = advance_dt;
+
+                if !no_buff_states {
+                    for (bi, bs) in hc.buff_states.iter().enumerate() {
+                        if !st_active[bi] { continue; }
+                        let mut active_dt = advance_dt;
+                        if let Some(duration) = bs.duration {
+                            let remaining = duration - (prev_time - st_at[bi]);
+                            if remaining <= 0.0 { st_active[bi] = false; continue; }
+                            active_dt = js_min(advance_dt, remaining);
+                            if active_dt < advance_dt { st_active[bi] = false; }
+                        }
+                        if bs.suppress_mana_regen {
+                            mana_regen_dt = js_min(mana_regen_dt, advance_dt - active_dt);
+                        }
+                        if !bs.compute_delay {
+                            if let Some(drain) = &bs.drain_pct_per_second {
+                                if drain.mana > 0.0 {
+                                    let d = drain.mana / 100.0 * max_mana * active_dt;
+                                    let actual = js_min(mana, d);
+                                    mana -= actual;
+                                    total_mana_drain += actual;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if mana_regen_dt > 0.0 {
+                    let uncapped = mana + mr_per_sec * mana_regen_dt;
+                    if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+                    mana = js_min(max_mana, uncapped);
+                }
             }
         }};
     }
     let _ = mana_wasted;
+    let _ = total_mana_drain;
 
-    for (row_idx, row) in rows.iter().enumerate() {
+    let mut ri: i64 = 0;
+    while (ri as usize) < rows.len() {
+        let row = &rows[ri as usize];
+
+        if let Some(cond) = row.loop_start {
+            if loop_condition.is_none() {
+                loop_body_start = ri + 1;
+                loop_condition = Some(cond);
+                loop_iteration = 0;
+                loop_mana_warn = false;
+                loop_hp_warn = false;
+            }
+            ri += 1;
+            continue;
+        }
+        if row.loop_end {
+            if let Some((ct, cv)) = loop_condition {
+                loop_iteration += 1;
+                if !loop_condition_met(ct, cv, loop_iteration, loop_mana_warn, loop_hp_warn) {
+                    ri = loop_body_start;
+                    loop_mana_warn = false;
+                    loop_hp_warn = false;
+                    continue;
+                }
+                loop_condition = None;
+            }
+            ri += 1;
+            continue;
+        }
+
         // Add Flat Mana: inject (or drain) qty mana at this point.
         if row.pseudo_kind.as_deref() == Some("add_flat_mana") {
             if !row.mana_excl && row.qty != 0.0 {
                 let uncapped = mana + row.qty;
                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = js_max(0.0, if uncapped < max_mana { uncapped } else { max_mana });
+                mana = js_max(0.0, js_min(max_mana, uncapped));
             }
+            ri += 1;
             continue;
         }
-        if row.pseudo || row.qty <= 0.0 { continue; }
-        let Some(spell) = &row.spell else { continue };
-        if row.mana_excl { continue; }
+        if row.pseudo || row.qty <= 0.0 || row.spell.is_none() || row.mana_excl {
+            ri += 1;
+            continue;
+        }
+        let spell = row.spell.as_ref().unwrap();
 
         let is_spell = row.sim_cost_present;
         let unclamped_cost = if is_spell {
             match compiled {
-                Some(c) => row_cost_compiled(combo_base, spell, &c[row_idx], tables, consts),
-                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables, consts),
+                Some(c) => row_cost_compiled(combo_base, spell, &c[ri as usize], tables, consts),
+                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables,
+                                                 consts.skillpoint_final_mult_2),
             }
         } else { 0.0 };
         let is_melee_scaling = row.sim_melee_scaling;
-        let recast_base = row.sim_recast_base;
-        let is_melee = recast_base == 0;
+        let is_melee = row.sim_recast_base == 0;
 
         let eff_cast_time = if is_melee { 0.0 } else { row.cast_time.unwrap_or(consts.spell_cast_time) };
         let eff_delay = row.delay.unwrap_or(consts.spell_cast_delay);
-        let base_view = StatsView::Borrowed(combo_base);
         let sim_qty = if row.is_melee_time {
-            // JS passes eff_delay as the floor for the melee period here.
-            let period = match row.melee_cd_override {
-                Some(p) => p,
-                None => melee_period,
-            };
-            js_round(row.qty / period.max(eff_delay))
+            js_round(compute_melee_time_hits(row.qty, &stats, row.melee_cd_override, tables,
+                                             Some(eff_delay)))
         } else {
             js_round(row.qty)
         } as i64;
-        let _ = base_view;
         let eff_melee_period = row.melee_cd_override.unwrap_or(melee_period);
+        let spell_hp_cost = row.sim_hp_cost;
+        let mut fast_post_override: Option<f64> = None;
 
         for c in 0..sim_qty {
             // compute_wall_dt
@@ -1459,11 +1666,19 @@ pub fn simulate_mana_fast_ff(
             if is_melee_scaling && ms_per_hit != 0.0 {
                 let uncapped = mana + ms_per_hit;
                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = uncapped.min(max_mana).max(0.0);
+                mana = js_max(0.0, js_min(max_mana, uncapped));
             }
 
-            // Spell-level HP cost (e.g. Mindless Slaughter)
-            let spell_hp_cost = row.sim_hp_cost;
+            // "next_action" deactivation (Vanish). The fast sim only clears
+            // the flag — no exit triggers, no state value.
+            if c == 0 && (is_spell || is_melee_scaling) {
+                for (bi, bs) in hc.buff_states.iter().enumerate() {
+                    if bs.deactivate_next_action && st_active[bi] { st_active[bi] = false; }
+                }
+            }
+
+            // Spell-level HP cost. Unconditional here; the full sim gates it
+            // on a buff state being active. Mirroring means keeping both.
             if spell_hp_cost > 0.0 {
                 let hp_deduction = spell_hp_cost / 100.0 * max_hp;
                 if hp < hp_deduction {
@@ -1477,17 +1692,66 @@ pub fn simulate_mana_fast_ff(
                 let penalty = row.recast_penalties.get(c as usize).copied().unwrap_or(0.0);
                 let effective_cost = js_max(1.0, unclamped_cost + penalty);
                 let adj_cost = if has_transcendence { effective_cost * 0.75 } else { effective_cost };
+
                 if mana >= effective_cost {
                     mana -= adj_cost;
+                } else if health_cost_pct > 0.0 {
+                    // Blood Pact: pay the remainder from health.
+                    let remaining_mana = js_max(0.0, mana);
+                    let health_mana = adj_cost - remaining_mana;
+                    mana = 0.0;
+                    let hp_cost = health_mana * health_cost_pct * max_hp / 100.0;
+                    if hp < hp_cost {
+                        has_hp_warning = true;
+                        if fail_fast { return (start_mana, mana, true, has_mana_warning); }
+                    }
+                    hp -= hp_cost;
                 } else {
                     mana -= effective_cost;
                     has_mana_warning = true;
                     if fail_fast { return (start_mana, mana, has_hp_warning, true); }
                 }
+
+                // State activation.
+                for (bi, bs) in hc.buff_states.iter().enumerate() {
+                    let Some(activate_spell) = bs.activate_on_spell else { continue };
+                    let base_spell = spell.get("base_spell").and_then(|v| v.as_i64())
+                        .unwrap_or(i64::MIN);
+                    if base_spell != activate_spell || st_active[bi] { continue; }
+                    st_active[bi] = true;
+                    st_at[bi] = elapsed_time;
+                    let dro = compute_drain_override(
+                        bs, mana, max_mana, hp, max_hp,
+                        if row.auto_delay { None } else { Some(post_dt) },
+                    );
+                    if let Some(dro) = dro {
+                        if row.auto_delay && fast_post_override.is_none() {
+                            fast_post_override = Some(dro.computed_delay);
+                        }
+                        if dro.is_mana {
+                            mana -= dro.actual_drain;
+                            total_mana_drain += dro.actual_drain;
+                        } else {
+                            hp -= dro.actual_drain;
+                        }
+                        st_at[bi] += dro.computed_delay;
+                    }
+                }
             }
 
-            advance!(post_dt);
+            let mut effective_post = post_dt;
+            if let Some(fpo) = fast_post_override {
+                if c == 0 {
+                    effective_post = fpo;
+                    melee_cd_remaining = js_max(0.0, melee_cd_remaining - (effective_post - post_dt));
+                }
+            }
+            advance!(effective_post);
         }
+
+        if has_hp_warning { loop_hp_warn = true; }
+        if has_mana_warning { loop_mana_warn = true; }
+        ri += 1;
     }
     (start_mana, mana, has_hp_warning, has_mana_warning)
 }
@@ -1495,7 +1759,7 @@ pub fn simulate_mana_fast_ff(
 /// row_unclamped_spell_cost (pure/boost.js).
 pub fn row_unclamped_spell_cost(
     base_stats: &Obj, spell: &Value, tokens: &[Token], registry: &[Value],
-    tables: &Tables, consts: &L2Consts,
+    tables: &Tables, skillpoint_final_mult_2: f64,
 ) -> f64 {
     let bs = spell.get("mana_derived_from").and_then(|v| v.as_i64())
         .or_else(|| spell.get("base_spell").and_then(|v| v.as_i64())).unwrap_or(0);
@@ -1530,7 +1794,7 @@ pub fn row_unclamped_spell_cost(
         }
     }
 
-    let int_reduction = tables.sp_to_pct(v_int) * consts.skillpoint_final_mult_2;
+    let int_reduction = tables.sp_to_pct(v_int) * skillpoint_final_mult_2;
     let mut cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN) * (1.0 - int_reduction);
     cost += v_raw;
     cost *= 1.0 + v_pct / 100.0;
@@ -1542,16 +1806,77 @@ pub struct L2Consts {
     pub mana_tick_seconds: f64,
     pub spell_cast_time: f64,
     pub spell_cast_delay: f64,
-    skillpoint_final_mult_2: f64,
+    pub skillpoint_final_mult_2: f64,
     pub combo_time: f64,
     pub allow_downtime: bool,
     pub hp_casting: bool,
     pub sp_budget: i32,
+    /// `layer2.health_config`. The fast mana sim models buff states and the
+    /// Blood Pact payment branch, exactly as `simulate_combo_mana_fast`
+    /// does, so it has to be reachable from every `mana_check_passes` call
+    /// site — which is why it lives here rather than on `ScoringCtx`.
+    pub health: crate::mana_sim::HealthConfig,
+    /// True when any loop bracket is an until-OOM loop. Those deplete mana
+    /// on purpose, so a mana warning is the terminator, not a failure.
+    pub has_oom_loop: bool,
+    /// Set when the damage rows are leaf-dependent — see `DynamicRows`.
+    pub dynamic: Option<DynamicRows>,
+}
+
+/// Scenarios whose damage rows cannot be fixed at load time.
+///
+/// Two causes, both handled the same way: a declared slider means
+/// `inject_blood_pact_boosts` writes simulation-derived boost tokens into
+/// the rows per leaf, and an until-OOM loop means the iteration count (and
+/// so the row *sequence*) depends on the leaf's own mana trajectory.
+///
+/// Either way the rows stop being parse-time constants, which the compiled
+/// and dense lowerings both rely on — so these scenarios run on the Obj
+/// path with the ceiling gate and every bound switched off. Correct, and
+/// slower than a static scenario.
+#[derive(Clone, Default)]
+pub struct DynamicRows {
+    pub bp_slider: Option<String>,
+    /// `(buff_state index, slider name)` — indexed so injection reads
+    /// `RowResult::state_values` positionally in the per-trial path.
+    pub state_sliders: Vec<(usize, String)>,
+    /// Rows still carry loop markers and must be unrolled per leaf.
+    pub needs_unroll: bool,
 }
 
 impl L2Consts {
+    /// The subset the stateful simulation needs.
+    pub fn sim_consts(&self) -> crate::mana_sim::SimConsts {
+        crate::mana_sim::SimConsts {
+            base_mana_regen: self.base_mana_regen,
+            mana_tick_seconds: self.mana_tick_seconds,
+            spell_cast_time: self.spell_cast_time,
+            spell_cast_delay: self.spell_cast_delay,
+            hpr_tick_seconds: crate::mana_sim::HPR_TICK_SECONDS,
+            hidden_base_hpr: crate::mana_sim::HIDDEN_BASE_HPR,
+            skillpoint_final_mult_2: self.skillpoint_final_mult_2,
+        }
+    }
+
     pub fn parse(fixture: &Value) -> Option<L2Consts> {
         let l2 = fixture.get("layer2")?;
+        let health = l2.get("health_config").map(crate::mana_sim::HealthConfig::parse)
+            .unwrap_or_default();
+        // Count loops unroll statically at load, so an until-OOM loop is the
+        // only kind that survives to need a per-leaf unroll.
+        let has_oom_loop = fixture.get("parsed_combo").and_then(|c| c.as_array())
+            .map(|rows| rows.iter().any(|r| r.get("loop_start")
+                .and_then(|c| c.get("type")).and_then(|t| t.as_i64())
+                == Some(crate::mana_sim::LOOP_COND_UNTIL_OOM)))
+            .unwrap_or(false);
+        // A declared slider or a per-leaf unroll makes the damage rows
+        // leaf-dependent. Decided here rather than in `ScoringCtx::load` so
+        // every consumer of `L2Consts` — including the `score_kernel`
+        // validator — takes the same path the solver does.
+        let (bp_slider, state_sliders) = crate::mana_sim::extract_slider_names(&health);
+        let dynamic_rows = if bp_slider.is_some() || !state_sliders.is_empty() || has_oom_loop {
+            Some(DynamicRows { bp_slider, state_sliders, needs_unroll: has_oom_loop })
+        } else { None };
         let c = l2.get("constants")?;
         Some(L2Consts {
             base_mana_regen: c.get("base_mana_regen")?.as_f64()?,
@@ -1564,6 +1889,9 @@ impl L2Consts {
             allow_downtime: l2.get("allow_downtime").and_then(|v| v.as_bool()).unwrap_or(false),
             hp_casting: l2.get("hp_casting").and_then(|v| v.as_bool()).unwrap_or(false),
             sp_budget: l2.get("sp_budget").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
+            health,
+            dynamic: dynamic_rows,
+            has_oom_loop,
         })
     }
 }
@@ -1577,16 +1905,19 @@ pub fn mana_check_passes(
     if consts.combo_time == 0.0 && !consts.hp_casting {
         return true;
     }
-    assert!(!rows.iter().any(|r| r.has_loop_marker),
-        "loop brackets not supported in the ported fast mana sim");
     let has_transcendence = combo_base.get("activeMajorIDs")
         .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
         .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
         .unwrap_or(false);
-    let (start_mana, end_mana, hp_warn, mana_warn) =
-        simulate_mana_fast_ff(rows, combo_base, has_transcendence, registry, tables, consts, compiled, true);
+    // An until-OOM loop is *meant* to run mana out — the warning terminates
+    // the loop rather than failing the build, so the sim must be allowed to
+    // finish (no fail-fast on a mana warning) and the verdict ignores it.
+    let oom = consts.has_oom_loop;
+    let (start_mana, end_mana, hp_warn, mana_warn) = simulate_mana_fast_ff(
+        rows, combo_base, has_transcendence, registry, tables, consts, compiled, !oom);
     if hp_warn { return false; }
-    if mana_warn { return false; }
+    if !oom && mana_warn { return false; }
+    if oom { return true; }
     if consts.allow_downtime { return end_mana > 0.0; }
     (start_mana - end_mana) <= 5.0
 }
@@ -1696,6 +2027,8 @@ pub mod trace {
     pub static MANA_NS: AtomicU64 = AtomicU64::new(0);
     pub static FINAL_NS: AtomicU64 = AtomicU64::new(0);
     pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
+    /// Per-leaf dynamic row construction (simulate + unroll + inject).
+    pub static DYN_NS: AtomicU64 = AtomicU64::new(0);
     pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
     pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
     /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
@@ -1719,7 +2052,8 @@ pub mod trace {
             f(&SP_NS), f(&BASE_NS), f(&GATE_NS), f(&DOOM_NS), f(&GREEDY_NS),
             GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
         );
-        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s", f(&ASM_NS), f(&DMG_NS));
+        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s | dynamic rows {:.2}s",
+                  f(&ASM_NS), f(&DMG_NS), f(&DYN_NS));
         eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
                   BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
     }
@@ -1744,7 +2078,65 @@ pub fn leaf_pipeline_gated(
     dense: Option<(&DenseCtx, &mut DenseWork)>,
     thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
 ) -> Result<LeafOutcome, String> {
+    // Dynamic rows rule out every precomputed shortcut: the compiled rows and
+    // the dense lowering both key off parse-time-constant boost tokens, and
+    // the all-150-SP ceiling is not an upper bound once the rows themselves
+    // change per leaf. Force the Obj path here so no caller can forget.
+    let dynamic = consts.dynamic.as_ref();
+    // Dynamic rows still rule out the dense lowering and the ceiling, but a
+    // no-unroll scenario keeps its compiled rows — see the obj_score branch.
+    let compiled = match dynamic {
+        Some(dy) if dy.needs_unroll => None,
+        _ => compiled,
+    };
+    // A per-leaf unroll changes the row count, which the lowering cannot
+    // follow. Without one, dense can serve these too — the injected tokens
+    // become extra slot writes (see `dense_dynamic_score`).
+    let dense = match dynamic {
+        Some(dy) if dy.needs_unroll => None,
+        _ => dense,
+    };
+    let gate_cutoff = if dynamic.is_some() { None } else { gate_cutoff };
+
     let obj_score = |cb: &mut Obj| -> f64 {
+        if let Some(dy) = dynamic {
+            let mut injected: Vec<Vec<Token>> = Vec::new();
+            let damage_rows = phase!(DYN_NS,
+                dynamic_damage_rows_split(cb, rows, registry, tables, consts, dy, &mut injected));
+            // With no unroll the rows line up 1:1 with the compiled ones, so
+            // only the *appended* tokens need bonuses — compiling those (one
+            // or two tokens per row) is far cheaper than the uncompiled
+            // scorer re-resolving every token for every row on every greedy
+            // trial. A prop-bonus on an injected token would change the row's
+            // mod_spell, which the compiled row baked in at load, so that
+            // case falls back rather than silently using a stale spell.
+            if !dy.needs_unroll && !compiled.unwrap_or(&[]).is_empty() {
+                let mut extra: Vec<Vec<CompiledBonus>> = Vec::with_capacity(damage_rows.len());
+                let mut props: HashMap<String, PropOverride> = HashMap::new();
+                let mut ok = true;
+                for i in 0..damage_rows.len() {
+                    let row_tokens = injected.get(i).map(|t| t.as_slice()).unwrap_or(&[]);
+                    let mut b = Vec::new();
+                    props.clear();
+                    compile_token_bonuses(row_tokens, registry, &mut b, &mut props);
+                    if !props.is_empty() { ok = false; break; }
+                    extra.push(b);
+                }
+                if ok {
+                    return objective.score_compiled_extra(
+                        cb, weapon, &damage_rows, compiled.unwrap(), tables, &extra);
+                }
+            }
+            // The uncompiled scorer resolves every token itself, so it needs
+            // the injected ones actually in the rows.
+            let merged: Vec<Row> = damage_rows.iter().cloned().enumerate()
+                .map(|(i, mut r)| {
+                    if let Some(t) = injected.get(i) { r.tokens.extend(t.iter().cloned()); }
+                    r
+                })
+                .collect();
+            return objective.score(cb, weapon, &merged, registry, hit_refs, tables);
+        }
         match compiled {
             Some(c) => objective.score_compiled(cb, weapon, rows, c, tables),
             None => objective.score(cb, weapon, rows, registry, hit_refs, tables),
@@ -1847,23 +2239,69 @@ pub fn leaf_pipeline_gated(
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
-        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting {
+        let two_sided_off = objective.needs_two_sided_ceiling() && !Objective::two_sided_enabled();
+        // The JS excludes `hp_casting` here, describing it as sim-coupled
+        // damage alongside dynamic sliders. Only the slider half is: HP-cost
+        // casting reaches damage exclusively through the Blood Pact bonus,
+        // and that bonus reaches the rows exclusively through
+        // `inject_blood_pact_boosts`, which does nothing without a declared
+        // `damage_boost.slider_name`. A declared one makes the scenario
+        // `dynamic`, and `gate_cutoff` is already None for those.
+        //
+        // Everything else `hp_casting` touches — the mana check, the mana
+        // rescue, the doom bound — decides FEASIBILITY. Those only ever
+        // remove candidates, so the all-150 assemble still bounds the score
+        // of every allocation the greedy can reach, which is all the gate
+        // needs. Disabling the rescue in particular shrinks the reachable
+        // set, and a ceiling over a superset is still a ceiling.
+        let gate_env_off = std::env::var("SCORE_HPCAST_GATE").as_deref() == Ok("0")
+            && consts.hp_casting;
+        if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
+            && !gate_env_off {
             if (dwork.is_none() || dense_check) && base_opt.is_none() {
+                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+            }
+            // Blends with a negative weight need each term at its own
+            // extreme: the negative ones off the leaf's pre-greedy SP (their
+            // target's minimum over everything the greedy and the rescue can
+            // reach), the rest off all-150. See needs_two_sided_ceiling.
+            let two_sided = objective.needs_two_sided_ceiling();
+            // Only the Obj fallback needs the materialized base; the dense
+            // path assembles both SP states from the lowered leaf. Building
+            // it unconditionally cost more than the gate saved.
+            if two_sided && dwork.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE_NS, {
                 let ceiling_sp = [150f64; 5];
+                let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
-                    let DenseWork { leaf, scratch } = &mut **w;
+                    let DenseWork { leaf, scratch, .. } = &mut **w;
+                    let neg = if two_sided {
+                        dense_assemble(d, leaf, scratch, &low_sp);
+                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                    } else { 0.0 };
                     dense_assemble(d, leaf, scratch, &ceiling_sp);
-                    let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
-                    if dense_check {
+                    let v = if two_sided {
+                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, false) + neg
+                    } else {
+                        dense_score(d, leaf, scratch, rows, compiled_rows, tables)
+                    };
+                    if dense_check && !two_sided {
                         let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
                     v
+                } else if two_sided {
+                    let base = base_opt.as_ref().unwrap();
+                    let cb_lo = l2.assemble_from_base(base, &low_sp, weapon);
+                    let neg = objective.score_signed(
+                        &cb_lo, weapon, rows, registry, hit_refs, tables, true);
+                    let cb150 = l2.assemble_from_base(base, &ceiling_sp, weapon);
+                    objective.score_signed(
+                        &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
                     let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                     obj_score(&mut cb150)
@@ -1884,9 +2322,27 @@ pub fn leaf_pipeline_gated(
 
     // Mana-doom precheck: mana feasibility depends on the greedy SP only
     // through Int (monotone — more Int means more starting mana and cheaper
-    // spells), so a single sim at Int=150 upper-bounds every greedy/rescue
-    // outcome. Admissible only when no atree var effect couples stats into
-    // the mana-relevant set (l2.mana_doom_ok).
+    // spells), so a single sim at the highest Int this leaf can reach
+    // upper-bounds every greedy/rescue outcome. Admissible only when no atree
+    // var effect couples stats into the mana-relevant set (l2.mana_doom_ok).
+    //
+    // That highest Int is rarely 150, and testing 150 asks whether a build
+    // could sustain with skill points it cannot have. Every point that ends up
+    // in Int is added by the greedy or moved there by the mana rescue, and
+    // both raise `base_sp[2]` and `total_sp[2]` together while respecting
+    // `base_sp[2] < 100` and `total_sp[2] < 150`; the rescue can only relocate
+    // points the greedy placed, so between them they add at most `remaining`.
+    // Hence the reachable ceiling below. On the ehp benchmark it averages 59
+    // against the 150 that was being tested — every leaf, without exception.
+    //
+    // `SCORE_DOOM_INT=150` restores the old ceiling, which is what the
+    // equivalence check compares against: tightening an admissible bound must
+    // not change which leaves get *scored*, only how early the rest are cut.
+    let doom_int = if std::env::var("SCORE_DOOM_INT").as_deref() == Ok("150") { 150.0 } else {
+        let rem = (consts.sp_budget - assigned_sp).max(0);
+        let room = rem.min(100 - base_sp[2]).min(150 - total_sp[2]).max(0);
+        (total_sp[2] + room) as f64
+    };
     let mut doom_reject_expected = false;
     // Bounded doom availability: sound whenever var effects don't couple
     // into atkTier, and start-mana couplings (maxMana/int) only under
@@ -1898,14 +2354,25 @@ pub fn leaf_pipeline_gated(
             && std::env::var("SCORE_BOUNDED_DOOM").as_deref() != Ok("0"),
         _ => false,
     };
-    if (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
+    // Buff-state drain is a percentage of max_mana, and max_mana rises with
+    // Int — so more Int means MORE absolute drain, and the Int=150 sim no
+    // longer upper-bounds mana feasibility. The precheck is inadmissible
+    // there regardless of `mana_doom_ok` (which only covers atree var-effect
+    // coupling), so switch it off rather than prune a feasible leaf.
+    let drain_breaks_doom = consts.health.buff_states.iter()
+        .any(|bs| bs.drain_pct_per_second.as_ref().map(|d| d.mana > 0.0).unwrap_or(false))
+        // An until-OOM loop's length depends on the leaf's own mana
+        // trajectory, so an Int=150 sim does not bound the real one either.
+        || dynamic.map(|d| d.needs_unroll).unwrap_or(false);
+    if !drain_breaks_doom
+        && (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
         let doomed = phase!(DOOM_NS, {
             let mut doom_sp = [0f64; 5];
             let mut sp_lo = [0f64; 5];
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
-            doom_sp[2] = 150.0;
+            doom_sp[2] = doom_int;
             if let Some((d, w)) = dwork.as_mut() {
-                let DenseWork { leaf, scratch } = &mut **w;
+                let DenseWork { leaf, scratch, .. } = &mut **w;
                 if l2.mana_doom_ok {
                     dense_assemble(d, leaf, scratch, &doom_sp);
                 } else {
@@ -1925,9 +2392,12 @@ pub fn leaf_pipeline_gated(
             }
         });
         if doomed {
-            // Tripwire: under check mode a bounded-doom reject falls through
-            // to the full pipeline, which must also reject (asserted below).
-            if !(dense_check && bounded_doom_ok && !l2.mana_doom_ok) {
+            // Tripwire: under check mode EVERY doom reject falls through to the
+            // full pipeline, which must also reject (asserted below). This used
+            // to cover only the bounded-doom case, which left the reachable-Int
+            // ceiling — the part that decides how many leaves are cut — with no
+            // check at all on the scenarios where it fires most.
+            if !dense_check {
                 return Ok(LeafOutcome::ManaReject);
             }
             doom_reject_expected = true;
@@ -1943,9 +2413,15 @@ pub fn leaf_pipeline_gated(
         if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         if let Some((d, w)) = dwork.as_mut() {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, sim_memo } = &mut **w;
             phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
-            let v = phase!(DMG_NS, dense_score(d, leaf, scratch, rows, compiled_rows, tables));
+            let v = phase!(DMG_NS, match dynamic {
+                Some(dy) => dense_dynamic_score(
+                    d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts, dy)
+                    .expect("dense dynamic score: injected key without a slot — \
+                             DenseCtx::build should have reserved one"),
+                None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+            });
             if dense_check {
                 let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon);
                 let o = obj_score(&mut cb);
@@ -1964,7 +2440,7 @@ pub fn leaf_pipeline_gated(
     for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
     if let Some((d, w)) = dwork.as_mut() {
         {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, .. } = &mut **w;
             dense_assemble(d, leaf, scratch, &sp_f5);
             if !d.thresholds.is_empty() && !dense_check_thresholds(d, scratch, tables, consts) {
                 if dense_check {
@@ -1981,7 +2457,7 @@ pub fn leaf_pipeline_gated(
             }
         }
         let mana_ok = phase!(MANA_NS, {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, .. } = &mut **w;
             let mini = dense_mana_obj(d, leaf, scratch);
             let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
             if dense_check {
@@ -1995,10 +2471,16 @@ pub fn leaf_pipeline_gated(
         let saved_rescue_total = total_sp;
         let _ = (saved_rescue_base, saved_rescue_total);
         if mana_ok {
-            assert!(!doom_reject_expected, "bounded doom would have rejected a scored leaf");
+            assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
-                let DenseWork { leaf, scratch } = &mut **w;
-                let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
+                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
+                let v = match dynamic {
+                    Some(dy) => dense_dynamic_score(
+                        d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
+                        dy)
+                        .expect("dense dynamic score: injected key without a slot"),
+                    None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+                };
                 if dense_check {
                     let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
                     let o = obj_score(&mut cb);
@@ -2029,7 +2511,7 @@ pub fn leaf_pipeline_gated(
             ok
         });
         if rescued {
-            assert!(!doom_reject_expected, "bounded doom would have rejected a rescued leaf");
+            assert!(!doom_reject_expected, "doom precheck would have rejected a rescued leaf");
             {
                 let (d2, w2) = dwork.as_mut().unwrap();
                 if !d2.thresholds.is_empty()
@@ -2039,8 +2521,14 @@ pub fn leaf_pipeline_gated(
             }
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
-                let DenseWork { leaf, scratch } = &mut **w;
-                dense_score(d, leaf, scratch, rows, compiled_rows, tables)
+                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
+                match dynamic {
+                    Some(dy) => dense_dynamic_score(
+                        d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
+                        dy)
+                        .expect("dense dynamic score: injected key without a slot"),
+                    None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+                }
             });
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -2067,8 +2555,80 @@ pub fn leaf_pipeline_gated(
         }
     }
 
+    assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
     let score = phase!(FINAL_NS, obj_score(&mut combo_base));
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
+}
+
+/// `eval_combo_damage_with_bp` (engine.js:332) for the dynamic-rows path.
+///
+/// Rebuilds this leaf's damage rows from its own simulation before scoring:
+///
+///   1. if the rows still carry loop markers, simulate to learn the
+///      iteration counts, unroll by them, and recompute recast penalties on
+///      the flat sequence (which casts are consecutive has changed);
+///   2. simulate the flat rows and inject the resulting Blood Pact bonus and
+///      buff-state slider values as boost tokens;
+///   3. score the injected rows.
+///
+/// Step 2's simulation is over the *flat* rows so `row_results` lines up 1:1
+/// with them, exactly as the JS does.
+pub fn dynamic_damage_rows(
+    combo_base: &Obj, rows: &[Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
+    dy: &DynamicRows,
+) -> Vec<Row> {
+    let mut extra: Vec<Vec<Token>> = Vec::new();
+    let flat = dynamic_damage_rows_split(
+        combo_base, rows, registry, tables, consts, dy, &mut extra);
+    let mut out: Vec<Row> = flat.into_owned();
+    for (r, e) in out.iter_mut().zip(extra) {
+        r.tokens.extend(e);
+    }
+    out
+}
+
+/// `dynamic_damage_rows` with the injected tokens kept out of the rows.
+///
+/// Without a per-leaf unroll the rows are the parse-time ones and the boost
+/// tokens are the only per-leaf part, so this hands back a borrow and fills
+/// `extra` (one entry per row). Cloning the row set on every greedy trial was
+/// the largest single cost in the dynamic path, and the compiled and dense
+/// scorers take the injected tokens separately anyway — neither reads
+/// `row.tokens`. An unroll changes the row count, so that case still owns.
+///
+/// `extra` is cleared and reused; it is empty when there is nothing to inject.
+#[allow(clippy::too_many_arguments)]
+pub fn dynamic_damage_rows_split<'a>(
+    combo_base: &Obj, rows: &'a [Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
+    dy: &DynamicRows, extra: &mut Vec<Vec<Token>>,
+) -> Cow<'a, [Row]> {
+    extra.clear();
+    let has_transcendence = combo_base.get("activeMajorIDs")
+        .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+        .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+        .unwrap_or(false);
+    let sim_consts = consts.sim_consts();
+    let hc = &consts.health;
+
+    let flat: Cow<'a, [Row]> = if dy.needs_unroll {
+        let loop_sim = crate::mana_sim::simulate_combo_mana_hp(
+            rows, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
+        let mut f = crate::mana_sim::unroll_loops_dynamic(rows, &loop_sim.loop_iteration_counts);
+        crate::mana_sim::compute_recast_penalties(&mut f);
+        Cow::Owned(f)
+    } else {
+        Cow::Borrowed(rows)
+    };
+
+    if dy.bp_slider.is_none() && dy.state_sliders.is_empty() {
+        // Nothing to inject (the loop unroll was the only dynamic part).
+        return flat;
+    }
+    let hp_sim = crate::mana_sim::simulate_combo_mana_hp(
+        &flat, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
+    crate::mana_sim::blood_pact_extra_tokens(
+        &flat, &hp_sim, dy.bp_slider.as_deref(), &dy.state_sliders, extra);
+    flat
 }
 
 /// _mana_rescue: shift freely-assigned SP into Int in increasing fractions.
@@ -2199,16 +2759,44 @@ impl ScoringCtx {
             .and_then(|t| t.as_str()).unwrap_or("combo_damage").to_string();
         let custom_weights = fixture["layer2"].get("custom_weights").cloned();
         let objective = Objective::parse(&scoring_target, custom_weights.as_ref())?;
-        let rows_parsed = parse_rows(&fixture["parsed_combo"]);
+        // Count loops have a static iteration count, so they unroll here and
+        // every downstream stage stays loop-free and fast. An until-OOM loop
+        // cannot: its length depends on the leaf's own mana trajectory, so
+        // the markers are kept and the rows are unrolled per leaf instead.
+        let raw_rows = fixture["parsed_combo"].as_array().cloned().unwrap_or_default();
+        let rows_value = match unroll_count_loops(&raw_rows) {
+            Ok(unrolled) => Value::Array(unrolled),
+            // until-OOM: keep the markers, `DynamicRows::needs_unroll` is set.
+            Err(_) => Value::Array(raw_rows.clone()),
+        };
+        let rows_parsed = parse_rows(&rows_value);
         let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
-        let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
+        // Rows carrying loop markers are not a shape the compiler expects, and
+        // a per-leaf unroll changes the row count, so those stay uncompiled.
+        // A declared-slider scenario keeps its row list — injection only
+        // *appends* tokens — so the load-time compiled rows stay valid and
+        // only the injected tokens need per-leaf bonuses (see
+        // `score_compiled_extra`).
+        let needs_unroll = consts.dynamic.as_ref().map(|d| d.needs_unroll).unwrap_or(false);
+        let compiled_rows = if needs_unroll { Vec::new() } else {
+            compile_rows(&rows_parsed, &registry_parsed, &hit_refs)
+        };
         let tables = Tables::parse(&fixture["tables"]);
         let weapon = as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone();
         let thresholds = parse_thresholds(fixture);
         let spell_base_costs = parse_spell_base_costs(fixture);
-        let dense = if std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
-            DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective,
-                            &thresholds, &spell_base_costs)
+        // A per-leaf unroll changes the row count, which the lowering cannot
+        // follow. A declared slider only adds slot writes, so dense serves
+        // those too — see `dense_dynamic_score`.
+        let dense_blocked = consts.dynamic.as_ref().map(|d| d.needs_unroll).unwrap_or(false);
+        let dense = if dense_blocked
+            || std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
+            match dense_injectable_keys(consts.dynamic.as_ref(), &registry_parsed) {
+                None => None,
+                Some(extra_keys) =>
+                    DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows,
+                                    &objective, &thresholds, &spell_base_costs, &extra_keys),
+            }
         };
         Ok(ScoringCtx {
             objective,
@@ -2386,6 +2974,10 @@ impl Layer2 {
 
 pub enum Objective {
     ComboDamage,
+    /// Sum of healing over the combo. Evaluated on the Obj path (the dense
+    /// lowering covers damage/indirect objectives only), so it is correct
+    /// but not on the fastest path.
+    TotalHealing,
     /// ehp / ehp_no_agi / total_hp / hpr / ehpr / total_mana / plain stat.
     Indirect(String),
     /// Weighted blend; ceiling only when every weight is >= 0 and every
@@ -2393,7 +2985,7 @@ pub enum Objective {
     Custom(Vec<(String, f64)>),
 }
 
-fn raw_to_pct(raw: f64, pct: f64) -> f64 {
+pub fn raw_to_pct(raw: f64, pct: f64) -> f64 {
     if raw < 0.0 {
         js_min(0.0, raw - raw * pct)
     } else if raw > 0.0 {
@@ -2403,11 +2995,94 @@ fn raw_to_pct(raw: f64, pct: f64) -> f64 {
     }
 }
 
-fn js_min(a: f64, b: f64) -> f64 {
+pub fn js_min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() { f64::NAN } else if a < b { a } else { b }
 }
 
 /// getDefenseStats subset: (total_hp, ehp, ehp_no_agi, hpr, ehpr).
+/// computeSpellHealingTotal (pure/spell.js): sum of every part's heal
+/// amount. Heal parts scale with max HP and the healMult map (entries
+/// scoped with ':' apply only to their part); damage parts heal 0; total
+/// parts sum their subs' heals times the effective hit count.
+pub fn compute_spell_healing_total(stats: &StatsView, spell: &Value, tables: &Tables) -> f64 {
+    let parts = spell_parts(spell);
+    let base_spell = spell.get("base_spell").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total_hp = defense_stats(stats, tables).0;
+    let heal_mult_map = stats.nested("healMult");
+
+    fn eval<'a>(
+        name: &str, parts: &'a [Value], base_spell: i64, total_hp: f64,
+        heal_mult_map: Option<&Obj>, memo: &mut HashMap<String, f64>, depth: usize,
+    ) -> f64 {
+        if depth > 64 { return 0.0; }             // cycle guard
+        if let Some(&v) = memo.get(name) { return v; }
+        let Some(part) = parts.iter().find(|p| {
+            p.get("name").and_then(|n| n.as_str()) == Some(name)
+        }) else { return 0.0 };
+        let part_id = format!("{}.{}", base_spell, name);
+        let amount = if let Some(pct) = part.get("max_hp_heal_pct").and_then(|v| v.as_f64()) {
+            let mut heal_mult = 1.0;
+            if let Some(m) = heal_mult_map {
+                for (k, v) in m {
+                    let scoped_ok = match k.find(':') {
+                        Some(i) => &k[i + 1..] == part_id,
+                        None => true,
+                    };
+                    if scoped_ok {
+                        heal_mult *= 1.0 + v.as_f64().unwrap_or(f64::NAN) / 100.0;
+                    }
+                }
+            }
+            pct * total_hp * heal_mult
+        } else if part.get("multipliers").is_some() {
+            0.0
+        } else {
+            let mut acc = 0.0;
+            let tick_rounding = part.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
+            if let Some(hits) = part.get("hits").and_then(|h| h.as_object()) {
+                for (sub, hv) in hits {
+                    let h = hv.as_f64().unwrap_or(f64::NAN);
+                    let eff = if tick_rounding { 1.0 / ((1.0 / h * 20.0).floor() * 0.05) } else { h };
+                    acc += eval(sub, parts, base_spell, total_hp, heal_mult_map, memo, depth + 1) * eff;
+                }
+            }
+            acc
+        };
+        memo.insert(name.to_string(), amount);
+        amount
+    }
+
+    let mut memo: HashMap<String, f64> = HashMap::new();
+    let mut total = 0.0;
+    for p in parts {
+        let Some(n) = p.get("name").and_then(|x| x.as_str()) else { continue };
+        total += eval(n, parts, base_spell, total_hp, heal_mult_map, &mut memo, 0);
+    }
+    total
+}
+
+/// eval_combo_healing: total_healing over the combo (mirrors the JS
+/// accumulation, including melee-time effective quantities).
+pub fn eval_combo_healing(
+    combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
+) -> f64 {
+    let mut total = 0.0;
+    for row in rows {
+        let Some(spell) = &row.spell else { continue };
+        if row.qty <= 0.0 || row.pseudo { continue; }
+        let (stats, po) = apply_combo_row_boosts(combo_base, &row.tokens, registry);
+        let mod_spell = apply_spell_prop_overrides(spell, &po, hit_refs);
+        let heal_per_cast = compute_spell_healing_total(&stats, &mod_spell, tables);
+        let eff_qty = if row.is_melee_time {
+            compute_melee_time_hits(row.qty, &StatsView::Borrowed(combo_base),
+                                    row.melee_cd_override, tables, None)
+        } else { row.qty };
+        total += heal_per_cast * eff_qty;
+    }
+    total
+}
+
 pub fn defense_stats(stats: &StatsView, tables: &Tables) -> (f64, f64, f64, f64, f64) {
     let fm3 = tables.skillpoint_final_mult_3;
     let fm4 = tables.skillpoint_final_mult_4;
@@ -2450,7 +3125,7 @@ impl Objective {
     pub fn parse(scoring_target: &str, custom_weights: Option<&Value>) -> Result<Objective, String> {
         match scoring_target {
             "combo_damage" => Ok(Objective::ComboDamage),
-            "total_healing" => Err("total_healing objective not ported".into()),
+            "total_healing" => Ok(Objective::TotalHealing),
             "custom" => {
                 let weights = custom_weights.and_then(|v| v.as_array())
                     .ok_or("custom objective without custom_weights")?;
@@ -2458,9 +3133,6 @@ impl Objective {
                 for w in weights {
                     let target = w.get("target").and_then(|t| t.as_str())
                         .ok_or("custom weight missing target")?;
-                    if target == "total_healing" {
-                        return Err("total_healing sub-target not ported".into());
-                    }
                     let weight = w.get("weight").and_then(|x| x.as_f64())
                         .ok_or("custom weight missing weight")?;
                     out.push((target.to_string(), weight));
@@ -2480,6 +3152,8 @@ impl Objective {
         match self {
             Objective::ComboDamage =>
                 eval_combo_damage(combo_base, weapon, rows, registry, hit_refs, tables),
+            Objective::TotalHealing =>
+                eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables),
             Objective::Indirect(stat) =>
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
@@ -2490,6 +3164,8 @@ impl Objective {
                     let sub = if target == "combo_damage" {
                         *damage.get_or_insert_with(|| eval_combo_damage(
                             combo_base, weapon, rows, registry, hit_refs, tables))
+                    } else if target == "total_healing" {
+                        eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables)
                     } else {
                         eval_indirect_stat(&stats, target, tables)
                     };
@@ -2500,13 +3176,57 @@ impl Objective {
         }
     }
 
+    /// `score` restricted to blend terms whose weight sign matches
+    /// `want_neg` (see `dense_score_signed`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn score_signed(
+        &self, combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+        hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, want_neg: bool,
+    ) -> f64 {
+        let Objective::Custom(weights) = self else {
+            return if want_neg { 0.0 }
+                   else { self.score(combo_base, weapon, rows, registry, hit_refs, tables) };
+        };
+        let mut damage: Option<f64> = None;
+        let stats = StatsView::Borrowed(combo_base);
+        let mut sum = 0.0;
+        for (target, weight) in weights {
+            if (*weight < 0.0) != want_neg { continue; }
+            let sub = if target == "combo_damage" {
+                *damage.get_or_insert_with(|| eval_combo_damage(
+                    combo_base, weapon, rows, registry, hit_refs, tables))
+            } else if target == "total_healing" {
+                eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables)
+            } else {
+                eval_indirect_stat(&stats, target, tables)
+            };
+            sum += weight * sub;
+        }
+        sum
+    }
+
     /// Hot-path score over precompiled rows (bit-identical to score()).
     pub fn score_compiled(
-        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow],
+        tables: &Tables,
+    ) -> f64 {
+        self.score_compiled_extra(combo_base, weapon, rows, compiled, tables, &[])
+    }
+
+    /// `score_compiled` with per-row bonuses for tokens appended after
+    /// compilation — the per-leaf injected sliders. This is what lets a
+    /// dynamic-row scenario keep the load-time compiled rows instead of
+    /// falling back to the uncompiled scorer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn score_compiled_extra(
+        &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow],
+        tables: &Tables, extra: &[Vec<CompiledBonus>],
     ) -> f64 {
         match self {
             Objective::ComboDamage =>
-                eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables),
+                eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables, extra),
+            Objective::TotalHealing =>
+                eval_combo_healing_compiled(combo_base, rows, compiled, tables, extra),
             Objective::Indirect(stat) =>
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
@@ -2518,11 +3238,13 @@ impl Objective {
                             Some(d) => d,
                             None => {
                                 let d = eval_combo_damage_compiled(
-                                    combo_base, weapon, rows, compiled, tables);
+                                    combo_base, weapon, rows, compiled, tables, extra);
                                 damage = Some(d);
                                 d
                             }
                         }
+                    } else if target == "total_healing" {
+                        eval_combo_healing_compiled(combo_base, rows, compiled, tables, extra)
                     } else {
                         eval_indirect_stat(&StatsView::Borrowed(combo_base), target, tables)
                     };
@@ -2538,11 +3260,46 @@ impl Objective {
     pub fn supports_ceiling(&self) -> bool {
         match self {
             Objective::ComboDamage => true,
+            // Healing is non-decreasing in max HP and the healMult entries it
+            // reads, same argument as damage.
+            Objective::TotalHealing => true,
             // All indirect stats are non-decreasing in the stats they read
             // (negative raw values are still bounded above by per-stat maxima).
             Objective::Indirect(_) => true,
-            Objective::Custom(weights) => weights.iter().all(|(_, w)| *w >= 0.0),
+            // A negative weight is still bounded, just not by the all-150
+            // assemble alone — see `needs_two_sided_ceiling`.
+            Objective::Custom(_) => true,
         }
+    }
+
+    /// True when the all-150-SP assemble is NOT on its own an upper bound.
+    ///
+    /// Every sub-target is non-decreasing in SP (the assumption
+    /// `supports_ceiling` already rests on, backed by `ceiling_vars_ok`), so
+    /// a term with a **negative** weight is maximized where its target is
+    /// *smallest* — the leaf's pre-greedy SP — not largest. Evaluating each
+    /// term at its own extreme still bounds the blend from above:
+    ///
+    ///   for w >= 0:  w * target(sp)  <=  w * target(150)
+    ///   for w <  0:  w * target(sp)  <=  w * target(sp_min)
+    ///
+    /// since sp_min <= sp <= 150 componentwise for every state the greedy
+    /// and the mana rescue can reach. Summing preserves the inequality.
+    ///
+    /// Without this these scenarios ran with the gate and every bound off.
+    pub fn needs_two_sided_ceiling(&self) -> bool {
+        match self {
+            Objective::Custom(weights) => weights.iter().any(|(_, w)| *w < 0.0),
+            _ => false,
+        }
+    }
+
+    /// `SCORE_TWO_SIDED=0` restores the previous behaviour — no gate at all
+    /// on these objectives — so the pruned and unpruned runs can be compared
+    /// directly. An admissible bound must leave the top-N unchanged.
+    pub fn two_sided_enabled() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var("SCORE_TWO_SIDED").as_deref() != Ok("0"))
     }
 }
 
@@ -2584,6 +3341,68 @@ pub struct CompiledRow {
     pub plan: Option<SpellPlan>,
 }
 
+/// Compiles one token list's registry matches into stat deltas and prop
+/// overrides, in the exact (token, match, bonus) order the uncompiled path
+/// applies them — so appending a later token's bonuses is equivalent to
+/// having compiled the longer token list from the start.
+///
+/// Shared by `compile_rows` and the per-leaf injected-token path, so the two
+/// cannot drift.
+pub fn compile_token_bonuses(
+    tokens: &[Token], registry: &[Value],
+    bonuses: &mut Vec<CompiledBonus>, prop_overrides: &mut HashMap<String, PropOverride>,
+) {
+for token in tokens {
+    for (entry, effective_value) in find_all_matching_boosts(token, registry) {
+        for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
+            if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
+                contrib = round_near(contrib).floor();
+            }
+            if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
+                if mx > 0.0 && contrib > mx { contrib = mx; }
+                else if mx < 0.0 && contrib < mx { contrib = mx; }
+            }
+            let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
+            let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
+            let (kind, sub) = if let Some(sub) = key.strip_prefix("damMult.") {
+                (CompiledBonusKind::DamMult, sub)
+            } else if let Some(sub) = key.strip_prefix("defMult.") {
+                (CompiledBonusKind::DefMult, sub)
+            } else {
+                (CompiledBonusKind::Stat, key)
+            };
+            let use_max = match kind {
+                CompiledBonusKind::Stat => mode_max,
+                _ => mode_max || sub == "Potion" || sub == "Vulnerability",
+            };
+            bonuses.push(CompiledBonus { kind, key: sub.to_string(), contrib, use_max });
+        }
+        for p in entry.get("prop_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let vpu = p.get("value_per_unit").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let mut contrib = vpu * effective_value;
+            if p.get("round").and_then(|v| v.as_bool()) == Some(true) {
+                contrib = round_near(contrib).floor();
+            }
+            if let Some(mx) = p.get("max").and_then(|v| v.as_f64()) {
+                if mx > 0.0 && contrib > mx { contrib = mx; }
+                else if mx < 0.0 && contrib < mx { contrib = mx; }
+            }
+            let rf = p.get("ref").and_then(|r| r.as_str()).unwrap_or("").to_string();
+            let base_v = p.get("base").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let existing = prop_overrides.entry(rf).or_insert(PropOverride {
+                replace: None, add: 0.0, base: base_v,
+            });
+            if p.get("mode").and_then(|m| m.as_str()) == Some("add") {
+                existing.add += contrib;
+            } else {
+                existing.replace = Some(existing.replace.unwrap_or(0.0) + contrib);
+            }
+        }
+    }
+}
+}
+
 pub fn compile_rows(
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>,
@@ -2591,55 +3410,7 @@ pub fn compile_rows(
     rows.iter().map(|row| {
         let mut bonuses = Vec::new();
         let mut prop_overrides: HashMap<String, PropOverride> = HashMap::new();
-        for token in &row.tokens {
-            for (entry, effective_value) in find_all_matching_boosts(token, registry) {
-                for b in entry.get("stat_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                    let mut contrib = b.get("value").and_then(|v| v.as_f64()).unwrap_or(f64::NAN) * effective_value;
-                    if b.get("round").and_then(|v| v.as_bool()) != Some(false) {
-                        contrib = round_near(contrib).floor();
-                    }
-                    if let Some(mx) = b.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && contrib > mx { contrib = mx; }
-                        else if mx < 0.0 && contrib < mx { contrib = mx; }
-                    }
-                    let key = b.get("key").and_then(|k| k.as_str()).unwrap_or("");
-                    let mode_max = b.get("mode").and_then(|m| m.as_str()) == Some("max");
-                    let (kind, sub) = if let Some(sub) = key.strip_prefix("damMult.") {
-                        (CompiledBonusKind::DamMult, sub)
-                    } else if let Some(sub) = key.strip_prefix("defMult.") {
-                        (CompiledBonusKind::DefMult, sub)
-                    } else {
-                        (CompiledBonusKind::Stat, key)
-                    };
-                    let use_max = match kind {
-                        CompiledBonusKind::Stat => mode_max,
-                        _ => mode_max || sub == "Potion" || sub == "Vulnerability",
-                    };
-                    bonuses.push(CompiledBonus { kind, key: sub.to_string(), contrib, use_max });
-                }
-                for p in entry.get("prop_bonuses").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                    let vpu = p.get("value_per_unit").and_then(|v| v.as_f64()).unwrap_or(1.0);
-                    let mut contrib = vpu * effective_value;
-                    if p.get("round").and_then(|v| v.as_bool()) == Some(true) {
-                        contrib = round_near(contrib).floor();
-                    }
-                    if let Some(mx) = p.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && contrib > mx { contrib = mx; }
-                        else if mx < 0.0 && contrib < mx { contrib = mx; }
-                    }
-                    let rf = p.get("ref").and_then(|r| r.as_str()).unwrap_or("").to_string();
-                    let base_v = p.get("base").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let existing = prop_overrides.entry(rf).or_insert(PropOverride {
-                        replace: None, add: 0.0, base: base_v,
-                    });
-                    if p.get("mode").and_then(|m| m.as_str()) == Some("add") {
-                        existing.add += contrib;
-                    } else {
-                        existing.replace = Some(existing.replace.unwrap_or(0.0) + contrib);
-                    }
-                }
-            }
-        }
+        compile_token_bonuses(&row.tokens, registry, &mut bonuses, &mut prop_overrides);
         let mut cost_bonuses: Vec<(u8, f64, bool)> = Vec::new();
         let mut cost_keys: Option<(String, String, String)> = None;
         if let Some(spell) = &row.spell {
@@ -2749,14 +3520,15 @@ pub fn apply_compiled_boosts<'a>(base: &'a Obj, compiled: &CompiledRow) -> Stats
 /// original bits, so results are bit-identical while touching only
 /// len(bonuses) entries instead of cloning ~200.
 pub fn with_row_overlay<R>(
-    base: &mut Obj, comp: &CompiledRow, f: impl FnOnce(&Obj) -> R,
+    base: &mut Obj, comp: &CompiledRow, extra: &[CompiledBonus], f: impl FnOnce(&Obj) -> R,
 ) -> R {
-    if comp.bonuses.is_empty() {
+    if comp.bonuses.is_empty() && extra.is_empty() {
         return f(base);
     }
     // (kind, key, previous value or None-if-absent)
-    let mut journal: Vec<(u8, &str, Option<Value>)> = Vec::with_capacity(comp.bonuses.len());
-    for b in &comp.bonuses {
+    let mut journal: Vec<(u8, &str, Option<Value>)> =
+        Vec::with_capacity(comp.bonuses.len() + extra.len());
+    for b in comp.bonuses.iter().chain(extra) {
         let (kind_tag, target): (u8, &mut Obj) = match b.kind {
             CompiledBonusKind::Stat => (0, base),
             CompiledBonusKind::DamMult => (1, base.get_mut("damMult")
@@ -2789,9 +3561,37 @@ pub fn with_row_overlay<R>(
     r
 }
 
+/// eval_combo_healing over precompiled rows: uses each row's pre-patched
+/// mod_spell and journaled boost overlay, exactly like the damage variant,
+/// so results match the uncompiled path bit-for-bit.
+/// `extra[i]` holds bonuses for tokens appended to row `i` after compilation
+/// (the per-leaf injected sliders). Empty for every static scenario.
+pub fn eval_combo_healing_compiled(
+    combo_base: &mut Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    extra: &[Vec<CompiledBonus>],
+) -> f64 {
+    let mut total = 0.0;
+    for (i, (row, comp)) in rows.iter().zip(compiled).enumerate() {
+        let extra_i: &[CompiledBonus] = extra.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+        let Some(mod_spell) = &comp.mod_spell else { continue };
+        if row.qty <= 0.0 || row.pseudo { continue; }
+        let heal_per_cast = with_row_overlay(combo_base, comp, extra_i, |b| {
+            compute_spell_healing_total(&StatsView::Borrowed(b), mod_spell, tables)
+        });
+        let eff_qty = if row.is_melee_time {
+            let bv = StatsView::Borrowed(combo_base);
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables, None)
+        } else { row.qty };
+        total += heal_per_cast * eff_qty;
+    }
+    total
+}
+
 /// eval_combo_damage over precompiled rows — the hot-path variant.
+/// See `eval_combo_healing_compiled` for `extra`.
 pub fn eval_combo_damage_compiled(
     combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    extra: &[Vec<CompiledBonus>],
 ) -> f64 {
     let crit = {
         let bv = StatsView::Borrowed(combo_base);
@@ -2800,7 +3600,8 @@ pub fn eval_combo_damage_compiled(
     };
 
     let mut total_damage = 0.0;
-    for (row, comp) in rows.iter().zip(compiled) {
+    for (i, (row, comp)) in rows.iter().zip(compiled).enumerate() {
+        let extra_i: &[CompiledBonus] = extra.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
         let Some(mod_spell) = &comp.mod_spell else { continue };
         if row.qty <= 0.0 || row.pseudo { continue; }
 
@@ -2816,7 +3617,7 @@ pub fn eval_combo_damage_compiled(
         }
         let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
 
-        let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, |b| {
+        let (per_cast, flat_per_cast) = with_row_overlay(combo_base, comp, extra_i, |b| {
             let stats = StatsView::Borrowed(b);
             if let Some(plan) = &comp.plan {
                 let (mut per_cast, flat) = eval_spell_plan(
@@ -2840,7 +3641,7 @@ pub fn eval_combo_damage_compiled(
 
         let eff_qty = if row.is_melee_time {
             let bv = StatsView::Borrowed(combo_base);
-            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables)
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables, None)
         } else { row.qty };
         let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
         total_damage += row_damage;
@@ -3250,11 +4051,22 @@ impl DenseCtx {
         }
     }
 
+    /// `extra_keys` are stat names no static row mentions but a per-leaf
+    /// injected token can produce. They need slots in the key universe up
+    /// front — `DScratch` is sized from it, so a key discovered mid-search
+    /// has nowhere to live.
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         l2: &Layer2, tables: &Tables, weapon: &Obj, rows: &[Row],
         compiled: &[CompiledRow], objective: &Objective,
         raw_thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
+        extra_keys: &[String],
     ) -> Option<DenseCtx> {
+        // Radiance applies a nonlinear scale-and-floor between the atree_raw
+        // merge and the scaling stage; the dense fold has no equivalent, so
+        // those scenarios use the validated Obj path.
+        if l2.radiance_boost != 1.0 { return None; }
+
         // Guard: every row the compiled eval would score must have a plan.
         for (row, comp) in rows.iter().zip(compiled) {
             if comp.mod_spell.is_none() || row.qty <= 0.0 || row.pseudo { continue; }
@@ -3270,6 +4082,7 @@ impl DenseCtx {
             keys.push(k.to_string());
             i
         };
+        for k in extra_keys { intern(k, &mut idx, &mut keys); }
         macro_rules! it { ($k:expr) => { intern($k, &mut idx, &mut keys) } }
 
         let skp_idx = std::array::from_fn(|i| it!(SKP_ORDER[i]));
@@ -3504,6 +4317,8 @@ impl DenseCtx {
         };
         let obj = match objective {
             Objective::ComboDamage => DObjective::Damage,
+            // Healing has no dense lowering: fall back to the Obj path.
+            Objective::TotalHealing => return None,
             Objective::Indirect(stat) => {
                 if nested_prefix(stat) { return None; }
                 DObjective::Indirect(lower_ind(stat, &mut idx, &mut keys))
@@ -3511,6 +4326,7 @@ impl DenseCtx {
             Objective::Custom(weights) => {
                 let mut out = Vec::new();
                 for (target, w) in weights {
+                    if target == "total_healing" { return None; }
                     if target == "combo_damage" { out.push((None, *w)); }
                     else {
                         if nested_prefix(target) { return None; }
@@ -3846,6 +4662,9 @@ impl DScratch {
 pub struct DenseWork {
     pub leaf: DenseLeaf,
     pub scratch: DScratch,
+    /// Reused across leaves: its key covers every simulation input, so an
+    /// entry stays valid whichever leaf produced it.
+    pub sim_memo: SimMemo,
 }
 
 /// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
@@ -4100,9 +4919,14 @@ enum DenseUndo {
     DefAppend,
 }
 
-/// with_row_overlay over the dense scratch.
-fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) {
-    for &(i, contrib, use_max) in &drow.stat_ops {
+/// with_row_overlay over the dense scratch. `extra_row` carries bonuses for
+/// tokens injected after the lowering was built; they apply after the row's
+/// own ops, matching the Obj path's `comp.bonuses.chain(extra)` order.
+fn dense_apply_row(
+    s: &mut DScratch, drow: &DRow, extra_row: &DenseRowExtra,
+    journal: &mut Vec<DenseUndo>,
+) {
+    for &(i, contrib, use_max) in drow.stat_ops.iter().chain(&extra_row.stat) {
         let old = s.vals[i as usize];
         let was = bit_get(&s.present, i);
         let cur = if was && !old.is_nan() { old } else { 0.0 };
@@ -4110,7 +4934,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
         bit_set(&mut s.present, i);
         journal.push(DenseUndo::Val(i, old, was));
     }
-    for (tmpl, contrib, use_max) in &drow.dam_ops {
+    for (tmpl, contrib, use_max) in drow.dam_ops.iter().chain(&extra_row.dam) {
         match s.dam_entries.iter().position(|e| e.key == tmpl.key) {
             Some(p) => {
                 let old = s.dam_vals[p];
@@ -4125,7 +4949,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
             }
         }
     }
-    for (tmpl, contrib, use_max) in &drow.def_ops {
+    for (tmpl, contrib, use_max) in drow.def_ops.iter().chain(&extra_row.def) {
         match s.def_entries.iter().position(|e| e.key == tmpl.key) {
             Some(p) => {
                 let old = s.def_vals[p];
@@ -4162,6 +4986,24 @@ pub fn dense_combo_damage(
     d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
     compiled: &[CompiledRow], tables: &Tables,
 ) -> f64 {
+    dense_combo_damage_extra(d, leaf, s, rows, compiled, tables, &[])
+}
+
+/// `dense_combo_damage` with per-row bonuses for tokens injected after the
+/// lowering was built — the dynamic-row path's sliders.
+///
+/// Two things change when `extra` is non-empty. The deltas are applied as
+/// journaled index writes right after the row's own `stat_ops`, matching the
+/// order `with_row_overlay` uses on the Obj path. And the `row_canon` cache
+/// is bypassed: it shares one per-cast result between rows the lowering
+/// proved identical, but injected values are per-leaf and can differ between
+/// exactly those rows, so a cache hit could return another row's damage.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_combo_damage_extra(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, extra: &[DenseRowExtra],
+) -> f64 {
+    let use_cache = extra.is_empty();
     let crit = {
         let dex = s.num(d.dex_idx);
         tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex })
@@ -4174,7 +5016,8 @@ pub fn dense_combo_damage(
         if row.qty <= 0.0 || row.pseudo { continue; }
 
         let canon = d.row_canon[ri];
-        let (per_cast, flat_per_cast) = match row_cache[canon] {
+        let cached = if use_cache { row_cache[canon] } else { None };
+        let (per_cast, flat_per_cast) = match cached {
             Some(pair) => pair,
             None => {
                 let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
@@ -4190,7 +5033,10 @@ pub fn dense_combo_damage(
                 let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
                 let plan = comp.plan.as_ref().expect("dense requires plans");
 
-                dense_apply_row(s, drow, &mut journal);
+                static NO_EXTRA: std::sync::OnceLock<DenseRowExtra> = std::sync::OnceLock::new();
+                let extra_row = extra.get(ri)
+                    .unwrap_or_else(|| NO_EXTRA.get_or_init(DenseRowExtra::default));
+                dense_apply_row(s, drow, extra_row, &mut journal);
                 let (mut per_cast, flat) = dense_spell_plan(
                     d, s, plan, drow, crit, tables, eff_dps_name.is_some());
                 dense_undo_row(s, &mut journal);
@@ -4257,13 +5103,234 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
     }
 }
 
+/// Whether the dense lowering can serve this scenario's injected tokens, and
+/// the stat keys it has to reserve slots for if so.
+///
+/// `Some(keys)` — pass them to `DenseCtx::build` as `extra_keys`; `None` — the
+/// scenario keeps the Obj path. What a per-leaf injected token can produce has
+/// to be expressible by the lowering, and its stat keys need slots up front
+/// because `DScratch` is sized from the key universe. A *prop* bonus rewrites
+/// the row's spell, which the lowering baked in — no slot can represent that.
+///
+/// Every builder of a `DenseCtx` must go through this. `dense_dynamic_score`
+/// treats an unreservable key as unreachable, so a builder that skips the gate
+/// does not fall back — it panics on the first leaf.
+pub fn dense_injectable_keys(
+    dynamic: Option<&DynamicRows>, registry: &[Value],
+) -> Option<Vec<String>> {
+    let mut extra_keys: Vec<String> = Vec::new();
+    let Some(dy) = dynamic else { return Some(extra_keys) };
+
+    let mut names: Vec<&str> = Vec::new();
+    if let Some(n) = dy.bp_slider.as_deref() { names.push(n); }
+    for (_, n) in &dy.state_sliders { names.push(n.as_str()); }
+
+    for entry in registry {
+        let Some(en) = entry.get("name").and_then(|v| v.as_str()) else { continue };
+        if !names.contains(&en) { continue; }
+        if entry.get("prop_bonuses").and_then(|v| v.as_array())
+            .map(|a| !a.is_empty()).unwrap_or(false)
+        {
+            return None;
+        }
+        for b in entry.get("stat_bonuses").and_then(|v| v.as_array())
+            .map(|a| a.as_slice()).unwrap_or(&[])
+        {
+            let Some(k) = b.get("key").and_then(|v| v.as_str()) else { continue };
+            if k.starts_with("damMult.") || k.starts_with("defMult.") { continue; }
+            // The lowering refuses these for static rows too.
+            if k == "atkSpd" || k.contains('.') { return None; }
+            if !extra_keys.iter().any(|e| e == k) { extra_keys.push(k.to_string()); }
+        }
+    }
+    Some(extra_keys)
+}
+
+/// Per-row bonuses for tokens injected after the lowering was built,
+/// in the three shapes `DRow` uses.
+#[derive(Default, Clone)]
+pub struct DenseRowExtra {
+    pub stat: Vec<(u32, f64, bool)>,
+    pub dam: Vec<(DMultEntry, f64, bool)>,
+    pub def: Vec<(DMultEntry, f64, bool)>,
+}
+
+/// Slots in a `SimMemo`. Direct-mapped, so this is also the collision budget.
+const SIM_MEMO_SLOTS: usize = 512;
+
+/// Memo for the per-leaf simulation, keyed on everything it reads.
+///
+/// The simulation's only per-trial input is `dense_sim_obj`'s stat map, so two
+/// trials agreeing on those values produce identical injected tokens and hence
+/// identical bonuses. Greedy trials move one skill point at a time and most of
+/// those moves do not touch a stat the simulation reads — 89% of trials on the
+/// slider benchmark repeat an earlier input.
+///
+/// Direct-mapped and fixed-size, so memory is bounded however long the run is.
+/// The full key is stored and compared on lookup: a hash collision costs a
+/// recompute, it can never return another trial's answer.
+pub struct SimMemo {
+    key: Vec<u64>,
+    slots: Vec<Option<(Vec<u64>, Vec<DenseRowExtra>)>>,
+}
+
+impl Default for SimMemo {
+    fn default() -> Self {
+        SimMemo { key: Vec::new(), slots: (0..SIM_MEMO_SLOTS).map(|_| None).collect() }
+    }
+}
+
+impl SimMemo {
+    /// Fills `self.key` from this trial's assembled state and returns its slot.
+    ///
+    /// Absent keys hash as a sentinel rather than 0.0 — the simulation reads a
+    /// missing stat as 0, but a *present* NaN is a different input, and the
+    /// bit pattern has to distinguish them.
+    fn probe(&mut self, d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> usize {
+        const ABSENT: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+        self.key.clear();
+        let mut read = |i: u32| {
+            if bit_get(&s.present, i) { s.vals[i as usize].to_bits() } else { ABSENT }
+        };
+        for (_, i) in &d.mana_keys { let v = read(*i); self.key.push(v); }
+        // `dense_sim_obj` adds these two on top of `mana_keys`.
+        let (hr, hp) = (read(d.s_hpr_raw), read(d.s_hpr_pct));
+        self.key.push(hr);
+        self.key.push(hp);
+        self.key.push(leaf.has_arcanes as u64);
+
+        // FxHash's multiply-xor round, enough for a direct-mapped table.
+        let mut h: u64 = 0;
+        for w in &self.key {
+            h = (h.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+        (h >> 32) as usize % SIM_MEMO_SLOTS
+    }
+}
+
+/// One leaf-trial's dynamic score on the dense path.
+///
+/// Materializes just the stats the simulation reads (`dense_sim_obj`), runs
+/// the per-leaf chain to get this trial's damage rows, resolves the injected
+/// tokens' bonuses to dense slot writes, and scores. Returns `None` when an
+/// injected bonus is not a plain stat or its key is absent from the dense
+/// universe — the caller then has to use the Obj path.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_dynamic_score(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, memo: &mut SimMemo, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, registry: &[Value], consts: &L2Consts,
+    dy: &DynamicRows,
+) -> Option<f64> {
+    // A per-leaf unroll makes the rows themselves an output of the
+    // simulation, which the memo does not carry — but dense is off for those
+    // scenarios, so it never gets here.
+    let memo_slot = if dy.needs_unroll { None } else {
+        let slot = memo.probe(d, leaf, s);
+        if memo.slots[slot].as_ref().is_some_and(|(k, _)| *k == memo.key) {
+            let extra = &memo.slots[slot].as_ref().unwrap().1;
+            return Some(dense_score_extra(d, leaf, s, rows, compiled, tables, extra));
+        }
+        Some(slot)
+    };
+
+    let mut injected: Vec<Vec<Token>> = Vec::new();
+    let damage_rows = phase!(DYN_NS, {
+        let mini = dense_sim_obj(d, leaf, s);
+        dynamic_damage_rows_split(&mini, rows, registry, tables, consts, dy, &mut injected)
+    });
+
+    let mut extra: Vec<DenseRowExtra> = Vec::with_capacity(damage_rows.len());
+    let mut bonuses = Vec::new();
+    let mut props: HashMap<String, PropOverride> = HashMap::new();
+    for i in 0..damage_rows.len() {
+        let row_tokens = injected.get(i).map(|t| t.as_slice()).unwrap_or(&[]);
+        bonuses.clear();
+        props.clear();
+        compile_token_bonuses(row_tokens, registry, &mut bonuses, &mut props);
+        // A prop bonus rewrites the row's spell, which the lowering baked in.
+        if !props.is_empty() { return None; }
+        let mut row_extra = DenseRowExtra::default();
+        for b in &bonuses {
+            match b.kind {
+                // `atkSpd` and the nested-map roots are what the lowering
+                // refuses at build time; refuse them here for the same reason.
+                CompiledBonusKind::Stat => {
+                    if b.key == "atkSpd" || b.key.contains('.') { return None; }
+                    let Some(&slot) = d.idx.get(&b.key) else {
+                        if std::env::var("DENSE_DYN_DEBUG").is_ok() {
+                            eprintln!("dense dynamic: no slot for injected key {:?}", b.key);
+                        }
+                        return None;
+                    };
+                    row_extra.stat.push((slot, b.contrib, b.use_max));
+                }
+                CompiledBonusKind::DamMult =>
+                    row_extra.dam.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+                CompiledBonusKind::DefMult =>
+                    row_extra.def.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+            }
+        }
+        extra.push(row_extra);
+    }
+    if let Some(slot) = memo_slot {
+        memo.slots[slot] = Some((memo.key.clone(), extra.clone()));
+    }
+    Some(dense_score_extra(d, leaf, s, &damage_rows, compiled, tables, &extra))
+}
+
+/// `dense_score` restricted to the terms whose weight sign matches `want_neg`.
+///
+/// Used to build the two-sided ceiling: the negative-weight terms are read
+/// off the low-SP assemble and the non-negative ones off the all-150
+/// assemble, so each term is taken at its own maximum.
+pub fn dense_score_signed(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, want_neg: bool,
+) -> f64 {
+    let DObjective::Custom(weights) = &d.obj else {
+        // Only blends have signed terms; anything else belongs entirely to
+        // the non-negative side.
+        return if want_neg { 0.0 } else { dense_score(d, leaf, s, rows, compiled, tables) };
+    };
+    let mut damage: Option<f64> = None;
+    let mut sum = 0.0;
+    for (ind, weight) in weights {
+        if (*weight < 0.0) != want_neg { continue; }
+        let sub = match ind {
+            None => match damage {
+                Some(dv) => dv,
+                None => {
+                    let dv = dense_combo_damage(d, leaf, s, rows, compiled, tables);
+                    damage = Some(dv);
+                    dv
+                }
+            },
+            Some(ind) => dense_indirect(d, s, ind, tables),
+        };
+        sum += weight * sub;
+    }
+    sum
+}
+
 /// Objective::score over the dense trial state (bit-identical to the Obj path).
 pub fn dense_score(
     d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
     compiled: &[CompiledRow], tables: &Tables,
 ) -> f64 {
+    dense_score_extra(d, leaf, s, rows, compiled, tables, &[])
+}
+
+/// `dense_score` with per-row injected bonuses (see
+/// `dense_combo_damage_extra`). Only the damage term can see them; the
+/// indirect stats read the assembled state, which already has them.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_score_extra(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, extra: &[DenseRowExtra],
+) -> f64 {
     match &d.obj {
-        DObjective::Damage => dense_combo_damage(d, leaf, s, rows, compiled, tables),
+        DObjective::Damage =>
+            dense_combo_damage_extra(d, leaf, s, rows, compiled, tables, extra),
         DObjective::Indirect(ind) => dense_indirect(d, s, ind, tables),
         DObjective::Custom(weights) => {
             let mut damage: Option<f64> = None;
@@ -4273,7 +5340,8 @@ pub fn dense_score(
                     None => match damage {
                         Some(dv) => dv,
                         None => {
-                            let dv = dense_combo_damage(d, leaf, s, rows, compiled, tables);
+                            let dv = dense_combo_damage_extra(
+                                d, leaf, s, rows, compiled, tables, extra);
                             damage = Some(dv);
                             dv
                         }
@@ -4749,7 +5817,7 @@ pub fn dense_mana_rescue(
 
         let mut sp_f = [0f64; 5];
         for i in 0..5 { sp_f[i] = total_sp[i] as f64; }
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         dense_assemble(d, leaf, scratch, &sp_f);
         let mini = dense_mana_obj(d, leaf, scratch);
         if mana_check_passes(rows, &mini, registry, tables, consts, compiled) {
@@ -4828,6 +5896,25 @@ pub fn dense_assemble_doom(
     }
 }
 
+/// `dense_mana_obj` plus the two stats only the *stateful* simulation reads.
+///
+/// The fast simulation has no HP-regen tick, so `hprRaw`/`hprPct` are absent
+/// from `mana_keys`; `simulate_combo_mana_hp` does tick HP, so a dynamic-row
+/// scenario materializing its stats for the per-leaf simulation needs them
+/// or the HP trajectory silently differs from the Obj path's.
+pub fn dense_sim_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
+    let mut o = dense_mana_obj(d, leaf, s);
+    for (name, i) in [("hprRaw", d.s_hpr_raw), ("hprPct", d.s_hpr_pct)] {
+        if o.contains_key(name) { continue; }
+        if bit_get(&s.present, i) {
+            let v = s.vals[i as usize];
+            if v.is_nan() { o.insert(name.into(), Value::Null); }
+            else { o.insert(name.into(), Value::from(v)); }
+        }
+    }
+    o
+}
+
 /// Mini stat map for the fast mana sim, materialized from the dense
 /// assembled state. Contains exactly the keys the sim and the compiled
 /// cost path read, with bit-identical values (present non-numerics become
@@ -4876,7 +5963,7 @@ pub fn dense_ceiling_cached(
         leaf.const_term_vals[slot] += dv;
     }
     {
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         // Row-op journals rolled back after each eval, so the scratch still
         // mirrors the leaf except vals (fully overwritten by the assemble);
         // it only needs (re)sizing against this leaf.
@@ -4893,7 +5980,7 @@ pub fn dense_ceiling_cached(
         dense_assemble(d, leaf, scratch, &ceiling_sp);
     }
     let v = {
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         dense_score(d, leaf, scratch, rows, compiled, tables)
     };
     let leaf = &mut work.leaf;
@@ -4929,7 +6016,7 @@ pub fn dense_ceiling_with(
         leaf.const_term_vals[slot] += dv;
     }
     work.scratch.reset(&work.leaf, d);
-    let DenseWork { leaf, scratch } = work;
+    let DenseWork { leaf, scratch, .. } = work;
     let ceiling_sp = [150f64; 5];
     dense_assemble(d, leaf, scratch, &ceiling_sp);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))

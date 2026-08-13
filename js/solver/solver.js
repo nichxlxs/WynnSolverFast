@@ -729,7 +729,8 @@ function _restore_atree_and_combo(decoded_sp, solver_params) {
 
 async function init() {
 
-    // Disable thread count options that exceed the browser-reported logical CPU count.
+    // Disable thread count options that exceed the browser-reported logical CPU count,
+    // and resolve the "Auto" label now rather than waiting for the first solve.
     const hw = navigator.hardwareConcurrency;
     if (hw) {
         const tsel = document.getElementById('solver-thread-count');
@@ -742,6 +743,8 @@ async function init() {
             }
         }
     }
+    if (typeof solver_refresh_auto_thread_label === 'function') solver_refresh_auto_thread_label();
+    if (typeof solver_engine_changed === 'function') solver_engine_changed();
 
     // decodeHash() loads all game data (items, tomes, aspects, atree, encoding constants)
     // and, when a URL hash is present, populates all input fields from the encoded build.

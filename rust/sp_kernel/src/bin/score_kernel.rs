@@ -147,14 +147,31 @@ fn main() {
     let compiled_rows = compile_rows(&rows, &registry, &hit_refs);
     let mut lc_pass = 0u64;
     let mut lc_fail = 0u64;
-    let dense_ctx = layer2.as_ref().and_then(|l2| {
-        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[], &Default::default())
+    // Same injectability gate the solver applies at load: a validator that
+    // built a dense context the solver would have refused would be checking a
+    // path that never runs — and `dense_dynamic_score` panics rather than
+    // falls back, so it would crash here instead of reporting a diff.
+    let dense_extra_keys = dense_injectable_keys(l2consts.as_ref().and_then(|c| c.dynamic.as_ref()), &registry);
+    let dense_ctx = layer2.as_ref().zip(dense_extra_keys.as_ref()).and_then(|(l2, keys)| {
+        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[],
+                        &Default::default(), keys)
     });
     let mut ld_pass = 0u64;
     let mut ld_fail = 0u64;
     let mut dense_work = DenseWork::default();
 
     let cases = fixture["cases"].as_array().expect("cases array");
+    // A benchmark-only fixture (see js/solver/tests/gen_bench_fixtures.js)
+    // carries no per-case expectations on purpose, because it is a synthetic
+    // edit of an exported scenario and the exported numbers no longer describe
+    // it. Say so rather than reporting a vacuous "0 exact / 0 diff", which
+    // reads like a validation that ran.
+    if cases.is_empty() {
+        println!("{}: benchmark-only fixture — no per-case expectations to validate.\n\
+                  Time it with `enum_kernel <enum fixture> <threads> {}`.",
+                 fixture_path, fixture_path);
+        return;
+    }
     let mut pass = 0u64;
     let mut fail = 0u64;
     let started = Instant::now();
@@ -191,7 +208,7 @@ fn main() {
                         None => compute_spell_display_avg(&stats, &weapon, &mod_spell, crit, &tables, None),
                     };
                     let eff_qty = if row.is_melee_time {
-                        compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, &tables)
+                        compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, &tables, None)
                     } else { row.qty };
                     eprintln!("  row {} per_cast={:.17e} eff_qty={:.17e} dps={:?}",
                         ri, per_cast, eff_qty, eff_dps_name);

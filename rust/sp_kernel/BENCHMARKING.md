@@ -3,6 +3,59 @@
 Two tools. `bench.py` measures the solver itself; `gpu_bench` answers
 whether a GPU offload would be worth building on your machine.
 
+## Fixtures first
+
+`fixtures/` is gitignored — everything in it is derived — so a clean checkout
+has none. Export the base ones with the `SOLVER_EXPORT_RUST` /
+`SOLVER_EXPORT_SCORE` command in [README.md](README.md), then:
+
+```bash
+node js/solver/tests/gen_bench_fixtures.js
+```
+
+That adds six scenario shapes the exported corpus does not contain, most
+derived from `score_spell2.json` and pairing with `enum_spell2.txt` (the two
+hp_casting ones name their own base and pairing):
+
+| Fixture | Shape | What it measures |
+|---|---|---|
+| `score_slider.json` | a buff state declaring a slider | the dynamic-row path (A6/B9) |
+| `score_blend_pos.json` | weights all non-negative | the two-sided ceiling must be a no-op here |
+| `score_blend_neg.json` | one negative weight | B2 |
+| `score_blend_mixed.json` | both signs | the shape the gate was unsound on |
+| `score_hpcast.json` | HP-cost casting, no declared slider | the ceiling gate on `hp_casting` (B4); pairs with `enum_spell_wide.txt` |
+| `score_hpcast_2m.json` | the same, on a space that completes | for exhaustive on/off comparison |
+
+They are **benchmark-only** — their `cases[]` is empty on purpose, because the
+scenario is a synthetic edit and the exported per-case expectations no longer
+describe it. `score_kernel` will tell you so rather than validate them.
+Correctness for these shapes is covered against the JS elsewhere:
+`mana_sim_check`, `SCORE_DENSE_CHECK=1` (dense against Obj on every trial) and
+`SCORE_DENSE=0` (the whole Obj path).
+
+Reproducing B9's 16.7x, for example:
+
+```bash
+./target/release/enum_kernel fixtures/enum_spell2.txt 1 fixtures/score_slider.json
+```
+
+## Build-family fixtures
+
+The six build-family benchmarks (PR #8) are defined as **JS solver snapshots**,
+so the Rust engine cannot run them until each is exported as an (enum, score)
+fixture pair. Until that was done they were simply absent from the Rust
+matrix — `bench.py` only knew the older fixtures, so `./bench.py` reported
+nothing for them and the omission was invisible.
+
+```bash
+rust/sp_kernel/gen_family_fixtures.sh     # ~15 min, all 18
+./bench.py --scenarios families
+```
+
+`families` expands to all 18 (`fam_<family>_<size>`), or name them
+individually. Each family is supplied 5, then 4, then 3 items from its
+validated ideal build, so small → medium → large widens the same search.
+
 ## bench.py — scenario × configuration matrix
 
 ```bash

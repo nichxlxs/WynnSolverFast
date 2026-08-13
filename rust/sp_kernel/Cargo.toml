@@ -3,6 +3,11 @@ name = "sp_kernel"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+# cdylib is required for a loadable wasm module; rlib keeps the bins and
+# integration tests linking against the same crate.
+crate-type = ["cdylib", "rlib"]
+
 [profile.release]
 lto = true
 codegen-units = 1
@@ -10,12 +15,16 @@ codegen-units = 1
 [dependencies]
 wgpu = { version = "22", optional = true, default-features = true }
 pollster = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
 serde_json = { version = "1.0.151", features = ["preserve_order", "float_roundtrip"] }
 
 [features]
 # Optional GPU probing/acceleration (wgpu). Not built by default — the
 # solver is fully functional without it; enable with --features gpu.
 gpu = ["dep:wgpu", "dep:pollster"]
+# Browser build: cargo build --release --target wasm32-unknown-unknown --features wasm
+wasm = ["dep:wasm-bindgen", "dep:js-sys"]
 
 [[bin]]
 name = "gpu_probe"

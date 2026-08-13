@@ -1,0 +1,20 @@
+<!doctype html><html><body><pre id="out">running…</pre>
+<script type="module">
+import init, { solve } from '/js/solver/wasm/sp_kernel.js';
+const log = (s) => { document.getElementById('out').textContent += '\n' + s; };
+try {
+  await init();
+  const e = await (await fetch('/fx/enum_armor4.txt')).text();
+  const s = await (await fetch('/fx/score_armor4.json')).text();
+  solve(e, s, 0);
+  const t0 = performance.now();
+  const r = JSON.parse(solve(e, s, 0));
+  log('armor4 (wasm-opt -Oz): checked=' + r.checked + ' | ' + Math.round(performance.now()-t0) + 'ms | top1=' + r.top[0].score);
+  const e2 = await (await fetch('/fx/enum_spell2.txt')).text();
+  const s2 = await (await fetch('/fx/score_spell2.json')).text();
+  solve(e2, s2, 0);
+  const r2 = JSON.parse(solve(e2, s2, 0));
+  log('spell2 top1=' + r2.top[0].score.toExponential(17));
+  document.title = 'DONE';
+} catch (er) { log('ERROR: ' + er.message); document.title = 'ERROR'; }
+</script></body></html>
