@@ -897,13 +897,14 @@ impl<'a> Search<'a> {
                 }
             }
             use crate::scoring::LeafOutcome;
-            match crate::scoring::leaf_pipeline_gated(
+            let (outcome, tome_choice) = crate::scoring::leaf_pipeline_tome(
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
                 &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
                 sc.dense.as_ref().map(|d| (d, &mut self.dense_work)),
                 &sc.thresholds, &sc.spell_base_costs,
-            ).expect("scoring pipeline error") {
+            ).expect("scoring pipeline error");
+            match outcome {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
@@ -919,6 +920,7 @@ impl<'a> Search<'a> {
                             score: r.score, items: names_owned,
                             base_sp: r.base_sp, total_sp: r.total_sp,
                             assigned_sp: r.assigned_sp,
+                            tome: tome_choice,
                         });
                         self.top_n.truncate(15);
                         if self.top_n.len() == 15 {
@@ -1318,6 +1320,28 @@ pub struct TopEntry {
     pub base_sp: [i32; 5],
     pub total_sp: [i32; 5],
     pub assigned_sp: i32,
+    /// Which tome the leaf loop chose, when tome optimisation is on. `None`
+    /// leaves the UI's existing fixed-tome display untouched.
+    pub tome: Option<crate::scoring::TomeChoice>,
+}
+
+
+/// `"tome":{...}` for a result, or empty when tome optimisation is off.
+/// Emitted only when a choice exists so the UI's fixed-tome display is
+/// untouched on every pre-tome scenario.
+fn tome_json(t: &Option<crate::scoring::TomeChoice>) -> String {
+    let Some(c) = t else { return String::new() };
+    let names = |v: &Vec<String>| -> String {
+        let mut out = String::from("[");
+        for (i, n) in v.iter().enumerate() {
+            if i > 0 { out.push(','); }
+            out.push_str(&serde_json::to_string(n).unwrap_or_else(|_| "\"\"".into()));
+        }
+        out.push(']');
+        out
+    };
+    format!(",\"tome\":{{\"guild_idx\":{},\"weaponTome\":{},\"armorTome\":{}}}",
+            c.guild_idx, names(&c.weapon_names), names(&c.armor_names))
 }
 
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
@@ -1474,8 +1498,9 @@ pub fn progress_json(p: &ProgressSnapshot) -> String {
         // Interim rows carry the SP assignment too, so a result shown mid-run
         // is not a zeroed placeholder that only becomes real when it finishes.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
-                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
+                              tome_json(&e.tome)));
     }
     top.push(']');
     format!(
@@ -1540,8 +1565,9 @@ pub fn solve_json_full(
         // the build's skill points; without it the UI would show a zeroed
         // allocation whose stats contradict the score.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
-                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
+                              tome_json(&e.tome)));
     }
     top.push(']');
     format!(

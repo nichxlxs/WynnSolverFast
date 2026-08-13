@@ -1446,6 +1446,25 @@ impl Layer2 {
     /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
     /// atree_raw merge + atree scaling (cached/split) + static boosts.
     pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
+        self.assemble_from_base_extra(base, total_sp, weapon, None)
+    }
+
+    /// `assemble_from_base` with a tome bundle merged last.
+    ///
+    /// Mirrors the JS `assemble_combo_stats(..., extra_stats)`, which merges
+    /// the bundle after `static_boosts` with `_merge_into` (plain-key merge is
+    /// additive), because a tome bundle is a plain additive stat sum with no
+    /// requirements of its own. It is NOT summed at the item stage: the JS
+    /// applies it at the end of assembly, and `merge_into` and `add_item`
+    /// differ on how a previous non-numeric value reads.
+    ///
+    /// The guild tome deliberately contributes nothing here — it reaches the
+    /// build only through the SP solve (`_scratch_all_equip` in the JS worker
+    /// is 8 equips + tome_sms + weapon, with `guild_tome_sm` excluded), so a
+    /// guild candidate changes `base_sp`/`total_sp` and nothing else.
+    pub fn assemble_from_base_extra(
+        &self, base: &Obj, total_sp: &[f64], weapon: &Obj, extra: Option<&Obj>,
+    ) -> Obj {
         // assemble_combo_stats: pre_scale = clone + skp + classDef + atree_raw
         let mut pre_scale = base.clone();
         for (i, skp) in self.skp_order.iter().enumerate() {
@@ -1475,6 +1494,7 @@ impl Layer2 {
         merge_into(&mut combo_base, scaled);
         merge_into(&mut combo_base, var_out.as_ref());
         merge_into(&mut combo_base, self.static_boosts.as_ref());
+        merge_into(&mut combo_base, extra);
         combo_base
     }
 }
@@ -2099,7 +2119,7 @@ pub fn leaf_pipeline(
 ) -> Result<Option<LeafResult>, String> {
     match leaf_pipeline_gated(item_names, l2, weapon, guild, kernel, rows,
                               registry, hit_refs, tables, consts, objective, compiled, None,
-                              dense, thresholds, base_costs)? {
+                              dense, thresholds, base_costs, None, None)? {
         LeafOutcome::Scored(r) => Ok(Some(r)),
         LeafOutcome::Gated => unreachable!("no cutoff passed"),
         _ => Ok(None),
@@ -2162,6 +2182,127 @@ macro_rules! phase {
     }};
 }
 
+/// Which tome the leaf loop settled on, echoed back with the result.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TomeChoice {
+    pub guild_idx: i64,
+    pub weapon_names: Vec<String>,
+    pub armor_names: Vec<String>,
+}
+
+/// `leaf_pipeline_gated` with the tome as a searched dimension.
+///
+/// Mirrors the JS worker's leaf loop: for each guild candidate (each needs its
+/// own SP solve, because a guild tome carries requirements and skill points)
+/// crossed with each weapon/armour bundle (a plain additive stat sum merged
+/// last), score the leaf and keep the best.
+///
+/// The JS runs its SP gate with the optimistic guild tome and its ceiling gate
+/// with the optimistic bundle before the loop, then re-gates per bundle inside
+/// it. Here every combination is gated against its OWN ceiling, which is at
+/// least as tight and never prunes a combination that could beat the cutoff —
+/// only the best combination is ever inserted, and the best must beat the
+/// cutoff to be inserted at all. Same results, different amount of work.
+///
+/// The leaf base is built once here and shared: it depends on neither the
+/// guild choice (which reaches the build only through the SP solve) nor the
+/// bundle (which is merged after assembly).
+pub fn leaf_pipeline_tome(
+    item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
+    kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
+    objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
+    dense: Option<(&DenseCtx, &mut DenseWork)>,
+    thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
+) -> Result<(LeafOutcome, Option<TomeChoice>), String> {
+    // Off, or nothing to search: the exact pre-tome pipeline, untouched.
+    if l2.tome_opt == 0
+        || (l2.guild_tome_cands.is_empty() && l2.tome_wa_bundles.is_empty()) {
+        let out = leaf_pipeline_gated(
+            item_names, l2, weapon, guild, kernel, rows, registry, hit_refs, tables,
+            consts, objective, compiled, gate_cutoff, dense, thresholds, base_costs,
+            None, None)?;
+        return Ok((out, None));
+    }
+
+    // A bundle disables the dense lowering (no per-bundle delta yet), and the
+    // base is then read on every combination, so build it once up front.
+    let has_bundles = l2.tome_wa_bundles.iter().any(|b| !b.stats.is_empty());
+    let base_owned: Option<Obj> = if has_bundles {
+        Some(l2.build_base(item_names, weapon)?)
+    } else { None };
+
+    // `None` guild candidates means the guild tome is FIXED (the UI greys the
+    // dropdown out in this mode but the choice still stands), so fall back to
+    // the caller's unit rather than dropping it.
+    let single;
+    let cands: &[TomeCand] = if l2.guild_tome_cands.is_empty() {
+        single = [TomeCand { idx: -1, sm: Obj::new(), unit: guild.copied().unwrap_or_default() }];
+        &single
+    } else {
+        &l2.guild_tome_cands
+    };
+    let no_bundle = [TomeBundle::default()];
+    let bundles: &[TomeBundle] = if l2.tome_wa_bundles.is_empty() {
+        &no_bundle
+    } else {
+        &l2.tome_wa_bundles
+    };
+
+    let mut best: Option<(LeafResult, TomeChoice)> = None;
+    // Worst outcome seen, so a leaf that every combination rejects still
+    // reports WHY rather than collapsing to "SP infeasible".
+    let mut worst = LeafOutcome::SpInfeasible;
+    let rank = |o: &LeafOutcome| match o {
+        LeafOutcome::SpInfeasible => 0,
+        LeafOutcome::Gated => 1,
+        LeafOutcome::ManaReject => 2,
+        LeafOutcome::ThresholdReject => 3,
+        LeafOutcome::Scored(_) => 4,
+    };
+
+    // Dense is only reachable when no bundle carries stats; it is a &mut, so
+    // it cannot be handed to more than one call. Guild-only mode still gets it
+    // on the first (and only) bundle.
+    let mut dense_slot = if has_bundles { None } else { dense };
+
+    for cand in cands {
+        for bundle in bundles {
+            let extra = if bundle.stats.is_empty() { None } else { Some(&bundle.stats) };
+            let out = leaf_pipeline_gated(
+                item_names, l2, weapon, Some(&cand.unit), kernel, rows, registry,
+                hit_refs, tables, consts, objective, compiled,
+                // Once this leaf has a best, a later combination only matters
+                // if it beats it — tighten the gate accordingly.
+                match (&best, gate_cutoff) {
+                    (Some((b, _)), Some(c)) => Some(b.score.max(c)),
+                    (Some((b, _)), None) => Some(b.score),
+                    (None, c) => c,
+                },
+                dense_slot.take(), thresholds, base_costs,
+                extra, base_owned.as_ref())?;
+            let r_out = rank(&out);
+            if let LeafOutcome::Scored(r) = out {
+                let better = best.as_ref().map(|(b, _)| r.score > b.score).unwrap_or(true);
+                if better {
+                    best = Some((r, TomeChoice {
+                        guild_idx: cand.idx,
+                        weapon_names: bundle.weapon_names.clone(),
+                        armor_names: bundle.armor_names.clone(),
+                    }));
+                }
+            } else if r_out > rank(&worst) {
+                worst = out;
+            }
+        }
+    }
+
+    match best {
+        Some((r, choice)) => Ok((LeafOutcome::Scored(r), Some(choice))),
+        None => Ok((worst, None)),
+    }
+}
+
 pub fn leaf_pipeline_gated(
     item_names: &[&str], l2: &Layer2, weapon: &Obj, guild: Option<&crate::Unit>,
     kernel: &mut crate::Kernel, rows: &[Row], registry: &[Value],
@@ -2169,6 +2310,13 @@ pub fn leaf_pipeline_gated(
     objective: &Objective, compiled: Option<&[CompiledRow]>, gate_cutoff: Option<f64>,
     dense: Option<(&DenseCtx, &mut DenseWork)>,
     thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
+    // Tome bundle for this trial, merged last into every assemble. None when
+    // tome optimisation is off or the bundle is empty.
+    tome_extra: Option<&Obj>,
+    // Prebuilt leaf base. The tome loop runs this pipeline once per
+    // (guild candidate x bundle), and the base depends on neither — rebuilding
+    // it per combination would cost more than the whole rest of the trial.
+    base_pre: Option<&Obj>,
 ) -> Result<LeafOutcome, String> {
     // Dynamic rows rule out every precomputed shortcut: the compiled rows and
     // the dense lowering both key off parse-time-constant boost tokens, and
@@ -2188,6 +2336,11 @@ pub fn leaf_pipeline_gated(
         Some(dy) if dy.needs_unroll => None,
         _ => dense,
     };
+    // The dense lowering folds the FIXED tomes in at load time and has no
+    // per-bundle delta, so a bundle would silently score without its stats.
+    // Guild-only tome optimisation has no bundle and keeps the dense path:
+    // a guild candidate changes only the SP solve.
+    let dense = if tome_extra.is_some() { None } else { dense };
     let gate_cutoff = if dynamic.is_some() { None } else { gate_cutoff };
 
     let obj_score = |cb: &mut Obj| -> f64 {
@@ -2251,6 +2404,10 @@ pub fn leaf_pipeline_gated(
             skp: arr5("skillpoints"),
         }
     };
+    // Every assemble in this function goes through here so a tome bundle
+    // cannot be applied to some stages and missed by others.
+    let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_extra(base, sp, weapon, tome_extra);
+
     let mut equipment: [crate::Unit; 8] = Default::default();
     let mut equips: Vec<&Obj> = Vec::new();
     for (i, name) in item_names.iter().enumerate().take(8) {
@@ -2316,7 +2473,7 @@ pub fn leaf_pipeline_gated(
             if base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
-            if let Some(l) = DenseLeaf::build(d, l2, base_opt.as_ref().unwrap(), tables) {
+            if let Some(l) = DenseLeaf::build(d, l2, base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), tables) {
                 w.leaf = l;
                 ok = true;
             }
@@ -2350,7 +2507,7 @@ pub fn leaf_pipeline_gated(
             && consts.hp_casting;
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
             && !gate_env_off {
-            if (dwork.is_none() || dense_check) && base_opt.is_none() {
+            if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
             // Blends with a negative weight need each term at its own
@@ -2361,7 +2518,7 @@ pub fn leaf_pipeline_gated(
             // Only the Obj fallback needs the materialized base; the dense
             // path assembles both SP states from the lowered leaf. Building
             // it unconditionally cost more than the gate saved.
-            if two_sided && dwork.is_none() && base_opt.is_none() {
+            if two_sided && dwork.is_none() && base_pre.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE_NS, {
@@ -2380,22 +2537,22 @@ pub fn leaf_pipeline_gated(
                         dense_score(d, leaf, scratch, rows, compiled_rows, tables)
                     };
                     if dense_check && !two_sided {
-                        let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
+                        let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
                     v
                 } else if two_sided {
-                    let base = base_opt.as_ref().unwrap();
-                    let cb_lo = l2.assemble_from_base(base, &low_sp, weapon);
+                    let base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
+                    let cb_lo = asm(base, &low_sp);
                     let neg = objective.score_signed(
                         &cb_lo, weapon, rows, registry, hit_refs, tables, true);
-                    let cb150 = l2.assemble_from_base(base, &ceiling_sp, weapon);
+                    let cb150 = asm(base, &ceiling_sp);
                     objective.score_signed(
                         &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
-                    let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
+                    let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
                     obj_score(&mut cb150)
                 };
                 ceiling < cutoff - cutoff.abs() * 1e-9
@@ -2408,7 +2565,7 @@ pub fn leaf_pipeline_gated(
     // mode, and the mana rescue). Dense leaves never build it unless the
     // rescue path fires — the mana/doom/final stages read a mini stat map
     // materialized from the dense assembled state instead.
-    if (dwork.is_none() || dense_check) && base_opt.is_none() {
+    if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
         base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
     }
 
@@ -2473,13 +2630,13 @@ pub fn leaf_pipeline_gated(
                 let mini = dense_mana_obj(d, leaf, scratch);
                 let doomed = !mana_check_passes(rows, &mini, registry, tables, consts, compiled);
                 if dense_check && l2.mana_doom_ok {
-                    let cb_doom = l2.assemble_from_base(base_opt.as_ref().unwrap(), &doom_sp, weapon);
+                    let cb_doom = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &doom_sp);
                     let od = !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled);
                     assert_eq!(doomed, od, "dense/obj doom mismatch");
                 }
                 doomed
             } else {
-                let cb_doom = l2.assemble_from_base(base_opt.as_ref().unwrap(), &doom_sp, weapon);
+                let cb_doom = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &doom_sp);
                 !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled)
             }
         });
@@ -2515,14 +2672,14 @@ pub fn leaf_pipeline_gated(
                 None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
             });
             if dense_check {
-                let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon);
+                let mut cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &trial_sp_f);
                 let o = obj_score(&mut cb);
                 assert!(v == o || (v.is_nan() && o.is_nan()),
                         "dense/obj trial mismatch at {sp:?}: {v:?} vs {o:?}");
             }
             return v;
         }
-        let mut cb = phase!(ASM_NS, l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon));
+        let mut cb = phase!(ASM_NS, asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &trial_sp_f));
         phase!(DMG_NS, obj_score(&mut cb))
     };
     assigned_sp += phase!(GREEDY_NS, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
@@ -2536,14 +2693,14 @@ pub fn leaf_pipeline_gated(
             dense_assemble(d, leaf, scratch, &sp_f5);
             if !d.thresholds.is_empty() && !dense_check_thresholds(d, scratch, tables, consts) {
                 if dense_check {
-                    let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                    let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                     let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
                     assert!(!ov, "dense/obj threshold mismatch (dense rejects)");
                 }
                 return Ok(LeafOutcome::ThresholdReject);
             }
             if dense_check && !thresholds.is_empty() {
-                let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
                 assert!(ov, "dense/obj threshold mismatch (dense passes)");
             }
@@ -2553,7 +2710,7 @@ pub fn leaf_pipeline_gated(
             let mini = dense_mana_obj(d, leaf, scratch);
             let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
             if dense_check {
-                let cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let oo = mana_check_passes(rows, &cb, registry, tables, consts, compiled);
                 assert_eq!(ok, oo, "dense/obj final mana mismatch");
             }
@@ -2574,7 +2731,7 @@ pub fn leaf_pipeline_gated(
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 };
                 if dense_check {
-                    let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
+                    let mut cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                     let o = obj_score(&mut cb);
                     assert!(v == o || (v.is_nan() && o.is_nan()),
                             "dense/obj final score mismatch: {v:?} vs {o:?}");
@@ -2591,7 +2748,7 @@ pub fn leaf_pipeline_gated(
             if dense_check {
                 let bb = match &base_opt {
                     Some(b) => b,
-                    None => { base_opt = Some(l2.build_base(item_names, weapon)?); base_opt.as_ref().unwrap() }
+                    None => { base_opt = Some(l2.build_base(item_names, weapon)?); base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()) }
                 };
                 let mut b2 = saved_rescue_base;
                 let mut t2 = saved_rescue_total;
@@ -2626,9 +2783,9 @@ pub fn leaf_pipeline_gated(
         }
         return Ok(LeafOutcome::ManaReject);
     }
-    let build_base = base_opt.as_ref().unwrap();
+    let build_base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
     let sp_f: Vec<f64> = sp_f5.to_vec();
-    let mut combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
+    let mut combo_base = asm(build_base, &sp_f);
     if !thresholds.is_empty()
         && !check_thresholds_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts) {
         return Ok(LeafOutcome::ThresholdReject);

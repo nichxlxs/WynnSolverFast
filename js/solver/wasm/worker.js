@@ -97,6 +97,11 @@ self.onmessage = async (event) => {
                 // whose recomputed stats contradict the score.
                 base_sp: t.base_sp, total_sp: t.total_sp,
                 assigned_sp: t.assigned_sp,
+                // Which tome the engine chose, when tome optimisation is on.
+                // Same reasoning as the SP fields above: this normalizer is
+                // the last link before the host, and it is where the SP
+                // assignment was silently dropped before.
+                tome: t.tome ?? null,
             })),
             complete: result.complete,
         });

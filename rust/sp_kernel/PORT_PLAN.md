@@ -286,12 +286,31 @@ Checked against the data and the code:
   `dam_tome_adds` constants captured from the *fixed* tome/weapon lowering.
   `damMobs`/`defMobs` are ordinary dense-indexed slots.
 
-So a bundle can be lowered exactly like any other item, with
-`DenseDirect::lower_item`, and its `damMobs`/`defMobs` land in the dense
-vector and flow into `dam_tome`/`def_tome` on their own. **Bundles become
-lowered delta rows applied and undone per trial** — the existing `DenseUndo`
-machinery — rather than separate contexts or a slow-path fallback. Lower
-each bundle once at load; apply/undo per trial inside the leaf loop.
+That reasoning was **wrong**, and implementing it that way would have made
+the Rust engine disagree with the JS one. Two things settle it:
+
+- The JS merges the bundle at the *end of assembly*
+  (`assemble_combo_stats(..., extra_stats)` -> `_merge_into`, after
+  `static_boosts`), NOT into the item sum. `merge_into` and `add_item`
+  differ on how a previous non-numeric value reads, so the stage matters.
+- `damMult["tome"]` is built from `damMobs` in `finalizeStatmap`, during
+  build_sm construction — **before** the bundle is merged — and `_merge_into`
+  never touches `damMult`. So in the JS a bundle's `damMobs` does *not*
+  reach the damage multiplier at all. Rust does the same: `build_base` sets
+  `damMult.tome` from `sm.get("damMobs")` and the extra merges later.
+
+Lowering bundles into the dense `damMobs` slot would therefore have fed
+`dense_apply`'s `dam_tome = read0(vals, present, dd.dam_mobs_idx)` a value
+the JS never applies — a silent divergence on exactly the tomes most likely
+to appear in a bundle.
+
+**What was implemented instead**: the bundle merges into the Obj assemble via
+`Layer2::assemble_from_base_extra`, mirroring the JS stage for stage, and the
+dense path is switched off for the duration of a bundle
+(`let dense = if tome_extra.is_some() { None } else { dense }`). Guild-only
+mode keeps the dense path, because a guild candidate changes only the SP
+solve. A dense bundle delta remains possible as a speed follow-up, but it
+must reproduce the staging above rather than the item-sum shortcut.
 
 ### Work items
 
@@ -316,3 +335,19 @@ each bundle once at load; apply/undo per trial inside the leaf loop.
 
 Do **not** ship this behind a partial fallback: until step 6 passes, the
 decline in step 5 stays, so a half-finished port cannot reach users.
+
+## Status
+
+Steps 1-5 are **done**; the decline is dropped. `check_tome_parity.sh` runs
+step 6's gate on both modes and is green:
+
+| scenario | mode | js | rust | leaves |
+|---|---|---:|---:|---:|
+| `solver_oracle_tome_guild` | 7 guild candidates, 0 bundles | 1499819 | 1499819 | 64 = 64 |
+| `solver_oracle_tome_all` | 7 candidates, 36 bundles | 1540052 | 1540052 | 25 = 25 |
+
+Same top-1 score, same build, same number of leaves checked.
+
+Remaining as a speed follow-up, not a correctness one: a dense bundle delta
+(see the staging warning above), so bundle scenarios stop falling back to the
+Obj path.

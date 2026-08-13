@@ -1637,20 +1637,12 @@ function solver_engine_changed() {
 function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
                                      on_unsupported) {
     if (!_rust_engine_available()) return false;
-    // Tome optimisation makes the tome a *searched* dimension: the JS workers
-    // pick a guild tome from `snap.guild_tome_candidates` and a weapon/armour
-    // bundle from `snap.tome_wa_bundles` per leaf. The Rust fixture serialises
-    // only the currently fixed tome maps and the engine has no concept of the
-    // candidate lists, so it would rank gear against one arbitrary tome set —
-    // silently returning a non-optimal build rather than refusing. Until the
-    // dimension is ported, this scenario belongs to the JS engine.
-    if ((snap.tome_opt ?? 0) >= 1) {
-        console.info('[solver] tome optimisation is on — using the JS engine '
-            + '(the Rust engine does not search tome combinations yet)');
-        _solver_state.engine_fallback_reason =
-            'tome optimisation is not supported by the Rust engine yet';
-        return false;
-    }
+    // Tome optimisation is a SEARCHED dimension, and the Rust engine now
+    // searches it: the fixture carries the guild candidates and the
+    // weapon/armour bundles, and `leaf_pipeline_tome` tries each combination
+    // per leaf. Parity against the JS engine is checked by
+    // `rust/sp_kernel/check_tome_parity.sh` on both modes (guild-only and
+    // guild+bundles): same top-1 score, same build, same leaves checked.
     try {
         const bridge = window.__solver_rust_bridge;
         if (!bridge) return false;
@@ -1887,13 +1879,26 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
             // here fed `_fill_build_into_ui` a bogus allocation, which it
             // installs into `_solver_sp_override` — the loaded build would
             // then display stats that contradict the score it was ranked by.
-            state.top5 = (m.top_n || []).map((t) => ({
-                score: t.score,
-                item_names: t.item_names ?? t.items,
-                base_sp: t.base_sp,
-                total_sp: t.total_sp,
-                assigned_sp: t.assigned_sp,
-            }));
+            state.top5 = (m.top_n || []).map((t) => {
+                const e = {
+                    score: t.score,
+                    item_names: t.item_names ?? t.items,
+                    base_sp: t.base_sp,
+                    total_sp: t.total_sp,
+                    assigned_sp: t.assigned_sp,
+                };
+                // Tome optimisation: translate the engine's shape into the one
+                // the JS workers already emit, so _merge_worker_top5 and
+                // _fill_build_into_ui need no engine-specific branch.
+                if (t.tome) {
+                    e.guild_tome_idx = t.tome.guild_idx;
+                    const w = t.tome.weaponTome ?? [], a = t.tome.armorTome ?? [];
+                    if (w.length || a.length) {
+                        e.tome_names = { weaponTome: w, armorTome: a };
+                    }
+                }
+                return e;
+            });
             finish_one();
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
