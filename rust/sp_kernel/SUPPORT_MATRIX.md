@@ -47,7 +47,8 @@ ordered roughly by expected user impact within each section.
 
 | # | Gap | Notes |
 |---|-----|-------|
-| C1 | Rust engine is not shipped to users | It runs as a native benchmark/validation kernel; the browser uses the JS engine. A WASM build + worker integration would give end users the ~1000x. |
+| C1 | Rust engine is not shipped to users | Phase 1 DONE: the library compiles for wasm32-unknown-unknown unchanged (native codegen flag scoped to host targets). Remaining: extract enumeration from the bin into the lib, wasm-bindgen API, browser data loading, wasm threads via SharedArrayBuffer (same COOP/COEP setup the shared cutoff uses), single-thread fallback. |
+| C4 | Optional GPU runner | Detection DONE (`--features gpu`, `gpu_probe` bin): ranks real adapters, reports exact-f64 (discrete + SHADER_F64, e.g. 3060 Ti) / prescreen-f32 (typical integrated) / cpu-only tiers with graceful fallback. Batched ceiling evaluation per GPU_PLAN.md is the follow-up. |
 | C2 | Fixture export is test-harness-driven | Scenarios come from snapshots via `test_solver_search.js`; no direct app → fixture path. |
 | C3 | Rust top-15 tie membership at the boundary | Score sets match JS exactly; which of several EQUAL-scoring builds occupies the last slot can differ (insertion order). Documented, not a correctness issue. |
 

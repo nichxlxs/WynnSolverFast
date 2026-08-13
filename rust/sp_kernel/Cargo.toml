@@ -8,4 +8,15 @@ lto = true
 codegen-units = 1
 
 [dependencies]
+wgpu = { version = "22", optional = true, default-features = true }
+pollster = { version = "0.3", optional = true }
 serde_json = { version = "1.0.151", features = ["preserve_order", "float_roundtrip"] }
+
+[features]
+# Optional GPU probing/acceleration (wgpu). Not built by default — the
+# solver is fully functional without it; enable with --features gpu.
+gpu = ["dep:wgpu", "dep:pollster"]
+
+[[bin]]
+name = "gpu_probe"
+required-features = ["gpu"]
