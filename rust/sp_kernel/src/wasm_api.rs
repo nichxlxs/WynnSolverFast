@@ -31,3 +31,28 @@ pub fn search_space(enum_fixture: &str) -> f64 {
     let fx = crate::enumerate::parse_fixture(enum_fixture);
     crate::enumerate::Search::new(&fx).total_space_of()
 }
+
+/// `solve` with a live-progress callback.
+///
+/// `on_progress` is invoked with a JSON string (checked/total, the funnel
+/// counters, and the interim top-N) roughly every 2M credited leaves and
+/// once more when the search ends. This is what lets a long solve show
+/// movement in the UI instead of appearing hung — the reason to run this in
+/// a dedicated worker rather than chunking on the main thread.
+///
+/// Emission is keyed on leaves rather than wall time because wasm32 has no
+/// usable clock; that also makes the emission points reproducible.
+#[wasm_bindgen]
+pub fn solve_with_progress(
+    enum_fixture: &str, score_fixture: &str, max_leaves: f64, on_progress: &js_sys::Function,
+) -> String {
+    let this = JsValue::NULL;
+    let mut sink = |p: crate::enumerate::ProgressSnapshot| {
+        let payload = crate::enumerate::progress_json(&p);
+        // A throwing callback must not abort the solve.
+        let _ = on_progress.call1(&this, &JsValue::from_str(&payload));
+    };
+    crate::enumerate::solve_json_with_progress(
+        enum_fixture, score_fixture, max_leaves, Some(&mut sink),
+    )
+}

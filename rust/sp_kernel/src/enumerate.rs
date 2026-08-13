@@ -336,6 +336,15 @@ pub struct Search<'a> {
     bound_work: crate::scoring::DenseWork,
     checked_flushed: f64,
 
+    /// Optional live-progress sink (browser UI). Called every
+    /// `progress_every` credited leaves with a funnel snapshot plus the
+    /// current top-N, so a long solve shows movement instead of looking
+    /// hung. Keyed on leaves rather than wall time because wasm32 has no
+    /// usable clock — which also makes emission points deterministic.
+    progress: Option<&'a mut dyn FnMut(ProgressSnapshot)>,
+    progress_every: f64,
+    next_progress: f64,
+
     // Scoring integration (P2.4 layer 3): current equip names by position,
     // the scenario scoring context, per-thread top-N, and the shared cutoff
     // (floor(score) as u64; 0 = unset — floor is admissible for the gate).
@@ -551,6 +560,9 @@ impl<'a> Search<'a> {
             adapt_tail: AdaptiveBound::new(),
             bound_work: Default::default(),
             checked_flushed: 0.0,
+            progress: None,
+            progress_every: (1u64 << 21) as f64,
+            next_progress: f64::INFINITY,
             equip_names: Default::default(),
             scoring: None,
             top_n: Vec::new(),
@@ -648,6 +660,10 @@ impl<'a> Search<'a> {
         if let Some(budget) = self.leaf_budget {
             if self.checked >= budget { self.stop = true; return; }
         }
+        if self.checked >= self.next_progress {
+            self.next_progress = self.checked + self.progress_every;
+            self.emit_progress();
+        }
         self.report_calls += 1;
         if self.report_calls & 0xFFFF != 0 { return; }
         if let Some(f) = self.stop_flag {
@@ -675,6 +691,25 @@ impl<'a> Search<'a> {
             self.checked / self.total_space * 100.0,
             self.checked, self.total_space, rate, elapsed, remaining / rate,
         );
+    }
+
+    /// Publishes a funnel snapshot to the progress sink, if one is attached.
+    fn emit_progress(&mut self) {
+        let snap = ProgressSnapshot {
+            checked: self.checked,
+            total: self.total_space,
+            precheck_reject: self.precheck_reject,
+            precheck_pass: self.precheck_pass,
+            sp_leaf_reject: self.sp_leaf_reject,
+            feasible: self.feasible,
+            scored: self.scored,
+            gated: self.gated,
+            mana_reject: self.mana_reject,
+            thresh_reject: self.thresh_reject,
+            bound_pruned: self.bound_pruned,
+            top_n: self.top_n.clone(),
+        };
+        if let Some(f) = self.progress.as_mut() { f(snap); }
     }
 
     /// Final flush of the local `checked` delta into the shared counter.
@@ -1231,6 +1266,23 @@ impl<'a> Search<'a> {
     }
 }
 
+/// A mid-search funnel snapshot handed to a progress sink.
+#[derive(Clone)]
+pub struct ProgressSnapshot {
+    pub checked: f64,
+    pub total: f64,
+    pub precheck_reject: f64,
+    pub precheck_pass: u64,
+    pub sp_leaf_reject: u64,
+    pub feasible: u64,
+    pub scored: u64,
+    pub gated: u64,
+    pub mana_reject: u64,
+    pub thresh_reject: u64,
+    pub bound_pruned: f64,
+    pub top_n: Vec<(f64, Vec<String>)>,
+}
+
 #[derive(Default)]
 pub struct Totals {
     pub checked: f64,
@@ -1267,6 +1319,18 @@ pub fn run_single(
     scoring: Option<&crate::scoring::ScoringCtx>,
     leaf_budget: Option<f64>,
 ) -> Totals {
+    run_single_with_progress(fx, scoring, leaf_budget, None)
+}
+
+/// `run_single` with an optional live-progress sink. The sink fires every
+/// ~2M credited leaves and at the end of the search, so a browser worker can
+/// publish funnel counters and interim top-N while the solve runs.
+pub fn run_single_with_progress(
+    fx: &Fixture,
+    scoring: Option<&crate::scoring::ScoringCtx>,
+    leaf_budget: Option<f64>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+) -> Totals {
     let shared_cutoff = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
         if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok || sc.consts.hp_casting {
@@ -1292,8 +1356,17 @@ pub fn run_single(
     search.dense_bound = dense_bound.as_ref();
     search.leaf_budget = leaf_budget;
     search.next_report = f64::INFINITY;
+    if let Some(p) = progress {
+        // Reborrow so the sink's lifetime shrinks to the Search's rather
+        // than forcing `'a` out to the caller's (which would outlive the
+        // bound tables and cutoff declared above).
+        search.progress = Some(&mut *p);
+        search.next_progress = search.progress_every;
+    }
     search.init_equip_names();
     search.run();
+    // Final snapshot so the UI's last frame matches the returned totals.
+    search.emit_progress();
     Totals {
         checked: search.checked,
         precheck_reject: search.precheck_reject,
@@ -1318,6 +1391,37 @@ pub fn run_single(
 /// that many leaves are credited (a deterministic alternative to a wall
 /// clock, which wasm lacks).
 pub fn solve_json(enum_fixture: &str, score_fixture: &str, max_leaves: f64) -> String {
+    solve_json_with_progress(enum_fixture, score_fixture, max_leaves, None)
+}
+
+/// Serializes a `ProgressSnapshot` for a JS sink.
+pub fn progress_json(p: &ProgressSnapshot) -> String {
+    let mut top = String::from("[");
+    for (i, (score, items)) in p.top_n.iter().enumerate() {
+        if i > 0 { top.push(','); }
+        top.push_str(&format!("{{\"score\":{:.17e},\"item_names\":[", score));
+        for (j, name) in items.iter().enumerate() {
+            if j > 0 { top.push(','); }
+            top.push_str(&json_str(name));
+        }
+        top.push_str("]}");
+    }
+    top.push(']');
+    format!(
+        "{{\"checked\":{:.0},\"total\":{:.0},\"precheck_reject\":{:.0},\"precheck_pass\":{},\
+         \"sp_leaf_reject\":{},\"feasible\":{},\"scored\":{},\"gated\":{},\"mana_reject\":{},\
+         \"thresh_reject\":{},\"bound_pruned\":{:.0},\"top_n\":{}}}",
+        p.checked, p.total, p.precheck_reject, p.precheck_pass, p.sp_leaf_reject,
+        p.feasible, p.scored, p.gated, p.mana_reject, p.thresh_reject, p.bound_pruned, top,
+    )
+}
+
+/// `solve_json` with an optional live-progress sink (see
+/// `run_single_with_progress`).
+pub fn solve_json_with_progress(
+    enum_fixture: &str, score_fixture: &str, max_leaves: f64,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+) -> String {
     let fx = parse_fixture(enum_fixture);
     let budget = if max_leaves > 0.0 { Some(max_leaves) } else { None };
     let ctx = if score_fixture.trim().is_empty() {
@@ -1331,7 +1435,7 @@ pub fn solve_json(enum_fixture: &str, score_fixture: &str, max_leaves: f64) -> S
             Err(e) => return format!("{{\"error\":{}}}", json_str(&e)),
         }
     };
-    let totals = run_single(&fx, ctx.as_ref(), budget);
+    let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress);
     let complete = !totals.stopped_early;
     let mut top = String::from("[");
     for (i, (score, items)) in totals.top_n.iter().enumerate() {

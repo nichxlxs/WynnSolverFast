@@ -16,12 +16,29 @@ export function search_space(enum_fixture: string): number;
  */
 export function solve(enum_fixture: string, score_fixture: string, max_leaves: number): string;
 
+/**
+ * `solve` with a live-progress callback.
+ *
+ * `on_progress` is invoked with a JSON string (checked/total, the funnel
+ * counters, and the interim top-N) roughly every 2M credited leaves and
+ * once more when the search ends. This is what lets a long solve show
+ * movement in the UI instead of appearing hung — the reason to run this in
+ * a dedicated worker rather than chunking on the main thread.
+ *
+ * Emission is keyed on leaves rather than wall time because wasm32 has no
+ * usable clock; that also makes the emission points reproducible.
+ */
+export function solve_with_progress(enum_fixture: string, score_fixture: string, max_leaves: number, on_progress: Function): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly search_space: (a: number, b: number) => number;
     readonly solve: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly solve_with_progress: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number];
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

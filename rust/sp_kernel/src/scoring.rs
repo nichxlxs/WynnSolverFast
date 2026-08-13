@@ -826,8 +826,12 @@ pub fn apply_spell_prop_overrides<'s>(
 
 // ── compute_melee_time_hits (pure/utils.js) ──────────────────────────────────
 
+/// `delay` mirrors the JS third argument: the two simulations pass the row's
+/// effective delay, the damage path passes `SPELL_CAST_DELAY`. `None` means
+/// the latter.
 pub fn compute_melee_time_hits(
     qty_seconds: f64, base_stats: &StatsView, melee_cd_override: Option<f64>, tables: &Tables,
+    delay: Option<f64>,
 ) -> f64 {
     let melee_period = match melee_cd_override {
         Some(p) => p,
@@ -840,7 +844,7 @@ pub fn compute_melee_time_hits(
             1.0 / tables.base_damage_multiplier[adj as usize]
         }
     };
-    qty_seconds / melee_period.max(SPELL_CAST_DELAY)
+    qty_seconds / melee_period.max(delay.unwrap_or(SPELL_CAST_DELAY))
 }
 
 // ── compute_combo_damage_totals (pure/engine.js) ─────────────────────────────
@@ -1069,7 +1073,7 @@ pub fn eval_combo_damage(
         }
 
         let eff_qty = if row.is_melee_time {
-            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables)
+            compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, tables, None)
         } else { row.qty };
         let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
         total_damage += row_damage;
@@ -2650,7 +2654,7 @@ pub fn eval_combo_healing(
         let heal_per_cast = compute_spell_healing_total(&stats, &mod_spell, tables);
         let eff_qty = if row.is_melee_time {
             compute_melee_time_hits(row.qty, &StatsView::Borrowed(combo_base),
-                                    row.melee_cd_override, tables)
+                                    row.melee_cd_override, tables, None)
         } else { row.qty };
         total += heal_per_cast * eff_qty;
     }
@@ -3061,7 +3065,7 @@ pub fn eval_combo_healing_compiled(
         });
         let eff_qty = if row.is_melee_time {
             let bv = StatsView::Borrowed(combo_base);
-            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables)
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables, None)
         } else { row.qty };
         total += heal_per_cast * eff_qty;
     }
@@ -3119,7 +3123,7 @@ pub fn eval_combo_damage_compiled(
 
         let eff_qty = if row.is_melee_time {
             let bv = StatsView::Borrowed(combo_base);
-            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables)
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables, None)
         } else { row.qty };
         let row_damage = if row.dmg_excl { 0.0 } else { per_cast * eff_qty + flat_per_cast };
         total_damage += row_damage;

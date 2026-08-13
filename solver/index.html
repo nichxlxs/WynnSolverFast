@@ -1113,9 +1113,15 @@
                             <div class="d-flex align-items-center gap-1 w-100">
                                 <button id="solver-run-btn" class="btn btn-sm btn-outline-success flex-grow-1"
                                     onclick="toggle_solver()">Solve</button>
+                                <select id="solver-engine" class="form-select form-select-sm bg-dark text-light"
+                                    style="width:auto; border-color: rgba(255, 255, 255, 0.15) !important"
+                                    title="Solving engine" onchange="solver_engine_changed()">
+                                    <option value="rust">Rust/WASM</option>
+                                    <option value="javascript">JavaScript</option>
+                                </select>
                                 <select id="solver-thread-count" class="form-select form-select-sm bg-dark text-light"
                                     style="width:auto; min-width:55px; border-color: rgba(255, 255, 255, 0.15) !important"
-                                    title="Number of worker threads">
+                                    title="Number of JavaScript worker threads">
                                     <option value="auto">Auto</option>
                                     <option value="1">1</option>
                                     <option value="2">2</option>

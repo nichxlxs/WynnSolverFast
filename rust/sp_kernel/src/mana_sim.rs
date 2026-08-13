@@ -702,8 +702,10 @@ pub fn simulate_combo_mana_hp(
         let eff_delay = row.delay.unwrap_or(consts.spell_cast_delay);
 
         let sim_qty = if row.is_melee_time {
+            // JS passes eff_delay here, not SPELL_CAST_DELAY (the damage
+            // path is the one that passes the constant).
             js_round(compute_melee_time_hits(
-                row.qty, &stats, row.melee_cd_override, tables,
+                row.qty, &stats, row.melee_cd_override, tables, Some(eff_delay),
             ))
         } else {
             js_round(row.qty)

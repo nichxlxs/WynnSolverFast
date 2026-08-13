@@ -107,6 +107,33 @@ Reproduce with `wasm_browser_test.html` (serve the repo root, map
 `/fx/` to `rust/sp_kernel/fixtures/`, then drive it with Playwright
 pointing at the pre-installed Chromium).
 
+### In the dedicated worker
+
+The app runs the engine in `js/solver/wasm/worker.js` — a module worker —
+rather than chunking on the main thread. Same scenario, measured through
+the worker:
+
+| run | wall | rate | top1 |
+|---|---:|---:|---:|
+| 1 (cold: worker spawn + wasm init + compile) | 487 ms | 6.62 M/s | 24,848 |
+| 2 (warm) | 358 ms | 9.00 M/s | 24,848 |
+| 3 (warm) | 350 ms | 9.21 M/s | 24,848 |
+
+Steady state matches the main-thread figures, so the worker costs nothing
+once warm — and the page is free for the whole solve instead of being
+interrupted every chunk. `solve_with_progress` streams funnel counters and
+the interim top-N back (~every 2M leaves, plus a final snapshot that equals
+the returned totals), so long searches visibly move.
+
+Progress is keyed on **leaves, not wall time**, for the same reason the
+budget is: wasm32 has no usable clock, and leaf-keyed emission points are
+reproducible.
+
+Cancellation is `worker.terminate()`. A scenario the engine cannot
+reproduce bit-exactly comes back as `worker_error` with the specific
+mechanic named, and `search.js` re-runs it on the JS workers rather than
+leaving the user with no results.
+
 Note: the first `solve` call in a page is several times slower than
 steady state — V8 runs wasm through its baseline compiler (Liftoff)
 before tiering up to TurboFan. Chunked solving warms it up naturally.
@@ -126,7 +153,9 @@ scenario.
    `SharedArrayBuffer` plus COOP/COEP cross-origin isolation — the same
    setup the existing JS shared-cutoff already prefers — and a
    `wasm-bindgen-rayon`-style pool. Single-threaded is already ~1000x the
-   current JS engine per core.
+   current JS engine per core. (The engine selector disables the thread-count
+   dropdown while Rust is selected for this reason; it applies to the JS
+   workers only.)
 3. **Feature coverage**: scenarios using until-OOM loop brackets, buff
    states, Blood Pact, dynamic sliders, or non-lowered ability trees
    hard-fail and fall back to the JS engine. `solve` returns

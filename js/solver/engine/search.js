@@ -22,6 +22,7 @@ const _solver_state = {
     _prev_topN_fingerprint: '',   // for change detection
     top15_expanded: false,        // UI expand state
     progress_expanded: false,     // progress details expand state
+    engine_phase: '',             // Rust/WASM startup/search phase label
 };
 
 // Bitmask tracking which equipment slots were last filled by the solver.
@@ -546,6 +547,12 @@ function _format_compact(n) {
     return `${display} ${suffixes[tier]}`;
 }
 
+/// Average throughput over the whole run, for comparing the two engines.
+function solver_format_average_check_rate(checked, elapsed_ms) {
+    if (!(checked > 0) || !(elapsed_ms > 0)) return '0/s';
+    return `${_format_compact(checked * 1000 / elapsed_ms).replace(' ', '')}/s`;
+}
+
 // ── Solver target metadata ─────────────────────────────────────────────────
 
 const SOLVER_TARGET_LABELS = {
@@ -601,7 +608,10 @@ function _show_solver_stopped_progress(label, elapsed_s) {
     const el_left = document.getElementById('solver-progress-left');
     const el_right = document.getElementById('solver-progress-right');
     if (el_left) el_left.textContent = `${label} - Checked: ${_format_compact(_solver_state.checked)} / ${_format_compact(_solver_state.total)}`;
-    if (el_right) el_right.textContent = `Time: ${_format_duration(elapsed_s)}`;
+    if (el_right) {
+        const avg = solver_format_average_check_rate(_solver_state.checked, elapsed_s * 1000);
+        el_right.textContent = `Time: ${_format_duration(elapsed_s)} | Avg: ${avg}`;
+    }
     const el_precheck = document.getElementById('solver-precheck-count');
     if (el_precheck) el_precheck.textContent = _format_compact(_solver_state.precheck_pass ?? 0);
     const el_feasible = document.getElementById('solver-feasible-count');
@@ -654,7 +664,10 @@ function _update_solver_progress_ui() {
     const checked_str = `Checked: ${_format_compact(_solver_state.checked)} / ${_format_compact(_solver_state.total)}`;
 
     if (el_left) el_left.textContent = checked_str;
-    if (el_right) el_right.textContent = elapsed_str;
+    if (el_right) {
+        const avg = solver_format_average_check_rate(_solver_state.checked, elapsed_ms);
+        el_right.textContent = `${elapsed_str} | Avg: ${avg}`;
+    }
     if (el_precheck) el_precheck.textContent = _format_compact(_solver_state.precheck_pass ?? 0);
     if (el_feasible) el_feasible.textContent = _format_compact(_solver_state.feasible);
     if (el_met_req) el_met_req.textContent = _format_compact(_solver_state.met_req);
@@ -698,8 +711,12 @@ function _update_solver_progress_ui() {
             } else if (elapsed_s > 20 && rate > 0 && rate < 1000) {
                 el_status.innerHTML = '\u26A0 Very slow iteration \u2014 results may take a long time on this device';
                 el_status.className = 'text-danger';
+            } else if (_solver_state.engine_phase) {
+                el_status.textContent = `Rust/WASM: ${_solver_state.engine_phase}`;
+                el_status.className = 'text-info';
             } else {
                 el_status.textContent = '';
+                el_status.className = '';
             }
         }
     }
@@ -1242,7 +1259,7 @@ function _debug_reeval_top1() {
 
 function _on_all_workers_done(workers_snapshot) {
     const search_completed = _solver_state.running;  // true only if finished naturally
-    const elapsed_s = Math.floor((Date.now() - _solver_state.start) / 1000);
+    const elapsed_s = (Date.now() - _solver_state.start) / 1000;
 
     // Aggregate final stats before stopping (which clears _solver_state.workers)
     _solver_state.checked = 0;
@@ -1327,16 +1344,33 @@ function _on_all_workers_done(workers_snapshot) {
 function _rust_engine_available() {
     try {
         if (typeof window === 'undefined') return false;
-        if (window.SOLVER_RUST_ENGINE === false) return false;   // explicit opt-out
-        return !!(window.__sp_kernel_wasm && window.__sp_kernel_wasm.solve);
+        if (typeof Worker === 'undefined') return false;
+        // Explicit opt-out, or the engine selector set to JavaScript.
+        if (window.SOLVER_RUST_ENGINE === false) return false;
+        const sel = document.getElementById('solver-engine');
+        if (sel && sel.value !== 'rust') return false;
+        return true;
     } catch (e) { return false; }
+}
+
+/// Engine selector: the thread count applies to the JS workers only —
+/// Rust/WASM runs one dedicated worker until wasm threads land (they need
+/// SharedArrayBuffer plus COOP/COEP cross-origin isolation).
+function solver_engine_changed() {
+    const rust = document.getElementById('solver-engine')?.value === 'rust';
+    const sel = document.getElementById('solver-thread-count');
+    if (!sel) return;
+    sel.disabled = rust;
+    sel.title = rust
+        ? 'Rust/WASM runs one dedicated browser worker'
+        : 'Number of JavaScript worker threads';
 }
 
 /// Run the whole search in the Rust engine. Returns true when it handled the
 /// search; false means the caller should use the JS workers.
-function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base) {
+function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
+                                     on_unsupported) {
     if (!_rust_engine_available()) return false;
-    const wasm = window.__sp_kernel_wasm;
     try {
         const bridge = window.__solver_rust_bridge;
         if (!bridge) return false;
@@ -1347,13 +1381,15 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         // No sampling env → fixture carries no validation cases, which is all
         // the engine needs to solve.
         const score_fixture = bridge.buildScoreFixture(init_base, ring_pool_ser, 0, null, env);
+        const start = (f) =>
+            _rust_solve_in_worker(enum_fixture, JSON.stringify(f), on_unsupported);
         if (score_fixture && typeof score_fixture.then === 'function') {
             // Builder is async only in the sampling (test) path; without
             // sampling it resolves immediately, but guard anyway.
-            score_fixture.then(f => _rust_solve_loop(wasm, enum_fixture, JSON.stringify(f)));
+            score_fixture.then(start);
             return true;
         }
-        _rust_solve_loop(wasm, enum_fixture, JSON.stringify(score_fixture));
+        start(score_fixture);
         return true;
     } catch (e) {
         console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message);
@@ -1361,58 +1397,133 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
     }
 }
 
-/// Drive the engine in leaf-budget chunks so the page stays responsive and
-/// progress/top-N update as the search proceeds.
-function _rust_solve_loop(wasm, enum_fixture, score_fixture_json) {
-    const CHUNK = 2_000_000;   // leaves per slice
-    let checked_total = 0;
-    try { _solver_state.total = wasm.search_space(enum_fixture); } catch (e) {}
+/// Run the search in a dedicated module worker.
+///
+/// The engine runs to completion in one call and streams funnel counters and
+/// interim top-N back through a progress callback; the page never blocks, and
+/// stopping is `terminate()` rather than a cooperative flag. Progress lands in
+/// the same worker-state shape the JS engine uses, so `_on_all_workers_done`
+/// and the progress UI need no engine-specific branch.
+function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported) {
+    let worker;
+    try {
+        worker = new Worker('../js/solver/wasm/worker.js', { type: 'module' });
+    } catch (e) {
+        console.warn('[solver] could not start the Rust worker:', e && e.message);
+        _solver_state.running = false;
+        return;
+    }
 
-    const step = () => {
-        if (!_solver_state.running) return;
-        let res;
-        try {
-            res = JSON.parse(wasm.solve(enum_fixture, score_fixture_json, CHUNK));
-        } catch (e) {
-            console.error('[solver] Rust engine error, falling back:', e && e.message);
+    const state = {
+        worker, done: false,
+        checked: 0, precheck_pass: 0, precheck_reject: 0, feasible: 0, met_req: 0, top5: [],
+        _cur_checked: 0, _cur_precheck_pass: 0, _cur_precheck_reject: 0,
+        _cur_feasible: 0, _cur_met_req: 0, _cur_top5: [],
+        _cur_checked_since_top5: 0, _cur_L_progress: [0, 1],
+    };
+    _solver_state.workers = [state];
+
+    const absorb = (m, into_prefix) => {
+        state[`${into_prefix}checked`] = m.checked ?? 0;
+        state[`${into_prefix}precheck_pass`] = m.precheck_pass ?? 0;
+        state[`${into_prefix}precheck_reject`] = m.precheck_reject ?? 0;
+        state[`${into_prefix}feasible`] = m.feasible ?? 0;
+        state[`${into_prefix}met_req`] = m.met_req ?? 0;
+    };
+
+    worker.onmessage = (event) => {
+        const m = event.data;
+        if (!m) return;
+        if (m.type === 'worker_error') {
+            console.warn(`[solver] Rust engine (${m.code}): ${m.message} — using the JS workers`);
+            _solver_state.engine_phase = '';
+            try { worker.terminate(); } catch (e) {}
+            if (on_unsupported) { on_unsupported(); return; }
             _solver_state.running = false;
+            _finish_solver_search?.();
             return;
         }
-        if (res.error) {
-            console.warn('[solver] scenario unsupported by the Rust engine:', res.error);
-            _solver_state.running = false;
+        if (m.type === 'progress') {
+            _solver_state.engine_phase = m.phase ?? 'searching';
+            absorb(m, '_cur_');
+            if (m.total > 0) _solver_state.total = m.total;
+            if (m.top_n) state._cur_top5 = m.top_n;
             return;
         }
-        checked_total = res.checked;
-        _solver_state.checked = checked_total;
-        for (const t of res.top || []) {
-            const items = _reconstruct_result_items(t.items);
+        if (m.type !== 'done') return;
+        _solver_state.engine_phase = '';
+        state.done = true;
+        absorb(m, '');
+        // Zero the interim mirrors so the final aggregate isn't double-counted.
+        absorb({}, '_cur_');
+        for (const t of m.top_n || []) {
+            const items = _reconstruct_result_items(t.item_names ?? t.items);
             _insert_top5({ score: t.score, items,
                 base_sp: [0, 0, 0, 0, 0], total_sp: [0, 0, 0, 0, 0], assigned_sp: 0 });
         }
-        _update_solver_progress?.();
-        if (!res.complete) {
-            setTimeout(step, 0);        // yield to the UI between chunks
-        } else {
-            _finish_solver_search?.();
-        }
+        try { worker.terminate(); } catch (e) {}
+        _on_all_workers_done([state]);
     };
-    setTimeout(step, 0);
+    worker.onerror = (e) => {
+        console.warn('[solver] Rust worker failed to start:', e && e.message);
+        _solver_state.engine_phase = '';
+        try { worker.terminate(); } catch (err) { }
+        if (on_unsupported) { on_unsupported(); return; }
+        _solver_state.running = false;
+        _finish_solver_search?.();
+    };
+
+    worker.postMessage({
+        type: 'solve', worker_id: 0,
+        enum_fixture, score_fixture: score_fixture_json,
+        max_leaves: 0,      // run to completion; the worker keeps the UI free
+    });
+
+    _solver_state.progress_timer = setInterval(() => {
+        if (!_solver_state.running) return;
+        _solver_state.checked = state.checked + state._cur_checked;
+        _solver_state.precheck_pass = state.precheck_pass + state._cur_precheck_pass;
+        _solver_state.precheck_reject = state.precheck_reject + state._cur_precheck_reject;
+        _solver_state.feasible = state.feasible + state._cur_feasible;
+        _solver_state.met_req = state.met_req + state._cur_met_req;
+        _update_solver_progress_ui?.();
+    }, 500);
 }
 
-function _run_solver_search_workers(pools, locked, snap) {
+/**
+ * Worker count for the "Auto" thread setting.
+ *
+ * Reserves a single core for the main thread so the page stays responsive,
+ * and otherwise uses everything the browser reports. The previous rule
+ * (`hardwareConcurrency - 2`, capped at 16) left a quarter of an 8-thread
+ * machine idle and a third of a 24-thread one, even though the dropdown
+ * offers 24 explicitly.
+ */
+function solver_auto_worker_count() {
+    const hw = navigator.hardwareConcurrency || 4;
+    return Math.max(1, Math.min(hw - 1, 32));
+}
+
+/** Rewrites the "Auto" option to show the count it currently resolves to. */
+function solver_refresh_auto_thread_label() {
+    const thread_sel = document.getElementById('solver-thread-count');
+    const auto_opt = thread_sel?.querySelector('option[value="auto"]');
+    if (auto_opt) auto_opt.textContent = `Auto (${solver_auto_worker_count()})`;
+}
+
+/**
+ * @param {boolean} [force_js] - skip the Rust engine. Set when the Rust
+ *   worker reported the scenario unsupported, so the retry cannot loop.
+ */
+function _run_solver_search_workers(pools, locked, snap, force_js) {
     // Determine thread count
     const thread_sel = document.getElementById('solver-thread-count');
     const thread_val = thread_sel?.value ?? 'auto';
     const num_workers = thread_val === 'auto'
-        ? Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 2, 16))
+        ? solver_auto_worker_count()
         : parseInt(thread_val);
 
-    // Update "Auto" label to show resolved worker count
-    if (thread_val === 'auto' && thread_sel) {
-        const auto_opt = thread_sel.querySelector('option[value="auto"]');
-        if (auto_opt) auto_opt.textContent = `Auto (${num_workers})`;
-    }
+    if (thread_val === 'auto') solver_refresh_auto_thread_label();
 
     // Serialize pools and locked items
     const pools_ser = _serialize_pools(pools);
@@ -1552,8 +1663,30 @@ function _run_solver_search_workers(pools, locked, snap) {
     // Opt-in Rust/WASM engine; returns false (and we continue with the JS
     // workers below) whenever it is unavailable or the scenario is not one
     // it supports.
-    if (_try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base)) {
-        return;
+    // The engine reports scenarios it cannot reproduce bit-exactly instead
+    // of approximating them; that verdict only arrives once the worker has
+    // loaded, so the fallback re-enters here with the Rust path disabled
+    // rather than leaving the user with no results.
+    if (!force_js) {
+        const fall_back_to_js = () => {
+            if (_solver_state.progress_timer) {
+                clearInterval(_solver_state.progress_timer);
+                _solver_state.progress_timer = 0;
+            }
+            for (const w of _solver_state.workers) {
+                try { w.worker.terminate(); } catch (e) { }
+            }
+            _solver_state.workers = [];
+            _solver_state.engine_phase = '';
+            _solver_state.checked = 0;
+            _solver_state.feasible = 0;
+            _solver_state.met_req = 0;
+            _run_solver_search_workers(pools, locked, snap, true);
+        };
+        if (_try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
+                                        init_base, fall_back_to_js)) {
+            return;
+        }
     }
 
     // Spawn workers: send heavy 'init' with first partition, then 'run' for subsequent

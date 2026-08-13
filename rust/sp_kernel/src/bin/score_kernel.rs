@@ -191,7 +191,7 @@ fn main() {
                         None => compute_spell_display_avg(&stats, &weapon, &mod_spell, crit, &tables, None),
                     };
                     let eff_qty = if row.is_melee_time {
-                        compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, &tables)
+                        compute_melee_time_hits(row.qty, &base_view, row.melee_cd_override, &tables, None)
                     } else { row.qty };
                     eprintln!("  row {} per_cast={:.17e} eff_qty={:.17e} dps={:?}",
                         ri, per_cast, eff_qty, eff_dps_name);
