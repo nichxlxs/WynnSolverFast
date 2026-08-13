@@ -161,6 +161,17 @@ fn main() {
     let mut dense_work = DenseWork::default();
 
     let cases = fixture["cases"].as_array().expect("cases array");
+    // A benchmark-only fixture (see js/solver/tests/gen_bench_fixtures.js)
+    // carries no per-case expectations on purpose, because it is a synthetic
+    // edit of an exported scenario and the exported numbers no longer describe
+    // it. Say so rather than reporting a vacuous "0 exact / 0 diff", which
+    // reads like a validation that ran.
+    if cases.is_empty() {
+        println!("{}: benchmark-only fixture — no per-case expectations to validate.\n\
+                  Time it with `enum_kernel <enum fixture> <threads> {}`.",
+                 fixture_path, fixture_path);
+        return;
+    }
     let mut pass = 0u64;
     let mut fail = 0u64;
     let started = Instant::now();

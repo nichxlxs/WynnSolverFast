@@ -3,6 +3,39 @@
 Two tools. `bench.py` measures the solver itself; `gpu_bench` answers
 whether a GPU offload would be worth building on your machine.
 
+## Fixtures first
+
+`fixtures/` is gitignored — everything in it is derived — so a clean checkout
+has none. Export the base ones with the `SOLVER_EXPORT_RUST` /
+`SOLVER_EXPORT_SCORE` command in [README.md](README.md), then:
+
+```bash
+node js/solver/tests/gen_bench_fixtures.js
+```
+
+That adds four scenario shapes the exported corpus does not contain, all
+derived from `score_spell2.json` and all pairing with `enum_spell2.txt`:
+
+| Fixture | Shape | What it measures |
+|---|---|---|
+| `score_slider.json` | a buff state declaring a slider | the dynamic-row path (A6/B9) |
+| `score_blend_pos.json` | weights all non-negative | the two-sided ceiling must be a no-op here |
+| `score_blend_neg.json` | one negative weight | B2 |
+| `score_blend_mixed.json` | both signs | the shape the gate was unsound on |
+
+They are **benchmark-only** — their `cases[]` is empty on purpose, because the
+scenario is a synthetic edit and the exported per-case expectations no longer
+describe it. `score_kernel` will tell you so rather than validate them.
+Correctness for these shapes is covered against the JS elsewhere:
+`mana_sim_check`, `SCORE_DENSE_CHECK=1` (dense against Obj on every trial) and
+`SCORE_DENSE=0` (the whole Obj path).
+
+Reproducing B9's 16.7x, for example:
+
+```bash
+./target/release/enum_kernel fixtures/enum_spell2.txt 1 fixtures/score_slider.json
+```
+
 ## bench.py — scenario × configuration matrix
 
 ```bash

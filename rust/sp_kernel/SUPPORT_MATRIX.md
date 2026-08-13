@@ -121,7 +121,7 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed: 19x** (0.19 s against 3.62 s), top-15 identical at every step. Dense lowering for injected tokens 3.62→2.32 s; not cloning the row set per trial 2.32→0.75 s; memoizing the simulation 0.75→0.19 s | Nothing measurable left here. The scenario now scores in the same ballpark as a static one |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed: 16.7x** (0.24 s against 4.00 s), top-15 identical at every step. Dense lowering for injected tokens 4.00→2.55 s; not cloning the row set per trial 2.55→0.87 s; memoizing the simulation 0.87→0.24 s. Reproduce with `fixtures/score_slider.json` (see `gen_bench_fixtures.js`) against `enum_spell2` | Nothing measurable left here. The scenario now scores in the same ballpark as a static one |
 
 **Getting the dense path to serve injected tokens.** The lowering bakes row
 damage in at build time, which is exactly what a per-leaf token changes.
@@ -164,7 +164,7 @@ copy.
 injected tokens in a side vector. Without a per-leaf unroll the rows *are* the
 parse-time ones, and neither fast scorer reads `row.tokens` — the compiled and
 dense paths both take injected bonuses as a separate argument — so nothing has
-to be copied at all. **2.32 s → 0.75 s.** The uncompiled fallback still needs
+to be copied at all. **2.55 s → 0.87 s.** The uncompiled fallback still needs
 the tokens in the rows and materializes them.
 
 `mana_sim_check` pins the split form to the merged one: merging its output
@@ -180,7 +180,7 @@ instead of reporting a diff. The gate is now `dense_injectable_keys`, and both
 builders go through it.
 
 **Then the simulation stopped running most of the time.** With the copying
-gone, the 0.75 s was the simulation proper. Its only per-trial input is
+gone, the 0.87 s was the simulation proper. Its only per-trial input is
 `dense_sim_obj`'s stat map — a dozen or so values — so two trials agreeing on
 those produce identical injected tokens. Greedy moves one skill point at a
 time and most of those moves do not touch a stat the simulation reads: **89%
@@ -190,8 +190,8 @@ of trials repeat an earlier input** (10,678 trials, 1,169 distinct).
 `DenseRowExtra`, so a hit skips the stat map, the simulation, and the bonus
 compile. It is direct-mapped over a fixed 512 slots, so memory is bounded on
 any run length, and it stores the full key and compares it — a hash collision
-costs a recompute, it can never return another trial's answer. **0.75 s →
-0.19 s.**
+costs a recompute, it can never return another trial's answer. **0.87 s →
+0.24 s.**
 
 Checked the way an admissible-looking cache has to be: `SCORE_DENSE_CHECK=1`
 asserts dense against Obj on every trial of every leaf and is clean; results
@@ -213,7 +213,7 @@ identical output with the per-trial check clean.
 
 ## Remaining work, in the order I'd tackle it
 
-1. ~~**Speed, not coverage**~~ — B9 is closed (19x) and B1's doom precheck is
+1. ~~**Speed, not coverage**~~ — B9 is closed (16.7x) and B1's doom precheck is
    1.46x. What is left in section B needs new bound *shapes* rather than
    tuning: B3 and B4 have no admissible ceiling at all today, and B5 needs a
    two-sided doom bound. Six tried-and-rejected attempts are recorded above;
