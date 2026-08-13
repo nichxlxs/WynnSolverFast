@@ -2079,6 +2079,19 @@ pub fn leaf_pipeline_gated(
         if let Some(dy) = dynamic {
             let damage_rows = phase!(DYN_NS,
                 dynamic_damage_rows(cb, rows, registry, tables, consts, dy));
+            // Scored uncompiled on purpose. Compiling this leaf's rows and
+            // using the compiled scorer is correct — verified, identical
+            // top-1 — but measured *slower* (11.0 s against 10.4 s): a
+            // per-trial `compile_rows` over every row costs more than the
+            // compiled scorer saves, because it rebuilds each row's
+            // mod_spell, plan and DPS analysis as well as its bonuses.
+            //
+            // The win needs the compile hoisted out of the trial: in the
+            // slider case the rows line up 1:1 with the originals, so the
+            // load-time compiled rows stay valid and only the injected
+            // tokens' bonuses need appending per leaf. That means threading
+            // extra bonuses through `score_compiled`, which is a real change
+            // rather than a swap.
             return objective.score(cb, weapon, &damage_rows, registry, hit_refs, tables);
         }
         match compiled {
