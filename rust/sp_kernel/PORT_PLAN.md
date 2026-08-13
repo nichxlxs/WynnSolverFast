@@ -235,3 +235,84 @@ depth-(n-2) ceilings straddle the cutoff).
   the (prefix, cluster) memo clears at 4M entries to bound memory.
   readme_spell_wide 180s: 335M -> 671.7M leaves (3.73M/s avg,
   ~1,560x the JS engine); full 20.07B space extrapolates to ~90 minutes.
+
+## Tome optimisation in the Rust engine (A9 / the `tome_opt` fallback)
+
+Master's tome optimiser makes the tome a *searched* dimension. The Rust
+engine has no concept of it, so `_try_run_solver_search_rust` declines the
+scenario and the JS workers take it — correct, but measured ~120x slower on
+a `combo_damage` search through the page. Closing that is the remaining
+capability gap.
+
+### What the JS engine does per leaf
+
+From `search.js` (`_prepare_tome_optimisation`) and `worker.js`:
+
+- `snap.guild_tome_candidates` — `[{idx, sm}]`, the "none" option plus each
+  owned guild tome. The statmap goes into SP slot 8, so **every candidate
+  needs its own `calculate_skillpoints` solve**: a guild tome carries
+  requirements and skill points.
+- `snap.tome_wa_bundles` — `[{stats: Map|null, names}]`, the Pareto front of
+  weapon+armour tome combinations. `stats` is a flat additive sum over the
+  rolled IDs of the tomes in the bundle.
+- `snap.tome_bound` — per-key maximum across bundles, folded into the
+  ge-prechecks so the mid-tree bounds stay admissible.
+- Per leaf: an optional per-bundle ceiling gate (one damage eval per bundle,
+  same strict `1e-9` margin as the main gate), then
+  `for each guild candidate { SP solve; for each bundle { score } }`,
+  keeping the best.
+
+The SP gate above the loop runs with the optimistic guild tome and the
+ceiling gate with the optimistic bundle, so every real combination is
+bounded by what already passed — that is what keeps the pruning admissible.
+
+### The dense-path question, resolved
+
+The obvious worry: the dense vectors get their speed from tomes being
+**fixed** at lowering time (`for tome in &l2.tome_sms { lower_item(...) }`),
+so making tomes a searched dimension looked like it needed either a
+`DenseCtx` per bundle (memory x bundles) or dropping these scenarios to the
+slow `Obj` path. Neither is necessary.
+
+Checked against the data and the code:
+
+- **Bundles do carry multiplicative stats.** Scanning every shipped data
+  version: 278 tomes carry `damMobs` and 157 carry `defMobs`, and they are
+  exactly the weapon/armour mastery tomes that populate bundles. So a bundle
+  is not purely additive, and treating it as a plain stat delta would be
+  wrong.
+- **But the dense path already indexes them.** `dense_apply` computes
+  `dam_tome = read0(vals, present, dd.dam_mobs_idx)` and only then adds the
+  `dam_tome_adds` constants captured from the *fixed* tome/weapon lowering.
+  `damMobs`/`defMobs` are ordinary dense-indexed slots.
+
+So a bundle can be lowered exactly like any other item, with
+`DenseDirect::lower_item`, and its `damMobs`/`defMobs` land in the dense
+vector and flow into `dam_tome`/`def_tome` on their own. **Bundles become
+lowered delta rows applied and undone per trial** — the existing `DenseUndo`
+machinery — rather than separate contexts or a slow-path fallback. Lower
+each bundle once at load; apply/undo per trial inside the leaf loop.
+
+### Work items
+
+1. `rust_bridge.js`: serialise `tome_opt`, `guild_tome_candidates`
+   (statmap + `idx`), `tome_wa_bundles` (`stats` + `names`), `tome_bound`
+   into `layer2`. Today only the FIXED `tome_sms` / `guild_tome_sm` go over.
+2. `ScoringCtx::load`: parse them; lower each bundle to a dense delta row;
+   build a `Unit` per guild candidate for the SP solver.
+3. Leaf pipeline: the nested loop above, with the per-bundle ceiling gate.
+   Keep the best `(guild, bundle)` per leaf.
+4. `TopEntry`: carry the chosen guild index and tome names through the heap,
+   the partition merge, the JSON, `progress_json`, and the wasm worker's
+   normalizer — the same plumbing `base_sp`/`total_sp`/`assigned_sp` needed,
+   and the same place it was dropped last time (the worker normalizer).
+5. Remove the `tome_opt >= 1` decline in `_try_run_solver_search_rust`, and
+   with it the `engine_fallback_reason` for tomes.
+6. Validation: export tome fixtures (`solver_oracle_tome_guild`,
+   `solver_oracle_tome_all`, `solver_oracle_tome_inventory`,
+   `solver_bench_tome_guild` already exist as JS snapshots) and require
+   `score_kernel` exact against the JS, plus `SCORE_DENSE_CHECK=1` so the
+   dense bundle deltas are asserted against the `Obj` path on every trial.
+
+Do **not** ship this behind a partial fallback: until step 6 passes, the
+decline in step 5 stays, so a half-finished port cannot reach users.
