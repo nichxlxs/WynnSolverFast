@@ -63,16 +63,18 @@ class SpellDamageCalcNode extends ComputeNode {
                     is_spell:     use_spell,
                     multipliers:  results[3],
                 };
-            } else if ('max_hp_heal_pct' in part) {
+            } else if (spell_part_heal_power(part) !== undefined) {
                 const mult_map = stats.get('healMult');
                 let heal_mult = 1;
                 for (const [k, v] of mult_map.entries()) {
                     if (k.includes(':') && k.split(':')[1] !== part_id) continue;
                     heal_mult *= (1 + v / 100);
                 }
+                // healPct already rides in healMult['item'] (finalizeStatmap), so
+                // it is deliberately not applied again here.
                 spell_result = {
                     type: 'heal',
-                    heal_amount: part.max_hp_heal_pct * getDefenseStats(stats)[0] * heal_mult,
+                    heal_amount: spell_part_heal_power(part) * getDefenseStats(stats)[0] * heal_mult,
                 };
             } else {
                 spell_result = {

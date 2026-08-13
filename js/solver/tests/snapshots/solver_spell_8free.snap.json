@@ -1,31 +1,14 @@
 {
   "name": "solver_spell_8free",
-  "description": "README spell build: ALL EIGHT equipment slots free, combo_damage scoring \u2014 8-unknown-slot benchmark",
+  "description": "README spell build: ALL EIGHT equipment slots free, combo_damage scoring — 8-unknown-slot benchmark",
   "url_hash": "CV0X60iCme0eDH05yb066M10tqDSw6qIW70yUUbcq6TEj1_GPYXkWG8403bbWA05oI10120XoeGMA00G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94482bHXiKG132KkBGeCAab2AWG0CKM2g0K8B50080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4224XoeGMAeW11At58K65oI1500",
   "scoring_target": "combo_damage",
   "time_limit_seconds": 180,
   "num_workers": 2,
   "free_mask": 255,
-  "locked_items": {
-    "ring1": {
-      "name": "Intensity",
-      "stat_hash": "85a8a37c0d9cf62554aa87cef650e5eec02d1394472d0e0d7791a3319d4bd3cb"
-    },
-    "ring2": {
-      "name": "Gloomstone",
-      "stat_hash": "d7e8c1382e9c7e35fecabcc80a78984e6133d6e648ea115af0ec99c744e77615"
-    },
-    "bracelet": {
-      "name": "Diamond Static Bracelet",
-      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
-    },
-    "necklace": {
-      "name": "Achromatic Gloom",
-      "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
-    }
-  },
-  "created": "2026-08-12T02:55:50.493Z",
-  "compress_hash": "cdc99a2213d372827a56bb31520f9e0ba0448789a2daba46bcb6c249f98ce65f",
-  "atree_hash": "88657abc7e0cccad546539a7ccfe13796b22a0e35923f4a38e13c4ceb138d24c",
-  "benchmark_only": true
+  "benchmark_only": true,
+  "locked_items": {},
+  "created": "2026-08-13T03:21:37.845Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
 }

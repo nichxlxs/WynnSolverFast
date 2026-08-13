@@ -1,4 +1,9 @@
-const ITEM_DB_VERSION = 197;
+// Bumping this invalidates every visitor's cached IndexedDB item store, which
+// is required whenever data/baseline/compressed/compress.json changes —
+// otherwise returning users keep serving the previous patch's items out of
+// local cache and see stats that no longer match the site. 201 matches
+// upstream wynnbuilder.github.io at the 2.2.3.0 data drop.
+const ITEM_DB_VERSION = 201;
 
 let items;
 let sets = new Map();
@@ -234,7 +239,8 @@ const wynn_version_names = [
     '2.2.0.21',
     '2.2.0.31',
     '2.2.1.0',
-    '2.2.2.0'
+    '2.2.2.0',
+    '2.2.3.0'
 ];
 
 const WYNN_VERSION_LATEST = wynn_version_names.length - 1;

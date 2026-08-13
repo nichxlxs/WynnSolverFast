@@ -43,13 +43,15 @@ function _eval_spell_parts(stats, weapon, spell, detailed) {
                 result.damages_results = raw[2]; // per-element [norm_min, norm_max, crit_min, crit_max]
                 result.multiplied_conversions = raw[3]; // effective % per element after mults
             }
-        } else if ('max_hp_heal_pct' in part) {
+        } else if (spell_part_heal_power(part) !== undefined) {
             const mult_map = stats.get('healMult');
             let heal_mult = 1;
             for (const [k, v] of mult_map.entries()) {
                 if (!k.includes(':') || k.split(':')[1] === part_id) heal_mult *= (1 + v / 100);
             }
-            result = { type: 'heal', heal_amount: part.max_hp_heal_pct * getDefenseStats(stats)[0] * heal_mult };
+            // healPct is already an entry in healMult (build_utils finalizeStatmap
+            // sets healMult['item']), so it must not be applied a second time here.
+            result = { type: 'heal', heal_amount: spell_part_heal_power(part) * getDefenseStats(stats)[0] * heal_mult };
         } else {
             result = { type: null, normal_total: [0, 0], crit_total: [0, 0], heal_amount: 0 };
             for (const [sub_name, hits] of Object.entries(part.hits)) {
@@ -229,7 +231,7 @@ function spell_has_damage(spell) {
 function spell_has_heal(spell) {
     const by_name = new Map((spell.parts ?? []).map(p => [p.name, p]));
     function part_heal(p) {
-        if ('max_hp_heal_pct' in p) return true;
+        if (spell_part_heal_power(p) !== undefined) return true;
         if ('hits' in p) return Object.keys(p.hits).some(n => { const s = by_name.get(n); return s && part_heal(s); });
         return false;
     }
@@ -334,13 +336,13 @@ function computeSpellHealingTotal(stats, spell) {
         const part = dat.store_part;
         const part_id = spell.base_spell + '.' + part.name;
         let result;
-        if ('max_hp_heal_pct' in part) {
+        if (spell_part_heal_power(part) !== undefined) {
             const mult_map = stats.get('healMult');
             let heal_mult = 1;
             for (const [k, v] of mult_map.entries()) {
                 if (!k.includes(':') || k.split(':')[1] === part_id) heal_mult *= (1 + v / 100);
             }
-            result = { type: 'heal', heal_amount: part.max_hp_heal_pct * getDefenseStats(stats)[0] * heal_mult };
+            result = { type: 'heal', heal_amount: spell_part_heal_power(part) * getDefenseStats(stats)[0] * heal_mult };
         } else if ('multipliers' in part) {
             result = { type: 'damage', heal_amount: 0 };
         } else {
