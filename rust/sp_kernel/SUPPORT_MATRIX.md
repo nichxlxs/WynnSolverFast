@@ -79,18 +79,28 @@ both SP states from the lowered leaf and needs no Obj base at all.
 with no unroll the rows line up 1:1 with the originals — so the load-time
 compiled rows stay valid and only the appended tokens need bonuses.
 `compile_token_bonuses` (extracted from `compile_rows`, so the two cannot
-drift) compiles those one or two tokens per row, and
-`score_compiled_extra` applies them after the static ones, preserving the
-(token, match, bonus) order the uncompiled path uses.
+drift) compiles those one or two tokens per row, and `score_compiled_extra`
+applies them after the static ones, preserving the (token, match, bonus)
+order the uncompiled path uses.
 
 A prop bonus on an injected token would change that row's `mod_spell`, which
 the compiled row baked in at load — that case falls back to the uncompiled
 scorer rather than silently scoring against a stale spell.
 
-The earlier attempt — recompiling each leaf's rows outright — was correct but
-*slower* (11.0 s), because `compile_rows` rebuilds every row's `mod_spell`,
-plan and DPS analysis, not just its bonuses. Hoisting the compile out of the
-trial is what made the difference.
+**What is left, and why nothing smaller will move it.** The remaining cost
+is not allocation or bookkeeping. Per row: dense is ~0.15 us, the compiled
+Obj path is ~16 us — a **100x** gap, because the Obj path reads every stat
+through a string-keyed map while dense reads an indexed `f64` array. Three
+contained attempts confirmed there is nothing cheaper to win first:
+
+- recompiling each leaf's rows outright (slower: `compile_rows` rebuilds
+  `mod_spell`, plan and DPS analysis, not just bonuses)
+- assuming row *construction* dominated (it is 19%)
+- skipping the write-only `spell_costs` build in the per-trial simulation
+  (correct, and within measurement noise)
+
+Even a perfect dense path leaves the per-trial simulation, ~1.3 s of the
+6.7 s, so the realistic ceiling is about **4.8x**, not 100x.
 
 | B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
