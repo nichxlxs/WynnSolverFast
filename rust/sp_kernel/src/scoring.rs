@@ -2442,6 +2442,10 @@ impl Layer2 {
 
 pub enum Objective {
     ComboDamage,
+    /// Sum of healing over the combo. Evaluated on the Obj path (the dense
+    /// lowering covers damage/indirect objectives only), so it is correct
+    /// but not on the fastest path.
+    TotalHealing,
     /// ehp / ehp_no_agi / total_hp / hpr / ehpr / total_mana / plain stat.
     Indirect(String),
     /// Weighted blend; ceiling only when every weight is >= 0 and every
@@ -2464,6 +2468,89 @@ fn js_min(a: f64, b: f64) -> f64 {
 }
 
 /// getDefenseStats subset: (total_hp, ehp, ehp_no_agi, hpr, ehpr).
+/// computeSpellHealingTotal (pure/spell.js): sum of every part's heal
+/// amount. Heal parts scale with max HP and the healMult map (entries
+/// scoped with ':' apply only to their part); damage parts heal 0; total
+/// parts sum their subs' heals times the effective hit count.
+pub fn compute_spell_healing_total(stats: &StatsView, spell: &Value, tables: &Tables) -> f64 {
+    let parts = spell_parts(spell);
+    let base_spell = spell.get("base_spell").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total_hp = defense_stats(stats, tables).0;
+    let heal_mult_map = stats.nested("healMult");
+
+    fn eval<'a>(
+        name: &str, parts: &'a [Value], base_spell: i64, total_hp: f64,
+        heal_mult_map: Option<&Obj>, memo: &mut HashMap<String, f64>, depth: usize,
+    ) -> f64 {
+        if depth > 64 { return 0.0; }             // cycle guard
+        if let Some(&v) = memo.get(name) { return v; }
+        let Some(part) = parts.iter().find(|p| {
+            p.get("name").and_then(|n| n.as_str()) == Some(name)
+        }) else { return 0.0 };
+        let part_id = format!("{}.{}", base_spell, name);
+        let amount = if let Some(pct) = part.get("max_hp_heal_pct").and_then(|v| v.as_f64()) {
+            let mut heal_mult = 1.0;
+            if let Some(m) = heal_mult_map {
+                for (k, v) in m {
+                    let scoped_ok = match k.find(':') {
+                        Some(i) => &k[i + 1..] == part_id,
+                        None => true,
+                    };
+                    if scoped_ok {
+                        heal_mult *= 1.0 + v.as_f64().unwrap_or(f64::NAN) / 100.0;
+                    }
+                }
+            }
+            pct * total_hp * heal_mult
+        } else if part.get("multipliers").is_some() {
+            0.0
+        } else {
+            let mut acc = 0.0;
+            let tick_rounding = part.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
+            if let Some(hits) = part.get("hits").and_then(|h| h.as_object()) {
+                for (sub, hv) in hits {
+                    let h = hv.as_f64().unwrap_or(f64::NAN);
+                    let eff = if tick_rounding { 1.0 / ((1.0 / h * 20.0).floor() * 0.05) } else { h };
+                    acc += eval(sub, parts, base_spell, total_hp, heal_mult_map, memo, depth + 1) * eff;
+                }
+            }
+            acc
+        };
+        memo.insert(name.to_string(), amount);
+        amount
+    }
+
+    let mut memo: HashMap<String, f64> = HashMap::new();
+    let mut total = 0.0;
+    for p in parts {
+        let Some(n) = p.get("name").and_then(|x| x.as_str()) else { continue };
+        total += eval(n, parts, base_spell, total_hp, heal_mult_map, &mut memo, 0);
+    }
+    total
+}
+
+/// eval_combo_healing: total_healing over the combo (mirrors the JS
+/// accumulation, including melee-time effective quantities).
+pub fn eval_combo_healing(
+    combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+    hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables,
+) -> f64 {
+    let mut total = 0.0;
+    for row in rows {
+        let Some(spell) = &row.spell else { continue };
+        if row.qty <= 0.0 || row.pseudo { continue; }
+        let (stats, po) = apply_combo_row_boosts(combo_base, &row.tokens, registry);
+        let mod_spell = apply_spell_prop_overrides(spell, &po, hit_refs);
+        let heal_per_cast = compute_spell_healing_total(&stats, &mod_spell, tables);
+        let eff_qty = if row.is_melee_time {
+            compute_melee_time_hits(row.qty, &StatsView::Borrowed(combo_base),
+                                    row.melee_cd_override, tables)
+        } else { row.qty };
+        total += heal_per_cast * eff_qty;
+    }
+    total
+}
+
 pub fn defense_stats(stats: &StatsView, tables: &Tables) -> (f64, f64, f64, f64, f64) {
     let fm3 = tables.skillpoint_final_mult_3;
     let fm4 = tables.skillpoint_final_mult_4;
@@ -2506,7 +2593,7 @@ impl Objective {
     pub fn parse(scoring_target: &str, custom_weights: Option<&Value>) -> Result<Objective, String> {
         match scoring_target {
             "combo_damage" => Ok(Objective::ComboDamage),
-            "total_healing" => Err("total_healing objective not ported".into()),
+            "total_healing" => Ok(Objective::TotalHealing),
             "custom" => {
                 let weights = custom_weights.and_then(|v| v.as_array())
                     .ok_or("custom objective without custom_weights")?;
@@ -2514,9 +2601,6 @@ impl Objective {
                 for w in weights {
                     let target = w.get("target").and_then(|t| t.as_str())
                         .ok_or("custom weight missing target")?;
-                    if target == "total_healing" {
-                        return Err("total_healing sub-target not ported".into());
-                    }
                     let weight = w.get("weight").and_then(|x| x.as_f64())
                         .ok_or("custom weight missing weight")?;
                     out.push((target.to_string(), weight));
@@ -2536,6 +2620,8 @@ impl Objective {
         match self {
             Objective::ComboDamage =>
                 eval_combo_damage(combo_base, weapon, rows, registry, hit_refs, tables),
+            Objective::TotalHealing =>
+                eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables),
             Objective::Indirect(stat) =>
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
@@ -2546,6 +2632,8 @@ impl Objective {
                     let sub = if target == "combo_damage" {
                         *damage.get_or_insert_with(|| eval_combo_damage(
                             combo_base, weapon, rows, registry, hit_refs, tables))
+                    } else if target == "total_healing" {
+                        eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables)
                     } else {
                         eval_indirect_stat(&stats, target, tables)
                     };
@@ -2563,6 +2651,8 @@ impl Objective {
         match self {
             Objective::ComboDamage =>
                 eval_combo_damage_compiled(combo_base, weapon, rows, compiled, tables),
+            Objective::TotalHealing =>
+                eval_combo_healing_compiled(combo_base, rows, compiled, tables),
             Objective::Indirect(stat) =>
                 eval_indirect_stat(&StatsView::Borrowed(combo_base), stat, tables),
             Objective::Custom(weights) => {
@@ -2579,6 +2669,8 @@ impl Objective {
                                 d
                             }
                         }
+                    } else if target == "total_healing" {
+                        eval_combo_healing_compiled(combo_base, rows, compiled, tables)
                     } else {
                         eval_indirect_stat(&StatsView::Borrowed(combo_base), target, tables)
                     };
@@ -2594,6 +2686,9 @@ impl Objective {
     pub fn supports_ceiling(&self) -> bool {
         match self {
             Objective::ComboDamage => true,
+            // Healing is non-decreasing in max HP and the healMult entries it
+            // reads, same argument as damage.
+            Objective::TotalHealing => true,
             // All indirect stats are non-decreasing in the stats they read
             // (negative raw values are still bounded above by per-stat maxima).
             Objective::Indirect(_) => true,
@@ -2843,6 +2938,28 @@ pub fn with_row_overlay<R>(
         }
     }
     r
+}
+
+/// eval_combo_healing over precompiled rows: uses each row's pre-patched
+/// mod_spell and journaled boost overlay, exactly like the damage variant,
+/// so results match the uncompiled path bit-for-bit.
+pub fn eval_combo_healing_compiled(
+    combo_base: &mut Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+) -> f64 {
+    let mut total = 0.0;
+    for (row, comp) in rows.iter().zip(compiled) {
+        let Some(mod_spell) = &comp.mod_spell else { continue };
+        if row.qty <= 0.0 || row.pseudo { continue; }
+        let heal_per_cast = with_row_overlay(combo_base, comp, |b| {
+            compute_spell_healing_total(&StatsView::Borrowed(b), mod_spell, tables)
+        });
+        let eff_qty = if row.is_melee_time {
+            let bv = StatsView::Borrowed(combo_base);
+            compute_melee_time_hits(row.qty, &bv, row.melee_cd_override, tables)
+        } else { row.qty };
+        total += heal_per_cast * eff_qty;
+    }
+    total
 }
 
 /// eval_combo_damage over precompiled rows — the hot-path variant.
@@ -3560,6 +3677,8 @@ impl DenseCtx {
         };
         let obj = match objective {
             Objective::ComboDamage => DObjective::Damage,
+            // Healing has no dense lowering: fall back to the Obj path.
+            Objective::TotalHealing => return None,
             Objective::Indirect(stat) => {
                 if nested_prefix(stat) { return None; }
                 DObjective::Indirect(lower_ind(stat, &mut idx, &mut keys))
@@ -3567,6 +3686,7 @@ impl DenseCtx {
             Objective::Custom(weights) => {
                 let mut out = Vec::new();
                 for (target, w) in weights {
+                    if target == "total_healing" { return None; }
                     if target == "combo_damage" { out.push((None, *w)); }
                     else {
                         if nested_prefix(target) { return None; }
