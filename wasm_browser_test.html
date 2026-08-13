@@ -1,0 +1,24 @@
+<!doctype html><html><body><pre id="out">running…</pre>
+<script type="module">
+import init, { solve } from '/js/solver/wasm/sp_kernel.js';
+const log = (s) => { document.getElementById('out').textContent += '\n' + s; };
+try {
+  await init();
+  const e = await (await fetch('/fx/enum_armor4.txt')).text();
+  const s = await (await fetch('/fx/score_armor4.json')).text();
+  for (let i = 1; i <= 3; i++) {
+    const t0 = performance.now();
+    const r = JSON.parse(solve(e, s, 0));
+    const ms = performance.now() - t0;
+    log('armor4 run ' + i + ': checked=' + r.checked + ' complete=' + r.complete +
+        ' | ' + Math.round(ms) + 'ms | ' + Math.round(r.checked/ms*1000) + ' leaves/s | top1=' + r.top[0].score);
+  }
+  const e2 = await (await fetch('/fx/enum_hp2.txt')).text();
+  const s2 = await (await fetch('/fx/score_hp2.json')).text();
+  solve(e2, s2, 0);
+  const t1 = performance.now();
+  const r2 = JSON.parse(solve(e2, s2, 0));
+  log('armor2/hp2 warm: checked=' + r2.checked + ' | ' + Math.round(performance.now()-t1) + 'ms | top1=' + r2.top[0].score);
+  document.title = 'DONE';
+} catch (er) { log('ERROR: ' + er.message); document.title = 'ERROR'; }
+</script></body></html>

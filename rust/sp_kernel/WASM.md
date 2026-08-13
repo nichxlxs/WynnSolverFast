@@ -88,6 +88,29 @@ Same machine, same scenario, identical work — `readme_armor4`
 after 10 seconds having seen 5% of the space becomes an exhaustive answer
 in a third of a second — and finds the same best build.
 
+### Verified in a real browser (Chromium via Playwright)
+
+Same `readme_armor4` scenario, running the actual web build:
+
+| run | checked | wall | rate | top1 |
+|---|---:|---:|---:|---:|
+| 1 (cold, includes V8 tier-up) | 3,223,584 (100%) | 444 ms | 7.27 M/s | 24,848 |
+| 2 (warm) | 3,223,584 (100%) | 357 ms | 9.04 M/s | 24,848 |
+| 3 (warm) | 3,223,584 (100%) | 346 ms | 9.31 M/s | 24,848 |
+
+**~651x the JS engine's rate in-browser**, with the same best build — and
+even the cold run completes the whole space 23x faster in wall time than
+the JS engine's timed-out 4.7% pass. `readme_armor2` is 38 ms warm vs
+422 ms for JS (11x).
+
+Reproduce with `wasm_browser_test.html` (serve the repo root, map
+`/fx/` to `rust/sp_kernel/fixtures/`, then drive it with Playwright
+pointing at the pre-installed Chromium).
+
+Note: the first `solve` call in a page is several times slower than
+steady state — V8 runs wasm through its baseline compiler (Liftoff)
+before tiering up to TurboFan. Chunked solving warms it up naturally.
+
 Smaller scenarios are dominated by fixed startup cost, so they show a
 smaller ratio (1,872-leaf `readme_armor2`: 422 ms JS vs 75 ms WASM ≈
 5.6x). Sustained throughput on a large spell search is ~328K leaves/s
