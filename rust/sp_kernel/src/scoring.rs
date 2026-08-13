@@ -2196,23 +2196,53 @@ pub fn leaf_pipeline_gated(
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
-        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting {
+        let two_sided_off = objective.needs_two_sided_ceiling() && !Objective::two_sided_enabled();
+        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting
+            && !two_sided_off {
             if (dwork.is_none() || dense_check) && base_opt.is_none() {
+                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+            }
+            // Blends with a negative weight need each term at its own
+            // extreme: the negative ones off the leaf's pre-greedy SP (their
+            // target's minimum over everything the greedy and the rescue can
+            // reach), the rest off all-150. See needs_two_sided_ceiling.
+            let two_sided = objective.needs_two_sided_ceiling();
+            // Only the Obj fallback needs the materialized base; the dense
+            // path assembles both SP states from the lowered leaf. Building
+            // it unconditionally cost more than the gate saved.
+            if two_sided && dwork.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE_NS, {
                 let ceiling_sp = [150f64; 5];
+                let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
                     let DenseWork { leaf, scratch } = &mut **w;
+                    let neg = if two_sided {
+                        dense_assemble(d, leaf, scratch, &low_sp);
+                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                    } else { 0.0 };
                     dense_assemble(d, leaf, scratch, &ceiling_sp);
-                    let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
-                    if dense_check {
+                    let v = if two_sided {
+                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, false) + neg
+                    } else {
+                        dense_score(d, leaf, scratch, rows, compiled_rows, tables)
+                    };
+                    if dense_check && !two_sided {
                         let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
                     v
+                } else if two_sided {
+                    let base = base_opt.as_ref().unwrap();
+                    let cb_lo = l2.assemble_from_base(base, &low_sp, weapon);
+                    let neg = objective.score_signed(
+                        &cb_lo, weapon, rows, registry, hit_refs, tables, true);
+                    let cb150 = l2.assemble_from_base(base, &ceiling_sp, weapon);
+                    objective.score_signed(
+                        &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
                     let mut cb150 = l2.assemble_from_base(base_opt.as_ref().unwrap(), &ceiling_sp, weapon);
                     obj_score(&mut cb150)
@@ -3010,6 +3040,35 @@ impl Objective {
         }
     }
 
+    /// `score` restricted to blend terms whose weight sign matches
+    /// `want_neg` (see `dense_score_signed`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn score_signed(
+        &self, combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+        hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, want_neg: bool,
+    ) -> f64 {
+        let Objective::Custom(weights) = self else {
+            return if want_neg { 0.0 }
+                   else { self.score(combo_base, weapon, rows, registry, hit_refs, tables) };
+        };
+        let mut damage: Option<f64> = None;
+        let stats = StatsView::Borrowed(combo_base);
+        let mut sum = 0.0;
+        for (target, weight) in weights {
+            if (*weight < 0.0) != want_neg { continue; }
+            let sub = if target == "combo_damage" {
+                *damage.get_or_insert_with(|| eval_combo_damage(
+                    combo_base, weapon, rows, registry, hit_refs, tables))
+            } else if target == "total_healing" {
+                eval_combo_healing(combo_base, weapon, rows, registry, hit_refs, tables)
+            } else {
+                eval_indirect_stat(&stats, target, tables)
+            };
+            sum += weight * sub;
+        }
+        sum
+    }
+
     /// Hot-path score over precompiled rows (bit-identical to score()).
     pub fn score_compiled(
         &self, combo_base: &mut Obj, weapon: &Obj, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
@@ -3058,8 +3117,40 @@ impl Objective {
             // All indirect stats are non-decreasing in the stats they read
             // (negative raw values are still bounded above by per-stat maxima).
             Objective::Indirect(_) => true,
-            Objective::Custom(weights) => weights.iter().all(|(_, w)| *w >= 0.0),
+            // A negative weight is still bounded, just not by the all-150
+            // assemble alone — see `needs_two_sided_ceiling`.
+            Objective::Custom(_) => true,
         }
+    }
+
+    /// True when the all-150-SP assemble is NOT on its own an upper bound.
+    ///
+    /// Every sub-target is non-decreasing in SP (the assumption
+    /// `supports_ceiling` already rests on, backed by `ceiling_vars_ok`), so
+    /// a term with a **negative** weight is maximized where its target is
+    /// *smallest* — the leaf's pre-greedy SP — not largest. Evaluating each
+    /// term at its own extreme still bounds the blend from above:
+    ///
+    ///   for w >= 0:  w * target(sp)  <=  w * target(150)
+    ///   for w <  0:  w * target(sp)  <=  w * target(sp_min)
+    ///
+    /// since sp_min <= sp <= 150 componentwise for every state the greedy
+    /// and the mana rescue can reach. Summing preserves the inequality.
+    ///
+    /// Without this these scenarios ran with the gate and every bound off.
+    pub fn needs_two_sided_ceiling(&self) -> bool {
+        match self {
+            Objective::Custom(weights) => weights.iter().any(|(_, w)| *w < 0.0),
+            _ => false,
+        }
+    }
+
+    /// `SCORE_TWO_SIDED=0` restores the previous behaviour — no gate at all
+    /// on these objectives — so the pruned and unpruned runs can be compared
+    /// directly. An admissible bound must leave the top-N unchanged.
+    pub fn two_sided_enabled() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var("SCORE_TWO_SIDED").as_deref() != Ok("0"))
     }
 }
 
@@ -4802,6 +4893,40 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
         }
         DInd::Plain(i) => s.num_or0(*i),
     }
+}
+
+/// `dense_score` restricted to the terms whose weight sign matches `want_neg`.
+///
+/// Used to build the two-sided ceiling: the negative-weight terms are read
+/// off the low-SP assemble and the non-negative ones off the all-150
+/// assemble, so each term is taken at its own maximum.
+pub fn dense_score_signed(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, want_neg: bool,
+) -> f64 {
+    let DObjective::Custom(weights) = &d.obj else {
+        // Only blends have signed terms; anything else belongs entirely to
+        // the non-negative side.
+        return if want_neg { 0.0 } else { dense_score(d, leaf, s, rows, compiled, tables) };
+    };
+    let mut damage: Option<f64> = None;
+    let mut sum = 0.0;
+    for (ind, weight) in weights {
+        if (*weight < 0.0) != want_neg { continue; }
+        let sub = match ind {
+            None => match damage {
+                Some(dv) => dv,
+                None => {
+                    let dv = dense_combo_damage(d, leaf, s, rows, compiled, tables);
+                    damage = Some(dv);
+                    dv
+                }
+            },
+            Some(ind) => dense_indirect(d, s, ind, tables),
+        };
+        sum += weight * sub;
+    }
+    sum
 }
 
 /// Objective::score over the dense trial state (bit-identical to the Obj path).

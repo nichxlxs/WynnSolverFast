@@ -1341,8 +1341,12 @@ pub fn run_single_with_progress(
     let bound_tables = scoring.and_then(|sc| {
         // Dynamic rows: the all-150-SP ceiling assumes the damage rows are
         // fixed, and they are not — so the mid-tree bound is inadmissible.
+        // The mid-tree ceiling machinery evaluates one assembled state, so
+        // it cannot express a two-sided bound; leave it off there. The leaf
+        // gate handles those objectives on its own.
         if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
-            || sc.consts.hp_casting || sc.consts.dynamic.is_some() {
+            || sc.consts.hp_casting || sc.consts.dynamic.is_some()
+            || sc.objective.needs_two_sided_ceiling() {
             return None;
         }
         if !fx.slots.iter().all(|s| s.pool.len() < 128) { return None; }
@@ -1686,7 +1690,10 @@ pub fn cli_main() {
         if !sc.objective.supports_ceiling()
             || !sc.layer2.ceiling_vars_ok
             || sc.consts.hp_casting
-            || sc.consts.dynamic.is_some() { return None; }
+            || sc.consts.dynamic.is_some()
+            // See run_single_with_progress: one assembled state cannot
+            // express a two-sided bound.
+            || sc.objective.needs_two_sided_ceiling() { return None; }
         let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
     });
