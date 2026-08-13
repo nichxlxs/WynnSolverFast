@@ -32,7 +32,12 @@ ordered roughly by expected user impact within each section.
 
 | # | Case | Why slow | Speed today | Possible fix |
 |---|------|----------|-------------|--------------|
-| B1 | Defensive objectives (ehp/ehpr/hpr/total_hp) | Ceiling gate discriminates poorly (defensively-flat pools), so most leaves run greedy+mana; mana sim dominates | ~9x slower than damage goals (406K vs ~3.7M leaves/s) | Cluster-level mana prefilter; cheaper sustain model |
+| B1 | Defensive objectives (ehp/ehpr/hpr/total_hp) | The ceiling gate discriminates poorly on defensively-flat pools, so most leaves reach the mana simulation | ~9x slower than damage goals. **Profiled** (`SCORE_TRACE=1`, `spell_ehp`, 1.9M leaves): mana 10.2 s + doom precheck 4.6 s = **78% of a 19 s run**, against 2.5 s greedy and 0.4 s SP | Reduce the *number* of leaves reaching the simulation, not the cost per simulation — see the tried-and-rejected note below |
+
+**Tried and rejected: memoizing the mana verdict.** The simulation reads only `DenseCtx::mana_keys`, so its verdict can be cached by exact stat values. First attempt hit 0.7% — `hp`/`hpBonus` are in the key and vary on nearly every defensive item. Narrowing the key was sound and worked: those two reach the verdict only through `has_hp_warning`, which needs an HP cost to exist (a row `hp_cost`, Blood Pact, or an HP-draining buff state), so with none of those they can be dropped. Hit rate went to **66%** and the doom phase fell from 4.6 s to 2.5 s.
+
+It still made the run **2% slower** — 12.05 s versus 11.79 s over repeated 1M-leaf runs. Building and hashing the key costs about what the simulation it replaces costs; the fast mana sim is simply cheap. Two things worth keeping from it: the per-leaf cost is not the problem (the leaf *count* is), and the final mana check is a worse memo target than the doom check, because it runs at the greedy-chosen Int rather than a fixed Int=150, so its key almost never repeats.
+
 | B2 | Custom blends with any negative weight | Monotonicity proof fails → gate + all bounds off | Unpruned (~50-100x slower on wide pools) | Interval (min/max) ceiling bounds |
 | B3 | Atrees failing `ceiling_vars_ok` (negative stat-input factors, or `atkTier`/`*ConvBase` var outputs) | All-150 SP is not an upper bound → gate + bounds off (matches JS) | Unpruned | Extremal-per-output ceiling assemble (like the bounded doom) could re-arm the gate soundly |
 | B4 | `hp_casting` builds | Gate off (JS parity); HP-sim path heavier | Unpruned | Prove/derive an hp-casting-safe ceiling |
