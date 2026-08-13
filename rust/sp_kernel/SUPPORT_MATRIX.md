@@ -59,7 +59,14 @@ ordered roughly by expected user impact within each section.
    evaluation over the unrolled combo is 81% of it, so the win is a compiled
    row path that tolerates per-leaf boost-token values — not the row
    construction, which is the intuitive but wrong target.
-2. **wasm threads** (SharedArrayBuffer + COOP/COEP): full core scaling in
+2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
+   ordinary worker per core, split by first-slot offset, no
+   `SharedArrayBuffer` or cross-origin isolation needed. Exact (verified at
+   2..8 partitions on three fixtures), ~1.8x at 4-way rather than 4x because
+   each partition re-derives its own score cutoff, and gated on search size
+   because worker startup would otherwise dominate a short solve. True
+   shared-cutoff threading still wants SharedArrayBuffer.
+3. ~~**wasm threads (old note)** (SharedArrayBuffer + COOP/COEP): full core scaling in
    the browser on top of the single-threaded engine already shipping.
 3. **A6 dynamic sliders / A8 non-lowered ability trees**: both are
    exporter-capability questions rather than engine ports; worth scoping

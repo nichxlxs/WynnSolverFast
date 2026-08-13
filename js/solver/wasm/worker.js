@@ -11,12 +11,23 @@
 // `worker_error` carrying `worker_id`), so `_on_all_workers_done` and the
 // progress UI consume both engines without branching.
 
-import init, { solve_with_progress, search_space } from './sp_kernel.js';
+import init, { initSync, solve_partition, search_space } from './sp_kernel.js';
 
 let moduleReady;
 
-function loadModule() {
-    if (!moduleReady) moduleReady = init();
+/**
+ * @param {WebAssembly.Module} [compiled] - a module the host compiled once
+ *   and structured-cloned to every worker. Without it each worker compiles
+ *   the ~650 KB module itself, and N workers compiling at once on N cores
+ *   serialize badly enough to make partitioning a net loss on short
+ *   searches. With it, instantiation is nearly free.
+ */
+function loadModule(compiled) {
+    if (!moduleReady) {
+        moduleReady = compiled
+            ? Promise.resolve(initSync({ module: compiled }))
+            : init();
+    }
     return moduleReady;
 }
 
@@ -28,15 +39,16 @@ self.onmessage = async (event) => {
 
     try {
         post({ type: 'progress', phase: 'loading engine', checked: 0, total: 0 });
-        await loadModule();
+        await loadModule(msg.compiled_module);
 
         post({ type: 'progress', phase: 'preparing search', checked: 0, total: 0 });
         let total = 0;
         try { total = search_space(msg.enum_fixture); } catch (e) { /* progress-only */ }
         post({ type: 'progress', phase: 'searching', checked: 0, total });
 
-        const raw = solve_with_progress(
+        const raw = solve_partition(
             msg.enum_fixture, msg.score_fixture, msg.max_leaves ?? 0,
+            msg.part_index ?? 0, msg.part_count ?? 1,
             (payload) => {
                 const p = JSON.parse(payload);
                 post({

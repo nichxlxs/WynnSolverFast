@@ -1319,7 +1319,7 @@ pub fn run_single(
     scoring: Option<&crate::scoring::ScoringCtx>,
     leaf_budget: Option<f64>,
 ) -> Totals {
-    run_single_with_progress(fx, scoring, leaf_budget, None)
+    run_single_with_progress(fx, scoring, leaf_budget, None, None)
 }
 
 /// `run_single` with an optional live-progress sink. The sink fires every
@@ -1330,6 +1330,12 @@ pub fn run_single_with_progress(
     scoring: Option<&crate::scoring::ScoringCtx>,
     leaf_budget: Option<f64>,
     progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    // `part`: inclusive first-slot offset range, or None for all of it.
+    // Ranges partition the space exactly — the same split the native
+    // threaded path work-steals over — so several single-threaded runs can
+    // cover the search between them and their integral counters sum to the
+    // whole-space totals.
+    part: Option<(i64, i64)>,
 ) -> Totals {
     let shared_cutoff = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
@@ -1350,6 +1356,16 @@ pub fn run_single_with_progress(
         }),
         _ => None,
     };
+    // Seed the cutoff before enumerating. This used to run only in the CLI,
+    // so the browser engine began every search with a cold cutoff and the
+    // gate pruned nothing until one turned up organically. It matters more
+    // still when partitioned: each partition would otherwise have to
+    // rediscover a good cutoff over its own slice of the space.
+    let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    let bound_cluster: usize = std::env::var("BOUND_CLUSTER").ok()
+        .and_then(|v| v.parse().ok()).unwrap_or(4);
+    seed_warm_cutoff(fx, scoring, &shared_cutoff, warm_k, bound_cluster, false);
+
     let mut search = Search::new(fx);
     search.scoring = scoring;
     search.shared_cutoff = Some(&shared_cutoff);
@@ -1359,6 +1375,10 @@ pub fn run_single_with_progress(
     search.dense_bound = dense_bound.as_ref();
     search.leaf_budget = leaf_budget;
     search.next_report = f64::INFINITY;
+    if let Some((lo, hi)) = part {
+        search.part_lo = lo;
+        search.part_hi = hi;
+    }
     if let Some(p) = progress {
         // Reborrow so the sink's lifetime shrinks to the Search's rather
         // than forcing `'a` out to the caller's (which would outlive the
@@ -1394,7 +1414,27 @@ pub fn run_single_with_progress(
 /// that many leaves are credited (a deterministic alternative to a wall
 /// clock, which wasm lacks).
 pub fn solve_json(enum_fixture: &str, score_fixture: &str, max_leaves: f64) -> String {
-    solve_json_with_progress(enum_fixture, score_fixture, max_leaves, None)
+    solve_json_full(enum_fixture, score_fixture, max_leaves, None, 0, 1)
+}
+
+/// Splits the first slot's pool into `part_count` contiguous offset ranges
+/// and returns the inclusive bounds of `part_index`.
+///
+/// A worker whose range is empty (more workers than offsets) gets `lo > hi`
+/// and enumerates nothing, which is correct rather than an error.
+pub fn partition_bounds(pool_len: usize, part_index: usize, part_count: usize) -> (i64, i64) {
+    if part_count <= 1 || pool_len == 0 {
+        return (0, i64::MAX);
+    }
+    let n = pool_len as i64;
+    let count = part_count as i64;
+    let idx = part_index as i64;
+    let base = n / count;
+    let rem = n % count;
+    // The first `rem` partitions take one extra offset.
+    let lo = idx * base + idx.min(rem);
+    let hi = lo + base + if idx < rem { 1 } else { 0 } - 1;
+    (lo, hi)
 }
 
 /// Serializes a `ProgressSnapshot` for a JS sink.
@@ -1425,6 +1465,21 @@ pub fn solve_json_with_progress(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
     progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
 ) -> String {
+    solve_json_full(enum_fixture, score_fixture, max_leaves, progress, 0, 1)
+}
+
+/// `solve_json` with a progress sink and a partition assignment.
+///
+/// `part_count > 1` runs only this partition's share of the space, so a host
+/// can spawn several single-threaded engines (one per browser worker) and
+/// cover the search between them. Each partition reports the FULL space as
+/// `total` so a host summing `checked` across workers gets a coherent
+/// percentage.
+pub fn solve_json_full(
+    enum_fixture: &str, score_fixture: &str, max_leaves: f64,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    part_index: usize, part_count: usize,
+) -> String {
     let fx = parse_fixture(enum_fixture);
     let budget = if max_leaves > 0.0 { Some(max_leaves) } else { None };
     let ctx = if score_fixture.trim().is_empty() {
@@ -1438,7 +1493,11 @@ pub fn solve_json_with_progress(
             Err(e) => return format!("{{\"error\":{}}}", json_str(&e)),
         }
     };
-    let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress);
+    let part = if part_count > 1 {
+        let pool_len = fx.slots.first().map(|s| s.pool.len()).unwrap_or(0);
+        Some(partition_bounds(pool_len, part_index, part_count))
+    } else { None };
+    let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress, part);
     let complete = !totals.stopped_early;
     let mut top = String::from("[");
     for (i, (score, items)) in totals.top_n.iter().enumerate() {
@@ -1477,6 +1536,107 @@ fn json_str(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// Warm start: solve the elite subspace (top-WARM_K tail of each
+/// level-ordered pool) first, seeding `shared_cutoff`.
+///
+/// Its top-15 are real scored builds, so the seeded cutoff is admissible for
+/// the main run — the gate and cluster bound prune hard from the first node
+/// instead of waiting for the cutoff to warm up. Ranking is a heuristic;
+/// admissibility comes from the builds being real, not from the selection.
+/// `WARM_K=0` disables.
+///
+/// Shared by the CLI and `run_single`, so the browser path gets it too — it
+/// previously lived only in `cli_main`, which meant the WASM engine started
+/// every search with a cold cutoff.
+fn seed_warm_cutoff(
+    fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
+    shared_cutoff: &AtomicU64, warm_k: usize, bound_cluster: usize, verbose: bool,
+) {
+if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k)) {
+    return;
+}
+{
+    // Rank each pool's items by their solo objective ceiling (item alone
+    // on a none-item build at all-150 SP) and keep the top WARM_K per
+    // slot, preserving level order so the band machinery stays valid.
+    // Ranking is a heuristic — cutoff admissibility comes from the warm
+    // builds being real scored builds, not from the selection.
+    let sc = scoring.unwrap();
+    let mut base_names: [&str; 8] = Default::default();
+    if fx.none_names.len() == 8 {
+        for p in 0..8 { base_names[p] = &fx.none_names[p]; }
+    }
+    for (pos, name) in &fx.fixed_names { base_names[*pos] = name; }
+    let mut warm_sel: Vec<Vec<usize>> = Vec::with_capacity(fx.slots.len());
+    {
+        let mut work = crate::scoring::DenseWork::default();
+        for sl in &fx.slots {
+            let mut ranked: Vec<(usize, f64)> = sl.item_names.iter().enumerate()
+                .map(|(i, name)| {
+                    let mut names = base_names;
+                    names[sl.pos] = name.as_str();
+                    let c = sc.dense.as_ref().and_then(|d| {
+                        crate::scoring::dense_ceiling_with(
+                            d, &[], &[], &names, &mut work,
+                            &sc.rows, &sc.compiled_rows, &sc.tables)
+                    }).unwrap_or(f64::NEG_INFINITY);
+                    (i, c)
+                })
+                .collect();
+            ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let mut sel: Vec<usize> = ranked.iter().take(warm_k).map(|(i, _)| *i).collect();
+            sel.sort_unstable();
+            warm_sel.push(sel);
+        }
+    }
+    let wfx = Fixture {
+        budget: fx.budget,
+        pc_thresholds: fx.pc_thresholds.clone(),
+        pc_start: fx.pc_start.clone(),
+        ehp: fx.ehp,
+        ehpna: fx.ehpna,
+        thp: fx.thp,
+        hp_start: fx.hp_start,
+        weapon: fx.weapon,
+        guild: fx.guild,
+        fixed: fx.fixed.clone(),
+        slots: fx.slots.iter().zip(&warm_sel).map(|(sl, sel)| Slot {
+            name: sl.name.clone(),
+            pos: sl.pos,
+            is_ring1: sl.is_ring1,
+            is_ring2: sl.is_ring2,
+            pool: sel.iter().map(|&i| sl.pool[i].clone()).collect(),
+            item_names: sel.iter().map(|&i| sl.item_names[i].clone()).collect(),
+        }).collect(),
+        set_table: fx.set_table.clone(),
+        fixed_names: fx.fixed_names.clone(),
+        none_names: fx.none_names.clone(),
+    };
+    let warm_started = Instant::now();
+    let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
+    let wdb = sc.dense.as_ref().and_then(|d| {
+        crate::scoring::DenseBound::build(&sc.layer2, d, &wpools, bound_cluster)
+    });
+    let mut ws = Search::new(&wfx);
+    ws.scoring = scoring;
+    ws.shared_cutoff = Some(&shared_cutoff);
+    ws.dense_bound = wdb.as_ref();
+    ws.init_equip_names();
+    ws.next_report = f64::INFINITY;
+    ws.run();
+    if verbose {
+        eprintln!(
+            "warm: {} leaves ({} scored) in {:.2}s | cutoff seeded {:.6e}",
+            ws.checked, ws.scored, warm_started.elapsed().as_secs_f64(),
+            shared_cutoff.load(Ordering::Relaxed) as f64,
+        );
+    }
+    let _ = warm_started;
+}
+
+
 }
 
 /// CLI entry point (thin wrapper lives in src/bin/enum_kernel.rs).
@@ -1544,81 +1704,7 @@ pub fn cli_main() {
     // waiting for the cutoff to warm up. WARM_K=0 disables.
     let warm_k: usize = env::var("WARM_K").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(6);
-    if scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k) {
-        // Rank each pool's items by their solo objective ceiling (item alone
-        // on a none-item build at all-150 SP) and keep the top WARM_K per
-        // slot, preserving level order so the band machinery stays valid.
-        // Ranking is a heuristic — cutoff admissibility comes from the warm
-        // builds being real scored builds, not from the selection.
-        let sc = scoring.unwrap();
-        let mut base_names: [&str; 8] = Default::default();
-        if fx.none_names.len() == 8 {
-            for p in 0..8 { base_names[p] = &fx.none_names[p]; }
-        }
-        for (pos, name) in &fx.fixed_names { base_names[*pos] = name; }
-        let mut warm_sel: Vec<Vec<usize>> = Vec::with_capacity(fx.slots.len());
-        {
-            let mut work = crate::scoring::DenseWork::default();
-            for sl in &fx.slots {
-                let mut ranked: Vec<(usize, f64)> = sl.item_names.iter().enumerate()
-                    .map(|(i, name)| {
-                        let mut names = base_names;
-                        names[sl.pos] = name.as_str();
-                        let c = sc.dense.as_ref().and_then(|d| {
-                            crate::scoring::dense_ceiling_with(
-                                d, &[], &[], &names, &mut work,
-                                &sc.rows, &sc.compiled_rows, &sc.tables)
-                        }).unwrap_or(f64::NEG_INFINITY);
-                        (i, c)
-                    })
-                    .collect();
-                ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let mut sel: Vec<usize> = ranked.iter().take(warm_k).map(|(i, _)| *i).collect();
-                sel.sort_unstable();
-                warm_sel.push(sel);
-            }
-        }
-        let wfx = Fixture {
-            budget: fx.budget,
-            pc_thresholds: fx.pc_thresholds.clone(),
-            pc_start: fx.pc_start.clone(),
-            ehp: fx.ehp,
-            ehpna: fx.ehpna,
-            thp: fx.thp,
-            hp_start: fx.hp_start,
-            weapon: fx.weapon,
-            guild: fx.guild,
-            fixed: fx.fixed.clone(),
-            slots: fx.slots.iter().zip(&warm_sel).map(|(sl, sel)| Slot {
-                name: sl.name.clone(),
-                pos: sl.pos,
-                is_ring1: sl.is_ring1,
-                is_ring2: sl.is_ring2,
-                pool: sel.iter().map(|&i| sl.pool[i].clone()).collect(),
-                item_names: sel.iter().map(|&i| sl.item_names[i].clone()).collect(),
-            }).collect(),
-            set_table: fx.set_table.clone(),
-            fixed_names: fx.fixed_names.clone(),
-            none_names: fx.none_names.clone(),
-        };
-        let warm_started = Instant::now();
-        let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
-        let wdb = sc.dense.as_ref().and_then(|d| {
-            crate::scoring::DenseBound::build(&sc.layer2, d, &wpools, bound_cluster)
-        });
-        let mut ws = Search::new(&wfx);
-        ws.scoring = scoring;
-        ws.shared_cutoff = Some(&shared_cutoff);
-        ws.dense_bound = wdb.as_ref();
-        ws.init_equip_names();
-        ws.next_report = f64::INFINITY;
-        ws.run();
-        eprintln!(
-            "warm: {} leaves ({} scored) in {:.2}s | cutoff seeded {:.6e}",
-            ws.checked, ws.scored, warm_started.elapsed().as_secs_f64(),
-            shared_cutoff.load(Ordering::Relaxed) as f64,
-        );
-    }
+    seed_warm_cutoff(&fx, scoring, &shared_cutoff, warm_k, bound_cluster, true);
 
     let start = Instant::now();
 

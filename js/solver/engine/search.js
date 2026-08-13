@@ -1360,9 +1360,11 @@ function solver_engine_changed() {
     const rust = document.getElementById('solver-engine')?.value === 'rust';
     const sel = document.getElementById('solver-thread-count');
     if (!sel) return;
-    sel.disabled = rust;
+    // Both engines scale across workers now — the Rust engine partitions the
+    // search across ordinary workers rather than needing wasm threads.
+    sel.disabled = false;
     sel.title = rust
-        ? 'Rust/WASM runs one dedicated browser worker'
+        ? 'Number of Rust/WASM worker partitions'
         : 'Number of JavaScript worker threads';
 }
 
@@ -1404,88 +1406,191 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
 /// stopping is `terminate()` rather than a cooperative flag. Progress lands in
 /// the same worker-state shape the JS engine uses, so `_on_all_workers_done`
 /// and the progress UI need no engine-specific branch.
-function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported) {
-    let worker;
-    try {
-        worker = new Worker('../js/solver/wasm/worker.js', { type: 'module' });
-    } catch (e) {
-        console.warn('[solver] could not start the Rust worker:', e && e.message);
-        _solver_state.running = false;
-        return;
+/// Approximate canonical search size, read off the enum fixture's SLOT lines
+/// (each ends with its pool count). The product is within a fraction of a
+/// percent of the true canonical space, which is all a threshold needs.
+function _rust_search_space_estimate(enum_fixture) {
+    let space = 1;
+    let slots = 0;
+    for (const line of enum_fixture.split('\n')) {
+        if (!line.startsWith('SLOT ')) continue;
+        const n = parseInt(line.trim().split(/\s+/).pop());
+        if (!Number.isFinite(n) || n <= 0) return NaN;
+        space *= n;
+        slots += 1;
     }
+    return slots > 0 ? space : NaN;
+}
 
-    const state = {
-        worker, done: false,
-        checked: 0, precheck_pass: 0, precheck_reject: 0, feasible: 0, met_req: 0, top5: [],
-        _cur_checked: 0, _cur_precheck_pass: 0, _cur_precheck_reject: 0,
-        _cur_feasible: 0, _cur_met_req: 0, _cur_top5: [],
-        _cur_checked_since_top5: 0, _cur_L_progress: [0, 1],
-    };
-    _solver_state.workers = [state];
+/// Partitioning is not free: each extra worker costs ~60 ms of spawn, module
+/// instantiation and structured-cloning the (often ~1 MB) score fixture, and
+/// the main thread serializes that. Measured in Chromium on 4 cores: empty
+/// partitions cost 80 / 140 / 261 ms at 1 / 2 / 4 workers. Against that, the
+/// engine-level speedup tops out near 1.8x at 4-way rather than 4x, because
+/// each partition rediscovers its own score cutoff and so scores several
+/// times as many leaves (measured natively: 384 leaves scored across four
+/// partitions versus 78 for the whole space).
+///
+/// Break-even is therefore around 400 ms of search — roughly 4M leaves at the
+/// ~10M leaves/s the engine sustains. Below that, one worker wins; the
+/// threshold keeps a 2x margin.
+const _RUST_PARTITION_MIN_SPACE = 8e6;
+function _rust_partition_count(enum_fixture) {
+    const selected = Math.max(1, solver_selected_worker_count());
+    if (selected <= 1) return 1;
+    const space = _rust_search_space_estimate(enum_fixture);
+    if (!Number.isFinite(space) || space < _RUST_PARTITION_MIN_SPACE) return 1;
+    return selected;
+}
 
-    const absorb = (m, into_prefix) => {
-        state[`${into_prefix}checked`] = m.checked ?? 0;
-        state[`${into_prefix}precheck_pass`] = m.precheck_pass ?? 0;
-        state[`${into_prefix}precheck_reject`] = m.precheck_reject ?? 0;
-        state[`${into_prefix}feasible`] = m.feasible ?? 0;
-        state[`${into_prefix}met_req`] = m.met_req ?? 0;
-    };
+/// Compiles the wasm module once and caches it. Each worker would otherwise
+/// compile the ~650 KB module itself, and N simultaneous compiles on N cores
+/// serialize badly enough to make partitioning a net loss on short searches.
+/// A compiled `WebAssembly.Module` is structured-cloneable, so one compile
+/// serves every worker.
+let _rust_module_promise = null;
+function _rust_compiled_module() {
+    if (!_rust_module_promise) {
+        const url = new URL('../js/solver/wasm/sp_kernel_bg.wasm', document.baseURI);
+        _rust_module_promise = (typeof WebAssembly.compileStreaming === 'function'
+            ? WebAssembly.compileStreaming(fetch(url))
+            : fetch(url).then(r => r.arrayBuffer()).then(b => WebAssembly.compile(b))
+        ).catch((e) => {
+            // Not fatal: workers fall back to compiling it themselves.
+            console.warn('[solver] wasm precompile failed, workers will compile:', e && e.message);
+            return null;
+        });
+    }
+    return _rust_module_promise;
+}
 
-    worker.onmessage = (event) => {
-        const m = event.data;
-        if (!m) return;
-        if (m.type === 'worker_error') {
-            console.warn(`[solver] Rust engine (${m.code}): ${m.message} — using the JS workers`);
-            _solver_state.engine_phase = '';
-            try { worker.terminate(); } catch (e) {}
-            if (on_unsupported) { on_unsupported(); return; }
-            _solver_state.running = false;
-            _finish_solver_search?.();
-            return;
+function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported) {
+    // One ordinary worker per core. wasm threads would need SharedArrayBuffer
+    // plus COOP/COEP cross-origin isolation, which the app cannot assume;
+    // partitioning needs neither. Each worker enumerates a disjoint range of
+    // first-slot offsets — the same split the native threaded path
+    // work-steals over — so `checked` sums to the whole space and the merged
+    // top-N is identical to a single-worker run (verified by
+    // `partition_check` at 2..8 partitions on three fixtures).
+    //
+    // The one thing lost versus native threads is the shared score cutoff:
+    // each partition discovers its own, so the gate prunes a little less.
+    // That costs work, never results.
+    const part_count = _rust_partition_count(enum_fixture);
+    const states = [];
+    let finished = 0;
+    let failed = false;
+
+    const finish_one = () => {
+        if (failed) return;
+        finished += 1;
+        if (finished < states.length) return;
+        for (const st of states) {
+            try { st.worker.terminate(); } catch (e) { }
         }
-        if (m.type === 'progress') {
-            _solver_state.engine_phase = m.phase ?? 'searching';
-            absorb(m, '_cur_');
-            if (m.total > 0) _solver_state.total = m.total;
-            if (m.top_n) state._cur_top5 = m.top_n;
-            return;
-        }
-        if (m.type !== 'done') return;
+        _on_all_workers_done(states);
+    };
+
+    const fail = (code, message) => {
+        if (failed) return;
+        failed = true;
+        console.warn(`[solver] Rust engine (${code}): ${message} — using the JS workers`);
         _solver_state.engine_phase = '';
-        state.done = true;
-        absorb(m, '');
-        // Zero the interim mirrors so the final aggregate isn't double-counted.
-        absorb({}, '_cur_');
-        for (const t of m.top_n || []) {
-            const items = _reconstruct_result_items(t.item_names ?? t.items);
-            _insert_top5({ score: t.score, items,
-                base_sp: [0, 0, 0, 0, 0], total_sp: [0, 0, 0, 0, 0], assigned_sp: 0 });
+        for (const st of states) {
+            try { st.worker.terminate(); } catch (e) { }
         }
-        try { worker.terminate(); } catch (e) {}
-        _on_all_workers_done([state]);
-    };
-    worker.onerror = (e) => {
-        console.warn('[solver] Rust worker failed to start:', e && e.message);
-        _solver_state.engine_phase = '';
-        try { worker.terminate(); } catch (err) { }
         if (on_unsupported) { on_unsupported(); return; }
         _solver_state.running = false;
         _finish_solver_search?.();
     };
 
-    worker.postMessage({
-        type: 'solve', worker_id: 0,
-        enum_fixture, score_fixture: score_fixture_json,
-        max_leaves: 0,      // run to completion; the worker keeps the UI free
-    });
+    const module_ready = _rust_compiled_module();
 
+    for (let i = 0; i < part_count; i++) {
+        let worker;
+        try {
+            worker = new Worker('../js/solver/wasm/worker.js', { type: 'module' });
+        } catch (e) {
+            fail('rust_worker_spawn', e && e.message);
+            return;
+        }
+        const state = {
+            worker, done: false,
+            checked: 0, precheck_pass: 0, precheck_reject: 0, feasible: 0, met_req: 0, top5: [],
+            _cur_checked: 0, _cur_precheck_pass: 0, _cur_precheck_reject: 0,
+            _cur_feasible: 0, _cur_met_req: 0, _cur_top5: [],
+            _cur_checked_since_top5: 0, _cur_L_progress: [0, 1],
+        };
+        states.push(state);
+
+        worker.onmessage = (event) => {
+            const m = event.data;
+            if (!m) return;
+            if (m.type === 'worker_error') { fail(m.code, m.message); return; }
+            if (m.type === 'progress') {
+                _solver_state.engine_phase = m.phase ?? 'searching';
+                state._cur_checked = m.checked ?? 0;
+                state._cur_precheck_pass = m.precheck_pass ?? 0;
+                state._cur_precheck_reject = m.precheck_reject ?? 0;
+                state._cur_feasible = m.feasible ?? 0;
+                state._cur_met_req = m.met_req ?? 0;
+                // Every partition reports the FULL space, so this is a set
+                // rather than a sum; `checked` is what accumulates.
+                if (m.total > 0) _solver_state.total = m.total;
+                if (m.top_n) state._cur_top5 = m.top_n;
+                return;
+            }
+            if (m.type !== 'done') return;
+            _solver_state.engine_phase = '';
+            state.done = true;
+            state.checked = m.checked ?? 0;
+            state.precheck_pass = m.precheck_pass ?? 0;
+            state.precheck_reject = m.precheck_reject ?? 0;
+            state.feasible = m.feasible ?? 0;
+            state.met_req = m.met_req ?? 0;
+            state._cur_checked = 0;
+            state._cur_precheck_pass = 0;
+            state._cur_precheck_reject = 0;
+            state._cur_feasible = 0;
+            state._cur_met_req = 0;
+            for (const t of m.top_n || []) {
+                const items = _reconstruct_result_items(t.item_names ?? t.items);
+                _insert_top5({ score: t.score, items,
+                    base_sp: [0, 0, 0, 0, 0], total_sp: [0, 0, 0, 0, 0], assigned_sp: 0 });
+            }
+            finish_one();
+        };
+        worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
+
+        const part_index = i;
+        module_ready.then((compiled_module) => {
+            if (failed) return;
+            worker.postMessage({
+                type: 'solve', worker_id: part_index,
+                enum_fixture, score_fixture: score_fixture_json,
+                max_leaves: 0,   // run to completion; the workers keep the UI free
+                part_index, part_count,
+                compiled_module,
+            });
+        });
+    }
+
+    _solver_state.workers = states;
     _solver_state.progress_timer = setInterval(() => {
         if (!_solver_state.running) return;
-        _solver_state.checked = state.checked + state._cur_checked;
-        _solver_state.precheck_pass = state.precheck_pass + state._cur_precheck_pass;
-        _solver_state.precheck_reject = state.precheck_reject + state._cur_precheck_reject;
-        _solver_state.feasible = state.feasible + state._cur_feasible;
-        _solver_state.met_req = state.met_req + state._cur_met_req;
+        let checked = 0, pre_pass = 0, pre_rej = 0, feasible = 0, met = 0;
+        for (const st of states) {
+            checked += st.checked + st._cur_checked;
+            pre_pass += st.precheck_pass + st._cur_precheck_pass;
+            pre_rej += st.precheck_reject + st._cur_precheck_reject;
+            feasible += st.feasible + st._cur_feasible;
+            met += st.met_req + st._cur_met_req;
+        }
+        _solver_state.checked = checked;
+        _solver_state.precheck_pass = pre_pass;
+        _solver_state.precheck_reject = pre_rej;
+        _solver_state.feasible = feasible;
+        _solver_state.met_req = met;
         _update_solver_progress_ui?.();
     }, 500);
 }
@@ -1504,6 +1609,15 @@ function solver_auto_worker_count() {
     return Math.max(1, Math.min(hw - 1, 32));
 }
 
+/** The worker count the user has selected, resolving "Auto". */
+function solver_selected_worker_count() {
+    const sel = document.getElementById('solver-thread-count');
+    const val = sel?.value ?? 'auto';
+    if (val === 'auto') return solver_auto_worker_count();
+    const n = parseInt(val);
+    return Number.isFinite(n) && n > 0 ? n : solver_auto_worker_count();
+}
+
 /** Rewrites the "Auto" option to show the count it currently resolves to. */
 function solver_refresh_auto_thread_label() {
     const thread_sel = document.getElementById('solver-thread-count');
@@ -1519,9 +1633,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     // Determine thread count
     const thread_sel = document.getElementById('solver-thread-count');
     const thread_val = thread_sel?.value ?? 'auto';
-    const num_workers = thread_val === 'auto'
-        ? solver_auto_worker_count()
-        : parseInt(thread_val);
+    const num_workers = solver_selected_worker_count();
 
     if (thread_val === 'auto') solver_refresh_auto_thread_label();
 

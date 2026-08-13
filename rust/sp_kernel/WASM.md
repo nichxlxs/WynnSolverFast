@@ -144,18 +144,73 @@ smaller ratio (1,872-leaf `readme_armor2`: 422 ms JS vs 75 ms WASM ≈
 single-threaded in WASM, versus ~2.4K/s for the JS engine on the same
 scenario.
 
+## Multi-worker
+
+Correctness first: `partition_check` runs every partition count from 2 to 8
+on `spell2`, `armor4` (3,223,584 leaves) and `hp2`, and requires that
+`checked` sums to the whole-space total and that the merged top-N is
+**bit-identical** to a single-partition run. All exact.
+
+Counters *downstream of the score gate* (`feasible`, `scored`, `gated`,
+`bound_pruned`) do differ, and that is expected rather than a defect: each
+partition discovers its own score cutoff, so the gate prunes less. It is the
+same reason those counters vary between 1 and 4 native threads.
+
+That lost sharing is also the speed ceiling. Measured natively on `armor4`:
+
+| | wall | leaves scored |
+|---|---:|---:|
+| whole space | 382 ms | 78 |
+| 4 partitions, slowest | 208 ms | 384 across all four |
+
+So **~1.8x at 4-way, not 4x** — the partitions do 1.8x the total CPU because
+they each re-derive a cutoff. Sharing it would need `SharedArrayBuffer` (the
+worker's `solve` is synchronous, so the host cannot inject one mid-run).
+
+### When partitioning is a loss
+
+Each extra worker costs spawn, module instantiation and structured-cloning
+the score fixture (~880 KB on `armor4`), and the main thread serializes that.
+Measured in Chromium on a 4-core machine with empty partitions — pure
+overhead, no search:
+
+| workers | 1 | 2 | 4 |
+|---|---:|---:|---:|
+| overhead | 80 ms | 140 ms | 261 ms |
+
+Against ~300 ms of actual search on `armor4`, 4-way spends 261 ms of
+overhead to save ~167 ms. It is a **net loss**, and the measurement says so:
+384 ms at 1 worker versus 666 ms at 4.
+
+Two fixes followed from that:
+
+- **The module is compiled once** on the main thread and structured-cloned
+  to every worker (`WebAssembly.Module` is cloneable), instead of each
+  worker compiling ~650 KB itself. Single-worker `armor4` went 484 ms ->
+  381 ms.
+- **Partitioning is gated on search size.** The host estimates the space
+  from the fixture's `SLOT` pool counts (exact on `armor4`: 3,223,584) and
+  uses one worker below 8M — roughly 2x the ~4M break-even implied by the
+  numbers above. `armor4` and `spell2` get one worker; `spell_wide` (3.9e10)
+  and `gaia_colossal` (6.4e11) get the full count.
+
+The honest summary: partitioning is exact and helps on the long searches it
+is gated to, but it is not a substitute for shared-cutoff threading, and on
+a short search it would have made things worse.
+
 ## Remaining for a full rollout
 
 1. **App → fixture path**: today's payloads come from the test harness.
    The app needs to serialize its own scenario into the same format
    (or the loader needs to accept the app's native structures).
-2. **Threads**: this is the single-threaded path. WASM threads need
-   `SharedArrayBuffer` plus COOP/COEP cross-origin isolation — the same
-   setup the existing JS shared-cutoff already prefers — and a
-   `wasm-bindgen-rayon`-style pool. Single-threaded is already ~1000x the
-   current JS engine per core. (The engine selector disables the thread-count
-   dropdown while Rust is selected for this reason; it applies to the JS
-   workers only.)
+2. ~~**Threads**~~ — **done, by partitioning instead.** wasm threads need
+   `SharedArrayBuffer` plus COOP/COEP cross-origin isolation, which the app
+   cannot assume. Partitioning needs neither: the host spawns one ordinary
+   worker per core, each calling `solve_partition` with its own
+   `part_index`, and merges the results. The split is by first-slot offset —
+   the same one the native threaded path work-steals over. See
+   "Multi-worker" below for the measurements, including where it is *not*
+   worth doing.
 3. **Feature coverage**: scenarios using until-OOM loop brackets, buff
    states, Blood Pact, dynamic sliders, or non-lowered ability trees
    hard-fail and fall back to the JS engine. `solve` returns

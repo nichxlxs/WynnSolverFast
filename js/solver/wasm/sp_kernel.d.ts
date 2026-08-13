@@ -17,6 +17,26 @@ export function search_space(enum_fixture: string): number;
 export function solve(enum_fixture: string, score_fixture: string, max_leaves: number): string;
 
 /**
+ * `solve_with_progress` restricted to one partition of the search space.
+ *
+ * wasm threads need `SharedArrayBuffer` and COOP/COEP cross-origin
+ * isolation, which the app cannot assume. Partitioning needs neither: the
+ * host spawns one ordinary worker per core, each running this with its own
+ * `part_index`, and merges the results. The split is by first-slot offset —
+ * the same one the native threaded path work-steals over — so the
+ * partitions are disjoint, `checked` sums to the whole space, and the
+ * merged top-N is identical to a single-partition run (`partition_check`).
+ *
+ * Each partition still reports the FULL space as `total`, so a host summing
+ * `checked` across workers gets a coherent percentage.
+ *
+ * The one thing lost versus native threads is the shared score cutoff: each
+ * partition discovers its own, so the gate prunes a little less. That costs
+ * work, never results.
+ */
+export function solve_partition(enum_fixture: string, score_fixture: string, max_leaves: number, part_index: number, part_count: number, on_progress: Function): string;
+
+/**
  * `solve` with a live-progress callback.
  *
  * `on_progress` is invoked with a JSON string (checked/total, the funnel
@@ -36,6 +56,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly search_space: (a: number, b: number) => number;
     readonly solve: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly solve_partition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: any) => [number, number];
     readonly solve_with_progress: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;

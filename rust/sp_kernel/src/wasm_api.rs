@@ -46,13 +46,37 @@ pub fn search_space(enum_fixture: &str) -> f64 {
 pub fn solve_with_progress(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64, on_progress: &js_sys::Function,
 ) -> String {
+    solve_partition(enum_fixture, score_fixture, max_leaves, 0, 1, on_progress)
+}
+
+/// `solve_with_progress` restricted to one partition of the search space.
+///
+/// wasm threads need `SharedArrayBuffer` and COOP/COEP cross-origin
+/// isolation, which the app cannot assume. Partitioning needs neither: the
+/// host spawns one ordinary worker per core, each running this with its own
+/// `part_index`, and merges the results. The split is by first-slot offset —
+/// the same one the native threaded path work-steals over — so the
+/// partitions are disjoint, `checked` sums to the whole space, and the
+/// merged top-N is identical to a single-partition run (`partition_check`).
+///
+/// Each partition still reports the FULL space as `total`, so a host summing
+/// `checked` across workers gets a coherent percentage.
+///
+/// The one thing lost versus native threads is the shared score cutoff: each
+/// partition discovers its own, so the gate prunes a little less. That costs
+/// work, never results.
+#[wasm_bindgen]
+pub fn solve_partition(
+    enum_fixture: &str, score_fixture: &str, max_leaves: f64,
+    part_index: usize, part_count: usize, on_progress: &js_sys::Function,
+) -> String {
     let this = JsValue::NULL;
     let mut sink = |p: crate::enumerate::ProgressSnapshot| {
         let payload = crate::enumerate::progress_json(&p);
         // A throwing callback must not abort the solve.
         let _ = on_progress.call1(&this, &JsValue::from_str(&payload));
     };
-    crate::enumerate::solve_json_with_progress(
-        enum_fixture, score_fixture, max_leaves, Some(&mut sink),
+    crate::enumerate::solve_json_full(
+        enum_fixture, score_fixture, max_leaves, Some(&mut sink), part_index, part_count,
     )
 }

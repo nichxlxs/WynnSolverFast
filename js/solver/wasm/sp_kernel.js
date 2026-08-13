@@ -42,6 +42,48 @@ export function solve(enum_fixture, score_fixture, max_leaves) {
 }
 
 /**
+ * `solve_with_progress` restricted to one partition of the search space.
+ *
+ * wasm threads need `SharedArrayBuffer` and COOP/COEP cross-origin
+ * isolation, which the app cannot assume. Partitioning needs neither: the
+ * host spawns one ordinary worker per core, each running this with its own
+ * `part_index`, and merges the results. The split is by first-slot offset —
+ * the same one the native threaded path work-steals over — so the
+ * partitions are disjoint, `checked` sums to the whole space, and the
+ * merged top-N is identical to a single-partition run (`partition_check`).
+ *
+ * Each partition still reports the FULL space as `total`, so a host summing
+ * `checked` across workers gets a coherent percentage.
+ *
+ * The one thing lost versus native threads is the shared score cutoff: each
+ * partition discovers its own, so the gate prunes a little less. That costs
+ * work, never results.
+ * @param {string} enum_fixture
+ * @param {string} score_fixture
+ * @param {number} max_leaves
+ * @param {number} part_index
+ * @param {number} part_count
+ * @param {Function} on_progress
+ * @returns {string}
+ */
+export function solve_partition(enum_fixture, score_fixture, max_leaves, part_index, part_count, on_progress) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(enum_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(score_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.solve_partition(ptr0, len0, ptr1, len1, max_leaves, part_index, part_count, on_progress);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * `solve` with a live-progress callback.
  *
  * `on_progress` is invoked with a JSON string (checked/total, the funnel
