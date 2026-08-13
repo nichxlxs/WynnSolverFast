@@ -1089,6 +1089,43 @@ pub fn eval_combo_damage(
 // atree_raw merge, scaling plan, static_boosts). Validated key-by-key
 // against the exported combo_base, then end-to-end by scoring it.
 
+/// `atree_eval_stat_effects` (js/solver/pure/utils.js:163) over the lowered
+/// var-effect list.
+///
+/// Outputs go through `merge_stat`, so dotted keys land in the nested
+/// `damMult`/`defMult`/`healMult`/`manaMult` maps with the non-stacking
+/// sub-keys taking the max — exactly as the JS does. The dense lowering
+/// declines any var effect writing such a key (`nested_prefix` in
+/// `DenseCtx::build`), so those scenarios evaluate here.
+pub fn eval_var_effects(var_effects: &[Value], pre_scale: &Obj) -> Obj {
+    let mut out = Obj::new();
+    for eff in var_effects {
+        let mut total = 0.0;
+        total += eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
+            let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
+            let v = pre_scale.get(stat).and_then(|x| x.as_f64()).unwrap_or(0.0);
+            total += v * factor;
+        }
+        let round = eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true);
+        let positive = eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true);
+        let mut t = total;
+        if round { t = round_near(t).floor(); }
+        if positive && t < 0.0 { t = 0.0; }
+        if let Some(mx) = eff.get("max").and_then(|v| v.as_f64()) {
+            if mx > 0.0 && t > mx { t = mx; }
+            if mx < 0.0 && t < mx { t = mx; }
+        }
+        for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+            if let Some(name) = output.as_str() {
+                merge_stat(&mut out, name, &Value::from(t));
+            }
+        }
+    }
+    out
+}
+
 /// merge_stat (build_utils.js): dotted mult-map keys, non-stacking maxima,
 /// plain additive otherwise.
 pub fn merge_stat(stats: &mut Obj, name: &str, value: &Value) {
@@ -1404,33 +1441,7 @@ impl Layer2 {
         let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
             "cached" => self.scaled_cached.as_ref(),
             "split" => {
-                // atree_eval_stat_effects on lowered var effects.
-                let mut out = Obj::new();
-                for eff in &self.var_effects {
-                    let mut total = 0.0;
-                    total += eff.get("const_add").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    for term in eff.get("terms").and_then(|t| t.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                        let stat = term.get("stat").and_then(|s| s.as_str()).unwrap_or("");
-                        let factor = term.get("factor").and_then(|f| f.as_f64()).unwrap_or(f64::NAN);
-                        let v = pre_scale.get(stat).and_then(|x| x.as_f64()).unwrap_or(0.0);
-                        total += v * factor;
-                    }
-                    let round = eff.get("round").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let positive = eff.get("positive").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let mut t = total;
-                    if round { t = round_near(t).floor(); }
-                    if positive && t < 0.0 { t = 0.0; }
-                    if let Some(mx) = eff.get("max").and_then(|v| v.as_f64()) {
-                        if mx > 0.0 && t > mx { t = mx; }
-                        if mx < 0.0 && t < mx { t = mx; }
-                    }
-                    for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-                        if let Some(name) = output.as_str() {
-                            merge_stat(&mut out, name, &Value::from(t));
-                        }
-                    }
-                }
-                var_out = Some(out);
+                var_out = Some(eval_var_effects(&self.var_effects, &pre_scale));
                 self.const_scaled.as_ref()
             }
             // Callers are gated on scaling_kind at load (ScoringCtx::load /

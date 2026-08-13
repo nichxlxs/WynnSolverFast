@@ -212,11 +212,36 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                 if (!plan || plan.var_has_prop_io) return { kind: 'full' };
                 const [, const_scaled] = env.ctx.atree_compute_scaling(am, new Map(),
                     initMsgBase.button_states, initMsgBase.slider_states, null, skip_edit, true);
+                // A var key the CONST partition also writes must stay
+                // unlowered: the full pass accumulates const and var
+                // contributions interleaved in effect order, while the split
+                // sums each partition separately, and float addition is not
+                // associative — the totals can differ in the last bits.
+                //
+                // Dotted keys are fine to lower otherwise. Rust's
+                // eval_var_effects routes outputs through merge_stat exactly
+                // as the JS does (validated bit-exact on 17 cases by
+                // var_effect_check, including the non-stacking sub-keys that
+                // take the max), merge_into recombines the partitions through
+                // merge_stat too, and the dense lowering declines them
+                // (nested_prefix) so they take the validated Obj path.
+                const MULT_ROOTS = ['damMult', 'defMult', 'healMult', 'manaMult'];
+                const constWrites = (key) => {
+                    const dot = key.indexOf('.');
+                    if (dot < 0) return const_scaled.has(key);
+                    // const_scaled stores a mult map under its ROOT, so a
+                    // dotted key has to be looked up inside that map — a
+                    // plain has(key) would miss the collision entirely.
+                    const root = key.slice(0, dot);
+                    const sub = key.slice(dot + 1);
+                    const m = const_scaled.get(root);
+                    return m instanceof Map ? m.has(sub) : false;
+                };
                 for (const key of plan.var_keys) {
-                    if (key.includes('.') || ['damMult', 'defMult', 'healMult', 'manaMult'].includes(key)
-                        || const_scaled.has(key)) {
-                        return { kind: 'full' };
-                    }
+                    // A var effect writing a whole mult map (bare root) has no
+                    // sub-key to reason about; leave those unlowered.
+                    if (MULT_ROOTS.includes(key)) return { kind: 'full' };
+                    if (constWrites(key)) return { kind: 'full' };
                 }
                 const lowered = plan.var_effects.map(effect => {
                     const scaling = effect.scaling ?? [0];
