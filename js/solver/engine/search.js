@@ -5,6 +5,7 @@ const _TOP_N_DISPLAY = 5;
 
 const _solver_state = {
     running: false,
+    engine_used: 'javascript',  // 'rust' | 'javascript' — which engine actually ran
     top5: [],              // [{score, items:[Item×8], base_sp, total_sp, assigned_sp}] (up to _TOP_N entries)
     seed_build: null,      // seeded from current UI build (survives worker merges)
     checked: 0,
@@ -1663,6 +1664,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
             score_fixture.then(start).catch((err) => {
                 console.warn('[solver] Rust fixture build failed, using JS workers:',
                              err && err.message, err && err.stack);
+                _solver_state.engine_used = 'javascript';
                 if (on_unsupported) on_unsupported();
             });
             return true;
@@ -1757,6 +1759,13 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     let finished = 0;
     let failed = false;
 
+    // Which engine actually ran. Every fallback below is silent by design —
+    // it produces correct results through the JS workers — so without this
+    // the page gives no way to tell a Rust run from a JS one after the fact.
+    // That is precisely how the Rust engine stayed unreachable unnoticed:
+    // results looked right because they were right, just not Rust's.
+    _solver_state.engine_used = 'rust';
+
     const finish_one = () => {
         if (failed) return;
         finished += 1;
@@ -1772,6 +1781,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         failed = true;
         console.warn(`[solver] Rust engine (${code}): ${message} — using the JS workers`);
         _solver_state.engine_phase = '';
+        _solver_state.engine_used = 'javascript';
         for (const st of states) {
             try { st.worker.terminate(); } catch (e) { }
         }
@@ -2303,6 +2313,9 @@ function start_solver_search() {
     }
 
     _solver_state.running = true;
+    // Default to the JS workers; the Rust path sets this to 'rust' only once it
+    // actually starts, and every fallback resets it. See _rust_solve_in_worker.
+    _solver_state.engine_used = 'javascript';
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
     _solver_state.checked = 0;

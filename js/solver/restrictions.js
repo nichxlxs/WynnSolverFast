@@ -786,6 +786,14 @@ function _validate_restriction_contradictions() {
 
 // ── Custom weight target rows ────────────────────────────────────────────────
 
+/**
+ * Targets selectable in a custom-weight blend row.
+ *
+ * WARNING: The order of entries in this array is LOAD-BEARING for URL encoding.
+ * Solver URLs encode each custom weight's target by its index here (4 bits, so
+ * at most 16 entries — see build_encode.js). NEVER reorder or remove existing
+ * entries — only append new ones at the end.
+ */
 const CUSTOM_WEIGHT_TARGETS = [
     { key: 'combo_damage', label: 'Combo Damage' },
     { key: 'ehp', label: 'Effective HP' },
@@ -795,6 +803,7 @@ const CUSTOM_WEIGHT_TARGETS = [
     { key: 'poison', label: 'Poison' },
     { key: 'lb', label: 'Loot Bonus' },
     { key: 'xpb', label: 'XP Bonus' },
+    { key: 'total_hp', label: 'Total HP' },   // appended (index 8) — see warning above
 ];
 
 let _custom_weight_row_counter = 0;

@@ -67,10 +67,13 @@ async function runEngine(page, engine, url) {
         const mb = document.getElementById('combo-mana-btn');
         if (mb && mb.classList.contains('toggleOn')) mb.click();
         const tgt = document.getElementById('solver-target');
-        // Must be a value the select actually offers: assigning an unknown
-        // one leaves it empty, and the scorer then returns 0 for every build,
-        // which looks like agreement while testing nothing.
-        if (tgt) { tgt.value = 'ehp'; tgt.dispatchEvent(new Event('change')); }
+        // `total_hp` is this exact build's own benchmark target — it is what
+        // the solver_readme_armor4 snapshot (same build, same four free armour
+        // slots) optimizes. Assigning a value the select does NOT offer leaves
+        // it empty, and the scorer then returns 0 for every build, which looks
+        // like the two engines agreeing while testing nothing at all; the
+        // caller asserts the assignment took for exactly that reason.
+        if (tgt) { tgt.value = 'total_hp'; tgt.dispatchEvent(new Event('change')); }
         for (const slot of ['helmet', 'chestplate', 'leggings', 'boots']) {
             const i = document.getElementById(slot + '-choice');
             if (i) { i.value = ''; i.dispatchEvent(new Event('change')); }
@@ -87,6 +90,16 @@ async function runEngine(page, engine, url) {
         const sel = document.getElementById('solver-engine');
         return sel ? sel.value : null;
     });
+
+    // A select silently drops an unknown value, leaving ''. Every build then
+    // scores 0 and both engines "agree" on a list of zeroes. Fail here instead.
+    const target = await page.evaluate(
+        () => document.getElementById('solver-target')?.value ?? null);
+    if (target !== 'total_hp') {
+        throw new Error(`target did not take: expected 'total_hp', select holds `
+            + `'${target}'. The option is missing from solver/index.html, so this `
+            + `run would have compared two all-zero result lists.`);
+    }
 
     await page.evaluate(() => {
         const btn = document.getElementById('solver-run-btn');
@@ -105,6 +118,7 @@ async function runEngine(page, engine, url) {
     const elapsed_ms = Date.now() - t0;
     return page.evaluate(() => ({
         checked: _solver_state.checked,
+        engine_used: _solver_state.engine_used,
         top: _solver_state.top5.slice(0, 15).map((r) => ({
             score: r.score,
             items: r.items.map((i) => i.statMap.get('displayName') ?? i.statMap.get('name')),
@@ -140,6 +154,18 @@ async function runEngine(page, engine, url) {
 
         ok(rust.top.length > 0, 'Rust engine returned results through the page');
         ok(js.top.length > 0, 'JS engine returned results through the page');
+
+        // Every Rust-path failure falls back to the JS workers, which return
+        // correct results — so all the comparisons below would still pass if
+        // the Rust engine never ran at all. That is not hypothetical: it is
+        // what happened for the entire life of the branch. Assert the engine
+        // that actually ran, or none of the rest means what it says.
+        ok(rust.engine_used === 'rust',
+           `the Rust run really used the Rust engine (engine_used=${rust.engine_used}) `
+           + `— if this says 'javascript' the page fell back and every other `
+           + `assertion here is comparing the JS engine against itself`);
+        ok(js.engine_used === 'javascript',
+           `the JS run used the JS engine (engine_used=${js.engine_used})`);
 
         const scores = (r) => r.top.map((x) => x.score.toFixed(6)).join(',');
         ok(scores(rust) === scores(js),
