@@ -147,9 +147,14 @@ fn main() {
     let compiled_rows = compile_rows(&rows, &registry, &hit_refs);
     let mut lc_pass = 0u64;
     let mut lc_fail = 0u64;
-    let dense_ctx = layer2.as_ref().and_then(|l2| {
+    // Same injectability gate the solver applies at load: a validator that
+    // built a dense context the solver would have refused would be checking a
+    // path that never runs — and `dense_dynamic_score` panics rather than
+    // falls back, so it would crash here instead of reporting a diff.
+    let dense_extra_keys = dense_injectable_keys(l2consts.as_ref().and_then(|c| c.dynamic.as_ref()), &registry);
+    let dense_ctx = layer2.as_ref().zip(dense_extra_keys.as_ref()).and_then(|(l2, keys)| {
         DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[],
-                        &Default::default(), &[])
+                        &Default::default(), keys)
     });
     let mut ld_pass = 0u64;
     let mut ld_fail = 0u64;

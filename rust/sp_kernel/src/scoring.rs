@@ -8,6 +8,7 @@
 //! half-up rounding). Healing is not ported (never affects total_damage).
 
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use crate::{Case, Kernel, Unit};
 
@@ -2099,8 +2100,9 @@ pub fn leaf_pipeline_gated(
 
     let obj_score = |cb: &mut Obj| -> f64 {
         if let Some(dy) = dynamic {
+            let mut injected: Vec<Vec<Token>> = Vec::new();
             let damage_rows = phase!(DYN_NS,
-                dynamic_damage_rows(cb, rows, registry, tables, consts, dy));
+                dynamic_damage_rows_split(cb, rows, registry, tables, consts, dy, &mut injected));
             // With no unroll the rows line up 1:1 with the compiled ones, so
             // only the *appended* tokens need bonuses — compiling those (one
             // or two tokens per row) is far cheaper than the uncompiled
@@ -2109,15 +2111,14 @@ pub fn leaf_pipeline_gated(
             // mod_spell, which the compiled row baked in at load, so that
             // case falls back rather than silently using a stale spell.
             if !dy.needs_unroll && !compiled.unwrap_or(&[]).is_empty() {
-                let n_static: Vec<usize> = rows.iter().map(|r| r.tokens.len()).collect();
                 let mut extra: Vec<Vec<CompiledBonus>> = Vec::with_capacity(damage_rows.len());
                 let mut props: HashMap<String, PropOverride> = HashMap::new();
                 let mut ok = true;
-                for (i, r) in damage_rows.iter().enumerate() {
-                    let base_n = n_static.get(i).copied().unwrap_or(r.tokens.len());
+                for i in 0..damage_rows.len() {
+                    let row_tokens = injected.get(i).map(|t| t.as_slice()).unwrap_or(&[]);
                     let mut b = Vec::new();
                     props.clear();
-                    compile_token_bonuses(&r.tokens[base_n..], registry, &mut b, &mut props);
+                    compile_token_bonuses(row_tokens, registry, &mut b, &mut props);
                     if !props.is_empty() { ok = false; break; }
                     extra.push(b);
                 }
@@ -2126,7 +2127,15 @@ pub fn leaf_pipeline_gated(
                         cb, weapon, &damage_rows, compiled.unwrap(), tables, &extra);
                 }
             }
-            return objective.score(cb, weapon, &damage_rows, registry, hit_refs, tables);
+            // The uncompiled scorer resolves every token itself, so it needs
+            // the injected ones actually in the rows.
+            let merged: Vec<Row> = damage_rows.iter().cloned().enumerate()
+                .map(|(i, mut r)| {
+                    if let Some(t) = injected.get(i) { r.tokens.extend(t.iter().cloned()); }
+                    r
+                })
+                .collect();
+            return objective.score(cb, weapon, &merged, registry, hit_refs, tables);
         }
         match compiled {
             Some(c) => objective.score_compiled(cb, weapon, rows, c, tables),
@@ -2524,11 +2533,36 @@ pub fn leaf_pipeline_gated(
 ///
 /// Step 2's simulation is over the *flat* rows so `row_results` lines up 1:1
 /// with them, exactly as the JS does.
-#[allow(clippy::too_many_arguments)]
 pub fn dynamic_damage_rows(
     combo_base: &Obj, rows: &[Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
     dy: &DynamicRows,
 ) -> Vec<Row> {
+    let mut extra: Vec<Vec<Token>> = Vec::new();
+    let flat = dynamic_damage_rows_split(
+        combo_base, rows, registry, tables, consts, dy, &mut extra);
+    let mut out: Vec<Row> = flat.into_owned();
+    for (r, e) in out.iter_mut().zip(extra) {
+        r.tokens.extend(e);
+    }
+    out
+}
+
+/// `dynamic_damage_rows` with the injected tokens kept out of the rows.
+///
+/// Without a per-leaf unroll the rows are the parse-time ones and the boost
+/// tokens are the only per-leaf part, so this hands back a borrow and fills
+/// `extra` (one entry per row). Cloning the row set on every greedy trial was
+/// the largest single cost in the dynamic path, and the compiled and dense
+/// scorers take the injected tokens separately anyway — neither reads
+/// `row.tokens`. An unroll changes the row count, so that case still owns.
+///
+/// `extra` is cleared and reused; it is empty when there is nothing to inject.
+#[allow(clippy::too_many_arguments)]
+pub fn dynamic_damage_rows_split<'a>(
+    combo_base: &Obj, rows: &'a [Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
+    dy: &DynamicRows, extra: &mut Vec<Vec<Token>>,
+) -> Cow<'a, [Row]> {
+    extra.clear();
     let has_transcendence = combo_base.get("activeMajorIDs")
         .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
         .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
@@ -2536,14 +2570,14 @@ pub fn dynamic_damage_rows(
     let sim_consts = consts.sim_consts();
     let hc = &consts.health;
 
-    let mut flat: Vec<Row> = if dy.needs_unroll {
+    let flat: Cow<'a, [Row]> = if dy.needs_unroll {
         let loop_sim = crate::mana_sim::simulate_combo_mana_hp(
             rows, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
         let mut f = crate::mana_sim::unroll_loops_dynamic(rows, &loop_sim.loop_iteration_counts);
         crate::mana_sim::compute_recast_penalties(&mut f);
-        f
+        Cow::Owned(f)
     } else {
-        rows.to_vec()
+        Cow::Borrowed(rows)
     };
 
     if dy.bp_slider.is_none() && dy.state_sliders.is_empty() {
@@ -2552,8 +2586,8 @@ pub fn dynamic_damage_rows(
     }
     let hp_sim = crate::mana_sim::simulate_combo_mana_hp(
         &flat, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
-    flat = crate::mana_sim::inject_blood_pact_boosts(
-        &flat, &hp_sim, dy.bp_slider.as_deref(), &dy.state_sliders);
+    crate::mana_sim::blood_pact_extra_tokens(
+        &flat, &hp_sim, dy.bp_slider.as_deref(), &dy.state_sliders, extra);
     flat
 }
 
@@ -2717,41 +2751,11 @@ impl ScoringCtx {
         let dense_blocked = consts.dynamic.as_ref().map(|d| d.needs_unroll).unwrap_or(false);
         let dense = if dense_blocked
             || std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
-            // What a per-leaf injected token can produce has to be expressible
-            // by the lowering, and its stat keys need slots reserved up front
-            // (see DenseCtx::build). A *prop* bonus rewrites the row's spell,
-            // which the lowering baked in — no slot can represent that, so
-            // those scenarios keep the Obj path.
-            let mut extra_keys: Vec<String> = Vec::new();
-            let mut inject_ok = true;
-            if let Some(dy) = consts.dynamic.as_ref() {
-                let mut names: Vec<&str> = Vec::new();
-                if let Some(n) = dy.bp_slider.as_deref() { names.push(n); }
-                for (_, n) in &dy.state_sliders { names.push(n.as_str()); }
-                for entry in &registry_parsed {
-                    let Some(en) = entry.get("name").and_then(|v| v.as_str()) else { continue };
-                    if !names.contains(&en) { continue; }
-                    if entry.get("prop_bonuses").and_then(|v| v.as_array())
-                        .map(|a| !a.is_empty()).unwrap_or(false)
-                    {
-                        inject_ok = false;
-                        break;
-                    }
-                    for b in entry.get("stat_bonuses").and_then(|v| v.as_array())
-                        .map(|a| a.as_slice()).unwrap_or(&[])
-                    {
-                        let Some(k) = b.get("key").and_then(|v| v.as_str()) else { continue };
-                        if k.starts_with("damMult.") || k.starts_with("defMult.") { continue; }
-                        // The lowering refuses these for static rows too.
-                        if k == "atkSpd" || k.contains('.') { inject_ok = false; break; }
-                        if !extra_keys.iter().any(|e| e == k) { extra_keys.push(k.to_string()); }
-                    }
-                    if !inject_ok { break; }
-                }
-            }
-            if !inject_ok { None } else {
-            DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective,
-                            &thresholds, &spell_base_costs, &extra_keys)
+            match dense_injectable_keys(consts.dynamic.as_ref(), &registry_parsed) {
+                None => None,
+                Some(extra_keys) =>
+                    DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows,
+                                    &objective, &thresholds, &spell_base_costs, &extra_keys),
             }
         };
         Ok(ScoringCtx {
@@ -5056,6 +5060,49 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
     }
 }
 
+/// Whether the dense lowering can serve this scenario's injected tokens, and
+/// the stat keys it has to reserve slots for if so.
+///
+/// `Some(keys)` — pass them to `DenseCtx::build` as `extra_keys`; `None` — the
+/// scenario keeps the Obj path. What a per-leaf injected token can produce has
+/// to be expressible by the lowering, and its stat keys need slots up front
+/// because `DScratch` is sized from the key universe. A *prop* bonus rewrites
+/// the row's spell, which the lowering baked in — no slot can represent that.
+///
+/// Every builder of a `DenseCtx` must go through this. `dense_dynamic_score`
+/// treats an unreservable key as unreachable, so a builder that skips the gate
+/// does not fall back — it panics on the first leaf.
+pub fn dense_injectable_keys(
+    dynamic: Option<&DynamicRows>, registry: &[Value],
+) -> Option<Vec<String>> {
+    let mut extra_keys: Vec<String> = Vec::new();
+    let Some(dy) = dynamic else { return Some(extra_keys) };
+
+    let mut names: Vec<&str> = Vec::new();
+    if let Some(n) = dy.bp_slider.as_deref() { names.push(n); }
+    for (_, n) in &dy.state_sliders { names.push(n.as_str()); }
+
+    for entry in registry {
+        let Some(en) = entry.get("name").and_then(|v| v.as_str()) else { continue };
+        if !names.contains(&en) { continue; }
+        if entry.get("prop_bonuses").and_then(|v| v.as_array())
+            .map(|a| !a.is_empty()).unwrap_or(false)
+        {
+            return None;
+        }
+        for b in entry.get("stat_bonuses").and_then(|v| v.as_array())
+            .map(|a| a.as_slice()).unwrap_or(&[])
+        {
+            let Some(k) = b.get("key").and_then(|v| v.as_str()) else { continue };
+            if k.starts_with("damMult.") || k.starts_with("defMult.") { continue; }
+            // The lowering refuses these for static rows too.
+            if k == "atkSpd" || k.contains('.') { return None; }
+            if !extra_keys.iter().any(|e| e == k) { extra_keys.push(k.to_string()); }
+        }
+    }
+    Some(extra_keys)
+}
+
 /// Per-row bonuses for tokens injected after the lowering was built,
 /// in the three shapes `DRow` uses.
 #[derive(Default)]
@@ -5078,22 +5125,20 @@ pub fn dense_dynamic_score(
     compiled: &[CompiledRow], tables: &Tables, registry: &[Value], consts: &L2Consts,
     dy: &DynamicRows,
 ) -> Option<f64> {
-    let (mini, damage_rows) = phase!(DYN_NS, {
+    let mut injected: Vec<Vec<Token>> = Vec::new();
+    let damage_rows = phase!(DYN_NS, {
         let mini = dense_sim_obj(d, leaf, s);
-        let rows_out = dynamic_damage_rows(&mini, rows, registry, tables, consts, dy);
-        (mini, rows_out)
+        dynamic_damage_rows_split(&mini, rows, registry, tables, consts, dy, &mut injected)
     });
-    let _ = mini;
-    let n_static: Vec<usize> = rows.iter().map(|r| r.tokens.len()).collect();
 
     let mut extra: Vec<DenseRowExtra> = Vec::with_capacity(damage_rows.len());
     let mut bonuses = Vec::new();
     let mut props: HashMap<String, PropOverride> = HashMap::new();
-    for (i, r) in damage_rows.iter().enumerate() {
-        let base_n = n_static.get(i).copied().unwrap_or(r.tokens.len());
+    for i in 0..damage_rows.len() {
+        let row_tokens = injected.get(i).map(|t| t.as_slice()).unwrap_or(&[]);
         bonuses.clear();
         props.clear();
-        compile_token_bonuses(&r.tokens[base_n..], registry, &mut bonuses, &mut props);
+        compile_token_bonuses(row_tokens, registry, &mut bonuses, &mut props);
         // A prop bonus rewrites the row's spell, which the lowering baked in.
         if !props.is_empty() { return None; }
         let mut row_extra = DenseRowExtra::default();

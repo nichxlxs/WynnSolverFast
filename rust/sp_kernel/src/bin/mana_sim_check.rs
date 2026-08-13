@@ -14,8 +14,8 @@ use sp_kernel::mana_sim::{
     compute_recast_penalties, extract_slider_names, inject_blood_pact_boosts,
     simulate_combo_mana_hp, unroll_loops_dynamic, HealthConfig, SimConsts, SimResult,
 };
-use sp_kernel::scoring::{dynamic_damage_rows, parse_rows, simulate_mana_fast_ff, DynamicRows,
-                         L2Consts, Obj, Row, Tables};
+use sp_kernel::scoring::{dynamic_damage_rows, dynamic_damage_rows_split, parse_rows,
+                         simulate_mana_fast_ff, DynamicRows, L2Consts, Obj, Row, Tables, Token};
 
 /// The exporter encodes non-finite doubles as strings ("@NaN", "@Inf").
 fn dec_num(v: &Value) -> f64 {
@@ -316,6 +316,32 @@ fn main() {
         };
         let dyn_rows = dynamic_damage_rows(&stats, &rows, &registry, &tables, &l2, &dy);
         check_rows(name, "dynamic_damage_rows", &dyn_rows, &case["expected_dynamic"], &mut rep);
+
+        // The scoring fast paths call the *split* form, which leaves the
+        // injected tokens out of the rows so it can hand back the parse-time
+        // ones. Only the merged form above is checked against the JS, so the
+        // split form has to be pinned to it: merging its output must
+        // reproduce `dynamic_damage_rows` row-for-row and token-for-token.
+        let mut injected_split: Vec<Vec<Token>> = Vec::new();
+        let split = dynamic_damage_rows_split(
+            &stats, &rows, &registry, &tables, &l2, &dy, &mut injected_split);
+        let mut merged: Vec<Row> = split.into_owned();
+        for (i, r) in merged.iter_mut().enumerate() {
+            if let Some(t) = injected_split.get(i) { r.tokens.extend(t.iter().cloned()); }
+        }
+        rep.eq_i64(name, "split.len", merged.len() as i64, dyn_rows.len() as i64);
+        for (i, (m, want)) in merged.iter().zip(&dyn_rows).enumerate() {
+            rep.eq_i64(name, &format!("split[{i}].tokens.len"),
+                       m.tokens.len() as i64, want.tokens.len() as i64);
+            for (j, (mt, wt)) in m.tokens.iter().zip(&want.tokens).enumerate() {
+                rep.eq_str(name, &format!("split[{i}].tokens[{j}].name"), &mt.name, &wt.name);
+                rep.eq(name, &format!("split[{i}].tokens[{j}].value"), mt.value, wt.value);
+                rep.eq_i64(name, &format!("split[{i}].tokens[{j}].is_pct"),
+                           mt.is_pct as i64, wt.is_pct as i64);
+                rep.eq_i64(name, &format!("split[{i}].tokens[{j}].manual"),
+                           mt.manual as i64, wt.manual as i64);
+            }
+        }
         if verbose {
             let status = if rep.failures.len() == before { "ok" } else { "FAIL" };
             println!("  {status:4} {name}");

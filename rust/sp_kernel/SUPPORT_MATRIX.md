@@ -73,7 +73,7 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Compiled and dense paths both recovered.** A slider the lowering can express now scores on the dense path: **1.56x** (2.32 s against 3.62 s), top-15 identical. What is left is the simulation itself — **73%** of the remaining time | Make the per-leaf simulation cheaper, or run it less often. It is now the bottleneck, not the scoring |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed to within the simulation itself: 4.8x** (0.75 s against 3.62 s), top-15 identical throughout. Dense lowering for injected tokens took it to 2.32 s; not cloning the row set per trial took it to 0.75 s | The remaining per-trial cost is the simulation proper (~0.3 s of 0.74 s). Run it less often — memoize on the scalars it actually reads — rather than shaving it further |
 
 **Getting the dense path to serve injected tokens.** The lowering bakes row
 damage in at build time, which is exactly what a per-leaf token changes.
@@ -100,11 +100,38 @@ asserts dense against Obj on **every trial of every leaf**, and it earned its
 place immediately — it caught that only the trial site had been wired and the
 final-score site still used the static path.
 
-**What the numbers say to do next.** Dense cut the damage term from ~1.95 s to
-~0.6 s, so the per-leaf simulation is now 1.57 s of 2.16 s. Further scoring
-work is close to pointless; the simulation is the target.
+**Then the rows stopped being cloned.** Dense left the per-leaf simulation at
+1.57 s of 2.16 s, so the next measurement was of the simulation — and it said
+the simulation was not the problem. Splitting that 1.57 s three ways:
 
-| B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
+    sim 0.32 s | clone rows 0.56 s | inject (clone again) 0.46 s
+
+Two thirds of it was `Vec<Row>` copying, twice per trial, for rows that never
+change: `dynamic_damage_rows` cloned the parse-time rows and then
+`inject_blood_pact_boosts` cloned them again to append the boost tokens. Every
+row carries its spell as a `serde_json::Value`, so each clone is a deep JSON
+copy.
+
+`dynamic_damage_rows_split` hands the rows back as a `Cow` and puts the
+injected tokens in a side vector. Without a per-leaf unroll the rows *are* the
+parse-time ones, and neither fast scorer reads `row.tokens` — the compiled and
+dense paths both take injected bonuses as a separate argument — so nothing has
+to be copied at all. **2.32 s → 0.75 s.** The uncompiled fallback still needs
+the tokens in the rows and materializes them.
+
+`mana_sim_check` pins the split form to the merged one: merging its output
+must reproduce `dynamic_damage_rows` row-for-row and token-for-token (10,419
+comparisons, up from 9,902). That matters because only the merged form is
+checked against the JS.
+
+**A gate that one caller skipped.** `score_kernel` built its `DenseCtx`
+directly instead of through the load-time injectability gate, so it could
+build one for a scenario the solver refuses — and since `dense_dynamic_score`
+treats an unreservable key as unreachable, it panicked on the first leaf
+instead of reporting a diff. The gate is now `dense_injectable_keys`, and both
+builders go through it.
+
+| B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
 

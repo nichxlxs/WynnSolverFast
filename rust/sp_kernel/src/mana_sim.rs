@@ -1162,26 +1162,29 @@ pub fn extract_slider_names(hc: &HealthConfig) -> (Option<String>, Vec<(usize, S
     (bp, states)
 }
 
-/// `inject_blood_pact_boosts` (engine.js:237) — appends simulation-derived
-/// boost tokens to each row, so the damage pass sees the Blood Pact bonus and
-/// the buff-state slider values the sim actually produced.
+/// The boost tokens `inject_blood_pact_boosts` would append to each row,
+/// written into `out` (one entry per row, empty where nothing is injected)
+/// without touching the rows themselves.
 ///
-/// A manually-set token of the same name wins (the user's slider is not
-/// overridden), matching the JS `_has_manual` check.
-pub fn inject_blood_pact_boosts(
+/// Split out because appending is the expensive half: it clones every row,
+/// and the compiled and dense scorers never read `row.tokens` — they take the
+/// injected tokens as a separate argument. Keeping the tokens apart lets those
+/// paths reuse the parse-time rows across greedy trials.
+///
+/// `out` is cleared first and reused, so a caller in the per-leaf loop can
+/// hold one buffer.
+pub fn blood_pact_extra_tokens(
     rows: &[Row], sim: &SimResult, bp_slider_name: Option<&str>,
-    state_slider_names: &[(usize, String)],
-) -> Vec<Row> {
-    let mut out: Vec<Row> = Vec::with_capacity(rows.len());
+    state_slider_names: &[(usize, String)], out: &mut Vec<Vec<Token>>,
+) {
+    out.clear();
+    out.resize_with(rows.len(), Vec::new);
     for (i, row) in rows.iter().enumerate() {
-        let Some(res) = sim.row_results.get(i).filter(|r| r.filled) else {
-            out.push(row.clone());
-            continue;
-        };
+        let extra = &mut out[i];
+        let Some(res) = sim.row_results.get(i).filter(|r| r.filled) else { continue };
         let has_manual =
             |n: &str| row.tokens.iter().any(|t| t.manual && t.name == n);
 
-        let mut extra: Vec<Token> = Vec::new();
         if res.blood_pact_bonus > 0.0 {
             if let Some(name) = bp_slider_name {
                 if !has_manual(name) {
@@ -1206,11 +1209,23 @@ pub fn inject_blood_pact_boosts(
                 });
             }
         }
+    }
+}
 
-        if extra.is_empty() {
-            out.push(row.clone());
-            continue;
-        }
+/// `inject_blood_pact_boosts` (engine.js:237) — appends simulation-derived
+/// boost tokens to each row, so the damage pass sees the Blood Pact bonus and
+/// the buff-state slider values the sim actually produced.
+///
+/// A manually-set token of the same name wins (the user's slider is not
+/// overridden), matching the JS `_has_manual` check.
+pub fn inject_blood_pact_boosts(
+    rows: &[Row], sim: &SimResult, bp_slider_name: Option<&str>,
+    state_slider_names: &[(usize, String)],
+) -> Vec<Row> {
+    let mut extras: Vec<Vec<Token>> = Vec::new();
+    blood_pact_extra_tokens(rows, sim, bp_slider_name, state_slider_names, &mut extras);
+    let mut out: Vec<Row> = Vec::with_capacity(rows.len());
+    for (row, extra) in rows.iter().zip(extras) {
         let mut r = row.clone();
         r.tokens.extend(extra);
         out.push(r);
