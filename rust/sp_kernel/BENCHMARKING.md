@@ -60,6 +60,29 @@ Pass the `--share` value that `bench.py` printed as **gpu-offloadable** for
 the scenario you care about. The tool also prints the Amdahl ceiling
 (`1/(1-share)`) — the speedup an *infinitely fast* GPU would give.
 
+### What the harness found immediately
+
+Ablation with `--repeat 5` showed the two coarse bound layers were
+scenario-dependent and no fixed default was right for both:
+
+| Layer disabled | spell_wide | xpb |
+|---|---:|---:|
+| super-cluster bound | **1.04x faster** (layer was costing) | 1.04x (noise) |
+| tail bound | **1.06x faster** (layer was costing) | **0.91x** (layer was paying) |
+| cluster bound | 0.49x | 0.28x (always pays) |
+| dense vectors | 0.02x | 0.00x (always pays) |
+
+So both layers now **self-tune at runtime** (`AdaptiveBound`): each measures
+pruned-leaves-per-eval, switches itself off when it stops earning its cost,
+and re-samples later since a tightening cutoff can make it profitable
+mid-run. This is a speed-only heuristic — it changes how much work is
+skipped, never what a surviving leaf scores.
+
+Result: self-tuning beats every fixed configuration —
+spell_wide 1.31M/s → **1.56M/s** (+19%, and +12% over the best fixed
+ablation), xpb 29.5M/s → **30.2M/s** while keeping the 10% the tail bound
+earns there.
+
 ### What the measurements said here (4-core Xeon, no GPU)
 
 | Scenario | gpu-offloadable | Amdahl ceiling |

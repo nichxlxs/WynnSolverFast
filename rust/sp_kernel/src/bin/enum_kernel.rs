@@ -39,6 +39,59 @@ fn bound_timer_end(t0: Option<Instant>) {
     }
 }
 
+/// Self-tuning switch for a bound layer.
+///
+/// Ablation shows the coarse bound layers are scenario-dependent: the tail
+/// bound pays ~10% on tight-bound objectives (flat-stat targets whose
+/// ceilings discriminate sharply) and costs ~6% on loose-bound ones
+/// (combo damage), and no fixed default is right for both. So each layer
+/// measures itself: a bound eval costs about what evaluating one leaf
+/// costs, so a layer must average at least one pruned leaf per eval to pay
+/// for itself. Layers that fall below that are switched off, and re-sampled
+/// later since a tightening cutoff can make a layer profitable mid-run.
+///
+/// This only decides how much work is SKIPPED, never what a surviving leaf
+/// scores, so results are unaffected — same top-N either way.
+struct AdaptiveBound {
+    enabled: bool,
+    evals: u64,
+    pruned: f64,
+    window: u64,
+    retry_at: f64,
+}
+
+const ADAPT_WINDOW: u64 = 8192;
+const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
+
+impl AdaptiveBound {
+    fn new() -> Self {
+        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0 }
+    }
+    #[inline]
+    fn armed(&mut self, checked: f64) -> bool {
+        if !self.enabled && checked >= self.retry_at {
+            self.enabled = true;
+            self.evals = 0;
+            self.pruned = 0.0;
+            self.window = ADAPT_WINDOW;
+        }
+        self.enabled
+    }
+    #[inline]
+    fn record(&mut self, pruned_leaves: f64, checked: f64) {
+        self.evals += 1;
+        self.pruned += pruned_leaves;
+        if self.evals >= self.window {
+            if self.pruned < self.evals as f64 {
+                self.enabled = false;
+                self.retry_at = checked + ADAPT_RETRY_LEAVES;
+            }
+            self.evals = 0;
+            self.pruned = 0.0;
+        }
+    }
+}
+
 #[derive(Clone)]
 struct PoolItem {
     crafted: bool,
@@ -292,6 +345,8 @@ struct Search<'a> {
     thresh_reject: u64,
     cluster_evals: u64,
     cluster_memo_hits: u64,
+    adapt_super: AdaptiveBound,
+    adapt_tail: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
@@ -487,6 +542,8 @@ impl<'a> Search<'a> {
             thresh_reject: 0,
             cluster_evals: 0,
             cluster_memo_hits: 0,
+            adapt_super: AdaptiveBound::new(),
+            adapt_tail: AdaptiveBound::new(),
             bound_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
@@ -933,6 +990,7 @@ impl<'a> Search<'a> {
                             // Coarse level first: one eval covers 4 fine
                             // clusters; only surviving regions descend.
                             if db.super_size > 0
+                                && self.adapt_super.armed(self.checked)
                                 && env::var("SUPER_CLUSTER").as_deref() != Ok("0") {
                                 let sci = o / db.super_size;
                                 let mut skey = 0xEu64 << 60;
@@ -973,10 +1031,12 @@ impl<'a> Search<'a> {
                                     let skipped = (end - offset + 1) as f64;
                                     self.checked += skipped;
                                     self.bound_pruned += skipped;
+                                    self.adapt_super.record(skipped, self.checked);
                                     self.maybe_report();
                                     offset = end + 1;
                                     continue;
                                 }
+                                self.adapt_super.record(0.0, self.checked);
                             }
                             let c = o / db.cluster_size;
                             let mut key = 0xFu64 << 60;
@@ -1092,10 +1152,11 @@ impl<'a> Search<'a> {
             }
             // Mid-tree damage ceiling bound (shallow depths only; the eval is
             // a full damage computation, memoized per prefix).
-            let bound_here = depth < self.bound_max_depth
-                || (self.bound_tail > 0
-                    && depth + 1 < self.n_free
-                    && self.n_free - (depth + 1) <= self.bound_tail);
+            let tail_here = self.bound_tail > 0
+                && depth + 1 < self.n_free
+                && self.n_free - (depth + 1) <= self.bound_tail
+                && self.adapt_tail.armed(self.checked);
+            let bound_here = depth < self.bound_max_depth || tail_here;
             if bound_here && self.bound_tables.is_some() {
                 if let Some(cutoff) = self.cutoff() {
                     if self.bound_prunes(depth, o, cutoff, hi_rem) {
@@ -1105,10 +1166,12 @@ impl<'a> Search<'a> {
                         let pruned = self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
                         self.checked += pruned;
                         self.bound_pruned += pruned;
+                        if tail_here { self.adapt_tail.record(pruned, self.checked); }
                         self.maybe_report();
                         offset += 1;
                         continue;
                     }
+                    if tail_here { self.adapt_tail.record(0.0, self.checked); }
                 }
             }
             self.place(depth, o);
