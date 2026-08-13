@@ -12,7 +12,7 @@ ordered roughly by expected user impact within each section.
 
 | # | Feature | Where it appears | Notes |
 |---|---------|------------------|-------|
-| A1 | Loop brackets in combos | Combo editor `[loop]` sections | Fast mana sim + scoring hard-fail; the most commonly used unsupported feature. Port = loop-aware mana/dps simulation. |
+| A1 | Loop brackets — **count loops now SUPPORTED**; until-OOM still not | Combo editor `[loop]` sections | A count loop's iteration count is a static constant, so `unroll_count_loops` expands the body at load (mirroring `_unroll_loops_pure`) and everything downstream stays on the validated loop-free path. Verified: a count-2 loop produces byte-identical results (funnel counters + full top-15) to the manually duplicated combo. **until-OOM loops** still reject with a clear error — their iteration count depends on the mana simulation's own outcome, which needs the stateful sim (tied to A2/A3). |
 | A2 | Buff states | Combos toggling buff uptime windows | Hard-fail at export; needs the stateful simulate path. |
 | A3 | Blood Pact | Shaman HP-cost casting + BP boost injection | Requires simulation-derived boost tokens (`inject_blood_pact_boosts`) per leaf. |
 | A4 | `total_healing` objective | Scoring target / custom-blend sub-target | Heal totals need the heal part evaluation path; `Objective::parse` rejects it. |

@@ -871,6 +871,58 @@ pub struct Row {
     pub static_fallback_root: Option<String>,
 }
 
+/// JS `LOOP_COND_COUNT` — the loop repeats a fixed number of times.
+pub const LOOP_COND_COUNT: i64 = 0;
+/// JS `LOOP_SAFETY_CAP`.
+pub const LOOP_SAFETY_CAP: i64 = 255;
+
+/// Unroll count-type loop brackets, mirroring `_unroll_loops_pure`.
+///
+/// A count loop's iteration count is a static constant, so unrolling is
+/// exact and independent of the simulation: the body is emitted N times
+/// and the markers dropped, leaving an ordinary combo that the validated
+/// loop-free pipeline handles bit-for-bit. `until-OOM` loops need the sim's
+/// feedback (iterations depend on when mana runs out) and are NOT unrolled
+/// — callers still reject those.
+pub fn unroll_count_loops(rows: &[Value]) -> Result<Vec<Value>, String> {
+    let is_start = |r: &Value| r.get("loop_start").map(|v| !v.is_null()).unwrap_or(false);
+    let is_end = |r: &Value| r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false);
+    let mut out: Vec<Value> = Vec::with_capacity(rows.len());
+    let mut i = 0usize;
+    while i < rows.len() {
+        let r = &rows[i];
+        if is_start(r) {
+            let Some(end) = (i + 1..rows.len()).find(|&j| is_end(&rows[j])) else {
+                // Unterminated marker: JS skips it.
+                i += 1;
+                continue;
+            };
+            let cond = r.get("loop_start").unwrap();
+            let ty = cond.get("type").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if ty != LOOP_COND_COUNT {
+                return Err("until-OOM loop brackets not supported (iteration count \
+                            depends on the mana simulation)".into());
+            }
+            let iters = cond.get("value").and_then(|v| v.as_i64()).unwrap_or(1).max(1)
+                .min(LOOP_SAFETY_CAP);
+            let body: Vec<&Value> = (i + 1..end)
+                .map(|j| &rows[j])
+                .filter(|b| !is_start(b) && !is_end(b))
+                .collect();
+            for _ in 0..iters {
+                for b in &body { out.push((*b).clone()); }
+            }
+            i = end + 1;
+        } else if is_end(r) {
+            i += 1;
+        } else {
+            out.push(r.clone());
+            i += 1;
+        }
+    }
+    Ok(out)
+}
+
 pub fn parse_rows(v: &Value) -> Vec<Row> {
     let mut rows = Vec::new();
     for r in v.as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
@@ -2199,7 +2251,11 @@ impl ScoringCtx {
             .and_then(|t| t.as_str()).unwrap_or("combo_damage").to_string();
         let custom_weights = fixture["layer2"].get("custom_weights").cloned();
         let objective = Objective::parse(&scoring_target, custom_weights.as_ref())?;
-        let rows_parsed = parse_rows(&fixture["parsed_combo"]);
+        // Count loops unroll to a plain combo here, so every downstream
+        // stage (compilation, dense lowering, mana sim) stays loop-free.
+        let raw_rows = fixture["parsed_combo"].as_array().cloned().unwrap_or_default();
+        let unrolled = Value::Array(unroll_count_loops(&raw_rows)?);
+        let rows_parsed = parse_rows(&unrolled);
         let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
         let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
         let tables = Tables::parse(&fixture["tables"]);
