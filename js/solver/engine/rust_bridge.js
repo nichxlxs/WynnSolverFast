@@ -70,17 +70,6 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
         let posted = 0, doneNoTop = 0, doneNoDebug = 0, spFiltered = 0, blocked = 0;
         const MAX_ATTEMPTS = numCases * 2000;
 
-        // The browser passes no sampling machinery and asks for no cases, so
-        // there is nothing to sample and no worker to build. Constructing one
-        // here threw (WorkerCtor undefined), rejecting a promise whose only
-        // handler was `.then(start)` — the solve then hung with neither
-        // engine running.
-        if (numCases <= 0 || !WorkerCtor || !WORKER_THREAD_PATH) {
-            finish();
-            return;
-        }
-
-        const worker = new WorkerCtor(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
 
         const sendNext = () => {
             while (cases.length < numCases && attempts < MAX_ATTEMPTS) {
@@ -368,6 +357,23 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
             resolve(fixture);
         };
 
+        // The browser passes no sampling machinery and asks for no cases, so
+        // there is nothing to sample: hand back the fixture and build no
+        // worker. Constructing one unconditionally threw (WorkerCtor
+        // undefined), rejecting a promise whose only handler was
+        // `.then(start)`, and the solve hung with neither engine running.
+        //
+        // Both this check and the construction below sit *after* `finish`,
+        // because `const` bindings are in their temporal dead zone until
+        // their declaration runs — calling `finish()` above it throws
+        // "Cannot access 'finish' before initialization".
+        if (numCases <= 0 || !WorkerCtor || !WORKER_THREAD_PATH) {
+            finish();
+            return;
+        }
+
+        const worker = new WorkerCtor(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
+
         worker.on('message', (msg) => {
             if (msg.type === 'done') {
                 const top = msg.top5?.[0];
@@ -581,9 +587,33 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
 }
 
 /// Default env for the browser, where the game functions are globals.
+///
+/// Reads go through a proxy rather than straight to the global object,
+/// because a page-level `let`/`const` is *lexically* scoped and never becomes
+/// a property of it. `js/data/load_item.js` declares `let sets = new Map()`,
+/// so `env.ctx.sets` came back undefined and the fixture builder threw on
+/// `.get` — which `search.js` caught, logged, and quietly answered by running
+/// the JS engine instead. The Node sandbox has no such split, so this could
+/// only ever fail in a browser.
+///
+/// An indirect eval of the bare name sees the whole global lexical scope, so
+/// misses resolve the way they read.
 function browserEnv(scope) {
     const g = scope || (typeof globalThis !== 'undefined' ? globalThis : {});
-    return { ctx: g, evalInCtx: (src) => (0, eval)(src) };
+    const evalInCtx = (src) => (0, eval)(src);
+    const ctx = new Proxy(g, {
+        get(target, key) {
+            if (key in target) return target[key];
+            if (typeof key !== 'string') return undefined;
+            try { return evalInCtx(key); } catch { return undefined; }
+        },
+        has(target, key) {
+            if (key in target) return true;
+            if (typeof key !== 'string') return false;
+            try { evalInCtx(key); return true; } catch { return false; }
+        },
+    });
+    return { ctx, evalInCtx };
 }
 
 const _bridge = { buildScoreFixture, buildEnumFixture, browserEnv, _jser };

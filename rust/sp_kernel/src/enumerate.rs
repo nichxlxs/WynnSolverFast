@@ -1471,7 +1471,11 @@ pub fn progress_json(p: &ProgressSnapshot) -> String {
             if j > 0 { top.push(','); }
             top.push_str(&json_str(name));
         }
-        top.push_str("]}");
+        // Interim rows carry the SP assignment too, so a result shown mid-run
+        // is not a zeroed placeholder that only becomes real when it finishes.
+        let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
     }
     top.push(']');
     format!(

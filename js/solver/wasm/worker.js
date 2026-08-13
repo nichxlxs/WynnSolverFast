@@ -91,6 +91,12 @@ self.onmessage = async (event) => {
             // `item_names`; normalize so the host sees one shape.
             top_n: (result.top ?? []).map((t) => ({
                 score: t.score, item_names: t.item_names ?? t.items,
+                // The greedy's SP assignment. The host installs this as the
+                // build's skill points, so dropping it here (as this
+                // normalizer used to) puts a zeroed allocation in the UI
+                // whose recomputed stats contradict the score.
+                base_sp: t.base_sp, total_sp: t.total_sp,
+                assigned_sp: t.assigned_sp,
             })),
             complete: result.complete,
         });

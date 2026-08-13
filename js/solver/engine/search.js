@@ -1658,7 +1658,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         start(score_fixture);
         return true;
     } catch (e) {
-        console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message);
+        console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message, e && e.stack);
         return false;
     }
 }
