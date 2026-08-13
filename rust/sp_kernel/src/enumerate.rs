@@ -1333,7 +1333,10 @@ pub fn run_single_with_progress(
 ) -> Totals {
     let shared_cutoff = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
-        if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok || sc.consts.hp_casting {
+        // Dynamic rows: the all-150-SP ceiling assumes the damage rows are
+        // fixed, and they are not — so the mid-tree bound is inadmissible.
+        if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+            || sc.consts.hp_casting || sc.consts.dynamic.is_some() {
             return None;
         }
         if !fx.slots.iter().all(|s| s.pool.len() < 128) { return None; }

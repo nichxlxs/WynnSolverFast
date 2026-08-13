@@ -612,6 +612,29 @@ for (const c of cases) {
     const injected = inject_blood_pact_boosts(
         flat, flatSim, bp_slider_name, state_slider_names);
 
+    // The above unrolls unconditionally, which is what exercises
+    // unroll_loops_dynamic and compute_recast_penalties in isolation. The
+    // ENGINE's path is the conditional one: eval_combo_damage_with_bp only
+    // unrolls (and only then re-runs compute_recast_penalties) when the rows
+    // actually carry loop markers — a loop-free combo keeps the penalties
+    // computed at snapshot time. Capture that separately so the composed
+    // Rust function is checked against the real path, not the exerciser.
+    const hasLoops = c.rows.some(r => r.loop_start || r.loop_end);
+    let dynFlat = JSON.parse(JSON.stringify(rows));
+    if (hasLoops) {
+        const dynLoopSim = simulate_combo_mana_hp(
+            dynFlat, stats, c.health_config, c.has_transcendence, c.registry);
+        dynFlat = _unroll_loops_pure(dynFlat, dynLoopSim.loop_iteration_counts ?? {});
+        compute_recast_penalties(dynFlat);
+    }
+    let dynRows = dynFlat;
+    if (bp_slider_name || Object.keys(state_slider_names).length) {
+        const dynSim = simulate_combo_mana_hp(
+            dynFlat, stats, c.health_config, c.has_transcendence, c.registry);
+        dynRows = inject_blood_pact_boosts(
+            dynFlat, dynSim, bp_slider_name, state_slider_names);
+    }
+
     // The worker path runs the FAST sim, which models buff states, the
     // Blood Pact payment branch and loop brackets too — it just tracks no
     // state values and fires no exit triggers. The Rust fast sim has to
@@ -639,6 +662,7 @@ for (const c of cases) {
         },
         expected_unrolled: encRows(flat),
         expected_injected: encRows(injected),
+        expected_dynamic: encRows(dynRows),
     });
 }
 

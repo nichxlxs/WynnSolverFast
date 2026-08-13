@@ -14,7 +14,8 @@ use sp_kernel::mana_sim::{
     compute_recast_penalties, extract_slider_names, inject_blood_pact_boosts,
     simulate_combo_mana_hp, unroll_loops_dynamic, HealthConfig, SimConsts, SimResult,
 };
-use sp_kernel::scoring::{parse_rows, simulate_mana_fast_ff, L2Consts, Obj, Row, Tables};
+use sp_kernel::scoring::{dynamic_damage_rows, parse_rows, simulate_mana_fast_ff, DynamicRows,
+                         L2Consts, Obj, Row, Tables};
 
 /// The exporter encodes non-finite doubles as strings ("@NaN", "@Inf").
 fn dec_num(v: &Value) -> f64 {
@@ -258,6 +259,7 @@ fn main() {
             sp_budget: 200,
             health: hc.clone(),
             has_oom_loop: false,
+            dynamic: None,
         };
         let (f_start, f_end, f_hp, f_mana) = simulate_mana_fast_ff(
             &rows, &stats, has_trans, &registry, &tables, &l2, None, false,
@@ -298,6 +300,17 @@ fn main() {
         );
         let injected = inject_blood_pact_boosts(&flat, &flat_sim, bp.as_deref(), &states);
         check_rows(name, "injected", &injected, &case["expected_injected"], &mut rep);
+
+        // The composed function the engine actually calls per leaf. Checking
+        // the pieces separately is not enough — this verifies they are wired
+        // together in the right order (unroll -> recast -> simulate flat ->
+        // inject), which is where a port most easily goes wrong.
+        let needs_unroll = rows.iter().any(|r| r.loop_start.is_some() || r.loop_end);
+        let dy = DynamicRows {
+            bp_slider: bp.clone(), state_sliders: states.clone(), needs_unroll,
+        };
+        let dyn_rows = dynamic_damage_rows(&stats, &rows, &registry, &tables, &l2, &dy);
+        check_rows(name, "dynamic_damage_rows", &dyn_rows, &case["expected_dynamic"], &mut rep);
         if verbose {
             let status = if rep.failures.len() == before { "ok" } else { "FAIL" };
             println!("  {status:4} {name}");

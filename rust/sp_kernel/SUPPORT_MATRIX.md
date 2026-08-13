@@ -12,10 +12,10 @@ ordered roughly by expected user impact within each section.
 
 | # | Feature | Where it appears | Notes |
 |---|---------|------------------|-------|
-| A1 | Loop brackets — **count loops now SUPPORTED**; until-OOM still not | Combo editor `[loop]` sections | A count loop's iteration count is a static constant, so `unroll_count_loops` expands the body at load (mirroring `_unroll_loops_pure`) and everything downstream stays on the validated loop-free path. Verified: a count-2 loop produces byte-identical results (funnel counters + full top-15) to the manually duplicated combo. **until-OOM loops** still reject with a clear error. Both simulations handle them (termination on either warning, plus the 255-iteration safety cap, all validated), and `mana_check_passes` implements the JS rule that a mana warning terminates such a loop rather than failing the build. What is still missing is the *damage* side: the iteration count is leaf-dependent, so the rows must be unrolled per leaf via `unroll_loops_dynamic` with a `compute_recast_penalties` re-run. Both are ported and validated; the routing is not built, so `unroll_count_loops` still refuses them at load. |
+| ~~A1~~ | Loop brackets — **SUPPORTED** (count and until-OOM) | Combo editor `[loop]` sections | A count loop's iteration count is a static constant, so `unroll_count_loops` expands the body at load and everything downstream stays on the fast loop-free path. An **until-OOM** loop's length depends on the leaf's own mana trajectory, so its markers are kept and the rows are unrolled *per leaf* (`unroll_loops_dynamic` + a `compute_recast_penalties` re-run), mirroring `eval_combo_damage_with_bp`. `mana_check_passes` implements the JS rule that a mana warning terminates such a loop rather than failing the build. Cross-checked end to end: an until-OOM loop that sustains to the 255-iteration safety cap scores **bit-identically** to a count-255 loop (`3.48257942933359921e+08`), and those are two independent code paths — static unroll at load versus dynamic unroll per leaf. |
 | ~~A2~~ | Buff states — **SUPPORTED** (unless a slider is declared) | Combos toggling buff uptime windows | The gap was never the *full* sim: the JS **worker** runs `simulate_combo_mana_fast`, which already models buff states (duration expiry, mana-regen suppression, continuous drain, `compute_delay` one-shot drain at activation, `next_action` deactivation). The Rust fast sim did not, so it mana-rejected builds the JS accepts. It now mirrors it and is validated bit-exact against the JS fast sim on all 53 `mana_sim_check` scenarios. A buff state that declares a `slider_name` still hard-fails — see A6. |
 | ~~A3~~ | Blood Pact — **SUPPORTED** (unless a slider is declared) | Shaman HP-cost casting + BP boost injection | The health-cost payment branch is in the fast sim now, so the mana verdict is exact. Damage is only affected when `damage_boost.slider_name` is set (that is what `inject_blood_pact_boosts` injects); with no slider declared, injection adds nothing and the damage rows are unchanged, so those builds solve. **This previously produced silently wrong answers** — the exporter shipped `health_config` and the engine never read it, so BP builds were mana-rejected and dropped from results rather than refused. |
-| A6 | Dynamic sliders (`damage_boost.slider_name` / `buff_state.slider_name`) | Atree sliders fed from the simulation | The one genuinely remaining piece of A2/A3. `eval_combo_damage_with_bp` injects simulation-derived values into the damage rows **per leaf**, so boost tokens stop being parse-time constants — which both `compile_rows` and the dense lowering assume they are. `inject_blood_pact_boosts` and `extract_slider_names` are ported and validated; what is missing is routing these scenarios onto the Obj path with a per-leaf sim. Refused by name today. |
+| ~~A6~~ | Dynamic sliders — **SUPPORTED** | `damage_boost.slider_name` / `buff_state.slider_name` | These are the JS `has_dyn` condition: `eval_combo_damage_with_bp` injects simulation-derived values into the damage rows **per leaf** via `inject_blood_pact_boosts`. Such scenarios now run the whole chain per leaf — simulate, unroll if needed, recompute recast penalties, inject, score — on the Obj path with the compiled rows, dense lowering, ceiling gate and every bound switched off (all of them assume parse-time-constant rows). Verified live: the same buff state with no slider declared scores identically to no buff state at all (`8.192296800e+06`), and declaring the slider moves it to `8.222605726e+06`. |
 | ~~A7~~ | ~~Multi-partition scenarios~~ | — | **NOT A GAP (corrected).** The Rust engine enumerates the whole space in one process (work-stealing over first-slot offsets), and checks the identical leaf count as the JS run (3,100,680 on the restricted-melee scenario). The one JS-only top entry is the **seeded current UI build** (`_eval_current_build` → `_insert_top5`), which the solver inserts as a baseline and which no enumeration would produce. |
 | A8 | Non-lowered atree plans (`scaling_kind == "full"`) | Trees the exporter cannot lower to cached/split | Layer2 rejects; scenario falls back to JS. |
 
@@ -39,6 +39,7 @@ ordered roughly by expected user impact within each section.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so compiled rows, dense lowering, the ceiling gate and all bounds are off, and the simulation re-runs on every greedy trial | ~0.9 s/leaf on a synthetic until-OOM loop that sustains to the 255-iteration cap (the unrolled combo becomes 255x the body); ordinary slider scenarios are far cheaper but still unbounded | Hoist the unroll out of the greedy loop where the SP trial cannot change the iteration count; a cheaper ceiling that is valid under injection |
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
@@ -52,15 +53,11 @@ ordered roughly by expected user impact within each section.
 
 ## Remaining work, in the order I'd tackle it
 
-1. **Per-leaf dynamic rows** — the remainder of A6 and the until-OOM half of
-   A1. Both need the same thing: rows that differ per leaf, either because
-   boost tokens are injected from that leaf's simulation or because the loop
-   ran a different number of iterations. Every piece is ported and validated
-   (`inject_blood_pact_boosts`, `extract_slider_names`,
-   `unroll_loops_dynamic`, `compute_recast_penalties`); what is missing is
-   routing those scenarios onto the Obj path, since `compile_rows` and the
-   dense lowering both assume parse-time-constant tokens. Expect them
-   *correct but slow* rather than fast.
+1. **Speed, not coverage.** Every section-A gap the engine refused is now
+   supported; what is left is that the dynamic-row scenarios (B9) run with
+   every fast path off. The most obvious win is that `dynamic_damage_rows`
+   re-simulates and re-unrolls on *every greedy SP trial*, when for many
+   scenarios the trial cannot change the iteration count.
 2. **wasm threads** (SharedArrayBuffer + COOP/COEP): full core scaling in
    the browser on top of the single-threaded engine already shipping.
 3. **A6 dynamic sliders / A8 non-lowered ability trees**: both are
@@ -70,6 +67,13 @@ ordered roughly by expected user impact within each section.
    the most headroom; B2/B3 need interval-style bounds to prune at all.
 
 ## Verification status
+
+`mana_sim_check` also validates the **composed** function the engine calls
+per leaf (`dynamic_damage_rows`), not just its parts — checking the pieces
+separately would not catch them being wired in the wrong order. Doing that
+turned up a real difference: `eval_combo_damage_with_bp` only re-runs
+`compute_recast_penalties` when the rows actually carry loop markers, so a
+loop-free combo keeps the penalties computed at snapshot time.
 
 Everything in section B is covered by the bit-exact validators (11 fixtures ×
 5 levels + per-trial dense assertions + on/off top-15 equivalence), plus

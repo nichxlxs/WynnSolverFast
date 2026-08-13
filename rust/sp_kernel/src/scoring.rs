@@ -1807,11 +1807,62 @@ pub struct L2Consts {
     /// True when any loop bracket is an until-OOM loop. Those deplete mana
     /// on purpose, so a mana warning is the terminator, not a failure.
     pub has_oom_loop: bool,
+    /// Set when the damage rows are leaf-dependent — see `DynamicRows`.
+    pub dynamic: Option<DynamicRows>,
+}
+
+/// Scenarios whose damage rows cannot be fixed at load time.
+///
+/// Two causes, both handled the same way: a declared slider means
+/// `inject_blood_pact_boosts` writes simulation-derived boost tokens into
+/// the rows per leaf, and an until-OOM loop means the iteration count (and
+/// so the row *sequence*) depends on the leaf's own mana trajectory.
+///
+/// Either way the rows stop being parse-time constants, which the compiled
+/// and dense lowerings both rely on — so these scenarios run on the Obj
+/// path with the ceiling gate and every bound switched off. Correct, and
+/// slower than a static scenario.
+#[derive(Clone, Default)]
+pub struct DynamicRows {
+    pub bp_slider: Option<String>,
+    pub state_sliders: Vec<(String, String)>,
+    /// Rows still carry loop markers and must be unrolled per leaf.
+    pub needs_unroll: bool,
 }
 
 impl L2Consts {
+    /// The subset the stateful simulation needs.
+    pub fn sim_consts(&self) -> crate::mana_sim::SimConsts {
+        crate::mana_sim::SimConsts {
+            base_mana_regen: self.base_mana_regen,
+            mana_tick_seconds: self.mana_tick_seconds,
+            spell_cast_time: self.spell_cast_time,
+            spell_cast_delay: self.spell_cast_delay,
+            hpr_tick_seconds: crate::mana_sim::HPR_TICK_SECONDS,
+            hidden_base_hpr: crate::mana_sim::HIDDEN_BASE_HPR,
+            skillpoint_final_mult_2: self.skillpoint_final_mult_2,
+        }
+    }
+
     pub fn parse(fixture: &Value) -> Option<L2Consts> {
         let l2 = fixture.get("layer2")?;
+        let health = l2.get("health_config").map(crate::mana_sim::HealthConfig::parse)
+            .unwrap_or_default();
+        // Count loops unroll statically at load, so an until-OOM loop is the
+        // only kind that survives to need a per-leaf unroll.
+        let has_oom_loop = fixture.get("parsed_combo").and_then(|c| c.as_array())
+            .map(|rows| rows.iter().any(|r| r.get("loop_start")
+                .and_then(|c| c.get("type")).and_then(|t| t.as_i64())
+                == Some(crate::mana_sim::LOOP_COND_UNTIL_OOM)))
+            .unwrap_or(false);
+        // A declared slider or a per-leaf unroll makes the damage rows
+        // leaf-dependent. Decided here rather than in `ScoringCtx::load` so
+        // every consumer of `L2Consts` — including the `score_kernel`
+        // validator — takes the same path the solver does.
+        let (bp_slider, state_sliders) = crate::mana_sim::extract_slider_names(&health);
+        let dynamic_rows = if bp_slider.is_some() || !state_sliders.is_empty() || has_oom_loop {
+            Some(DynamicRows { bp_slider, state_sliders, needs_unroll: has_oom_loop })
+        } else { None };
         let c = l2.get("constants")?;
         Some(L2Consts {
             base_mana_regen: c.get("base_mana_regen")?.as_f64()?,
@@ -1824,13 +1875,9 @@ impl L2Consts {
             allow_downtime: l2.get("allow_downtime").and_then(|v| v.as_bool()).unwrap_or(false),
             hp_casting: l2.get("hp_casting").and_then(|v| v.as_bool()).unwrap_or(false),
             sp_budget: l2.get("sp_budget").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
-            health: l2.get("health_config").map(crate::mana_sim::HealthConfig::parse)
-                .unwrap_or_default(),
-            has_oom_loop: fixture.get("parsed_combo").and_then(|c| c.as_array())
-                .map(|rows| rows.iter().any(|r| r.get("loop_start")
-                    .and_then(|c| c.get("type")).and_then(|t| t.as_i64())
-                    == Some(crate::mana_sim::LOOP_COND_UNTIL_OOM)))
-                .unwrap_or(false),
+            health,
+            dynamic: dynamic_rows,
+            has_oom_loop,
         })
     }
 }
@@ -2014,7 +2061,20 @@ pub fn leaf_pipeline_gated(
     dense: Option<(&DenseCtx, &mut DenseWork)>,
     thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
 ) -> Result<LeafOutcome, String> {
+    // Dynamic rows rule out every precomputed shortcut: the compiled rows and
+    // the dense lowering both key off parse-time-constant boost tokens, and
+    // the all-150-SP ceiling is not an upper bound once the rows themselves
+    // change per leaf. Force the Obj path here so no caller can forget.
+    let dynamic = consts.dynamic.as_ref();
+    let compiled = if dynamic.is_some() { None } else { compiled };
+    let dense = if dynamic.is_some() { None } else { dense };
+    let gate_cutoff = if dynamic.is_some() { None } else { gate_cutoff };
+
     let obj_score = |cb: &mut Obj| -> f64 {
+        if let Some(dy) = dynamic {
+            let damage_rows = dynamic_damage_rows(cb, rows, registry, tables, consts, dy);
+            return objective.score(cb, weapon, &damage_rows, registry, hit_refs, tables);
+        }
         match compiled {
             Some(c) => objective.score_compiled(cb, weapon, rows, c, tables),
             None => objective.score(cb, weapon, rows, registry, hit_refs, tables),
@@ -2174,7 +2234,10 @@ pub fn leaf_pipeline_gated(
     // there regardless of `mana_doom_ok` (which only covers atree var-effect
     // coupling), so switch it off rather than prune a feasible leaf.
     let drain_breaks_doom = consts.health.buff_states.iter()
-        .any(|bs| bs.drain_pct_per_second.as_ref().map(|d| d.mana > 0.0).unwrap_or(false));
+        .any(|bs| bs.drain_pct_per_second.as_ref().map(|d| d.mana > 0.0).unwrap_or(false))
+        // An until-OOM loop's length depends on the leaf's own mana
+        // trajectory, so an Int=150 sim does not bound the real one either.
+        || dynamic.map(|d| d.needs_unroll).unwrap_or(false);
     if !drain_breaks_doom
         && (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
         let doomed = phase!(DOOM_NS, {
@@ -2349,6 +2412,52 @@ pub fn leaf_pipeline_gated(
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
+/// `eval_combo_damage_with_bp` (engine.js:332) for the dynamic-rows path.
+///
+/// Rebuilds this leaf's damage rows from its own simulation before scoring:
+///
+///   1. if the rows still carry loop markers, simulate to learn the
+///      iteration counts, unroll by them, and recompute recast penalties on
+///      the flat sequence (which casts are consecutive has changed);
+///   2. simulate the flat rows and inject the resulting Blood Pact bonus and
+///      buff-state slider values as boost tokens;
+///   3. score the injected rows.
+///
+/// Step 2's simulation is over the *flat* rows so `row_results` lines up 1:1
+/// with them, exactly as the JS does.
+#[allow(clippy::too_many_arguments)]
+pub fn dynamic_damage_rows(
+    combo_base: &Obj, rows: &[Row], registry: &[Value], tables: &Tables, consts: &L2Consts,
+    dy: &DynamicRows,
+) -> Vec<Row> {
+    let has_transcendence = combo_base.get("activeMajorIDs")
+        .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+        .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+        .unwrap_or(false);
+    let sim_consts = consts.sim_consts();
+    let hc = &consts.health;
+
+    let mut flat: Vec<Row> = if dy.needs_unroll {
+        let loop_sim = crate::mana_sim::simulate_combo_mana_hp(
+            rows, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
+        let mut f = crate::mana_sim::unroll_loops_dynamic(rows, &loop_sim.loop_iteration_counts);
+        crate::mana_sim::compute_recast_penalties(&mut f);
+        f
+    } else {
+        rows.to_vec()
+    };
+
+    if dy.bp_slider.is_none() && dy.state_sliders.is_empty() {
+        // Nothing to inject (the loop unroll was the only dynamic part).
+        return flat;
+    }
+    let hp_sim = crate::mana_sim::simulate_combo_mana_hp(
+        &flat, combo_base, hc, has_transcendence, registry, tables, &sim_consts);
+    flat = crate::mana_sim::inject_blood_pact_boosts(
+        &flat, &hp_sim, dy.bp_slider.as_deref(), &dy.state_sliders);
+    flat
+}
+
 /// _mana_rescue: shift freely-assigned SP into Int in increasing fractions.
 #[allow(clippy::too_many_arguments)]
 pub fn mana_rescue(
@@ -2437,50 +2546,6 @@ pub struct ScoringCtx {
     pub spell_base_costs: HashMap<i64, f64>,
 }
 
-/// Returns `Some(reason)` when `layer2.health_config` describes mechanics the
-/// loop-free scoring path cannot reproduce: generic buff states, Blood Pact
-/// health-cost casting, or dynamic sliders fed from the simulation.
-///
-/// Mirrors the JS conditions in `eval_combo_mana_check` (health_cost > 0 with
-/// hp_casting) and `eval_combo_damage_with_bp` (`has_dyn`).
-fn unsupported_health_config(fixture: &Value, consts: &L2Consts) -> Option<String> {
-    let hc = fixture.get("layer2")?.get("health_config")?;
-    if hc.is_null() {
-        return None;
-    }
-    // `simulate_combo_mana_hp` takes the health-cost branch on `health_cost > 0`
-    // alone — the `hp_casting` flag only selects which sim the JS caller runs.
-    // So gate on the cost itself, not on the flag, or an hp_casting=false
-    // scenario with a nonzero cost would slip through and be mana-rejected
-    // here while the JS pays it from HP.
-    let _ = consts;
-    // The mana verdict itself is now exact for buff states and Blood Pact —
-    // `simulate_mana_fast_ff` mirrors `simulate_combo_mana_fast`, which
-    // models both (validated bit-exact by `mana_sim_check`). What is still
-    // out of reach is the *damage* feedback: when a slider name is declared,
-    // `eval_combo_damage_with_bp` injects simulation-derived boost tokens
-    // into the damage rows per leaf (`inject_blood_pact_boosts`). That makes
-    // boost tokens leaf-dependent, which the compiled-row and dense lowerings
-    // both assume they are not.
-    //
-    // This is exactly the JS `has_dyn` condition. With no slider declared,
-    // injection adds nothing and the damage is unchanged, so hp_casting and
-    // a nonzero health_cost are fine on their own.
-    let bp_slider = hc.get("damage_boost").and_then(|d| d.get("slider_name"))
-        .map(|v| !v.is_null()).unwrap_or(false);
-    let state_slider = hc.get("buff_states").and_then(|v| v.as_array())
-        .map(|a| a.iter().any(|b| b.get("slider_name").map(|v| !v.is_null()).unwrap_or(false)))
-        .unwrap_or(false);
-    if bp_slider || state_slider {
-        return Some(format!(
-            "dynamic sliders not supported (damage_boost slider: {bp_slider}, \
-             buff-state slider: {state_slider}): their values come from the mana \
-             simulation and are injected into the damage rows per leaf, so boost \
-             tokens stop being parse-time constants (matrix A3/A6)"));
-    }
-    None
-}
-
 impl ScoringCtx {
     pub fn load(fixture: &Value) -> Result<ScoringCtx, String> {
         let layer2 = Layer2::parse(fixture).ok_or("missing/invalid layer2 data")?;
@@ -2488,15 +2553,6 @@ impl ScoringCtx {
             return Err(format!("unsupported scaling plan: {}", layer2.scaling_kind));
         }
         let consts = L2Consts::parse(fixture).ok_or("missing layer2 constants")?;
-        // The fast mana sim models neither buff states nor Blood Pact, and the
-        // scoring path has no per-leaf boost-token injection. Such a scenario
-        // would silently produce a *different* verdict than the JS engine
-        // (rejecting builds it accepts), so refuse it loudly instead. The
-        // stateful sim itself is ported and validated in `crate::mana_sim`;
-        // wiring it through leaf evaluation is the remaining step.
-        if let Some(reason) = unsupported_health_config(fixture, &consts) {
-            return Err(reason);
-        }
         let mut hit_refs: HashMap<i64, HashMap<String, Obj>> = HashMap::new();
         if let Some(hr) = fixture["atree_hit_refs"].as_object() {
             for (bs, parts) in hr {
@@ -2530,18 +2586,30 @@ impl ScoringCtx {
             .and_then(|t| t.as_str()).unwrap_or("combo_damage").to_string();
         let custom_weights = fixture["layer2"].get("custom_weights").cloned();
         let objective = Objective::parse(&scoring_target, custom_weights.as_ref())?;
-        // Count loops unroll to a plain combo here, so every downstream
-        // stage (compilation, dense lowering, mana sim) stays loop-free.
+        // Count loops have a static iteration count, so they unroll here and
+        // every downstream stage stays loop-free and fast. An until-OOM loop
+        // cannot: its length depends on the leaf's own mana trajectory, so
+        // the markers are kept and the rows are unrolled per leaf instead.
         let raw_rows = fixture["parsed_combo"].as_array().cloned().unwrap_or_default();
-        let unrolled = Value::Array(unroll_count_loops(&raw_rows)?);
-        let rows_parsed = parse_rows(&unrolled);
+        let rows_value = match unroll_count_loops(&raw_rows) {
+            Ok(unrolled) => Value::Array(unrolled),
+            // until-OOM: keep the markers, `DynamicRows::needs_unroll` is set.
+            Err(_) => Value::Array(raw_rows.clone()),
+        };
+        let rows_parsed = parse_rows(&rows_value);
         let registry_parsed: Vec<Value> = fixture["boost_registry"].as_array().cloned().unwrap_or_default();
-        let compiled_rows = compile_rows(&rows_parsed, &registry_parsed, &hit_refs);
+        // Dynamic scenarios never consult the compiled rows (leaf_pipeline_gated
+        // forces them off), and rows still carrying loop markers are not a
+        // shape the compiler expects — so skip building them entirely.
+        let compiled_rows = if consts.dynamic.is_some() { Vec::new() } else {
+            compile_rows(&rows_parsed, &registry_parsed, &hit_refs)
+        };
         let tables = Tables::parse(&fixture["tables"]);
         let weapon = as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone();
         let thresholds = parse_thresholds(fixture);
         let spell_base_costs = parse_spell_base_costs(fixture);
-        let dense = if std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
+        let dense = if consts.dynamic.is_some()
+            || std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
             DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective,
                             &thresholds, &spell_base_costs)
         };
