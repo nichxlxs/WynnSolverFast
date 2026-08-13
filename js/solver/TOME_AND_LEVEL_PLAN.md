@@ -286,6 +286,53 @@ gearsets a candidate tome would have rescued: silently missed builds, the
 opposite direction from the Codex finding. The baseline now uses
 `_tome_guild_optimistic ?? guild_tome_sm`, matching the solve.
 
+**Measured after the fix** (`solver_bench_tome_guild_complete`, a completing
+bounded search at level 106 with guild optimisation on, 3 alternating A/B
+rounds — blocked A,A,A/B,B,B ordering manufactured a phantom result earlier in
+this project, so never use it):
+
+| baseline | checked | feasible | wall time (3 runs) |
+|---|---|---|---|
+| old (`guild_tome_sm`) | 537,824 | 51,634 | 36.2 / 35.9 / 39.6 s |
+| new (`_tome_guild_optimistic`) | 537,824 | 55,719 | 38.3 / 36.5 / 35.7 s |
+
+`checked` is identical — enumeration is band-bounded, so the prune shows up in
+`feasible`, not `checked`. The new baseline admits **+7.9% more feasible
+gearsets**: precisely the ones the old baseline discarded because it pruned
+against a guild tome the solve was free to improve on. Wall time is unchanged
+within run-to-run spread (the old variant's own spread, 35.9–39.6 s, is wider
+than the gap between variants), so admissibility here costs nothing measurable
+— the rescued gearsets are cheap because most die at the score ceiling anyway.
+
+On this fixture the winner is the same build either way, so there is no
+evidence the bug was costing results *here*. The point is that it now cannot
+cost them anywhere.
+
+### Cost of the combo_damage-only ceiling gate (measured, NOT fixed)
+
+Quantifying the known limit, on an `ehp` target with bounded pools:
+
+| mode | checked | rate | outcome |
+|---|---|---|---|
+| tome off | 4,033,680 in 287 s | ~14,050/s | completed, best 52,513 |
+| all tomes | 700,000 in 300 s | ~2,330/s | timed out at ~17%, best 56,821 |
+
+**~6x slower per node.** The mechanism is simple: `_ceiling_gate_setup` bails
+unless the target is `combo_damage`, so on any other target every feasible leaf
+runs the full guild candidate loop — 7 candidates, 7 SP solves, 7 scorings —
+with nothing able to skip it. 7 candidates ≈ 6x cost is exactly what falls out.
+
+Note the tome run still found a **better build** (+8.2%) while covering only
+~17% of the space, so the feature works on these targets; it is just expensive.
+
+Fixing this means extending the ceiling gate to non-damage targets, which
+requires a **per-target monotonicity proof** of the same kind the combo_damage
+gate rests on (see the derivation above `_ceiling_gate_setup`). An inadmissible
+ceiling silently drops good builds — the exact failure class as the precheck
+bug above — so this is deliberately left as a measured limit rather than
+rushed. `ehp` looks plausibly monotone in def/agi; `total_hp` does not obviously
+depend on SP at all. Each needs its own argument.
+
 **Lesson worth keeping:** a test I wrote in Phase B asserted the buggy
 behaviour (`candidates === null` when nothing qualifies) and passed happily.
 "Nothing to optimise" and "the choice is fixed" are different states; encoding
