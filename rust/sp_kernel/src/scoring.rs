@@ -2013,6 +2013,8 @@ pub mod trace {
     pub static MANA_NS: AtomicU64 = AtomicU64::new(0);
     pub static FINAL_NS: AtomicU64 = AtomicU64::new(0);
     pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
+    /// Per-leaf dynamic row construction (simulate + unroll + inject).
+    pub static DYN_NS: AtomicU64 = AtomicU64::new(0);
     pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
     pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
     /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
@@ -2036,7 +2038,8 @@ pub mod trace {
             f(&SP_NS), f(&BASE_NS), f(&GATE_NS), f(&DOOM_NS), f(&GREEDY_NS),
             GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
         );
-        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s", f(&ASM_NS), f(&DMG_NS));
+        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s | dynamic rows {:.2}s",
+                  f(&ASM_NS), f(&DMG_NS), f(&DYN_NS));
         eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
                   BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
     }
@@ -2072,7 +2075,8 @@ pub fn leaf_pipeline_gated(
 
     let obj_score = |cb: &mut Obj| -> f64 {
         if let Some(dy) = dynamic {
-            let damage_rows = dynamic_damage_rows(cb, rows, registry, tables, consts, dy);
+            let damage_rows = phase!(DYN_NS,
+                dynamic_damage_rows(cb, rows, registry, tables, consts, dy));
             return objective.score(cb, weapon, &damage_rows, registry, hit_refs, tables);
         }
         match compiled {

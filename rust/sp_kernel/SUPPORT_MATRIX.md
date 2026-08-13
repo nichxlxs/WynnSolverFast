@@ -39,7 +39,7 @@ ordered roughly by expected user impact within each section.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so compiled rows, dense lowering, the ceiling gate and all bounds are off, and the simulation re-runs on every greedy trial | ~0.9 s/leaf on a synthetic until-OOM loop that sustains to the 255-iteration cap (the unrolled combo becomes 255x the body); ordinary slider scenarios are far cheaper but still unbounded | Hoist the unroll out of the greedy loop where the SP trial cannot change the iteration count; a cheaper ceiling that is valid under injection |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so compiled rows, dense lowering, the ceiling gate and every bound are off, and the whole chain re-runs on each greedy SP trial | ~0.9 s/leaf on a synthetic until-OOM loop sustaining to the 255-iteration cap. **Measured split** (`SCORE_TRACE=1`, 381 trials): 16.9 s in greedy, of which **3.2 s (19%) is dynamic row construction** and the remaining 13.7 s is the damage evaluation itself over the 1,785-row unrolled combo | Not the row build, despite the obvious guess — that is only a fifth of it. The damage evaluation dominates, and it runs on the *uncompiled* Obj path because injected tokens rule out `compile_rows`. A compiled path that tolerates per-leaf token values is the real target |
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
@@ -53,11 +53,12 @@ ordered roughly by expected user impact within each section.
 
 ## Remaining work, in the order I'd tackle it
 
-1. **Speed, not coverage.** Every section-A gap the engine refused is now
-   supported; what is left is that the dynamic-row scenarios (B9) run with
-   every fast path off. The most obvious win is that `dynamic_damage_rows`
-   re-simulates and re-unrolls on *every greedy SP trial*, when for many
-   scenarios the trial cannot change the iteration count.
+1. **Speed, not coverage.** Every section-A gap the engine used to refuse is
+   now supported; what remains is that dynamic-row scenarios (B9) run with
+   every fast path off. The measurement above says where to aim: the damage
+   evaluation over the unrolled combo is 81% of it, so the win is a compiled
+   row path that tolerates per-leaf boost-token values — not the row
+   construction, which is the intuitive but wrong target.
 2. **wasm threads** (SharedArrayBuffer + COOP/COEP): full core scaling in
    the browser on top of the single-threaded engine already shipping.
 3. **A6 dynamic sliders / A8 non-lowered ability trees**: both are
