@@ -24,6 +24,74 @@ use std::fs;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
+/// Bound-eval timing helpers (SCORE_TRACE=1): measures the batch-shaped
+/// ceiling work a GPU offload would target.
+#[inline]
+fn bound_timer() -> Option<Instant> {
+    if sp_kernel::scoring::trace::on() { Some(Instant::now()) } else { None }
+}
+#[inline]
+fn bound_timer_end(t0: Option<Instant>) {
+    if let Some(t0) = t0 {
+        sp_kernel::scoring::trace::add(
+            &sp_kernel::scoring::trace::BOUND_NS, t0.elapsed().as_nanos() as u64);
+        sp_kernel::scoring::trace::BOUND_EVALS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Self-tuning switch for a bound layer.
+///
+/// Ablation shows the coarse bound layers are scenario-dependent: the tail
+/// bound pays ~10% on tight-bound objectives (flat-stat targets whose
+/// ceilings discriminate sharply) and costs ~6% on loose-bound ones
+/// (combo damage), and no fixed default is right for both. So each layer
+/// measures itself: a bound eval costs about what evaluating one leaf
+/// costs, so a layer must average at least one pruned leaf per eval to pay
+/// for itself. Layers that fall below that are switched off, and re-sampled
+/// later since a tightening cutoff can make a layer profitable mid-run.
+///
+/// This only decides how much work is SKIPPED, never what a surviving leaf
+/// scores, so results are unaffected — same top-N either way.
+struct AdaptiveBound {
+    enabled: bool,
+    evals: u64,
+    pruned: f64,
+    window: u64,
+    retry_at: f64,
+}
+
+const ADAPT_WINDOW: u64 = 8192;
+const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
+
+impl AdaptiveBound {
+    fn new() -> Self {
+        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0 }
+    }
+    #[inline]
+    fn armed(&mut self, checked: f64) -> bool {
+        if !self.enabled && checked >= self.retry_at {
+            self.enabled = true;
+            self.evals = 0;
+            self.pruned = 0.0;
+            self.window = ADAPT_WINDOW;
+        }
+        self.enabled
+    }
+    #[inline]
+    fn record(&mut self, pruned_leaves: f64, checked: f64) {
+        self.evals += 1;
+        self.pruned += pruned_leaves;
+        if self.evals >= self.window {
+            if self.pruned < self.evals as f64 {
+                self.enabled = false;
+                self.retry_at = checked + ADAPT_RETRY_LEAVES;
+            }
+            self.evals = 0;
+            self.pruned = 0.0;
+        }
+    }
+}
+
 #[derive(Clone)]
 struct PoolItem {
     crafted: bool,
@@ -257,6 +325,7 @@ struct Search<'a> {
     shared_checked: Option<&'a AtomicU64>,
     stop_flag: Option<&'a AtomicU64>,
     stop: bool,
+    time_cap: Option<f64>,
     dense_work: sp_kernel::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -276,6 +345,8 @@ struct Search<'a> {
     thresh_reject: u64,
     cluster_evals: u64,
     cluster_memo_hits: u64,
+    adapt_super: AdaptiveBound,
+    adapt_tail: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a sp_kernel::scoring::BoundTables>,
@@ -466,10 +537,13 @@ impl<'a> Search<'a> {
             shared_checked: None,
             stop_flag: None,
             stop: false,
+            time_cap: std::env::var("ENUM_TIME_CAP_SECS").ok().and_then(|v| v.parse().ok()),
             dense_work: Default::default(),
             thresh_reject: 0,
             cluster_evals: 0,
             cluster_memo_hits: 0,
+            adapt_super: AdaptiveBound::new(),
+            adapt_tail: AdaptiveBound::new(),
             bound_work: Default::default(),
             checked_flushed: 0.0,
             equip_names: Default::default(),
@@ -567,6 +641,9 @@ impl<'a> Search<'a> {
         if self.report_calls & 0xFFFF != 0 { return; }
         if let Some(f) = self.stop_flag {
             if f.load(Ordering::Relaxed) != 0 { self.stop = true; }
+        } else if let Some(cap) = self.time_cap {
+            // Single-thread mode has no monitor thread; honor the cap here.
+            if self.started.elapsed().as_secs_f64() >= cap { self.stop = true; }
         }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
@@ -910,6 +987,57 @@ impl<'a> Search<'a> {
                 if let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) {
                     if db.cluster_size > 0 {
                         if let Some(cutoff) = self.cutoff() {
+                            // Coarse level first: one eval covers 4 fine
+                            // clusters; only surviving regions descend.
+                            if db.super_size > 0
+                                && self.adapt_super.armed(self.checked)
+                                && env::var("SUPER_CLUSTER").as_deref() != Ok("0") {
+                                let sci = o / db.super_size;
+                                let mut skey = 0xEu64 << 60;
+                                skey |= (sci as u64) << 49;
+                                for dd in 0..depth {
+                                    skey |= (self.prefix_offsets[dd] as u64) << (dd * 7);
+                                }
+                                let sceiling = match self.bound_memo.get(&skey) {
+                                    Some(&v) => { self.cluster_memo_hits += 1; v }
+                                    None => {
+                                        self.cluster_evals += 1;
+                                        if prefix_state == 0 {
+                                            prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
+                                                Some((d, dd)) => {
+                                                    if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                }
+                                                None => -1,
+                                            };
+                                        }
+                                        let bt0 = bound_timer();
+                                        let v = if prefix_state == 1 {
+                                            let d = sc.dense.as_ref().unwrap();
+                                            sp_kernel::scoring::dense_ceiling_cached(
+                                                d, &mut self.bound_work,
+                                                &db.super_clusters[sci], &db.super_cluster_terms[sci],
+                                                &sc.rows, &sc.compiled_rows, &sc.tables)
+                                        } else { f64::INFINITY };
+                                        bound_timer_end(bt0);
+                                        if self.bound_memo.len() >= 4_000_000 {
+                                            self.bound_memo.clear();
+                                        }
+                                        self.bound_memo.insert(skey, v);
+                                        v
+                                    }
+                                };
+                                if sceiling < cutoff - cutoff.abs() * 1e-9 {
+                                    let end = to.min(((sci + 1) * db.super_size) as i64 - 1);
+                                    let skipped = (end - offset + 1) as f64;
+                                    self.checked += skipped;
+                                    self.bound_pruned += skipped;
+                                    self.adapt_super.record(skipped, self.checked);
+                                    self.maybe_report();
+                                    offset = end + 1;
+                                    continue;
+                                }
+                                self.adapt_super.record(0.0, self.checked);
+                            }
                             let c = o / db.cluster_size;
                             let mut key = 0xFu64 << 60;
                             key |= (c as u64) << 49;
@@ -928,6 +1056,7 @@ impl<'a> Search<'a> {
                                             None => -1,
                                         };
                                     }
+                                    let bt0 = bound_timer();
                                     let v = if prefix_state == 1 {
                                         let d = sc.dense.as_ref().unwrap();
                                         sp_kernel::scoring::dense_ceiling_cached(
@@ -935,6 +1064,7 @@ impl<'a> Search<'a> {
                                             &db.last_clusters[c], &db.last_cluster_terms[c],
                                             &sc.rows, &sc.compiled_rows, &sc.tables)
                                     } else { f64::INFINITY };
+                                    bound_timer_end(bt0);
                                     // Bound the memo's memory: recent
                                     // prefixes dominate hits, so a periodic
                                     // clear costs little and caps growth.
@@ -1022,10 +1152,11 @@ impl<'a> Search<'a> {
             }
             // Mid-tree damage ceiling bound (shallow depths only; the eval is
             // a full damage computation, memoized per prefix).
-            let bound_here = depth < self.bound_max_depth
-                || (self.bound_tail > 0
-                    && depth + 1 < self.n_free
-                    && self.n_free - (depth + 1) <= self.bound_tail);
+            let tail_here = self.bound_tail > 0
+                && depth + 1 < self.n_free
+                && self.n_free - (depth + 1) <= self.bound_tail
+                && self.adapt_tail.armed(self.checked);
+            let bound_here = depth < self.bound_max_depth || tail_here;
             if bound_here && self.bound_tables.is_some() {
                 if let Some(cutoff) = self.cutoff() {
                     if self.bound_prunes(depth, o, cutoff, hi_rem) {
@@ -1035,10 +1166,12 @@ impl<'a> Search<'a> {
                         let pruned = self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset);
                         self.checked += pruned;
                         self.bound_pruned += pruned;
+                        if tail_here { self.adapt_tail.record(pruned, self.checked); }
                         self.maybe_report();
                         offset += 1;
                         continue;
                     }
+                    if tail_here { self.adapt_tail.record(0.0, self.checked); }
                 }
             }
             self.place(depth, o);
@@ -1144,7 +1277,9 @@ fn main() {
             eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
             return None;
         }
-        if !sc.objective.supports_ceiling() { return None; }
+        if !sc.objective.supports_ceiling()
+            || !sc.layer2.ceiling_vars_ok
+            || sc.consts.hp_casting { return None; }
         let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
     });

@@ -344,3 +344,5 @@ impl Kernel {
 }
 
 pub mod scoring;
+#[cfg(feature = "gpu")]
+pub mod gpu;

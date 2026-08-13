@@ -1072,6 +1072,12 @@ pub struct Layer2 {
     /// fast mana sim is monotone in Int and the Int=150 doom precheck is
     /// admissible (see leaf_pipeline_gated).
     pub mana_doom_ok: bool,
+    /// Mirrors the worker's _ceiling_gate_setup var-effect conditions: every
+    /// atree var effect must have non-negative stat-input factors and only
+    /// plain stat outputs that are neither atkTier nor *ConvBase. Without
+    /// this, evaluating at all-150 SP is not an upper bound and the ceiling
+    /// gate / subtree bounds would prune inadmissibly.
+    pub ceiling_vars_ok: bool,
     pub item_registry: HashMap<String, Obj>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
@@ -1121,8 +1127,22 @@ impl Layer2 {
                 outs.iter().all(|o| o.as_str().map(|k| !mana_relevant(k)).unwrap_or(false))
             }).unwrap_or(false)
         });
+        let ceiling_vars_ok = var_effects_list.iter().all(|eff| {
+            let terms_ok = eff.get("terms").and_then(|t| t.as_array())
+                .map(|ts| ts.iter().all(|t| {
+                    t.get("factor").and_then(|f| f.as_f64()).map(|f| f >= 0.0).unwrap_or(false)
+                }))
+                .unwrap_or(true);
+            let outs_ok = eff.get("outputs").and_then(|o| o.as_array())
+                .map(|outs| outs.iter().all(|o| {
+                    o.as_str().map(|n| n != "atkTier" && !n.contains("ConvBase")).unwrap_or(false)
+                }))
+                .unwrap_or(true);
+            terms_ok && outs_ok
+        });
         Some(Layer2 {
             mana_doom_ok,
+            ceiling_vars_ok,
             item_registry,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
@@ -1678,6 +1698,10 @@ pub mod trace {
     pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
     pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
     pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
+    /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
+    /// GPU offload would target. Counted in enum_kernel.
+    pub static BOUND_NS: AtomicU64 = AtomicU64::new(0);
+    pub static BOUND_EVALS: AtomicU64 = AtomicU64::new(0);
 
     pub fn init_from_env() {
         if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
@@ -1696,6 +1720,8 @@ pub mod trace {
             GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
         );
         eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s", f(&ASM_NS), f(&DMG_NS));
+        eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
+                  BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
     }
 }
 
@@ -1821,7 +1847,7 @@ pub fn leaf_pipeline_gated(
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
     if let Some(cutoff) = gate_cutoff {
-        if objective.supports_ceiling() {
+        if objective.supports_ceiling() && l2.ceiling_vars_ok && !consts.hp_casting {
             if (dwork.is_none() || dense_check) && base_opt.is_none() {
                 base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
             }
@@ -4493,6 +4519,11 @@ pub struct DenseBound {
     pub last_clusters: Vec<Vec<(u32, f64)>>,
     pub last_cluster_terms: Vec<Vec<(usize, f64)>>,
     pub cluster_size: usize,
+    /// Coarse level: 4x-wider clusters tested first — one eval can skip
+    /// four fine clusters (16 leaves) in dead regions.
+    pub super_clusters: Vec<Vec<(u32, f64)>>,
+    pub super_cluster_terms: Vec<Vec<(usize, f64)>>,
+    pub super_size: usize,
 }
 
 impl DenseBound {
@@ -4608,14 +4639,15 @@ impl DenseBound {
             term_table.push(term_rows);
         }
 
-        // Last-slot clusters.
-        let mut last_clusters = Vec::new();
-        let mut last_cluster_terms = Vec::new();
-        if cluster_size > 0 && n > 0 {
+        // Last-slot clusters, fine and coarse.
+        let build_clusters = |chunk: usize| -> Option<(Vec<Vec<(u32, f64)>>, Vec<Vec<(usize, f64)>>)> {
+            let mut clusters = Vec::new();
+            let mut terms_out = Vec::new();
+            if chunk == 0 || n == 0 { return Some((clusters, terms_out)); }
             let pool = &slot_pools[n - 1];
             let mut c0 = 0usize;
             while c0 < pool.len() {
-                let c1 = (c0 + cluster_size).min(pool.len());
+                let c1 = (c0 + chunk).min(pool.len());
                 let mut acc: HashMap<u32, f64> = HashMap::new();
                 let mut set_acc: HashMap<u32, f64> = HashMap::new();
                 for name in &pool[c0..c1] {
@@ -4648,12 +4680,17 @@ impl DenseBound {
                         list.iter().find(|(j, _)| *j == i).map(|(_, dv)| (slot, *dv))
                     })
                     .collect();
-                last_clusters.push(list);
-                last_cluster_terms.push(terms);
+                clusters.push(list);
+                terms_out.push(terms);
                 c0 = c1;
             }
-        }
-        Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size })
+            Some((clusters, terms_out))
+        };
+        let (last_clusters, last_cluster_terms) = build_clusters(cluster_size)?;
+        let super_size = if cluster_size > 0 { cluster_size * 4 } else { 0 };
+        let (super_clusters, super_cluster_terms) = build_clusters(super_size)?;
+        Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size,
+                          super_clusters, super_cluster_terms, super_size })
     }
 }
 
