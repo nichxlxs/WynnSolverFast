@@ -248,6 +248,8 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
 
             const ctxLayer2 = env.evalInCtx(`({
                 statmap_static_ids: [...STATMAP_STATIC_IDS],
+                radiance_affected: [...radiance_affected],
+                reversed_ids: [...reversedIDs],
                 statmap_must_ids: [...STATMAP_MUST_IDS],
                 hp_base_for_level: levelToHPBase(${JSON.stringify(initMsgBase.level)}),
                 class_def: Object.fromEntries(classDefenseMultipliers),

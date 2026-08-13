@@ -1144,6 +1144,12 @@ pub struct Layer2 {
     pub hp_base: f64,
     pub class_def: HashMap<String, f64>,
     pub skp_order: Vec<String>,
+    /// Radiance major-ID scaling: `boost` multiplies each affected stat and
+    /// floors it (positive values, or negative ones for the reversed IDs).
+    /// 1.0 = inactive.
+    pub radiance_boost: f64,
+    pub radiance_affected: Vec<String>,
+    pub radiance_reversed: Vec<String>,
 }
 
 impl Layer2 {
@@ -1211,6 +1217,9 @@ impl Layer2 {
             class_def: consts.get("class_def")?.as_object()?
                 .iter().filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f))).collect(),
             skp_order: strvec(consts.get("skp_order")?),
+            radiance_boost: l2.get("radiance_boost").and_then(|v| v.as_f64()).unwrap_or(1.0),
+            radiance_affected: consts.get("radiance_affected").map(strvec).unwrap_or_default(),
+            radiance_reversed: consts.get("reversed_ids").map(strvec).unwrap_or_default(),
         })
     }
 
@@ -1328,6 +1337,19 @@ impl Layer2 {
         Ok(sm)
     }
 
+    /// _apply_radiance_scale_inplace (pure/utils.js).
+    pub fn apply_radiance(&self, sm: &mut Obj) {
+        if self.radiance_boost == 1.0 { return; }
+        for id in &self.radiance_affected {
+            let Some(val) = sm.get(id).and_then(|v| v.as_f64()) else { continue };
+            let reversed = self.radiance_reversed.iter().any(|r| r == id);
+            let scale = if reversed { val < 0.0 } else { val > 0.0 };
+            if scale {
+                sm.insert(id.clone(), Value::from((val * self.radiance_boost).floor()));
+            }
+        }
+    }
+
     /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
     /// atree_raw merge + atree scaling (cached/split) + static boosts.
     pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
@@ -1341,7 +1363,8 @@ impl Layer2 {
             pre_scale.insert("classDef".into(), Value::from(cd));
         }
         merge_into(&mut pre_scale, self.atree_raw.as_ref());
-        // radiance_boost asserted null at export for supported scenarios.
+        // _apply_radiance_scale_inplace: scale-and-floor the affected stats.
+        self.apply_radiance(&mut pre_scale);
 
         let mut var_out: Option<Obj> = None;
         let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
@@ -3428,6 +3451,11 @@ impl DenseCtx {
         compiled: &[CompiledRow], objective: &Objective,
         raw_thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
     ) -> Option<DenseCtx> {
+        // Radiance applies a nonlinear scale-and-floor between the atree_raw
+        // merge and the scaling stage; the dense fold has no equivalent, so
+        // those scenarios use the validated Obj path.
+        if l2.radiance_boost != 1.0 { return None; }
+
         // Guard: every row the compiled eval would score must have a plan.
         for (row, comp) in rows.iter().zip(compiled) {
             if comp.mod_spell.is_none() || row.qty <= 0.0 || row.pseudo { continue; }
