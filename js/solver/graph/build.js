@@ -255,6 +255,24 @@ function _collect_solver_params() {
     const lvl_min = parseInt(document.getElementById('restr-lvl-min')?.value) || 1;
     const lvl_max = parseInt(document.getElementById('restr-lvl-max')?.value) || MAX_PLAYER_LEVEL;
 
+    // Per-slot level overrides. Only slots with at least one field filled in are
+    // recorded; an empty field falls back to the global bound for that side.
+    // `ring` covers both ring slots (see solver/TOME_AND_LEVEL_PLAN.md).
+    const lvl_overrides = {};
+    for (const slot of LVL_OVERRIDE_SLOTS) {
+        const min_el = document.getElementById('restr-lvl-min-' + slot);
+        const max_el = document.getElementById('restr-lvl-max-' + slot);
+        const min_raw = parseInt(min_el?.value);
+        const max_raw = parseInt(max_el?.value);
+        const has_min = Number.isFinite(min_raw);
+        const has_max = Number.isFinite(max_raw);
+        if (!has_min && !has_max) continue;
+        lvl_overrides[slot] = {
+            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : lvl_min,
+            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : lvl_max,
+        };
+    }
+
     // No Major ID
     const nomaj = document.getElementById('restr-no-major-id')?.classList.contains('toggleOn') ?? false;
 
@@ -423,6 +441,6 @@ function _collect_solver_params() {
         }
     }
 
-    return { roll_groups, sfree, dir_enabled, lvl_min, lvl_max, nomaj, gtome, dtime, mana_disabled,
+    return { roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, nomaj, gtome, dtime, mana_disabled,
              restrictions, combo_rows, blacklist_ids, custom_weights };
 }

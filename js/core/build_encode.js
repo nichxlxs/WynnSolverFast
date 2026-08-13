@@ -615,7 +615,7 @@ const _SOLVER_DEFAULTS = {
  *          bit 6: gtome      (default 0)
  *          bit 7: dtime      (default false)
  *          bit 8: mana_disabled (default false) — bare flag, no payload
- *          bit 9: (reserved — was flat_mana in v5, removed in v6)
+ *          bit 9: lvl_overrides (v11+; was flat_mana in v5, removed in v6)
  *   --- conditional fixed fields (only if presence bit = 1) ---
  *   NOTE: Bit widths below have corresponding range constants in
  *         constants.js (e.g. COMBO_QTY_MAX, BOOST_SLIDER_MAX,
@@ -630,7 +630,11 @@ const _SOLVER_DEFAULTS = {
  *   [2]   gtome
  *   [1]   dtime
  *   (bit 8: no payload — presence bit itself is the value)
- *   (bit 9: reserved — was flat_mana in v5, removed in v6)
+ *   --- bit 9 (v11+): per-slot item-level overrides ---
+ *   [7]   slot mask over LVL_OVERRIDE_SLOTS (bit i = slot i overridden)
+ *     Per set bit, in slot order:
+ *       [7]   lvl_min - 1
+ *       [7]   lvl_max - 1
  *   [4]   restriction_count (0-15)
  *     Per restriction:
  *       [7]   stat_index (index into RESTRICTION_STATS)
@@ -707,7 +711,7 @@ function encodeSolverParams(params) {
 
     // Version: 3 bits = 0 (extension signal) + 4-bit extended version.
     bv.append(0, 3);       // extension signal
-    bv.append(10, 4);
+    bv.append(11, 4);
 
     // ── Presence bitmask (10 bits) ──
     // v3: bit 0 → roll_groups (4×7 bits), replaces v2's single roll field
@@ -725,6 +729,22 @@ function encodeSolverParams(params) {
     const dtime = params.dtime ? 1 : 0;
     const mana_disabled = params.mana_disabled ? 1 : 0;
 
+    // v11: per-slot level overrides. Only slots whose resolved range differs
+    // from the global range are encoded, so a build that never touches the
+    // per-slot panel costs zero extra bits.
+    const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
+    const lvl_override_entries = [];
+    let lvl_override_mask = 0;
+    for (let i = 0; i < slot_names.length; i++) {
+        const ov = params.lvl_overrides?.[slot_names[i]];
+        if (!ov) continue;
+        const omin = Math.max(0, Math.min(max_lvl - 1, (ov.min || 1) - 1));
+        const omax = Math.max(0, Math.min(max_lvl - 1, (ov.max || max_lvl) - 1));
+        if (omin === lvl_min && omax === lvl_max) continue;  // same as global
+        lvl_override_mask |= (1 << i);
+        lvl_override_entries.push([omin, omax]);
+    }
+
     let presence = 0;
     const rd = _SOLVER_DEFAULTS.roll_groups;
     if (roll_dmg !== rd.damage || roll_mana !== rd.mana || roll_heal !== rd.healing || roll_misc !== rd.misc) presence |= (1 << 0);
@@ -736,6 +756,7 @@ function encodeSolverParams(params) {
     if (gtome !== _SOLVER_DEFAULTS.gtome) presence |= (1 << 6);
     if (dtime !== 0) presence |= (1 << 7);
     if (mana_disabled) presence |= (1 << 8);
+    if (lvl_override_mask !== 0) presence |= (1 << 9);
 
     bv.append(presence, 10);
 
@@ -754,7 +775,13 @@ function encodeSolverParams(params) {
     if (presence & (1 << 6)) bv.append(gtome, 2);
     if (presence & (1 << 7)) bv.append(dtime, 1);
     // bit 8 (mana_disabled): bare flag — no payload bits
-    // bit 9: reserved (was flat_mana in v5, removed in v6)
+    if (presence & (1 << 9)) {
+        bv.append(lvl_override_mask, 7);
+        for (const [omin, omax] of lvl_override_entries) {
+            bv.append(omin, 7);
+            bv.append(omax, 7);
+        }
+    }
 
     // ── Restrictions ──
     const restrictions = params.restrictions || [];

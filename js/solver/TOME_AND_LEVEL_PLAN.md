@@ -1,0 +1,189 @@
+# Tome optimisation & per-slot level ranges — design
+
+Status: **Phase A shipped**, B–D designed but not started.
+Dated 2026-08-13. Supersedes nothing; complements `ARCHITECTURE_PLAN.md`.
+
+---
+
+## Findings that shape the design
+
+Gathered from `data/2.2.3.0/tomes.json` and the current solver, before writing
+any code.
+
+**Slots.** `tome_fields` (js/game/shared_constants.js) has 14 entries:
+`weaponTome1-2`, `armorTome1-4`, `guildTome1`, plus `lootrunTome1`,
+`gatherXpTome1-2`, `dungeonXpTome1-2`, `mobXpTome1-2`. Only the first seven
+affect combat; the XP/lootrun slots are out of scope for optimisation.
+
+**Pools.** 156 tomes total: weaponTome 60, armorTome 35, guildTome 6,
+plus 55 non-combat. Combat tome levels are 60/80/105 (weapon),
+60/100/120 (armour), 100 (guild).
+
+**Every combat tome rolls.** All 101 have `fixID: false`, so an average-roll
+percentage is meaningful and should mirror the existing item roll mode.
+
+**No combat tome has a skill-point requirement.** Verified across all 101:
+zero `strReq`/`dexReq`/`intReq`/`defReq`/`agiReq`. This is the single most
+important fact in this document — see "Why this is tractable" below.
+
+**The combat tome stat surface is small.** Across all 101 tomes the only stats
+present are: `hpBonus`, `hprRaw`, `ls`, `damPct`, `mdPct`, `sdPct`, `mdRaw`,
+`sdRaw`, the five elemental `*DamPct`, the five elemental `*DefPct`, and the
+five skill points. ~23 keys, heavily tiered — ideal for dominance pruning.
+
+**All six guild tomes are skill-point tomes**: Strength/Dexterity/Intelligence/
+Defense/Agility (+4 to one attribute) and Rainbow (+1 to all five). There is no
+non-SP guild tome, so "use the guild slot for something else" is not a choice
+the data supports. The real decision is *which* of the six (7-way incl. none).
+
+**Existing bug to fix as part of Phase C.** `js/solver/engine/search.js:243`
+carries a standing TODO: guild-tome "Standard" mode inflates `sp_budget` by +4
+*freely distributable*, letting the solver spread the bonus across attributes
+(e.g. `[102,102,0,0,0]`). A real Standard tome grants +4 to exactly one
+attribute. Phase C replaces the budget hack with real tome selection and
+removes the TODO.
+
+**Duplicates are allowed** (confirmed with the repo owner): the same tome may
+occupy `weaponTome1` and `weaponTome2`, and repeat across `armorTome1-4`. Tome
+slot groups are therefore *multisets*, not sets.
+
+---
+
+## Why this is tractable
+
+Multiplying the leaf space by tome combinations is hopeless: 60² × 35⁴ × 6 ≈
+**3.2 × 10¹⁰**, on top of a gear space already in the tens of billions.
+
+The way out is that **tomes have no requirements**, so adding a tome can never
+make a build infeasible — only more feasible. That licenses an *admissible*
+two-stage scheme:
+
+1. **Enumeration stage.** Fold a single synthetic "best possible tome bundle"
+   — the per-stat maximum over the enabled tome set — into the additive
+   prechecks and the restriction/EHP suffix bounds. A gearset that fails even
+   with the best conceivable tomes genuinely cannot be rescued by any tome
+   choice, so pruning it is sound. Crucially this means gearsets that are only
+   feasible *with* tomes now survive enumeration, which is the behaviour asked
+   for.
+2. **Leaf stage.** Solve tomes only at leaves that survive. On the standing
+   restriction-heavy benchmark only ~0.3% of feasible leaves pass the ceiling
+   gate, so the tome solve runs on a small fraction of the space.
+
+Two further reductions:
+
+- **Dominance pruning on tome pools**, reusing `_prune_dominated_items` with
+  the same solver-relevant stat set. Given the tiered structure (Tome of
+  Combat Mastery I/II/III …), the pools should collapse hard. Measure before
+  assuming.
+- **Skill-point tomes need no special handling in the SP kernel.** A tome with
+  skill points and no requirements is already classified as a *free item* by
+  `calculate_skillpoints` (`has_skp && !has_req` → `free_bonus`), so it never
+  enters the activation-order backtracking. No changes to `_bt`.
+
+---
+
+## Phase A — per-slot level ranges — DONE 2026-08-13
+
+Today `_build_item_pools` applies one `lvl_min`/`lvl_max` to every slot
+(`js/solver/engine/search.js:89`). Phase A adds an optional per-slot override,
+defaulting to the global range.
+
+- **Model.** `restrictions.lvl_overrides` — a map of slot → `{min, max}` for
+  slots that differ from the global. Absent slot = use global. Slots are the
+  eight gear slots (`helmet`, `chestplate`, `leggings`, `boots`, `ring1`,
+  `ring2`, `bracelet`, `necklace`).
+- **Pool building.** `_build_item_pools` resolves the effective range per slot.
+  Note the `ring` pool is shared by `ring1`/`ring2`; when the two rings carry
+  different ranges the shared pool must widen to their union and the per-ring
+  filter applies during enumeration, or the ring pool must be split. Splitting
+  is the honest option — see "Ring caveat" below.
+- **UI.** The global `restr-lvl-min` / `restr-lvl-max` inputs stay as the
+  default. A collapsible per-slot panel exposes eight optional overrides,
+  shown only when set.
+- **Encoding.** Solver params are versioned (3-bit, `000` = extension signal +
+  4-bit extended version, currently v10) with a 10-bit presence bitmask whose
+  bit 9 is free. Phase A bumps to **v11** and uses bit 9 for
+  `lvl_overrides`, payload `[8]` slot mask + per set slot `[7]` min + `[7]` max.
+  Old links keep decoding at their own version.
+
+### Ring caveat
+
+`_build_item_pools` builds a single `ring` pool consumed by both ring slots,
+and `_partition_work` / ring canonicalisation assume the two ring slots draw
+from the same ordered pool (that canonicalisation is what avoids enumerating
+both orderings of a ring pair). Giving `ring1` and `ring2` different level
+ranges breaks that symmetry: the pair (A,B) is no longer equivalent to (B,A).
+
+Options, in preference order:
+
+1. **Restrict the UI to one shared "ring" override** covering both slots. Keeps
+   canonicalisation intact, costs nothing, and matches the stated use case
+   ("armour 90+, accessories 100+"). **Recommended.**
+2. Allow divergent ring ranges and disable ring canonicalisation when they
+   differ — correct, but silently doubles the ring subspace.
+3. Allow divergence and split into two ordered pools — largest change.
+
+Phase A shipped option 1 and records the constraint. Revisit only if someone
+actually wants asymmetric rings.
+
+**Measured** on `solver_mage_gaia_6free_perslot_lvl` (armour 90+, accessories
+100+, otherwise the lvl-50 benchmark build): pools 88/83/54/48/45 →
+53/53/18/23/21, input space 3.11T → 2.08B. The encoding costs 18 extra base64
+characters with all seven slots set and nothing at all when unused; an existing
+v10 link still decodes unchanged.
+
+---
+
+## Phase B — tome roll % and available-tome inventory
+
+No search changes; data plumbing and UI only.
+
+- **Average tome ID %.** One number, default **80%**, applied to every rolled
+  tome stat via the existing `_apply_roll_mode_to_item` path. Kept separate
+  from `current_roll_mode`'s per-group item percentages because tomes are a
+  different acquisition model — you roll them far less.
+- **Available tomes.** Per-type multi-select of what the user owns. Encoding
+  should be "all enabled" as the default flag plus an exception list rather
+  than a 101-bit mask, so the common case costs a couple of bits.
+- Both feed the pools built in Phase D; until then they only affect the tomes
+  already selected in the UI.
+
+## Phase C — guild-tome optimisation
+
+Smallest real search: 7 options (6 tomes + none), evaluated at the leaf.
+
+- Replaces the `sp_budget + 4` hack and deletes the `search.js:243` TODO.
+- The chosen guild tome must be reported in the result so the build is
+  reproducible.
+- Correctness gate: a Standard guild tome must contribute +4 to **one**
+  attribute, never a split. Add a regression test that fails against the
+  current behaviour.
+
+## Phase D — full weapon/armour tome search
+
+The large one. Depends on B (pools) and C (leaf-stage tome solve shape).
+
+- Build weapon/armour tome pools from the enabled set, dominance-prune them,
+  and order them by the same priority machinery as items.
+- Fold the optimistic tome bundle into `_fast_constraint_precheck`,
+  `_fast_ehp_precheck` and the restriction suffix bounds.
+- At surviving leaves, search tome multisets (duplicates allowed) with the
+  score-ceiling gate applied per tome candidate.
+- Oracle test: a small scenario where the exhaustive gear×tome Cartesian
+  product is computable, asserting the gated top-N equals ground truth — the
+  same pattern as `solver_oracle_spell_cd`.
+- Report tome-space size alongside gear-space size in the funnel output, so
+  the two are never conflated in benchmarks.
+
+### Risks
+
+- **The optimistic bundle may be too loose.** If the best-possible bundle is
+  far above any real single combination, enumeration pruning weakens and the
+  search slows. Mitigation: measure the bound's tightness before committing;
+  if loose, tighten it per tome-type (best weapon bundle + best armour bundle
+  computed separately rather than one global max).
+- **Tome dominance is only valid against the solver-relevant stat set**, the
+  same caveat that produced the earlier dominance equality-set bug (see the
+  ledger row dated 2026-08-12). Preserve set-adjacent items the same way.
+- Phase D changes the meaning of "feasible" in the funnel counters. Re-baseline
+  the standing scenarios in the ledger rather than comparing across the change.

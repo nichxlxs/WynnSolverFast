@@ -80,13 +80,21 @@ function _build_item_pools(restrictions, illegal_at_2 = new Set(), blacklist = n
     for (const [slot, type] of Object.entries(slot_types)) {
         const pool = [];
         const names = itemLists.get(type) ?? [];
+        // Per-slot level override, falling back to the global range. `ring` is a
+        // single shared pool feeding both ring slots, so it carries one override
+        // for the pair — see TOME_AND_LEVEL_PLAN.md "Ring caveat": giving the two
+        // rings different ranges would break the ring canonicalisation that stops
+        // (A,B) and (B,A) both being enumerated.
+        const override = restrictions.lvl_overrides?.[slot];
+        const slot_lvl_min = override?.min ?? restrictions.lvl_min;
+        const slot_lvl_max = override?.max ?? restrictions.lvl_max;
         for (const name of names) {
             const item_obj = itemMap.get(name);
             if (!item_obj) continue;
             if (item_obj.name?.startsWith('No ')) continue;
             if (blacklist.has(name)) continue;
             const lvl = item_obj.lvl ?? 0;
-            if (lvl < restrictions.lvl_min || lvl > restrictions.lvl_max) continue;
+            if (lvl < slot_lvl_min || lvl > slot_lvl_max) continue;
             if (restrictions.no_major_id && item_obj.majorIds?.length > 0) continue;
             let skip = false;
             for (let i = 0; i < 5; i++) {

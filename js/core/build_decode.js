@@ -690,7 +690,7 @@ function decodeSolverParams(b64_str) {
         if (version === 0) {
             version = cursor.advanceBy(4);  // extended version (8-15)
         }
-        if (version > 10) {
+        if (version > 11) {
             console.warn('[decode] decodeSolverParams: unknown version', version);
             return null;
         }
@@ -732,6 +732,21 @@ function decodeSolverParams(b64_str) {
             // v3/v4: bit 8 had a 10-bit ctime payload — read and discard
             if (presence & (1 << 8)) cursor.advanceBy(10);
             mana_disabled = false;
+        }
+
+        // v11+: bit 9 carries per-slot item-level overrides. Older versions
+        // never set it (it was flat_mana in v5 and removed in v6), so nothing
+        // to skip on the legacy path.
+        const lvl_overrides = {};
+        if (version >= 11 && (presence & (1 << 9))) {
+            const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
+            const mask = cursor.advanceBy(7);
+            for (let i = 0; i < slot_names.length; i++) {
+                if (!(mask & (1 << i))) continue;
+                const omin = cursor.advanceBy(7) + 1;
+                const omax = cursor.advanceBy(7) + 1;
+                lvl_overrides[slot_names[i]] = { min: omin, max: omax };
+            }
         }
         // v5 and earlier: bit 9 was flat_mana (10-bit signed) — read and discard.
         // v6+: bit 9 is unused.
@@ -848,7 +863,7 @@ function decodeSolverParams(b64_str) {
         }
 
         return {
-            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, nomaj, gtome, dtime, mana_disabled,
+            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, nomaj, gtome, dtime, mana_disabled,
             restrictions, combo_rows, blacklist_ids, custom_weights
         };
     } catch (e) {

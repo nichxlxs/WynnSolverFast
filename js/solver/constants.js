@@ -214,6 +214,22 @@ function _allRollsMax() {
 }
 
 /**
+ * Slots that can carry a per-slot item-level override, in encoding order.
+ *
+ * WARNING: This order is LOAD-BEARING for URL encoding — solver URLs encode the
+ * override set as a bitmask over these indices. Never reorder or remove
+ * entries; only append, and only behind a solver URL version bump.
+ *
+ * `ring` is deliberately one entry covering BOTH ring slots. The two rings draw
+ * from a single shared, priority-ordered pool and the enumerator canonicalises
+ * ring pairs so (A,B) and (B,A) are not both visited; per-ring ranges would
+ * break that symmetry. See solver/TOME_AND_LEVEL_PLAN.md, "Ring caveat".
+ */
+const LVL_OVERRIDE_SLOTS = [
+    'helmet', 'chestplate', 'leggings', 'boots', 'ring', 'bracelet', 'necklace',
+];
+
+/**
  * Stats available for use in restriction threshold rows.
  * Each entry: { key: <statMap key>, label: <display name> }
  * Ordered by category for readability in the autocomplete list.
