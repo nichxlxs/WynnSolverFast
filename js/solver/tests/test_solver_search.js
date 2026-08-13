@@ -53,6 +53,8 @@ for (const relPath of ['js/solver/combo/boost.js', 'js/solver/combo/codec.js', '
 // Load search.js for the pool-building / weight / prune / priority pipeline.
 const searchPath = path.join(REPO_ROOT, 'js', 'solver', 'engine', 'search.js');
 vm.runInContext(fs.readFileSync(searchPath, 'utf8'), ctx, { filename: searchPath });
+const rustJobPath = path.join(REPO_ROOT, 'js', 'solver', 'engine', 'rust_job.js');
+vm.runInContext(fs.readFileSync(rustJobPath, 'utf8'), ctx, { filename: rustJobPath });
 
 // Export let/const vars from search.js we need.
 vm.runInContext(`
@@ -1444,6 +1446,28 @@ async function runSolverTest(snapName) {
         none_item_sms: noneItemSMs,
         none_idx_map: NONE_IDX,
     };
+
+    let rustJob = null;
+    if (snapName === 'solver_oracle_armor2' || process.env.SOLVER_EXPORT_RUST_JOB) {
+        rustJob = ctx.solver_build_rust_search_job(initMsgBase, ringPoolSer, solverSnap);
+    }
+    if (snapName === 'solver_oracle_armor2') {
+        t.assert(rustJob.schema_version === 1, `${snapName}: Rust SearchJob schema is v1`);
+        t.assert(typeof rustJob.data_version === 'string' && rustJob.data_version.length > 0,
+            `${snapName}: Rust SearchJob carries a data version`);
+        t.assert(rustJob.data_version !== 'unknown',
+            `${snapName}: Rust SearchJob identifies the active dataset`);
+        t.assert(rustJob.enumeration_fixture.includes('NSLOTS 2'),
+            `${snapName}: Rust SearchJob contains the complete free-slot search`);
+        t.assert(rustJob.scoring_fixture?.layer2?.item_registry,
+            `${snapName}: Rust SearchJob contains the scoring registry`);
+    }
+    if (process.env.SOLVER_EXPORT_RUST_JOB) {
+        fs.mkdirSync(path.dirname(process.env.SOLVER_EXPORT_RUST_JOB), { recursive: true });
+        fs.writeFileSync(process.env.SOLVER_EXPORT_RUST_JOB, JSON.stringify(rustJob));
+        t.assert(true, `${snapName}: exported versioned Rust SearchJob`);
+        return;
+    }
 
     // Optional: dump this scenario as a Rust enumeration-kernel fixture.
     // Both exports can run in one invocation (the Rust scoring integration

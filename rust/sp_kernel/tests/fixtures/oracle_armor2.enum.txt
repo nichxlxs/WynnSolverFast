@@ -1,0 +1,64 @@
+BUDGET 204
+PRECHECKS 0
+EHP 0 0 0 0
+EHPNA 0 0 0 0
+THP 0 0 0
+HPSTART 6285
+WEAPON 0 110 0 0 0 0 25 0 0 0
+GUILD 1 0 0 0 0 0 0 0 0 0 0 0 -1
+NFIXED 6
+FIXED 2 0 0 0 0 0 0 0 0 0 0 0 -1 -1
+FIXED 3 0 70 70 0 0 0 0 15 0 0 0 -1 -1
+FIXED 4 0 0 0 0 0 0 0 0 0 0 0 0 -1
+FIXED 5 0 0 60 0 0 0 0 0 0 0 0 -1 -1
+FIXED 6 0 0 100 0 0 0 0 6 0 0 0 -1 -1
+FIXED 7 0 0 0 0 0 0 -3 -3 -3 -3 -3 -1 -1
+NSLOTS 2
+SLOT helmet 0 0 0 6
+ITEM 0 0 0 0 0 0 -35 0 -20 -35 0 -1 -1 4083
+ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 133
+ITEM 0 0 70 0 0 0 0 10 5 -7 0 -1 -1 3000
+ITEM 0 0 75 0 0 0 0 10 0 0 0 -1 -1 3200
+ITEM 0 65 0 0 0 0 0 0 0 0 0 -1 -1 2600
+ITEM 0 0 0 0 0 0 0 0 12 0 0 -1 -1 3500
+SLOT chestplate 1 0 0 6
+ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 5810
+ITEM 0 0 0 0 0 0 7 0 0 13 0 -1 -1 3653
+ITEM 0 20 0 0 0 0 13 0 0 0 -5 -1 -1 2205
+ITEM 0 0 0 0 0 0 0 0 0 3 0 1 -1 2000
+ITEM 0 70 50 0 0 0 0 0 0 -20 -20 -1 -1 4000
+ITEM 0 0 85 0 0 0 0 10 0 0 0 -1 -1 2450
+NSETS 2
+SET 0 9 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 1 8 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+NAMES 1
+INAMES 0 6
+Dissociation
+Executioner Helmet
+Arcane Parasite
+Timeskip
+Brocach
+Expertise
+INAMES 1 6
+Leo
+Adamantite
+Carapace
+Clock Mail
+Cardiac Arrest
+Untimely Demise
+FNAMES 6
+2 The Crossing
+3 Static Cling
+4 Intensity
+5 Gloomstone
+6 Diamond Static Bracelet
+7 Achromatic Gloom
+NONENAMES 8
+No Helmet
+No Chestplate
+No Leggings
+No Boots
+No Ring 1
+No Ring 2
+No Bracelet
+No Necklace

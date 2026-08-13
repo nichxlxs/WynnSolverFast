@@ -1312,6 +1312,105 @@ function _on_all_workers_done(workers_snapshot) {
     }
 }
 
+function solver_engine_changed() {
+    const rust = document.getElementById('solver-engine')?.value === 'rust';
+    const threadSelect = document.getElementById('solver-thread-count');
+    if (threadSelect) {
+        threadSelect.disabled = rust;
+        threadSelect.title = rust
+            ? 'Rust/WASM currently runs one dedicated browser worker'
+            : 'Number of JavaScript worker threads';
+    }
+}
+
+function _show_rust_solver_error(message) {
+    _stop_solver();
+    const runButton = document.getElementById('solver-run-btn');
+    if (runButton) {
+        runButton.textContent = 'Solve';
+        runButton.className = 'btn btn-sm btn-outline-success flex-grow-1';
+    }
+    const status = document.getElementById('solver-status-msg');
+    if (status) status.textContent = 'Rust/WASM solve failed';
+    const panel = document.getElementById('solver-results-panel');
+    if (panel) {
+        panel.replaceChildren();
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'text-warning small';
+        errorMessage.textContent = 'Rust/WASM could not solve this configuration: '
+            + `${String(message)} Switch the engine selector to JavaScript for unsupported features.`;
+        panel.appendChild(errorMessage);
+    }
+}
+
+function _run_rust_wasm_search(init, ring_pool, snap) {
+    let job;
+    try {
+        job = solver_build_rust_search_job(init, ring_pool, snap);
+    } catch (error) {
+        _show_rust_solver_error(error?.message ?? String(error));
+        return;
+    }
+
+    let worker;
+    try {
+        worker = new Worker('../js/solver/wasm/worker.js?v=1', { type: 'module' });
+    } catch (error) {
+        _show_rust_solver_error(error?.message ?? 'Worker initialization failed');
+        return;
+    }
+    const state = {
+        worker,
+        done: false,
+        checked: 0,
+        precheck_pass: 0,
+        precheck_reject: 0,
+        feasible: 0,
+        met_req: 0,
+        top5: [],
+        _cur_checked: 0,
+        _cur_precheck_pass: 0,
+        _cur_precheck_reject: 0,
+        _cur_feasible: 0,
+        _cur_met_req: 0,
+        _cur_top5: [],
+        _cur_checked_since_top5: 0,
+        _cur_L_progress: [0, 1],
+    };
+    _solver_state.workers = [state];
+    _solver_state.snap = snap;
+
+    worker.onmessage = (event) => {
+        const message = event.data;
+        if (message.type === 'worker_error') {
+            _show_rust_solver_error(message.message);
+            return;
+        }
+        if (message.type !== 'done') return;
+        state.done = true;
+        state.checked = message.checked;
+        state.precheck_pass = message.precheck_pass ?? 0;
+        state.precheck_reject = message.precheck_reject ?? 0;
+        state.feasible = message.feasible;
+        state.met_req = message.met_req ?? 0;
+        state.top5 = message.top5 ?? [];
+        _on_all_workers_done([state]);
+    };
+    worker.onerror = (error) => _show_rust_solver_error(error.message || 'Worker initialization failed');
+    try {
+        worker.postMessage({ type: 'solve', worker_id: 0, job });
+    } catch (error) {
+        _show_rust_solver_error(error?.message ?? 'Could not submit the Rust search job');
+        return;
+    }
+
+    _solver_state.progress_timer = setInterval(() => {
+        if (!_solver_state.running) return;
+        const status = document.getElementById('solver-status-msg');
+        if (status) status.textContent = 'Rust/WASM search running';
+    }, 1000);
+}
+
 function _run_solver_search_workers(pools, locked, snap) {
     // Determine thread count
     const thread_sel = document.getElementById('solver-thread-count');
@@ -1330,6 +1429,12 @@ function _run_solver_search_workers(pools, locked, snap) {
     const pools_ser = _serialize_pools(pools);
     const locked_ser = _serialize_locked(locked);
     const ring_pool_ser = pools_ser.ring ?? [];
+
+    if (document.getElementById('solver-engine')?.value === 'rust') {
+        const init = _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, null, 0);
+        _run_rust_wasm_search(init, ring_pool_ser, snap);
+        return;
+    }
 
     // Create fine-grained partitions for work-stealing (4× worker count)
     const num_partitions = Math.max(num_workers * 4, num_workers);

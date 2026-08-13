@@ -343,4 +343,16 @@ impl Kernel {
     }
 }
 
+extern crate self as sp_kernel;
+
+pub mod engine;
 pub mod scoring;
+pub mod search_core;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn solve_json(input: &str) -> String {
+    engine::solve_json(input)
+}

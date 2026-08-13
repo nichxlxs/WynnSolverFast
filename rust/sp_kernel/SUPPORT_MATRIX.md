@@ -8,7 +8,11 @@ ordered roughly by expected user impact within each section.
 
 ## A. Not supported
 
-### Rust engine only (falls back to the JS engine — correct, ~100-1500x slower)
+### Rust engine only
+
+Selecting Rust/WASM returns a typed capability error for these cases. It never
+silently changes engines; the user can explicitly select JavaScript when the
+reference engine supports the feature.
 
 | # | Feature | Where it appears | Notes |
 |---|---------|------------------|-------|
@@ -18,17 +22,16 @@ ordered roughly by expected user impact within each section.
 | A4 | `total_healing` objective | Scoring target / custom-blend sub-target | Heal totals need the heal part evaluation path; `Objective::parse` rejects it. |
 | A5 | Radiance boost | Radiance major ID scaling | Exporter asserts null; scaling multiplies stat maps non-additively. |
 | A6 | Dynamic sliders | Atree sliders marked stat-dependent/dynamic | JS gates features on `has_dynamic_sliders`; fixtures never carry them. |
-| A7 | Multi-partition scenarios | Crafted variations / partitioned searches | Fixture format captures ONE partition; JS runs several and merges. Restricted-melee comparison shows the gap (one JS-only top entry). |
-| A8 | Non-lowered atree plans (`scaling_kind == "full"`) | Trees the exporter cannot lower to cached/split | Layer2 rejects; scenario falls back to JS. |
+| A7 | Non-lowered atree plans (`scaling_kind == "full"`) | Trees the exporter cannot lower to cached/split | Layer2 rejects with an unsupported-capability result. |
 
 ### Both engines (nobody solves these today)
 
 | # | Feature | Notes |
 |---|---------|-------|
-| A9 | Tome slot search | Tomes are fixed inputs; the solver never searches tome combinations. |
-| A10 | Weapon slot search | The weapon is fixed; solving across weapons means separate runs per weapon. |
-| A11 | Powder optimization | Powders are taken as-is on the fixed weapon/armor inputs; no search over powder sets. |
-| A12 | Crafted-item ingredient search | Crafted items participate as fixed statmaps; the solver does not search ingredient/recipe space. |
+| A8 | Tome slot search | Tomes are fixed inputs; the solver never searches tome combinations. |
+| A9 | Weapon slot search | The weapon is fixed; solving across weapons means separate runs per weapon. |
+| A10 | Powder optimization | Powders are taken as-is on the fixed weapon/armor inputs; no search over powder sets. |
+| A11 | Crafted-item ingredient search | Crafted items participate as fixed statmaps; the solver does not search ingredient/recipe space. |
 
 ## B. Supported but slow (correct results, fast paths off or weak)
 
@@ -47,8 +50,8 @@ ordered roughly by expected user impact within each section.
 
 | # | Gap | Notes |
 |---|-----|-------|
-| C1 | Rust engine is not shipped to users | It runs as a native benchmark/validation kernel; the browser uses the JS engine. A WASM build + worker integration would give end users the ~1000x. |
-| C2 | Fixture export is test-harness-driven | Scenarios come from snapshots via `test_solver_search.js`; no direct app → fixture path. |
+| C1 | Rust/WASM worker is single-instance | The engine is shipped and is the default browser selector, but currently uses one dedicated module worker. Multi-worker Wasm needs partition/result merging and a startup/memory benchmark. |
+| C2 | SearchJob still embeds canonical payloads | The application now exports jobs directly, but v1 embeds enumeration/scoring payloads. A future compact schema can replace them with versioned typed arrays after compatibility evidence. |
 | C3 | Rust top-15 tie membership at the boundary | Score sets match JS exactly; which of several EQUAL-scoring builds occupies the last slot can differ (insertion order). Documented, not a correctness issue. |
 
 ## Verification status

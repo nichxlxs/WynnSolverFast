@@ -38,13 +38,16 @@ vector work (P1.3) captured for running stats. The Phase-2 go/no-go gate
 the enumeration loop and leaf pipeline; this prototype establishes exact
 parity methodology and the expected order of magnitude.
 
-## enum_kernel — enumeration replay (P2.3 prototype)
+## enum_kernel — native adapter over the scored engine
 
-`src/bin/enum_kernel.rs` replays a full solver scenario: level-based
-enumeration with ring canonicalization, illegal-set blocking, mid-tree SP
-pruning, restriction/EHP suffix bounds, leaf prechecks, and the exact SP
-kernel at surviving leaves. Scoring (greedy SP / mana sim / damage) is
-intentionally absent — feasible leaves are counted, not scored.
+`src/search_core.rs` contains the reusable search engine. It performs
+level-based enumeration with ring canonicalization, illegal-set blocking,
+mid-tree SP pruning, restriction/EHP suffix bounds, exact SP checks, dense stat
+assembly, greedy allocation, mana simulation, objective scoring, admissible
+bounds, and top-N reduction. `src/bin/enum_kernel.rs` is a thin native CLI
+adapter. Supplying no scoring fixture intentionally produces feasibility
+counters only; supplying a scoring fixture runs the complete supported leaf
+pipeline.
 
 ```bash
 # Export a scenario fixture from the JS pipeline:
@@ -152,6 +155,48 @@ Measured (2026-08-12, this container, 4 threads vs JS 2 workers):
 | Dense combo_damage (readme armor2 pools, 3,712 search, no restrictions) | 10.2s | **2.9s**, top-15 bit-identical |
 | `readme_spell_wide` coverage @ 180s (20.07B search) | 430K checked | **1.38M checked (3.2x)**, rate still climbing at cap |
 
-Caveat: scenarios with stat restrictions need a `check_thresholds` port
-(the exact assembled-stat check that runs after the additive prechecks)
-before their scored top-N matches JS.
+Exact assembled-stat restrictions are part of the scored engine. Remaining
+unsupported inputs are tracked in `SUPPORT_MATRIX.md` and return errors rather
+than silently changing algorithms.
+
+## Versioned SearchJob and browser WASM
+
+`src/engine.rs` exposes one coarse, stateless boundary:
+
+```text
+SearchJob JSON -> sp_kernel::solve_json -> SearchResult JSON
+```
+
+The v1 job carries `schema_version`, `data_version`, the canonical enumeration
+payload, and an optional scoring payload. Results always use a JSON envelope
+with status, engine identity, exhaustive state, counters, and top-N builds.
+Unknown schemas and unsupported capabilities return typed error envelopes.
+
+The browser serializes its existing worker-init state in
+`js/solver/engine/rust_job.js`, then sends the job to the module worker at
+`js/solver/wasm/worker.js`. The worker invokes the same engine compiled through
+`wasm-bindgen` and maps the result into the existing solver UI. Rust/WASM is the
+default selector; JavaScript remains explicit and selectable.
+
+Build the checked-in browser artifacts after changing Rust code:
+
+```powershell
+rustup target add wasm32-unknown-unknown
+# Install wasm-bindgen-cli 0.2.127, matching Cargo.lock.
+.\rust\sp_kernel\build_wasm.ps1
+```
+
+Run the contract checks from the repository root:
+
+```powershell
+C:\Users\NicholasRoberts\.cargo\bin\cargo.exe +stable-x86_64-pc-windows-gnu test --manifest-path rust\sp_kernel\Cargo.toml
+node js\solver\tests\test_rust_wasm.mjs
+node js\solver\tests\test_solver_search.js solver_oracle_armor2
+```
+
+Serve the repository root with an ordinary static server. The generated module
+uses relative URLs and requires no backend API:
+
+```powershell
+python -m http.server 8001 --bind 127.0.0.1
+```

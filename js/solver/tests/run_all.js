@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ══════════════════════════════════════════════════════════════════════════════
-// TEST RUNNER — discovers and runs all test_*.js files in this directory.
+// TEST RUNNER — discovers and runs all test_*.js/test_*.mjs files in this directory.
 //
 // Run:  node js/solver/tests/run_all.js
 // Requires Node.js >= 18.
@@ -14,7 +14,7 @@ const path = require('path');
 
 const TEST_DIR = __dirname;
 const testFiles = fs.readdirSync(TEST_DIR)
-    .filter(f => f.startsWith('test_') && f.endsWith('.js'))
+    .filter(f => f.startsWith('test_') && /\.m?js$/.test(f))
     .sort();
 
 if (testFiles.length === 0) {
@@ -29,7 +29,7 @@ const results = [];
 
 for (const file of testFiles) {
     const filePath = path.join(TEST_DIR, file);
-    const label = file.replace('.js', '');
+    const label = file.replace(/\.m?js$/, '');
     process.stdout.write(`Running ${label}...`);
 
     try {

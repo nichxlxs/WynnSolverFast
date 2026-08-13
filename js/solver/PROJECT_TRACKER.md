@@ -1,6 +1,6 @@
 # WynnSolver performance project tracker
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 Status legend: **DONE**, **IN PROGRESS**, **NEXT**, **BLOCKED**, **BACKLOG**.
 
@@ -27,9 +27,10 @@ bounds may remove search space from a run advertised as exhaustive.
   armor slots, and four armor slots using a checked-in WynnSolver README build.
 - **DONE** The supplied tier-stack Gaia build now has 0.84M, 3.19M, and 8.14M
   combination variants with 30-second original/current anytime baselines.
-- **IN PROGRESS** The first search fixtures exist, but combo snapshots and wider
-  class/target coverage are still absent. The suite passes 236 assertions with
-  two missing-combo-fixture warnings; regression coverage is not complete.
+- **IN PROGRESS** The fixture corpus now covers 258 assertions across solver,
+  combo-damage, mana, dominance, display, enumeration, and benchmark paths.
+  Nine warnings still identify missing combo/class/target coverage, so P0.6 is
+  not complete.
 - **DONE** The SP-Algorithm-Bounty archive was supplied as a ZIP in the repo
   root and fully reviewed on 2026-08-12; see the Lodestone section below. Its
   worst-case-greedy insight is now adopted as an exact closure fast path in
@@ -58,6 +59,25 @@ bounds may remove search space from a run advertised as exhaustive.
 - **DONE** P2.2 Rust SP kernel prototype (`rust/sp_kernel`): exact parity on
   500 seeded fixtures, 8.5x kernel-level speedup over warmed JS (0.61 vs 5.20
   µs/call).
+- **DONE** P2.3/P2.4 Rust scored enumerator: `enum_kernel` now includes the
+  complete SP -> dense stat assembly -> greedy allocation -> restriction ->
+  mana -> objective pipeline, exact fixture/top-15 checks, admissible subtree
+  bounds, and native multi-thread work stealing. The recorded end-to-end gate
+  is decisively above 1.5x on supported workloads.
+- **DONE** First application integration slice (2026-08-13): the scored core is
+  a reusable library behind a versioned `SearchJob`/`SearchResult` JSON
+  contract, with thin native and `wasm-bindgen` adapters. A production browser
+  serializer and dedicated module worker call the same engine. Rust/WASM is the
+  default UI selector; JavaScript remains explicit and selectable.
+- **DONE** Contract evidence: the browser-produced two-armor oracle job passed
+  through the native adapter with exact 36 checked / 31 feasible / 11 scored,
+  score 15,095, and identical winning items. The generated Wasm module passed
+  its direct smoke test, and the local UI completed a real 754/754 exhaustive
+  EHP search with rendered top builds.
+- **IN PROGRESS** Browser Rust remains one worker, v1 jobs embed the canonical
+  text/JSON payloads, and unsupported combo/scaling inputs return typed errors.
+  Download/startup/memory benchmarks, capability coverage, and compact typed
+  payloads remain before calling the browser target fully productized.
 
 ## Optimization ledger
 
@@ -167,16 +187,20 @@ report a worse best-so-far result.
 
 ## Rust status and decision gate
 
-We have **not moved to Rust**. The current engine remains JavaScript/Web Workers.
-That is intentional: profiling exposed representation and traversal costs that
-were fixed much faster in the reference engine, producing larger gains than a
-language-only port would guarantee. Rust should still improve memory density,
-allocation control, native threading, and unattended execution, but its speedup
-cannot be responsibly promised before the exact oracle and a compact-kernel
-prototype exist. The existing go/no-go gate remains at least 1.5x end-to-end or
-a decisive memory/checkpoint advantage. Algorithmic branch-and-bound and compact
-data layouts are expected to matter more than language alone; the same design
-will be used by both JS reference and future Rust core.
+The Rust engine has a complete scored enumeration path for the supported
+subset, including dense stat vectors, exact restrictions, mana, generic
+objectives, admissible branch-and-bound, warm starts, and native multi-thread
+scheduling. Differential fixtures and top-15 comparisons establish exact
+parity for that subset; project benchmarks exceed the original 1.5x end-to-end
+go/no-go gate.
+
+The first productization boundary is now implemented. `search_core` owns
+parsing and single-job execution, `engine` owns the versioned JSON envelope,
+and native/Wasm binaries are adapters. The browser directly exports its active
+configuration and renders Rust results through the existing UI. Unsupported
+Rust inputs return a typed error and never silently switch algorithms. The next
+browser work is payload compaction, capability expansion, multi-worker
+scheduling, and measured startup/memory/throughput evidence.
 
 ## Phase 0 — measurement and correctness foundation
 
@@ -200,7 +224,7 @@ will be used by both JS reference and future Rust core.
 | P1.3 | DONE | Indexed item/stat vectors | Float64Array running vector + compiled index/value entries; leaf materialization boundary |
 | P1.4 | BACKLOG | Compiled combo plan | General/compiled differential tests for every combo fixture |
 | P1.5 | DONE | Direct restriction suffix bounds | Oracle-exact equality; prunes credited to checked/precheck_reject |
-| P1.6 | BACKLOG | Objective branch-and-bound | Formal admissible bound per supported target (suffix bounds cover restrictions only) |
+| P1.6 | IN PROGRESS | Objective branch-and-bound | JS has a proven leaf ceiling/shared cutoff; Rust has subtree bounds for supported monotone objectives; general JS subtree bounds remain |
 | P1.7 | DONE | SP/greedy allocation reduction | In-place trial eval (bit-identical scores) + O(5) SP restore + closure fast path |
 | P1.8 | BACKLOG | Adaptive prefix task scheduler | Complete partition coverage and deterministic single-thread mode |
 | P1.9 | BACKLOG | Shared immutable worker data | Clone/shared paths produce identical results |
@@ -209,10 +233,10 @@ will be used by both JS reference and future Rust core.
 
 | ID | Status | Deliverable | Go/no-go criterion |
 |---|---|---|---|
-| P2.1 | BACKLOG | Versioned `SearchJob`/`SearchResult` schema | Round trip plus data/engine version rejection tests |
+| P2.1 | IN PROGRESS | Versioned `SearchJob`/`SearchResult` schema | V1 round-trip, schema rejection, provenance echo, native adapter, and Wasm smoke are green; compact typed payload and explicit data-compatibility policy remain |
 | P2.2 | DONE | Compact Rust item and SP kernel | SP kernel exact parity on 500 fixtures, 8.5x kernel-level |
-| P2.3 | IN PROGRESS | Canonical single-thread enumerator | enum_kernel: exact checked/feasible parity on 135M and 1.9B scenarios; scoring/top-N layer absent |
-| P2.4 | BACKLOG | Stateless objective prototype | At least 1.5x end-to-end speedup, or decisive memory benefit |
+| P2.3 | DONE | Canonical scored enumerator | Exact funnel/top-N parity on supported melee, spell, restriction, and generic-objective fixtures; single and multi-thread paths |
+| P2.4 | DONE | Stateless objective prototype | Dense scored Rust path passes the 1.5x end-to-end gate on supported workloads |
 
 ## Phase 3 — unattended local engine
 
@@ -220,82 +244,38 @@ will be used by both JS reference and future Rust core.
 |---|---|---|---|
 | P3.1 | BACKLOG | Native prefix-task coordinator | Bounded queue and deterministic reduction |
 | P3.2 | BACKLOG | Checkpoint journal and resume cursor | Kill/restart test matches uninterrupted result exactly |
-| P3.3 | BACKLOG | CLI budgets and progress | Time, CPU, memory, cancellation and structured output |
-| P3.4 | BACKLOG | Browser export/result import | Versioned compatibility and validation errors |
-| P3.5 | BACKLOG | Multi-core scheduler | Scaling and tail-utilization benchmark at available core counts |
+| P3.3 | IN PROGRESS | CLI budgets and progress | Thread count, time cap, and progress exist; structured job output, memory budget, and cooperative external cancellation remain |
+| P3.4 | IN PROGRESS | Browser export/result import | Direct app export, Wasm result rendering, and typed errors exist; broaden unsupported-capability tests and add saved job/result files |
+| P3.5 | IN PROGRESS | Multi-core scheduler | Atomic first-slot work stealing and 1/4-thread evidence exist; general prefix tasks and full available-core/tail benchmarks remain |
 
 ## Phase 4 — optional execution targets
 
 | ID | Status | Deliverable | Trigger |
 |---|---|---|---|
-| P4.1 | BACKLOG | Rust/Wasm worker build | Native core is proven and browser speed/startup benchmark wins |
+| P4.1 | IN PROGRESS | Rust/Wasm worker build | Build, module worker, direct Wasm smoke, native oracle parity, and local UI completion are green; startup/download/memory/throughput and multi-worker benchmarks remain |
 | P4.2 | BACKLOG | Remote task leasing | One-machine compute, not algorithmic waste, is limiting |
 | P4.3 | BACKLOG | GPU batch-scoring experiment | Profiling exposes a large branch-free scoring batch |
 
 ## Immediate work queue
 
-1. DONE 2026-08-12: mana sim optimized (cost-only boost application, 260→23µs
-   per leaf); greedy trials are again the dense-scenario top cost (~250µs),
-   now dominated by per-trial atree scaling + score eval on stat-dependent
-   trees. Next lever there: incremental scaling for the three stat inputs.
-2. The leaf precheck (and therefore the suffix bounds that mirror it) ignores
-   set bonuses, radiance scaling, and atree scaling on ge-restricted stats;
-   running underestimates the final stat, so a build whose set/radiance bonus
-   would satisfy a threshold can be rejected. Pre-existing behavior — decide
-   whether to accept (document) or account for those contributions in
-   adjusted_threshold.
-3. Recover or recreate more real snapshots for P0.6, including at least one
-   restriction-heavy and one SP-heavy scenario as oracle fixtures.
-4. P1.6 objective branch-and-bound (score upper bounds per remaining slot) is
-   the next algorithmic lever for the sparse case; validate against the oracle.
-5. P2.3: enum_kernel replays full scenarios with exact funnel parity.
-   DONE 2026-08-12: multithreaded via first-slot work stealing (colossal
-   4.35s → 1.16s on 4 threads; per-thread counter sums bit-identical).
-   P2.4 layer 1 DONE 2026-08-12: `score_kernel` ports the combo-damage
-   evaluation pipeline with 192/192 bit-exact parity against production
-   worker scores on melee + spell differential fixtures
-   (SOLVER_EXPORT_SCORE). Parity traps solved: integer-SP
-   skillPointsToPercentage table (V8 pow vs Rust powf ULP), serde_json
-   float_roundtrip. Remaining layers: stat assembly from item entries,
-   greedy SP allocation + mana sim, ceiling gate, enum_kernel integration
-   → end-to-end Rust spell benchmark; then the compiled-stat-index
-   optimization pass; then a checkpoint cursor (P3.2 shape) to justify
-   the native go decision.
-6. DONE 2026-08-12: `gaia_colossal_4_5t_input` (all slots free, lvl 98-121,
-   4.52T input / 334.8B search) sized so the Rust kernel needs ~77s.
-   Enumeration cost tracks pruning effectiveness, not space size: each level
-   step below 100 floods pools with tier-stack items and weakens the atkTier
-   suffix bound (100→8.4s, 99→22.4s, 98→77s, 97→~3.6h single-thread).
-7. DONE 2026-08-12: standing scenarios re-baselined post-dominance-fix and
-   post-ceiling-gate (2 workers, current variant): 2M → 3,100,680 search in
-   437ms; 95M → 21,285,396 search in 8.76s; 135M → 31,465,368 search in
-   1.39s; 1.9B → 314,653,680 search in 0.93s. All hold 470,163; none time
-   out. These "current space" values supersede earlier ledger rows.
-8. PR #3 reviewed and closed: progress checkpoint + precompiled item entries
-   absorbed; the rest duplicated master or this branch.
-9. Restriction-based iterated pool filtering (remove items whose every
-   completion fails the leaf precheck bound at the pool level) remains a
-   space reducer for tight-bound scenarios; deprioritized after bands made
-   those scenarios fast. Revisit if a tight-bound trillion-scale case shows
-   up.
-10. PARTIAL 2026-08-12: the spell-spam workload (`readme_spell_wide`) is
-   leaf-bound: no restrictions to prune with, ~50% of checked leaves
-   feasible, and greedy trials (a full 33-row damage eval each) took ~95%
-   of wall. The score-ceiling gate now bounds each leaf with ONE damage
-   eval at all-150 SP before running greedy: combo damage is provably
-   monotone in each SP dimension when the gate's setup conditions hold
-   (combo_damage target, no hp_casting/dynamic sliders/custom weights, and
-   any stat-input atree scaling has non-negative factors into plain stats).
-   Leaves whose ceiling cannot beat the top-15 cutoff skip greedy+mana+
-   score with an identical top-N (validated by oracle fixture
-   `solver_oracle_spell_cd`). Dense scenario: 62.5s → 18.0s. A cross-worker
-   shared cutoff (the global 15th-best distinct reported score, exposed
-   mid-partition through a SharedArrayBuffer, with postMessage fallback)
-   arms the gate from partition start: dense 18.0s → 7.54s, spell_wide
-   35,000 → 430,000 checked @ 180s (12.3x cumulative). Remaining lever
-   for leaves that pass the gate: incremental damage evaluation w.r.t. SP
-   changes inside greedy; all five skills can affect damage through
-   elemental skill boosts, so naive trial skipping is not exact.
+1. P2.1: replace embedded text/JSON job payloads with a compact, explicitly
+   versioned typed schema and define the data-compatibility policy. Retain v1
+   rejection and provenance tests during migration.
+2. P4.1: measure Wasm download, instantiation, memory, checked/s, and final
+   top-N against native and JavaScript on melee, spell, restriction, and generic
+   objective fixtures.
+3. Add capability-contract tests for loop brackets, buff states, Blood Pact,
+   Radiance, dynamic sliders, full atree scaling, and total healing. Rust
+   selection must keep returning a typed error until each feature has oracle
+   parity.
+4. Add multi-worker Wasm partitioning and deterministic result merging only
+   after the single-worker startup/memory baseline establishes a useful worker
+   count.
+5. Add durable SearchJob/SearchResult file import/export for the native
+   unattended path, then continue P3.2 checkpoint/resume and P3.1 general
+   prefix-task coordination.
+6. Continue P0.6 fixture recovery, especially loop brackets, buff states, Blood
+   Pact, Radiance, dynamic sliders, total healing, and multi-partition cases.
 
 ## Update protocol
 

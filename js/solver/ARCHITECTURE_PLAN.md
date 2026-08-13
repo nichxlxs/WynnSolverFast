@@ -3,16 +3,24 @@
 ## Decision
 
 Build a **native, headless Rust search engine and CLI (Option C)** while keeping
-the existing JavaScript engine (Option A) as the browser experience and the
-correctness oracle during migration. Structure the Rust core so the same crate
-can later compile to WebAssembly (Option B). Do not put the general search on a
-GPU (Option D); reconsider GPU scoring only after profiling a compact,
-branch-free candidate batch.
+the existing JavaScript engine (Option A) as the correctness oracle and an
+explicit browser fallback. Compile the same Rust engine to WebAssembly (Option
+B) for interactive browser searches. Do not put the general search on a GPU
+(Option D); reconsider GPU scoring only after profiling a compact, branch-free
+candidate batch.
 
 This is an additive migration. It does not require removing or replacing the
 web solver. The first Rust milestone must beat indexed JavaScript on an agreed
 benchmark and match the exhaustive oracle exactly before it becomes a supported
 execution path.
+
+Implementation status, 2026-08-13: the proven scored enumerator is now a
+reusable Rust library behind a versioned JSON `SearchJob`/`SearchResult`
+boundary. Thin native CLI and `wasm-bindgen` adapters call that same entrypoint.
+The solver page defaults to a dedicated Rust/WASM module worker and keeps the
+JavaScript engine user-selectable. Unsupported Rust inputs return typed errors;
+the page does not silently change engines. Browser workers are single-threaded
+in this first delivery, while the native CLI retains its multi-thread path.
 
 ## Why this fits the goal
 
@@ -90,9 +98,10 @@ and heterogeneous workers without changing result semantics.
    compare complete results with JavaScript.
 3. **Rust native product**: add the compiled combo plan, threads, prefix tasks,
    checkpoint/resume, resource budgets, CLI progress, and import/export.
-4. **Wasm build**: compile the proven core for browser workers if it meets size,
-   startup, and speed goals. This becomes an acceleration path for interactive
-   searches, not the unattended-job host.
+4. **Wasm build**: compile the proven core for a dedicated browser worker. This
+   is now the default interactive path, but remains distinct from the
+   unattended native job host. Measure download, startup, and throughput before
+   adding multiple Wasm workers or shared-memory Wasm.
 5. **GPU experiment**: only if profiles show a large regular scoring batch. Keep
    enumeration and verification on CPU; include transfer costs in benchmarks.
 
