@@ -73,7 +73,7 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed to within the simulation itself: 4.8x** (0.75 s against 3.62 s), top-15 identical throughout. Dense lowering for injected tokens took it to 2.32 s; not cloning the row set per trial took it to 0.75 s | The remaining per-trial cost is the simulation proper (~0.3 s of 0.74 s). Run it less often — memoize on the scalars it actually reads — rather than shaving it further |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Closed: 19x** (0.19 s against 3.62 s), top-15 identical at every step. Dense lowering for injected tokens 3.62→2.32 s; not cloning the row set per trial 2.32→0.75 s; memoizing the simulation 0.75→0.19 s | Nothing measurable left here. The scenario now scores in the same ballpark as a static one |
 
 **Getting the dense path to serve injected tokens.** The lowering bakes row
 damage in at build time, which is exactly what a per-leaf token changes.
@@ -130,6 +130,27 @@ build one for a scenario the solver refuses — and since `dense_dynamic_score`
 treats an unreservable key as unreachable, it panicked on the first leaf
 instead of reporting a diff. The gate is now `dense_injectable_keys`, and both
 builders go through it.
+
+**Then the simulation stopped running most of the time.** With the copying
+gone, the 0.75 s was the simulation proper. Its only per-trial input is
+`dense_sim_obj`'s stat map — a dozen or so values — so two trials agreeing on
+those produce identical injected tokens. Greedy moves one skill point at a
+time and most of those moves do not touch a stat the simulation reads: **89%
+of trials repeat an earlier input** (10,678 trials, 1,169 distinct).
+
+`SimMemo` keys on exactly that map plus `has_arcanes`, and caches the compiled
+`DenseRowExtra`, so a hit skips the stat map, the simulation, and the bonus
+compile. It is direct-mapped over a fixed 512 slots, so memory is bounded on
+any run length, and it stores the full key and compares it — a hash collision
+costs a recompute, it can never return another trial's answer. **0.75 s →
+0.19 s.**
+
+Checked the way an admissible-looking cache has to be: `SCORE_DENSE_CHECK=1`
+asserts dense against Obj on every trial of every leaf and is clean; results
+are identical across 1/2/4/8 threads (the memo is per-worker, so a stale entry
+would show up as a thread-count-dependent answer); and rebuilding with the
+table shrunk to **one slot**, so every single trial collides, still produces
+identical output with the per-trial check clean.
 
 | B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 

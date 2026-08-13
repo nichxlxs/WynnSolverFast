@@ -2260,7 +2260,7 @@ pub fn leaf_pipeline_gated(
                 let ceiling_sp = [150f64; 5];
                 let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
-                    let DenseWork { leaf, scratch } = &mut **w;
+                    let DenseWork { leaf, scratch, .. } = &mut **w;
                     let neg = if two_sided {
                         dense_assemble(d, leaf, scratch, &low_sp);
                         dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
@@ -2338,7 +2338,7 @@ pub fn leaf_pipeline_gated(
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
             doom_sp[2] = 150.0;
             if let Some((d, w)) = dwork.as_mut() {
-                let DenseWork { leaf, scratch } = &mut **w;
+                let DenseWork { leaf, scratch, .. } = &mut **w;
                 if l2.mana_doom_ok {
                     dense_assemble(d, leaf, scratch, &doom_sp);
                 } else {
@@ -2376,11 +2376,11 @@ pub fn leaf_pipeline_gated(
         if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         if let Some((d, w)) = dwork.as_mut() {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, sim_memo } = &mut **w;
             phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
             let v = phase!(DMG_NS, match dynamic {
                 Some(dy) => dense_dynamic_score(
-                    d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                    d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts, dy)
                     .expect("dense dynamic score: injected key without a slot — \
                              DenseCtx::build should have reserved one"),
                 None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
@@ -2403,7 +2403,7 @@ pub fn leaf_pipeline_gated(
     for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
     if let Some((d, w)) = dwork.as_mut() {
         {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, .. } = &mut **w;
             dense_assemble(d, leaf, scratch, &sp_f5);
             if !d.thresholds.is_empty() && !dense_check_thresholds(d, scratch, tables, consts) {
                 if dense_check {
@@ -2420,7 +2420,7 @@ pub fn leaf_pipeline_gated(
             }
         }
         let mana_ok = phase!(MANA_NS, {
-            let DenseWork { leaf, scratch } = &mut **w;
+            let DenseWork { leaf, scratch, .. } = &mut **w;
             let mini = dense_mana_obj(d, leaf, scratch);
             let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
             if dense_check {
@@ -2436,10 +2436,11 @@ pub fn leaf_pipeline_gated(
         if mana_ok {
             assert!(!doom_reject_expected, "bounded doom would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
-                let DenseWork { leaf, scratch } = &mut **w;
+                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
                 let v = match dynamic {
                     Some(dy) => dense_dynamic_score(
-                        d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                        d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
+                        dy)
                         .expect("dense dynamic score: injected key without a slot"),
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 };
@@ -2483,10 +2484,11 @@ pub fn leaf_pipeline_gated(
             }
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
-                let DenseWork { leaf, scratch } = &mut **w;
+                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
                 match dynamic {
                     Some(dy) => dense_dynamic_score(
-                        d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                        d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
+                        dy)
                         .expect("dense dynamic score: injected key without a slot"),
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 }
@@ -4622,6 +4624,9 @@ impl DScratch {
 pub struct DenseWork {
     pub leaf: DenseLeaf,
     pub scratch: DScratch,
+    /// Reused across leaves: its key covers every simulation input, so an
+    /// entry stays valid whichever leaf produced it.
+    pub sim_memo: SimMemo,
 }
 
 /// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
@@ -5105,11 +5110,64 @@ pub fn dense_injectable_keys(
 
 /// Per-row bonuses for tokens injected after the lowering was built,
 /// in the three shapes `DRow` uses.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DenseRowExtra {
     pub stat: Vec<(u32, f64, bool)>,
     pub dam: Vec<(DMultEntry, f64, bool)>,
     pub def: Vec<(DMultEntry, f64, bool)>,
+}
+
+/// Slots in a `SimMemo`. Direct-mapped, so this is also the collision budget.
+const SIM_MEMO_SLOTS: usize = 512;
+
+/// Memo for the per-leaf simulation, keyed on everything it reads.
+///
+/// The simulation's only per-trial input is `dense_sim_obj`'s stat map, so two
+/// trials agreeing on those values produce identical injected tokens and hence
+/// identical bonuses. Greedy trials move one skill point at a time and most of
+/// those moves do not touch a stat the simulation reads — 89% of trials on the
+/// slider benchmark repeat an earlier input.
+///
+/// Direct-mapped and fixed-size, so memory is bounded however long the run is.
+/// The full key is stored and compared on lookup: a hash collision costs a
+/// recompute, it can never return another trial's answer.
+pub struct SimMemo {
+    key: Vec<u64>,
+    slots: Vec<Option<(Vec<u64>, Vec<DenseRowExtra>)>>,
+}
+
+impl Default for SimMemo {
+    fn default() -> Self {
+        SimMemo { key: Vec::new(), slots: (0..SIM_MEMO_SLOTS).map(|_| None).collect() }
+    }
+}
+
+impl SimMemo {
+    /// Fills `self.key` from this trial's assembled state and returns its slot.
+    ///
+    /// Absent keys hash as a sentinel rather than 0.0 — the simulation reads a
+    /// missing stat as 0, but a *present* NaN is a different input, and the
+    /// bit pattern has to distinguish them.
+    fn probe(&mut self, d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> usize {
+        const ABSENT: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+        self.key.clear();
+        let mut read = |i: u32| {
+            if bit_get(&s.present, i) { s.vals[i as usize].to_bits() } else { ABSENT }
+        };
+        for (_, i) in &d.mana_keys { let v = read(*i); self.key.push(v); }
+        // `dense_sim_obj` adds these two on top of `mana_keys`.
+        let (hr, hp) = (read(d.s_hpr_raw), read(d.s_hpr_pct));
+        self.key.push(hr);
+        self.key.push(hp);
+        self.key.push(leaf.has_arcanes as u64);
+
+        // FxHash's multiply-xor round, enough for a direct-mapped table.
+        let mut h: u64 = 0;
+        for w in &self.key {
+            h = (h.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+        (h >> 32) as usize % SIM_MEMO_SLOTS
+    }
 }
 
 /// One leaf-trial's dynamic score on the dense path.
@@ -5121,10 +5179,22 @@ pub struct DenseRowExtra {
 /// universe — the caller then has to use the Obj path.
 #[allow(clippy::too_many_arguments)]
 pub fn dense_dynamic_score(
-    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, memo: &mut SimMemo, rows: &[Row],
     compiled: &[CompiledRow], tables: &Tables, registry: &[Value], consts: &L2Consts,
     dy: &DynamicRows,
 ) -> Option<f64> {
+    // A per-leaf unroll makes the rows themselves an output of the
+    // simulation, which the memo does not carry — but dense is off for those
+    // scenarios, so it never gets here.
+    let memo_slot = if dy.needs_unroll { None } else {
+        let slot = memo.probe(d, leaf, s);
+        if memo.slots[slot].as_ref().is_some_and(|(k, _)| *k == memo.key) {
+            let extra = &memo.slots[slot].as_ref().unwrap().1;
+            return Some(dense_score_extra(d, leaf, s, rows, compiled, tables, extra));
+        }
+        Some(slot)
+    };
+
     let mut injected: Vec<Vec<Token>> = Vec::new();
     let damage_rows = phase!(DYN_NS, {
         let mini = dense_sim_obj(d, leaf, s);
@@ -5163,6 +5233,9 @@ pub fn dense_dynamic_score(
             }
         }
         extra.push(row_extra);
+    }
+    if let Some(slot) = memo_slot {
+        memo.slots[slot] = Some((memo.key.clone(), extra.clone()));
     }
     Some(dense_score_extra(d, leaf, s, &damage_rows, compiled, tables, &extra))
 }
@@ -5706,7 +5779,7 @@ pub fn dense_mana_rescue(
 
         let mut sp_f = [0f64; 5];
         for i in 0..5 { sp_f[i] = total_sp[i] as f64; }
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         dense_assemble(d, leaf, scratch, &sp_f);
         let mini = dense_mana_obj(d, leaf, scratch);
         if mana_check_passes(rows, &mini, registry, tables, consts, compiled) {
@@ -5852,7 +5925,7 @@ pub fn dense_ceiling_cached(
         leaf.const_term_vals[slot] += dv;
     }
     {
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         // Row-op journals rolled back after each eval, so the scratch still
         // mirrors the leaf except vals (fully overwritten by the assemble);
         // it only needs (re)sizing against this leaf.
@@ -5869,7 +5942,7 @@ pub fn dense_ceiling_cached(
         dense_assemble(d, leaf, scratch, &ceiling_sp);
     }
     let v = {
-        let DenseWork { leaf, scratch } = work;
+        let DenseWork { leaf, scratch, .. } = work;
         dense_score(d, leaf, scratch, rows, compiled, tables)
     };
     let leaf = &mut work.leaf;
@@ -5905,7 +5978,7 @@ pub fn dense_ceiling_with(
         leaf.const_term_vals[slot] += dv;
     }
     work.scratch.reset(&work.leaf, d);
-    let DenseWork { leaf, scratch } = work;
+    let DenseWork { leaf, scratch, .. } = work;
     let ceiling_sp = [150f64; 5];
     dense_assemble(d, leaf, scratch, &ceiling_sp);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))
