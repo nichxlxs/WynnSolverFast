@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-08-13",
+  "source_build_count": 129,
+  "decoded_build_count": 75,
+  "decode_failure_count": 54,
+  "decode_warning": "Crafted and several incompatible encoding variants are retained as source links but excluded from decoded equipment-frequency statistics.",
+  "equipment_requirement_code_definition": "ETWFA means equipment skill-requirement presence in earth, thunder, water, fire, air order. It is not a weapon-damage-element label.",
+  "equipment_requirement_code_counts": {
+    "ETWFA": 15,
+    "ETWF": 10,
+    "ETA": 8,
+    "ETW": 7,
+    "EWF": 7,
+    "ETFA": 6,
+    "ETWA": 6,
+    "ETF": 6,
+    "TWF": 3,
+    "ET": 2,
+    "EW": 1,
+    "TWFA": 1,
+    "TWA": 1,
+    "WFA": 1,
+    "EFA": 1
+  },
+  "common_equipment_in_decoded_builds": [
+    {
+      "item": "Prowess",
+      "build_count": 24
+    },
+    {
+      "item": "Lumino Blossom",
+      "build_count": 16
+    },
+    {
+      "item": "Intensity",
+      "build_count": 14
+    },
+    {
+      "item": "Vivisected",
+      "build_count": 9
+    },
+    {
+      "item": "Symphonie Fantastique",
+      "build_count": 9
+    },
+    {
+      "item": "Breezehands",
+      "build_count": 8
+    },
+    {
+      "item": "Simulacrum",
+      "build_count": 8
+    },
+    {
+      "item": "Shattershard",
+      "build_count": 8
+    },
+    {
+      "item": "Hypoxia",
+      "build_count": 8
+    },
+    {
+      "item": "Cistern Circlet",
+      "build_count": 7
+    },
+    {
+      "item": "Accursed Eye",
+      "build_count": 7
+    },
+    {
+      "item": "Polyglot",
+      "build_count": 7
+    },
+    {
+      "item": "Smoulderdew",
+      "build_count": 7
+    },
+    {
+      "item": "Aleph Null",
+      "build_count": 7
+    },
+    {
+      "item": "Yang",
+      "build_count": 7
+    },
+    {
+      "item": "Omniverse",
+      "build_count": 7
+    },
+    {
+      "item": "Shogun",
+      "build_count": 6
+    },
+    {
+      "item": "Stardew",
+      "build_count": 6
+    },
+    {
+      "item": "Warchief",
+      "build_count": 6
+    },
+    {
+      "item": "Lodestone",
+      "build_count": 6
+    },
+    {
+      "item": "Withdrawal",
+      "build_count": 6
+    },
+    {
+      "item": "Drenched Igneous",
+      "build_count": 6
+    },
+    {
+      "item": "Olive",
+      "build_count": 6
+    },
+    {
+      "item": "Runebound Chains",
+      "build_count": 6
+    },
+    {
+      "item": "Recalcitrance",
+      "build_count": 6
+    },
+    {
+      "item": "Diamond Static Bracelet",
+      "build_count": 5
+    },
+    {
+      "item": "Twilight-Gilded Cloak",
+      "build_count": 5
+    },
+    {
+      "item": "Compromise",
+      "build_count": 5
+    },
+    {
+      "item": "Galleon",
+      "build_count": 5
+    },
+    {
+      "item": "Crusade Sabatons",
+      "build_count": 5
+    },
+    {
+      "item": "Dupliblaze",
+      "build_count": 5
+    },
+    {
+      "item": "Diamond Fusion Necklace",
+      "build_count": 5
+    },
+    {
+      "item": "Azeotrope",
+      "build_count": 5
+    },
+    {
+      "item": "Caesura",
+      "build_count": 5
+    },
+    {
+      "item": "Chaos-Woven Greaves",
+      "build_count": 4
+    },
+    {
+      "item": "Resolution",
+      "build_count": 4
+    },
+    {
+      "item": "Dormancy",
+      "build_count": 4
+    },
+    {
+      "item": "Freight Trainer",
+      "build_count": 4
+    },
+    {
+      "item": "Tautology",
+      "build_count": 4
+    },
+    {
+      "item": "Metamorphosis",
+      "build_count": 4
+    }
+  ],
+  "declared_archetype_counts": {
+    "Riftwalker": 15,
+    "Sharpshooter": 13,
+    "Arcanist": 13,
+    "Fallen": 13,
+    "Shadestepper": 11,
+    "Acolyte": 9,
+    "Boltslinger": 8,
+    "Acrobat": 8,
+    "Light Bender": 8,
+    "Trickster": 7,
+    "Summoner": 6,
+    "Ritualist": 5,
+    "Paladin": 3,
+    "Trapper": 2,
+    "Battle Monk": 1
+  },
+  "engine_tag_counts": {
+    "archetype_default": 78,
+    "melee": 11,
+    "tierstack": 7,
+    "spell": 6,
+    "summoner": 6,
+    "upperscream": 5,
+    "hybrid": 3,
+    "heavy_melee": 3,
+    "upperbash": 3,
+    "surf": 3,
+    "trapper": 2,
+    "bash_melee": 2,
+    "bash_cut": 2,
+    "mobility": 1,
+    "poison_grinding": 1
+  },
+  "threshold_profile_reference_counts": {
+    "baseline_general_combat": 129,
+    "archetype_riftwalker": 15,
+    "archetype_sharpshooter": 13,
+    "family_spell_sustained": 13,
+    "archetype_arcanist": 13,
+    "archetype_fallen": 13,
+    "archetype_shadestepper": 11,
+    "family_cancelstack": 10,
+    "archetype_acolyte": 9,
+    "archetype_boltslinger": 8,
+    "archetype_acrobat": 8,
+    "archetype_light_bender": 8,
+    "family_tierstack": 7,
+    "archetype_trickster": 7,
+    "family_spellsteal": 6,
+    "archetype_summoner": 6,
+    "weapon_warp": 5,
+    "archetype_ritualist": 5,
+    "weapon_vengeance": 4,
+    "family_hybrid": 3,
+    "family_heavy_melee": 3,
+    "archetype_paladin": 3,
+    "weapon_grandmother": 2,
+    "archetype_trapper": 2,
+    "weapon_revolution": 2,
+    "weapon_gaia_melee": 2,
+    "weapon_singularity": 2,
+    "family_lootrun": 2,
+    "family_poison": 1,
+    "weapon_toxoplasmosis": 1,
+    "family_support": 1,
+    "weapon_guardian_support": 1,
+    "archetype_battle_monk": 1
+  },
+  "threshold_profile_validation": {
+    "referenced_count": 33,
+    "available_count": 33,
+    "missing_profile_ids": [],
+    "valid": true
+  }
+}

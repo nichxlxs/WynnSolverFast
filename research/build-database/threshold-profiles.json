@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "status": "configurable_research_defaults",
+  "warning": "These are starting floors for solver experiments, not official Wynncraft rules or universal meta cutoffs. Apply them to a named activity and rotation, then tune from measured play.",
+  "metric_definitions": {
+    "ehp_no_agi": "Effective health excluding probabilistic Agility dodges.",
+    "expected_ehp_with_agi": "Expectation after Agility. Report separately from non-dodge EHP.",
+    "life_steal": "Displayed Life Steal per three seconds before encounter-specific hit realization.",
+    "health_regen_raw": "Raw Health Regen after item aggregation. A full evaluator must also apply Health Regen percentage.",
+    "main_attack_range_percent": "Main Attack Range identification in percentage points.",
+    "mana_end": "Mana remaining after the configured sustained simulation horizon.",
+    "mana_trough": "Lowest mana reached during the configured rotation.",
+    "state_uptime": "Fraction from 0 to 1 for a required buff, mark, trap, summon, mask, or archetype state.",
+    "hit_rate": "Fraction from 0 to 1 of modeled attacks or relevant spell parts that connect.",
+    "final_attack_speed": "Discrete attack-speed tier after every positive and negative raw tier.",
+    "worst_non_dodge_hit_survived": "Boolean test that one configured unavoidable hit is below effective non-dodge health.",
+    "walk_speed": "Displayed Walk Speed percentage.",
+    "healing_per_second": "Encounter-realized self or party healing over the configured window."
+  },
+  "profiles": {
+    "baseline_general_combat": {
+      "scope": "General end-game combat candidate",
+      "hard_constraints": {
+        "legal_skill_points": true,
+        "legal_equipment_and_powders": true,
+        "ehp_no_agi": { "min": 18000, "unit": "EHP" },
+        "worst_non_dodge_hit_survived": true
+      },
+      "required_reports": [
+        "ehp_no_agi",
+        "expected_ehp_with_agi",
+        "health_regen_raw",
+        "life_steal",
+        "mana_end",
+        "mana_trough",
+        "main_attack_range_percent",
+        "walk_speed",
+        "actual_item_rolls"
+      ]
+    },
+    "family_spell_sustained": {
+      "scope": "Spellspam or sustained spell build",
+      "hard_constraints": {
+        "mana_end": { "min": 0, "horizon_seconds": 30 },
+        "mana_trough": { "min": 5 },
+        "rotation_executable": true
+      },
+      "optimize": ["sustained_rotation_damage", "mana_margin", "ehp_no_agi"]
+    },
+    "family_spellsteal": {
+      "scope": "Mana-steal or mixed-mana spell build",
+      "hard_constraints": {
+        "mana_end": { "min": 0, "horizon_seconds": 30 },
+        "mana_trough": { "min": 5 },
+        "main_attack_windows_modeled": true,
+        "hit_rate": { "min": 0.75 }
+      },
+      "optimize": ["rotation_damage", "steal_margin", "recovery_after_missed_steal"]
+    },
+    "family_heavy_melee": {
+      "scope": "Slow, high-packet main-attack build",
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 20000, "unit": "EHP" },
+        "life_steal": { "min": 0, "unit": "per_3_seconds" },
+        "health_regen_raw": { "min": -100, "unit": "raw" },
+        "main_attack_range_percent": { "min": -20, "unit": "percentage_points" },
+        "hit_rate": { "min": 0.75 }
+      },
+      "optimize": ["expected_delivered_damage", "per_hit_damage", "quake_value", "roll_robustness"]
+    },
+    "family_tierstack": {
+      "scope": "Slow-base weapon accelerated with positive attack tiers",
+      "hard_constraints": {
+        "final_attack_speed": "SUPER_FAST",
+        "ehp_no_agi": { "min": 20000 },
+        "life_steal": { "min": 0 },
+        "health_regen_raw": { "min": -100 },
+        "main_attack_range_percent": { "min": -20 }
+      },
+      "optimize": ["main_attack_dps", "tier_roll_robustness", "raw_main_attack", "sustain"]
+    },
+    "family_cancelstack": {
+      "scope": "Raw-main items with negative tiers cancelled by positive-tier sources",
+      "hard_constraints": {
+        "final_attack_speed": "configured_exact_target",
+        "tier_certificate_required": true,
+        "ehp_no_agi": { "min": 20000 },
+        "life_steal": { "min": 0 },
+        "health_regen_raw": { "min": -100 },
+        "main_attack_range_percent": { "min": -20 }
+      },
+      "required_reports": ["damage_if_each_tier_roll_loses_one", "damage_at_next_lower_speed_tier"],
+      "optimize": ["lexicographic_speed_then_dps", "actual_roll_robustness"]
+    },
+    "family_hybrid": {
+      "scope": "Main attacks and spells share one timeline",
+      "hard_constraints": {
+        "combined_timeline_simulated": true,
+        "mana_end": { "min": 0, "horizon_seconds": 30 },
+        "ehp_no_agi": { "min": 18000 }
+      },
+      "optimize": ["combined_rotation_damage", "mana_margin", "state_uptime"]
+    },
+    "family_support": {
+      "scope": "Raid or party support",
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 28000 },
+        "worst_non_dodge_hit_survived": true,
+        "state_uptime": { "min": 0.8 }
+      },
+      "optimize": ["marginal_party_damage", "healing_per_second", "damage_prevented", "buff_uptime", "personal_survival"]
+    },
+    "family_lootrun": {
+      "scope": "Long-route lootrun",
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 15000 },
+        "mana_end": { "min": 0, "horizon_seconds": 60 },
+        "route_blocker_clear_test": true
+      },
+      "optimize": ["expected_route_progress", "movement_throughput", "aoe", "self_sustain", "death_probability", "loot_bonus"]
+    },
+    "family_poison": {
+      "scope": "Poison application, storage, or grinding",
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 18000 },
+        "poison_application_rate_modeled": true,
+        "state_uptime": { "min": 0.75 }
+      },
+      "optimize": ["realized_poison_per_second", "area_coverage", "grouping", "survival"]
+    },
+    "archetype_fallen": {
+      "hard_constraints": {
+        "low_health_floor_survives_configured_hit": true,
+        "corrupted_or_blood_pact_uptime_reported": true,
+        "exit_recovery_modeled": true
+      }
+    },
+    "archetype_battle_monk": {
+      "hard_constraints": {
+        "winded_or_combat_state_uptime_reported": true,
+        "mobility_cycle_executable": true,
+        "mana_end": { "min": 0 }
+      }
+    },
+    "archetype_paladin": {
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 25000 },
+        "worst_non_dodge_hit_survived": true,
+        "mantle_or_defensive_state_uptime_reported": true
+      }
+    },
+    "archetype_boltslinger": {
+      "hard_constraints": {
+        "hit_rate": { "min": 0.75 },
+        "close_range_uptime_reported": true
+      }
+    },
+    "archetype_sharpshooter": {
+      "hard_constraints": {
+        "hit_rate": { "min": 0.75 },
+        "focus_uptime_reported": true,
+        "target_distance_modeled": true
+      }
+    },
+    "archetype_trapper": {
+      "hard_constraints": {
+        "state_uptime": { "min": 0.7 },
+        "trap_overlap_and_pathing_modeled": true
+      }
+    },
+    "archetype_riftwalker": {
+      "hard_constraints": {
+        "distortion_uptime_reported": true,
+        "short_and_long_horizons_compared": true
+      }
+    },
+    "archetype_light_bender": {
+      "hard_constraints": {
+        "ophanim_contact_uptime_reported": true,
+        "healing_per_second": { "min": "configured_party_requirement" }
+      }
+    },
+    "archetype_arcanist": {
+      "hard_constraints": {
+        "mana_bank_state_simulated": true,
+        "heal_tradeoff_accepted": true
+      }
+    },
+    "archetype_shadestepper": {
+      "hard_constraints": {
+        "vanish_and_mark_uptime_reported": true,
+        "positional_success_rate": { "min": 0.7 }
+      }
+    },
+    "archetype_trickster": {
+      "hard_constraints": {
+        "clone_survival_and_target_density_modeled": true
+      }
+    },
+    "archetype_acrobat": {
+      "hard_constraints": {
+        "aerial_uptime": { "min": 0.7 },
+        "landing_and_room_geometry_tested": true
+      }
+    },
+    "archetype_summoner": {
+      "hard_constraints": {
+        "totem_uptime": { "min": 0.9 },
+        "minion_target_uptime": { "min": 0.75 }
+      }
+    },
+    "archetype_ritualist": {
+      "hard_constraints": {
+        "mask_state_and_transition_cost_modeled": true,
+        "linked_target_count_declared": true
+      }
+    },
+    "archetype_acolyte": {
+      "hard_constraints": {
+        "health_sacrifice_rate_modeled": true,
+        "lowest_health_and_overhealth_reported": true,
+        "ehp_no_agi": { "min": 22000 }
+      }
+    },
+    "weapon_gaia_melee": {
+      "scope": "User-specified Gaia melee starting acceptance profile",
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 20000, "configurable": true },
+        "life_steal": { "min": 0, "configurable": true },
+        "health_regen_raw": { "min": -100, "configurable": true },
+        "main_attack_range_percent": { "min": -20, "configurable": true }
+      },
+      "required_reports": ["Earthen Splinter or Quake charge cadence", "poison realization", "Riftwalker state uptime"]
+    },
+    "weapon_warp": {
+      "hard_constraints": {
+        "agility_requirement_legal": true,
+        "net_health_regen": { "min": 0, "configurable": true },
+        "mana_end": { "min": 0 },
+        "teleport_cycle_executable": true
+      },
+      "optimize": ["movement_throughput", "rotation_damage", "hpr_cancellation_cost"]
+    },
+    "weapon_singularity": {
+      "hard_constraints": {
+        "rainbow_skill_requirements_legal": true,
+        "powder_order_declared": true,
+        "orbital_chain_charge_and_target_count_modeled": true
+      }
+    },
+    "weapon_grandmother": {
+      "hard_constraints": {
+        "net_health_regen": { "min": -100, "configurable": true },
+        "distance_and_hit_rate_modeled": true
+      }
+    },
+    "weapon_vengeance": {
+      "hard_constraints": {
+        "net_health_regen": { "min": -100, "configurable": true },
+        "vanish_refresh_and_manic_edge_uptime_reported": true
+      }
+    },
+    "weapon_revolution": {
+      "hard_constraints": {
+        "target_distance_modeled": true,
+        "effective_main_attack_range_accepted": true,
+        "ehp_no_agi": { "min": 18000 }
+      }
+    },
+    "weapon_guardian_support": {
+      "hard_constraints": {
+        "ehp_no_agi": { "min": 35000, "configurable": true },
+        "redirection_and_mantle_uptime_reported": true
+      },
+      "optimize": ["party_damage_prevented", "ally_healing", "buff_uptime"]
+    },
+    "weapon_toxoplasmosis": {
+      "hard_constraints": {
+        "totem_uptime": { "min": 0.9 },
+        "outbreak_storage_and_uproot_release_modeled": true,
+        "poison_application_rate_modeled": true
+      },
+      "optimize": ["realized_poison_per_second", "mob_group_coverage", "movement"]
+    }
+  }
+}
