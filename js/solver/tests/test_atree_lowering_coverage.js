@@ -41,6 +41,19 @@
 // which does not change any answer but leaves the search unpruned. Neither
 // occurs in any shipped tree either.
 //
+// A sixth costs the mana doom (B5). The doom precheck proves a leaf is
+// mana-dead by simulating it at the highest Int it could reach; the bounded
+// variant extends that to trees whose variable effects touch mana-relevant
+// stats, by assembling each such output at its own extreme. It gives up on
+// two:
+//
+//   6. a variable output of `maxMana` or `int`, which moves START mana, so
+//      the bound direction depends on downtime being allowed; or of
+//      `atkTier`, which is not monotone in either direction.
+//
+// The real trees write `mr`, `ms` and `hpBonus` from variable effects — all
+// direction +1, all handled — and never `maxMana`, `int` or `atkTier`.
+//
 // Method. For each class it builds the all-nodes ability tree — every node
 // active at once, which no real build is — and classifies that. All three
 // conditions are monotone in the node set: each needs a specific effect (or
@@ -59,7 +72,7 @@ const path = require('path');
 const vm = require('vm');
 const { createSandbox, TestRunner, REPO_ROOT } = require('./harness');
 
-const t = new TestRunner('Atree Fast-Path Coverage (A8 lowering, B3 ceiling)');
+const t = new TestRunner('Atree Fast-Path Coverage (A8 lowering, B3 ceiling, B5 doom)');
 
 const ctx = createSandbox();
 const atree_collect_stat_effects = vm.runInContext('(atree_collect_stat_effects)', ctx);
@@ -133,6 +146,7 @@ const multRoot = [];
 const collisions = [];
 const negFactor = [];
 const nonMonotoneOut = [];
+const startCoupled = [];
 let classesScanned = 0;
 let varEffects = 0;
 
@@ -168,6 +182,10 @@ for (const version of versions) {
                 if (!o || o.type !== 'stat') continue;
                 if (o.name === 'atkTier' || o.name.includes('ConvBase')) {
                     nonMonotoneOut.push(`${version}/${cls}: ${o.name}`);
+                }
+                // B5: what the bounded doom cannot direction-bound.
+                if (o.name === 'maxMana' || o.name === 'int' || o.name === 'atkTier') {
+                    startCoupled.push(`${version}/${cls}: ${o.name}`);
                 }
             }
         }
@@ -206,6 +224,12 @@ t.assert(nonMonotoneOut.length === 0,
     'no shipped ability tree may have a variable effect writing atkTier or a '
     + '*ConvBase key — more is not monotonically better for the score, so the '
     + `ceiling stops bounding it. Found: ${nonMonotoneOut.join(', ')}`);
+
+t.assert(startCoupled.length === 0,
+    'no shipped ability tree may have a variable effect writing maxMana, int or '
+    + 'atkTier — the bounded mana doom cannot direction-bound those, so it turns '
+    + 'off and mana-dead leaves run the full greedy plus simulation. '
+    + `Found: ${startCoupled.join(', ')}`);
 
 t.assert(collisions.length === 0,
     'no shipped ability tree may have a variable key its constant partition also '
