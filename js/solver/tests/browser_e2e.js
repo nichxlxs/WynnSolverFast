@@ -97,10 +97,12 @@ async function runEngine(page, engine, url) {
     // Confirm the search actually STARTED before waiting for it to finish,
     // otherwise a run that never begins looks the same as one that ended.
     await page.waitForFunction(() => _solver_state.running, null, { timeout: 60000 });
+    const t0 = Date.now();
     await page.waitForFunction(
         () => !_solver_state.running && _solver_state.top5.length > 0,
         null, { timeout: 300000 });
 
+    const elapsed_ms = Date.now() - t0;
     return page.evaluate(() => ({
         checked: _solver_state.checked,
         top: _solver_state.top5.slice(0, 15).map((r) => ({
@@ -108,7 +110,7 @@ async function runEngine(page, engine, url) {
             items: r.items.map((i) => i.statMap.get('displayName') ?? i.statMap.get('name')),
             base_sp: r.base_sp, total_sp: r.total_sp, assigned_sp: r.assigned_sp,
         })),
-    })).then((r) => ({ ...r, chosen }));
+    })).then((r) => ({ ...r, chosen, elapsed_ms }));
 }
 
 (async () => {
@@ -128,11 +130,13 @@ async function runEngine(page, engine, url) {
 
         console.log('— Rust engine —');
         const rust = await runEngine(page, 'rust', url);
-        console.log(`  engine=${rust.chosen} checked=${rust.checked} results=${rust.top.length}`);
+        console.log(`  engine=${rust.chosen} checked=${rust.checked} results=${rust.top.length} `
+            + `wall=${rust.elapsed_ms}ms`);
 
         console.log('— JS engine —');
         const js = await runEngine(page, 'javascript', url);
-        console.log(`  engine=${js.chosen} checked=${js.checked} results=${js.top.length}`);
+        console.log(`  engine=${js.chosen} checked=${js.checked} results=${js.top.length} `
+            + `wall=${js.elapsed_ms}ms`);
 
         ok(rust.top.length > 0, 'Rust engine returned results through the page');
         ok(js.top.length > 0, 'JS engine returned results through the page');
@@ -162,6 +166,11 @@ async function runEngine(page, engine, url) {
 
         const nonZero = rust.top.filter((r) => r.score !== 0).length;
         ok(nonZero > 0, `scores are real, not a degenerate all-zero tie (${nonZero}/${rust.top.length} non-zero)`);
+
+        if (rust.checked === js.checked && rust.elapsed_ms > 0) {
+            console.log(`  speedup: ${(js.elapsed_ms / rust.elapsed_ms).toFixed(1)}x `
+                + `on ${rust.checked.toLocaleString()} leaves (same space, same results)`);
+        }
 
         const fatal = errs.filter((e) => !/fonts|net::ERR|favicon/i.test(e));
         ok(fatal.length === 0, `no page errors (${fatal.slice(0, 2).join(' | ') || 'none'})`);
