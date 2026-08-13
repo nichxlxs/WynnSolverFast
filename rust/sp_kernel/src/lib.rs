@@ -343,6 +343,10 @@ impl Kernel {
     }
 }
 
+pub mod clock;
+#[cfg(feature = "wasm")]
+pub mod wasm_api;
+pub mod enumerate;
 pub mod scoring;
 #[cfg(feature = "gpu")]
 pub mod gpu;
