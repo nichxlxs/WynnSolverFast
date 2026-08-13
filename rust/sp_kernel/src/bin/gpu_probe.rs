@@ -6,7 +6,8 @@
 fn main() {
     let probe = sp_kernel::gpu::probe();
     if probe.adapters.is_empty() {
-        println!("gpu_probe: no adapters found — CPU-only mode");
+        println!("gpu_probe: no adapters found");
+        println!("gpu_probe: tier = cpu-only");
         std::process::exit(1);
     }
     for (i, a) in probe.adapters.iter().enumerate() {

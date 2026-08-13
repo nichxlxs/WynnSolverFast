@@ -24,6 +24,21 @@ use std::fs;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
+/// Bound-eval timing helpers (SCORE_TRACE=1): measures the batch-shaped
+/// ceiling work a GPU offload would target.
+#[inline]
+fn bound_timer() -> Option<Instant> {
+    if sp_kernel::scoring::trace::on() { Some(Instant::now()) } else { None }
+}
+#[inline]
+fn bound_timer_end(t0: Option<Instant>) {
+    if let Some(t0) = t0 {
+        sp_kernel::scoring::trace::add(
+            &sp_kernel::scoring::trace::BOUND_NS, t0.elapsed().as_nanos() as u64);
+        sp_kernel::scoring::trace::BOUND_EVALS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 #[derive(Clone)]
 struct PoolItem {
     crafted: bool,
@@ -937,6 +952,7 @@ impl<'a> Search<'a> {
                                                 None => -1,
                                             };
                                         }
+                                        let bt0 = bound_timer();
                                         let v = if prefix_state == 1 {
                                             let d = sc.dense.as_ref().unwrap();
                                             sp_kernel::scoring::dense_ceiling_cached(
@@ -944,6 +960,7 @@ impl<'a> Search<'a> {
                                                 &db.super_clusters[sci], &db.super_cluster_terms[sci],
                                                 &sc.rows, &sc.compiled_rows, &sc.tables)
                                         } else { f64::INFINITY };
+                                        bound_timer_end(bt0);
                                         if self.bound_memo.len() >= 4_000_000 {
                                             self.bound_memo.clear();
                                         }
@@ -979,6 +996,7 @@ impl<'a> Search<'a> {
                                             None => -1,
                                         };
                                     }
+                                    let bt0 = bound_timer();
                                     let v = if prefix_state == 1 {
                                         let d = sc.dense.as_ref().unwrap();
                                         sp_kernel::scoring::dense_ceiling_cached(
@@ -986,6 +1004,7 @@ impl<'a> Search<'a> {
                                             &db.last_clusters[c], &db.last_cluster_terms[c],
                                             &sc.rows, &sc.compiled_rows, &sc.tables)
                                     } else { f64::INFINITY };
+                                    bound_timer_end(bt0);
                                     // Bound the memo's memory: recent
                                     // prefixes dominate hits, so a periodic
                                     // clear costs little and caps growth.

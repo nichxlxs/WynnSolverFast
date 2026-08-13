@@ -1698,6 +1698,10 @@ pub mod trace {
     pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
     pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
     pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
+    /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
+    /// GPU offload would target. Counted in enum_kernel.
+    pub static BOUND_NS: AtomicU64 = AtomicU64::new(0);
+    pub static BOUND_EVALS: AtomicU64 = AtomicU64::new(0);
 
     pub fn init_from_env() {
         if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
@@ -1716,6 +1720,8 @@ pub mod trace {
             GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
         );
         eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s", f(&ASM_NS), f(&DMG_NS));
+        eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
+                  BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
     }
 }
 

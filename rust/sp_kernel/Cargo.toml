@@ -20,3 +20,7 @@ gpu = ["dep:wgpu", "dep:pollster"]
 [[bin]]
 name = "gpu_probe"
 required-features = ["gpu"]
+
+[[bin]]
+name = "gpu_bench"
+required-features = ["gpu"]
