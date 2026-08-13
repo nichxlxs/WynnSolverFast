@@ -353,8 +353,10 @@ function tome_stat(sm, key) {
  * invisible here — so `keys` must cover everything the current search can score
  * or threshold on, or a genuinely better tome can be discarded.
  */
-function tome_prune_dominated(statmaps, keys) {
-    const vecs = statmaps.map(sm => keys.map(k => tome_stat(sm, k)));
+function tome_prune_dominated(statmaps, keys, signs = null) {
+    // signs[i] = -1 flips key i so "more is better" holds universally — used
+    // for stats under an 'le' restriction, where less is better.
+    const vecs = statmaps.map(sm => keys.map((k, i) => tome_stat(sm, k) * (signs ? signs[i] : 1)));
     const keep = [];
     for (let i = 0; i < statmaps.length; i++) {
         let dominated = false;
@@ -390,11 +392,11 @@ function tome_prune_dominated(statmaps, keys) {
  * @returns {{vec: number[], picks: Map[]}[]} bundles, each a summed stat vector
  *          over `keys` plus the tomes that produced it
  */
-function tome_bundles(statmaps, count, keys) {
+function tome_bundles(statmaps, count, keys, signs = null) {
     if (count <= 0 || statmaps.length === 0) return [{ vec: keys.map(() => 0), picks: [] }];
     const out = [];
     const cur = [];
-    const vecs = statmaps.map(sm => keys.map(k => tome_stat(sm, k)));
+    const vecs = statmaps.map(sm => keys.map((k, i) => tome_stat(sm, k) * (signs ? signs[i] : 1)));
     (function pick(start, depth, acc) {
         if (depth === count) {
             out.push({ vec: acc.slice(), picks: cur.slice() });

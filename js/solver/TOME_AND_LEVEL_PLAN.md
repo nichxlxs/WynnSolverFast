@@ -1,6 +1,6 @@
 # Tome optimisation & per-slot level ranges — design
 
-Status: **Phase A shipped**, B–D designed but not started.
+Status: **Phases A, C and D shipped** (guild + all-tomes optimisation live). Phase B (tome roll % + inventory) remains.
 Dated 2026-08-13. Supersedes nothing; complements `ARCHITECTURE_PLAN.md`.
 
 ---
@@ -252,7 +252,7 @@ that discriminates the old model: an item needing dex 100 + int 100 + def 4 is
 accepted `assign [0,100,100,4,0]`; now a +4 **Str** tome correctly leaves it
 infeasible and only a +4 **Def** tome makes it work.
 
-### C2 — automatic guild tome selection — IN PROGRESS
+### C2 — automatic guild tome selection — DONE 2026-08-13
 
 Scaffolding landed and inert (every hook is null unless optimisation is turned
 on, so the default path is byte-for-byte the previous behaviour):
@@ -264,17 +264,62 @@ on, so the default path is byte-for-byte the previous behaviour):
   `static_boosts` — the per-candidate tome bundle goes here.
 - `_tome_guild_optimistic` used for the leaf SP feasibility gate.
 
-**Still to do:** the candidate loop itself. After the ceiling gate passes,
-re-solve SP per guild candidate and keep the best-scoring feasible one, then
-report which tome was chosen. This is a refactor of `_evaluate_leaf` — the
-hottest function in the engine — and was deliberately not rushed.
+The candidate loop is live. `_evaluate_leaf`'s post-gate pipeline was
+extracted verbatim into `_score_leaf_candidate()`; the default path calls it
+once (A/B against master at a fixed 30s cap: sp 25.5 vs 25.5 µs/call,
+identical leaf counts and best score — no regression), and tome mode loops it
+over the enabled candidates, keeping the best feasible score and recording
+`guild_tome_idx` in the result entry.
 
-Two properties make it cheap, both verified:
+Loop shape at a gate-passing leaf: solve SP per candidate (optimistic-gate
+leaves that fail every real candidate simply produce no result), snapshot the
+solve, and restore it before each bundle run since greedy and rescue mutate
+the arrays in place.
 
-- Guild tomes contribute **only** skill points, so `build_sm`, the prechecks and
-  the ceiling gate are all guild-tome-independent. The gate runs once and only
-  gate-passing leaves (~0.3%) pay the candidate loop.
-- Six candidates, so at most six extra SP solves on that 0.3%.
+### Phase D — weapon/armour bundle loop — DONE 2026-08-13 (core)
+
+Mode 2 ("All tomes") loops the scoped Pareto bundles as `extra_stats`:
+
+- `_leaf_extra_stats` is read implicitly by `_assemble_combo_stats` and merged
+  into the greedy trial via the undo journal, so greedy, rescue, thresholds,
+  mana and scoring all see the current bundle without parameter threading.
+- The main ceiling gate evaluates at the per-key optimistic bundle; a
+  per-bundle ceiling gate (one damage eval each) then filters bundles before
+  any greedy runs. Slots holding user-equipped tomes stay locked — bundles
+  only fill empty slots, so no double counting.
+- Result entries carry `tome_names`; the UI shows them and applies the chosen
+  guild tome to the dropdown when a result is clicked. Worker progress
+  messages forward the tome fields too (the interim `top5_names` mapping is a
+  fixed field list and silently dropped them at first).
+
+**Oracle coverage** (the load-bearing tests):
+- `solver_oracle_tome_guild` — production candidate loop vs the plain oracle
+  run once per fixed guild candidate, per-gearset max. Exact top-N match; the
+  chosen tome raised the oracle build's best score 1,490,273 → 1,499,819.
+- `solver_oracle_tome_all` — guild slot fixed, bundle loop vs per-bundle fixed
+  ground truth (bundle stats folded into `static_boosts`, which occupies the
+  same arithmetic position). Exact top-N match. The guild dimension is covered
+  by the first oracle; running both dimensions in one oracle needs 252
+  variants and times out, which is a property of the tiny oracle space (the
+  cutoff never arms), not of real searches.
+- Per-variant top-15 truncation in the merged ground truth is safe: a gearset
+  outside a variant's top-15 is beaten by 15 distinct gearsets whose merged
+  scores are at least as high.
+
+**Browser-verified**: guild mode picks Strength on the standing mage build,
+ALL mode picks 2× Abyssal Combat Mastery III + 4× Vampiric Defensive Mastery
+III (best 73,480 → 77,875), throughput 1.1M checked/15s with optimisation on,
+zero page errors, mode round-trips through the URL.
+
+**Known limits, deliberate for now:**
+- Tomes roll with the ITEM roll groups until Phase B lands the separate tome
+  roll % (default 80) — rolled tome stats do not exist without a roll mode.
+- No per-user tome inventory yet (Phase B): the enabled set is "everything at
+  or below the build's level".
+- The bundle front is scoped by `_build_dominance_stats`, the same stat basis
+  item dominance trusts. A stat that basis misses is invisible to bundles too.
+- Non-damage scoring targets get no ceiling gating (as before), so ALL mode
+  on e.g. an `ehp` target runs the candidate loop on every feasible leaf.
 
 ### C2 — automatic guild tome selection — design notes
 

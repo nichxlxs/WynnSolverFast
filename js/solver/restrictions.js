@@ -366,6 +366,7 @@ function get_restrictions() {
 
     const no_major_id = document.getElementById('restr-no-major-id')?.classList.contains('toggleOn') ?? false;
     const guild_tome = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
+    const tome_opt = parseInt(document.getElementById('restr-tome-opt')?.value) || 0;
 
     const stat_thresholds = [];
     for (const row of (document.getElementById('restriction-rows')?.children ?? [])) {
@@ -386,7 +387,7 @@ function get_restrictions() {
         });
     }
 
-    return { build_dir, lvl_min, lvl_max, lvl_overrides, no_major_id, guild_tome, stat_thresholds };
+    return { build_dir, lvl_min, lvl_max, lvl_overrides, no_major_id, guild_tome, tome_opt, stat_thresholds };
 }
 
 // ── Item Blacklist ──────────────────────────────────────────────────────────
