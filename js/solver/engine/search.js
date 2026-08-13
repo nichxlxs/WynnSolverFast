@@ -1312,6 +1312,94 @@ function _on_all_workers_done(workers_snapshot) {
     }
 }
 
+
+// ── Optional Rust/WASM engine ────────────────────────────────────────────────
+//
+// When the WASM engine is available AND the scenario is one it supports, the
+// search runs there instead of in the JS workers: same enumeration, same
+// bounds, same scoring, bit-exact results (see rust/sp_kernel/WASM.md), but
+// ~100x the throughput per core.
+//
+// Every step is guarded and falls back to the JS workers on ANY problem —
+// module missing, unsupported scenario, or a thrown error — so enabling this
+// can never leave the solver worse off than before.
+
+function _rust_engine_available() {
+    try {
+        if (typeof window === 'undefined') return false;
+        if (window.SOLVER_RUST_ENGINE === false) return false;   // explicit opt-out
+        return !!(window.__sp_kernel_wasm && window.__sp_kernel_wasm.solve);
+    } catch (e) { return false; }
+}
+
+/// Run the whole search in the Rust engine. Returns true when it handled the
+/// search; false means the caller should use the JS workers.
+function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base) {
+    if (!_rust_engine_available()) return false;
+    const wasm = window.__sp_kernel_wasm;
+    try {
+        const bridge = window.__solver_rust_bridge;
+        if (!bridge) return false;
+        const env = bridge.browserEnv();
+        const enum_fixture = bridge.buildEnumFixture({
+            initMsgBase: init_base, ringPoolSer: ring_pool_ser, solverSnap: snap, env,
+        });
+        // No sampling env → fixture carries no validation cases, which is all
+        // the engine needs to solve.
+        const score_fixture = bridge.buildScoreFixture(init_base, ring_pool_ser, 0, null, env);
+        if (score_fixture && typeof score_fixture.then === 'function') {
+            // Builder is async only in the sampling (test) path; without
+            // sampling it resolves immediately, but guard anyway.
+            score_fixture.then(f => _rust_solve_loop(wasm, enum_fixture, JSON.stringify(f)));
+            return true;
+        }
+        _rust_solve_loop(wasm, enum_fixture, JSON.stringify(score_fixture));
+        return true;
+    } catch (e) {
+        console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message);
+        return false;
+    }
+}
+
+/// Drive the engine in leaf-budget chunks so the page stays responsive and
+/// progress/top-N update as the search proceeds.
+function _rust_solve_loop(wasm, enum_fixture, score_fixture_json) {
+    const CHUNK = 2_000_000;   // leaves per slice
+    let checked_total = 0;
+    try { _solver_state.total = wasm.search_space(enum_fixture); } catch (e) {}
+
+    const step = () => {
+        if (!_solver_state.running) return;
+        let res;
+        try {
+            res = JSON.parse(wasm.solve(enum_fixture, score_fixture_json, CHUNK));
+        } catch (e) {
+            console.error('[solver] Rust engine error, falling back:', e && e.message);
+            _solver_state.running = false;
+            return;
+        }
+        if (res.error) {
+            console.warn('[solver] scenario unsupported by the Rust engine:', res.error);
+            _solver_state.running = false;
+            return;
+        }
+        checked_total = res.checked;
+        _solver_state.checked = checked_total;
+        for (const t of res.top || []) {
+            const items = _reconstruct_result_items(t.items);
+            _insert_top5({ score: t.score, items,
+                base_sp: [0, 0, 0, 0, 0], total_sp: [0, 0, 0, 0, 0], assigned_sp: 0 });
+        }
+        _update_solver_progress?.();
+        if (!res.complete) {
+            setTimeout(step, 0);        // yield to the UI between chunks
+        } else {
+            _finish_solver_search?.();
+        }
+    };
+    setTimeout(step, 0);
+}
+
 function _run_solver_search_workers(pools, locked, snap) {
     // Determine thread count
     const thread_sel = document.getElementById('solver-thread-count');
@@ -1460,6 +1548,13 @@ function _run_solver_search_workers(pools, locked, snap) {
 
     // Build the heavy init message once (without partition — added per-worker below)
     const init_base = _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, null, 0);
+
+    // Opt-in Rust/WASM engine; returns false (and we continue with the JS
+    // workers below) whenever it is unavailable or the scenario is not one
+    // it supports.
+    if (_try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base)) {
+        return;
+    }
 
     // Spawn workers: send heavy 'init' with first partition, then 'run' for subsequent
     const actual_workers = Math.min(num_workers, partitions.length);

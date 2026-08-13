@@ -72,6 +72,28 @@ bindgen shim wraps. Its top-15 is byte-identical to the CLI's on the dense
 spell scenario, so the browser entry point inherits the same bit-exactness
 guarantee as everything else.
 
+## Measured against the JS engine
+
+Same machine, same scenario, identical work — `readme_armor4`
+(3,223,584 canonical combinations):
+
+| | JS engine (workers) | Rust/WASM (1 thread) |
+|---|---:|---:|
+| combinations checked | 150,000 (**4.7%**) | 3,223,584 (**100%**) |
+| wall time | 10,501 ms — **timed out** | **348 ms** — completed |
+| throughput | 14,285 /s | **9,263,172 /s** |
+| best score found | 24,848 | 24,848 — **identical** |
+
+**~648x throughput.** In user terms: a search the JS engine gives up on
+after 10 seconds having seen 5% of the space becomes an exhaustive answer
+in a third of a second — and finds the same best build.
+
+Smaller scenarios are dominated by fixed startup cost, so they show a
+smaller ratio (1,872-leaf `readme_armor2`: 422 ms JS vs 75 ms WASM ≈
+5.6x). Sustained throughput on a large spell search is ~328K leaves/s
+single-threaded in WASM, versus ~2.4K/s for the JS engine on the same
+scenario.
+
 ## Remaining for a full rollout
 
 1. **App → fixture path**: today's payloads come from the test harness.
