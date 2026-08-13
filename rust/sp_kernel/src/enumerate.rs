@@ -642,6 +642,12 @@ impl<'a> Search<'a> {
     /// Progress line with rate + ETA, every ~5 seconds (time check amortized
     /// over 65k credit/leaf events so Instant::now() stays off the hot path).
     fn maybe_report(&mut self) {
+        // Checked first and unmasked: a browser chunk of a few thousand
+        // leaves must actually stop there, and the masked path below only
+        // fires every 65536 events.
+        if let Some(budget) = self.leaf_budget {
+            if self.checked >= budget { self.stop = true; return; }
+        }
         self.report_calls += 1;
         if self.report_calls & 0xFFFF != 0 { return; }
         if let Some(f) = self.stop_flag {
@@ -649,9 +655,6 @@ impl<'a> Search<'a> {
         } else if let Some(cap) = self.time_cap {
             // Single-thread mode has no monitor thread; honor the cap here.
             if self.started.elapsed().as_secs_f64() >= cap { self.stop = true; }
-        }
-        if let Some(budget) = self.leaf_budget {
-            if self.checked >= budget { self.stop = true; }
         }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
@@ -1240,6 +1243,9 @@ pub struct Totals {
     pub mana_reject: u64,
     pub thresh_reject: u64,
     pub bound_pruned: f64,
+    /// True when the search stopped on a budget/cap rather than exhausting
+    /// the space.
+    pub stopped_early: bool,
     pub top_n: Vec<(f64, Vec<String>)>,
 }
 
@@ -1299,6 +1305,7 @@ pub fn run_single(
         mana_reject: search.mana_reject,
         thresh_reject: search.thresh_reject,
         bound_pruned: search.bound_pruned,
+        stopped_early: search.stop,
         top_n: search.top_n,
     }
 }
@@ -1325,7 +1332,7 @@ pub fn solve_json(enum_fixture: &str, score_fixture: &str, max_leaves: f64) -> S
         }
     };
     let totals = run_single(&fx, ctx.as_ref(), budget);
-    let complete = budget.map(|b| totals.checked < b).unwrap_or(true);
+    let complete = !totals.stopped_early;
     let mut top = String::from("[");
     for (i, (score, items)) in totals.top_n.iter().enumerate() {
         if i > 0 { top.push(','); }
@@ -1530,6 +1537,7 @@ pub fn cli_main() {
             mana_reject: search.mana_reject,
                 thresh_reject: search.thresh_reject,
             bound_pruned: search.bound_pruned,
+            stopped_early: search.stop,
             top_n: search.top_n,
         }, elapsed)
     } else {
@@ -1602,6 +1610,7 @@ pub fn cli_main() {
                         mana_reject: search.mana_reject,
                 thresh_reject: search.thresh_reject,
                         bound_pruned: search.bound_pruned,
+                        stopped_early: search.stop,
                         top_n: search.top_n,
                     }
                 }));

@@ -46,7 +46,21 @@ Pass `0` to run to completion.
 
 ## Validation
 
-The browser path is not assumed to work — it is exercised natively:
+**Verified running in a JS runtime**: built with the matching
+`wasm-bindgen` CLI (0.2.127) and loaded in Node —
+
+```
+search_space = 3712
+checked = 3712 | scored = 348 | complete = true
+top1 = 8.11046498646568507e+6 | Brainwash, Tesla, The Crossing, ...
+chunked(1000): checked = 1008 | complete = false
+```
+
+That top score is byte-identical to the native CLI's, and chunking stops
+promptly at the requested budget (the leaf-budget check is unmasked, so a
+few-thousand-leaf chunk really stops there).
+
+The path is also exercised natively so the normal test loop covers it:
 
 ```bash
 cargo build --release
