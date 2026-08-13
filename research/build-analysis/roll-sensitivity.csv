@@ -1,0 +1,441 @@
+build_id,class,weapon,archetype,primary_family,metric,median,upper_quartile_proxy,maximum,upper_quartile_minus_median,maximum_minus_upper_quartile,upper_quartile_vs_median_pct,maximum_vs_upper_quartile_pct
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,ehp,14916.4866,14916.4866,14916.4866,0,0,0,0
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,ehp_no_agi,14427.2581,14427.2581,14427.2581,0,0,0,0
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,hpr,0,0,0,0,0,,
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,ls,368,483,598,115,115,31.25,23.8095
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,total_mr,32,46,58,14,12,43.75,26.087
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,ms,19,24,30,5,6,26.3158,25
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,main_attack_dps,1050.5115,1397.4022,1757.384,346.8907,359.9818,33.0211,25.7608
+ubg-az-az-sharpshooter-non-crafted-1,archer,Az,Sharpshooter,family_unclassified,spell_display_avg_max,27589.0029,32943.951,38350.9212,5354.9481,5406.9702,19.4097,16.4126
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,ehp,12142.3077,12142.3077,12142.3077,0,0,0,0
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,ehp_no_agi,12142.3077,12142.3077,12142.3077,0,0,0,0
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,hpr,-209.3,-177.1,-147.2,32.2,29.9,-15.3846,-16.8831
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,ls,550,806,1060,256,254,46.5455,31.5136
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,total_mr,25,25,25,0,0,0,0
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,ms,16,21,26,5,5,31.25,23.8095
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,main_attack_dps,11981.7992,14207.3837,16385.1754,2225.5845,2177.7917,18.5747,15.3286
+ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1,archer,Divzer,Boltslinger,family_hybrid,spell_display_avg_max,138869.1221,152823.0316,166338.9805,13953.9095,13515.9489,10.0482,8.8442
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,ehp,9623.0769,9623.0769,9623.0769,0,0,0,0
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,ehp_no_agi,9623.0769,9623.0769,9623.0769,0,0,0,0
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,hpr,-292.6,-244.08,-199.02,48.52,45.06,-16.5824,-18.4612
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,ls,730,958,1186,228,228,31.2329,23.7996
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,total_mr,4,8,11,4,3,100,37.5
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,ms,58,72,86,14,14,24.1379,19.4444
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,main_attack_dps,7247.7714,8764.5296,10255.9955,1516.7582,1491.4659,20.9272,17.0171
+ubg-divzer-divzer-spell-boltslinger-non-crafted-1,archer,Divzer,Boltslinger,family_spell_sustained,spell_display_avg_max,204738.8428,223800.6708,242829.3276,19061.828,19028.6568,9.3103,8.5025
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,ehp,28952.711,29475.2907,30000.1133,522.5797,524.8226,1.8049,1.7806
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,ehp_no_agi,15814.5036,16099.9462,16386.614,285.4426,286.6678,1.8049,1.7806
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,hpr,189.7,322.5,467.68,132.8,145.18,70.0053,45.0171
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,ls,168,221,273,53,52,31.5476,23.5294
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,total_mr,55,66,74,11,8,20,12.1212
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,ms,-12,-10,-8,2,2,-16.6667,-20
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,main_attack_dps,3618.2286,3980.451,4330.6759,362.2224,350.2249,10.011,8.7986
+ubg-freedom-freedom-sharpshooter-non-crafted-1,archer,Freedom,Sharpshooter,family_unclassified,spell_display_avg_max,31907.538,35260.481,38613.424,3352.943,3352.943,10.5083,9.5091
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,ehp,36619.6725,36619.6725,36619.6725,0,0,0,0
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,ehp_no_agi,23471.1188,23471.1188,23471.1188,0,0,0,0
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,hpr,-759.9,-160.59,124.44,599.31,285.03,-78.867,-177.4893
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,ls,0,0,0,0,0,,
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,total_mr,45,51,57,6,6,13.3333,11.7647
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,ms,24,32,39,8,7,33.3333,21.875
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,main_attack_dps,4675.8474,5475.2751,6248.1357,799.4277,772.8606,17.097,14.1155
+ubg-grandmother-grandmother-sharpshooter-non-crafted-1,archer,Grandmother,Sharpshooter,family_unclassified,spell_display_avg_max,27314.3563,30953.4857,34366.3781,3639.1294,3412.8924,13.3231,11.0259
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,ehp,52103.2128,54825.8262,57546.1479,2722.6134,2720.3217,5.2254,4.9618
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,ehp_no_agi,50387.6073,53020.5731,55651.3226,2632.9658,2630.7495,5.2254,4.9618
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,hpr,851.81,1387.68,1997.75,535.87,610.07,62.9096,43.9633
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,ls,0,0,0,0,0,,
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,total_mr,54,63,71,9,8,16.6667,12.6984
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,ms,0,0,0,0,0,,
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,main_attack_dps,2647.06,2909.7181,3180.6445,262.6581,270.9264,9.9226,9.3111
+ubg-ignis-ignis-sharpshooter-non-crafted-1,archer,Ignis,Sharpshooter,family_unclassified,spell_display_avg_max,21795.3879,23787.0171,25843.8436,1991.6292,2056.8265,9.1378,8.6468
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,ehp,39732.1074,40681.2573,41628.2401,949.1499,946.9828,2.3889,2.3278
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,ehp_no_agi,39732.1074,40681.2573,41628.2401,949.1499,946.9828,2.3889,2.3278
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,hpr,612.72,833.75,1058.46,221.03,224.71,36.0736,26.9517
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,ls,-150,-34,80,116,114,-77.3333,-335.2941
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,total_mr,40,45,49,5,4,12.5,8.8889
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,ms,12,15,19,3,4,25,26.6667
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,main_attack_dps,8628.8803,10315.0182,12024.3318,1686.1379,1709.3136,19.5406,16.5711
+ubg-labyrinth-labyrinth-trapper-non-crafted-1,archer,Labyrinth,Trapper,family_unclassified,spell_display_avg_max,26331.7747,29621.8157,33127.4374,3290.041,3505.6217,12.4946,11.8346
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,ehp,20115.427,20638.7272,21160.5896,523.3002,521.8624,2.6015,2.5286
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,ehp_no_agi,11236.9165,11529.2434,11820.7672,292.3269,291.5238,2.6015,2.5286
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,hpr,-343.2,-291.6,-240,51.6,51.6,-15.035,-17.6955
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,ls,528,693,858,165,165,31.25,23.8095
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,total_mr,15,16,18,1,2,6.6667,12.5
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,ms,39,51,63,12,12,30.7692,23.5294
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,main_attack_dps,6659.9999,7646.1497,8636.553,986.1498,990.4033,14.8071,12.953
+ubg-revolution-revolution-sharpshooter-non-crafted-1,archer,Revolution,Sharpshooter,family_unclassified,spell_display_avg_max,23106.0936,26253.6256,29344.5537,3147.532,3090.9281,13.6221,11.7733
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,ehp,20692.7247,21543.6764,22394.628,850.9517,850.9516,4.1123,3.9499
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,ehp_no_agi,19758.7393,20571.2824,21383.8255,812.5431,812.5431,4.1123,3.9499
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,hpr,166.41,231.53,305.14,65.12,73.61,39.1323,31.7929
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,ls,-550,-467,-385,83,82,-15.0909,-17.5589
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,total_mr,22,25,27,3,2,13.6364,8
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,ms,-20,-16,-14,4,2,-20,-12.5
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,main_attack_dps,4252.9143,4375.3146,4518.1149,122.4003,142.8003,2.878,3.2638
+ubg-siege-vent-siege-vent-boltslinger-standard-1,archer,Siege Vent,Boltslinger,family_unclassified,spell_display_avg_max,84671.8974,95769.9397,106813.6177,11098.0423,11043.678,13.1071,11.5315
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,ehp,12315.3846,12315.3846,12315.3846,0,0,0,0
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,ehp_no_agi,12315.3846,12315.3846,12315.3846,0,0,0,0
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,hpr,-269,-228,-188,41,40,-15.2416,-17.5439
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,ls,-282,-69,143,213,212,-75.5319,-307.2464
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,total_mr,59,72,84,13,12,22.0339,16.6667
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,ms,0,0,0,0,0,,
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,main_attack_dps,1667.6849,1862.4807,2064.4827,194.7958,202.002,11.6806,10.8459
+ubg-spring-spring-sharpshooter-non-crafted-1,archer,Spring,Sharpshooter,family_unclassified,spell_display_avg_max,36028.4354,41793.5666,47539.3136,5765.1312,5745.747,16.0016,13.7479
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,ehp,31862.9857,33545.2317,35227.4777,1682.246,1682.246,5.2796,5.0149
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,ehp_no_agi,9834.6154,10353.8462,10873.0769,519.2308,519.2307,5.2796,5.0149
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,hpr,0,0,0,0,0,,
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,ls,326,428,530,102,102,31.2883,23.8318
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,total_mr,16,18,19,2,1,12.5,5.5556
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,ms,20,26,32,6,6,30,23.0769
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,main_attack_dps,10232.443,13056.3798,15860.1914,2823.9368,2803.8116,27.5979,21.4746
+ubg-stratiformis-stratiformis-bolt-hybrid-standard-1,archer,Stratiformis,,family_hybrid,spell_display_avg_max,105454.802,116382.1505,127309.499,10927.3485,10927.3485,10.3621,9.3892
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,ehp,25162.8218,25162.8218,25162.8218,0,0,0,0
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,ehp_no_agi,22380.2256,22380.2256,22380.2256,0,0,0,0
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,hpr,40,52,64,12,12,30,23.0769
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,ls,0,0,0,0,0,,
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,total_mr,47,53,59,6,6,12.766,11.3208
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,ms,0,0,0,0,0,,
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,main_attack_dps,1289.9081,1387.8585,1492.1084,97.9504,104.2499,7.5936,7.5116
+ubg-abyssopelagic-abyssopelagic-trickster-standard-1,assassin,Abyssopelagic,Trickster,family_unclassified,spell_display_avg_max,11967.5721,13083.3829,14322.6695,1115.8108,1239.2866,9.3236,9.4722
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,ehp,35657.0338,36951.9185,38246.8031,1294.8847,1294.8846,3.6315,3.5042
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,ehp_no_agi,14255.0721,14772.7449,15290.4176,517.6728,517.6727,3.6315,3.5042
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,hpr,466.48,638.6,828.1,172.12,189.5,36.8976,29.6743
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,ls,0,0,0,0,0,,
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,total_mr,42,50,58,8,8,19.0476,16
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,ms,12,16,20,4,4,33.3333,25
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,main_attack_dps,1103.6522,1373.229,1639.7364,269.5768,266.5074,24.4259,19.4074
+ubg-archangel-archangel-acrobat-standard-1,assassin,Archangel,Acrobat,family_unclassified,spell_display_avg_max,25505.2595,29134.1525,32888.9554,3628.893,3754.8029,14.228,12.888
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,ehp,13495,13495,13495,0,0,0,0
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,ehp_no_agi,13495,13495,13495,0,0,0,0
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,hpr,-534.52,-423.15,-328.5,111.37,94.65,-20.8355,-22.368
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,ls,693,909,1125,216,216,31.1688,23.7624
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,total_mr,25,25,25,0,0,0,0
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,ms,19,25,31,6,6,31.5789,24
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,main_attack_dps,5505.505,6509.0433,7550.327,1003.5383,1041.2837,18.2279,15.9975
+ubg-grimtrap-grimtrap-shadestepper-non-crafted-1,assassin,Grimtrap,Shadestepper,family_unclassified,spell_display_avg_max,20421.6904,23158.652,25995.1535,2736.9616,2836.5015,13.4022,12.2481
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,ehp,37203.6357,37203.6357,37203.6357,0,0,0,0
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,ehp_no_agi,19383.6731,19383.6731,19383.6731,0,0,0,0
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,hpr,130.2,181.5,237,51.3,55.5,39.4009,30.5785
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,ls,0,0,0,0,0,,
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,total_mr,44,56,65,12,9,27.2727,16.0714
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,ms,-12,-10,-8,2,2,-16.6667,-20
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,main_attack_dps,908.45,1043.0259,1177.6017,134.5759,134.5758,14.8138,12.9024
+ubg-hanafubuki-hanafubuki-acrobat-non-crafted-1,assassin,Hanafubuki,Acrobat,family_unclassified,spell_display_avg_max,43868.3979,52287.0208,60705.6438,8418.6229,8418.623,19.1906,16.1008
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,ehp,59542.7384,61714.9729,63884.5355,2172.2345,2169.5626,3.6482,3.5155
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,ehp_no_agi,59542.7384,61714.9729,63884.5355,2172.2345,2169.5626,3.6482,3.5155
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,hpr,108.23,245.7,406.02,137.47,160.32,127.0165,65.2503
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,ls,0,0,0,0,0,,
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,total_mr,53,62,70,9,8,16.9811,12.9032
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,ms,0,0,0,0,0,,
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,main_attack_dps,6031.1967,6915.2561,7761.3172,884.0594,846.0611,14.6581,12.2347
+ubg-inferno-inferno-trickster-non-crafted-1,assassin,Inferno,Trickster,family_unclassified,spell_display_avg_max,17020.1435,18652.3367,20371.6268,1632.1932,1719.2901,9.5898,9.2176
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,ehp,9894.8535,10221.5961,10548.3386,326.7426,326.7425,3.3021,3.1966
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,ehp_no_agi,9484.963,9798.1704,10111.3777,313.2074,313.2073,3.3021,3.1966
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,hpr,-349.7,-285,-227.48,64.7,57.52,-18.5016,-20.1825
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,ls,0,0,0,0,0,,
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,total_mr,35,48,60,13,12,37.1429,25
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,ms,3,8,13,5,5,166.6667,62.5
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,main_attack_dps,1954.1403,2750.6063,3576.133,796.466,825.5267,40.7579,30.0125
+ubg-nirvana-nirvana-acrobat-non-crafted-1,assassin,Nirvana,Acrobat,family_unclassified,spell_display_avg_max,57030.524,67311.1888,77776.5792,10280.6648,10465.3904,18.0266,15.5478
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,ehp,40119.363,40119.363,40119.363,0,0,0,0
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,ehp_no_agi,29020.8744,29020.8744,29020.8744,0,0,0,0
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,hpr,122,262,403,140,141,114.7541,53.8168
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,ls,568,746,923,178,177,31.338,23.7265
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,total_mr,57,65,71,8,6,14.0351,9.2308
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,ms,7,12,17,5,5,71.4286,41.6667
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,main_attack_dps,2287.9974,2411.6401,2524.8718,123.6427,113.2317,5.404,4.6952
+ubg-nullification-nullification-acrobat-standard-1,assassin,Nullification,Acrobat,family_unclassified,spell_display_avg_max,48851.2882,52083.2862,55315.2842,3231.998,3231.998,6.616,6.2054
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,ehp,23061.3159,23061.3159,23061.3159,0,0,0,0
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,ehp_no_agi,17135.1921,17135.1921,17135.1921,0,0,0,0
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,hpr,0,0,0,0,0,,
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,ls,400,525,650,125,125,31.25,23.8095
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,total_mr,31,33,35,2,2,6.4516,6.0606
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,ms,19,25,31,6,6,31.5789,24
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,main_attack_dps,2943.7609,3455.044,3969.0519,511.2831,514.0079,17.3684,14.877
+ubg-nullification-nullification-shadestepper-standard-1,assassin,Nullification,Shadestepper,family_unclassified,spell_display_avg_max,15710.0902,17105.7506,18597.296,1395.6604,1491.5454,8.8838,8.7196
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,ehp,13105,13105,13105,0,0,0,0
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,ehp_no_agi,13105,13105,13105,0,0,0,0
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,hpr,0,0,0,0,0,,
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,ls,0,0,0,0,0,,
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,total_mr,-13,0,10,13,10,-100,
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,ms,46,57,69,11,12,23.913,21.0526
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,main_attack_dps,9566.7717,10407.8551,11298.7571,841.0834,890.902,8.7917,8.5599
+ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1,assassin,Oblivion,Shadestepper,family_spellsteal,spell_display_avg_max,20039.6696,22483.144,24969.7255,2443.4744,2486.5815,12.1932,11.0598
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,ehp,22254.7149,22254.7149,22254.7149,0,0,0,0
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,ehp_no_agi,22254.7149,22254.7149,22254.7149,0,0,0,0
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,hpr,0,0,0,0,0,,
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,ls,300,330,360,30,30,10,9.0909
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,total_mr,31,33,35,2,2,6.4516,6.0606
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,ms,14,18,22,4,4,28.5714,22.2222
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,main_attack_dps,25052.4582,28289.2668,31535.0126,3236.8086,3245.7458,12.9201,11.4734
+ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_heavy_melee,spell_display_avg_max,12604.8374,13708.6904,14780.3674,1103.853,1071.677,8.7574,7.8175
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,ehp,14845.2207,14845.2207,14845.2207,0,0,0,0
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,ehp_no_agi,14263.4922,14263.4922,14263.4922,0,0,0,0
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,hpr,0,0,0,0,0,,
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,ls,0,0,0,0,0,,
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,total_mr,25,25,25,0,0,0,0
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,ms,16,27,38,11,11,68.75,40.7407
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,main_attack_dps,13241.7974,15715.0358,18235.7166,2473.2384,2520.6808,18.6775,16.0399
+ubg-vengeance-vengeance-shadestepper-non-crafted-2,assassin,Vengeance,Shadestepper,family_unclassified,spell_display_avg_max,16704.3817,19286.8399,21891.2651,2582.4582,2604.4252,15.4598,13.5036
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,ehp,25122.9481,26924.1345,28725.321,1801.1864,1801.1865,7.1695,6.6899
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,ehp_no_agi,25122.9481,26924.1345,28725.321,1801.1864,1801.1865,7.1695,6.6899
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,hpr,-388.08,-303.78,-231.53,84.3,72.25,-21.7223,-23.7837
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,ls,352,462,572,110,110,31.25,23.8095
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,total_mr,45,50,54,5,4,11.1111,8
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,ms,21,28,34,7,6,33.3333,21.4286
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,main_attack_dps,3720.1135,4531.7156,5350.0729,811.6021,818.3573,21.8166,18.0584
+ubg-event-horizon-event-horizon-lightbender-standard-1,mage,Event Horizon,Light Bender,family_unclassified,spell_display_avg_max,74006.5504,85082.8322,96159.1139,11076.2818,11076.2817,14.9666,13.0182
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,ehp,11210.2136,11210.2136,11210.2136,0,0,0,0
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,ehp_no_agi,11210.2136,11210.2136,11210.2136,0,0,0,0
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,hpr,0,0,0,0,0,,
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,ls,0,0,0,0,0,,
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,total_mr,36,40,43,4,3,11.1111,7.5
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,ms,28,37,47,9,10,32.1429,27.027
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,main_attack_dps,2537.5966,3016.3133,3490.1326,478.7167,473.8193,18.865,15.7086
+ubg-fatal-fatal-riftwalker-non-crafted-2,mage,Fatal,Riftwalker,family_unclassified,spell_display_avg_max,148248.7998,171519.8356,194434.4644,23271.0358,22914.6288,15.6973,13.3598
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,ehp,32846.1521,34125.3689,35404.5857,1279.2168,1279.2168,3.8946,3.7486
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,ehp_no_agi,17578.3381,18262.939,18947.5399,684.6009,684.6009,3.8946,3.7486
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,hpr,-454.23,-176.53,36.72,277.7,213.25,-61.1364,-120.801
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,ls,-274,-233,-192,41,41,-14.9635,-17.5966
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,total_mr,41,48,55,7,7,17.0732,14.5833
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,ms,12,19,26,7,7,58.3333,36.8421
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,main_attack_dps,1065.6777,1357.8076,1647.6004,292.1299,289.7928,27.4126,21.3427
+ubg-halcyon-halcyon-lightbender-non-crafted-1,mage,Halcyon,Light Bender,family_unclassified,spell_display_avg_max,14048.1734,16605.302,19174.4081,2557.1286,2569.1061,18.2026,15.4716
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,ehp,21811.9643,21811.9643,21811.9643,0,0,0,0
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,ehp_no_agi,21811.9643,21811.9643,21811.9643,0,0,0,0
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,hpr,-647.46,-539.28,-440.96,108.18,98.32,-16.7084,-18.2317
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,ls,-600,-510,-420,90,90,-15,-17.6471
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,total_mr,10,18,25,8,7,80,38.8889
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,ms,53,69,85,16,16,30.1887,23.1884
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,main_attack_dps,995.0511,1249.8733,1509.874,254.8222,260.0007,25.609,20.8022
+ubg-lament-lament-lightbender-non-crafted-1,mage,Lament,Light Bender,family_unclassified,spell_display_avg_max,14809.3894,17700.4767,20657.8912,2891.0873,2957.4145,19.522,16.7081
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,ehp,25138.3062,25138.3062,25138.3062,0,0,0,0
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,ehp_no_agi,12774.5934,12774.5934,12774.5934,0,0,0,0
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,hpr,-380.8,-309.4,-245,71.4,64.4,-18.75,-20.8145
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,ls,-900,-765,-630,135,135,-15,-17.6471
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,total_mr,3,7,10,4,3,133.3333,42.8571
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,ms,61,80,98,19,18,31.1475,22.5
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,main_attack_dps,1529.6665,1835.1856,2139.0697,305.5191,303.8841,19.9729,16.5588
+ubg-lament-lament-lightbender-non-crafted-2,mage,Lament,Light Bender,family_unclassified,spell_display_avg_max,11399.3696,13593.9878,15780.9102,2194.6182,2186.9224,19.2521,16.0874
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,ehp,56753.5911,58839.0979,60924.6047,2085.5068,2085.5068,3.6747,3.5444
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,ehp_no_agi,56753.5911,58839.0979,60924.6047,2085.5068,2085.5068,3.6747,3.5444
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,hpr,-83.08,2.37,59.76,85.45,57.39,-102.8527,2421.519
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,ls,266,456,646,190,190,71.4286,41.6667
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,total_mr,30,34,37,4,3,13.3333,8.8235
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,ms,-2,3,6,5,3,-250,100
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,main_attack_dps,4897.0931,5584.62,6272.1469,687.5269,687.5269,14.0395,12.3111
+ubg-monster-monster-arcanist-standard-1,mage,Monster,Arcanist,family_unclassified,spell_display_avg_max,31566.5241,35110.2926,38654.0611,3543.7685,3543.7685,11.2264,10.0932
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,ehp,52721.6113,54807.1181,56892.6249,2085.5068,2085.5068,3.9557,3.8052
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,ehp_no_agi,52721.6113,54807.1181,56892.6249,2085.5068,2085.5068,3.9557,3.8052
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,hpr,-925.92,-715.26,-535.5,210.66,179.76,-22.7514,-25.1321
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,ls,702,1046,1390,344,344,49.0028,32.8872
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,total_mr,30,32,33,2,1,6.6667,3.125
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,ms,14,19,23,5,4,35.7143,21.0526
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,main_attack_dps,2818.0466,3316.9416,3825.01,498.895,508.0684,17.7036,15.3174
+ubg-monster-monster-lightbender-non-crafted-1,mage,Monster,Light Bender,family_unclassified,spell_display_avg_max,18225.9528,20926.1934,23677.3871,2700.2406,2751.1937,14.8154,13.1471
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,ehp,61133.1553,63218.6621,65304.1689,2085.5068,2085.5068,3.4114,3.2989
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,ehp_no_agi,61133.1553,63218.6621,65304.1689,2085.5068,2085.5068,3.4114,3.2989
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,hpr,-359.52,-294.84,-234,64.68,60.84,-17.9907,-20.6349
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,ls,129,295,460,166,165,128.6822,55.9322
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,total_mr,37,41,45,4,4,10.8108,9.7561
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,ms,8,11,13,3,2,37.5,18.1818
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,main_attack_dps,3800.9609,4280.3478,4791.3755,479.3869,511.0277,12.6123,11.9389
+ubg-monster-monster-riftwalker-non-crafted-1,mage,Monster,Riftwalker,family_unclassified,spell_display_avg_max,76111.5148,89389.0854,98679.6207,13277.5706,9290.5353,17.4449,10.3934
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,ehp,28307.8684,28307.8684,28307.8684,0,0,0,0
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,ehp_no_agi,17055.0085,17055.0085,17055.0085,0,0,0,0
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,hpr,0,0,0,0,0,,
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,ls,368,483,598,115,115,31.25,23.8095
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,total_mr,18,20,22,2,2,11.1111,10
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,ms,26,31,36,5,5,19.2308,16.129
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,main_attack_dps,378.1397,391.7698,402.7508,13.6301,10.981,3.6045,2.8029
+ubg-pure-pure-arcanist-standard-1,mage,Pure,Arcanist,family_unclassified,spell_display_avg_max,29682.6502,35591.9202,41526.094,5909.27,5934.1738,19.9082,16.6728
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,ehp,23950.1351,23950.1351,23950.1351,0,0,0,0
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,ehp_no_agi,12170.7976,12170.7976,12170.7976,0,0,0,0
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,hpr,0,0,0,0,0,,
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,ls,1000,1405,1810,405,405,40.5,28.8256
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,total_mr,28,31,34,3,3,10.7143,9.6774
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,ms,10,13,16,3,3,30,23.0769
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,main_attack_dps,2517.1892,3067.5073,3623.8775,550.3181,556.3702,21.8624,18.1375
+ubg-quetzalcoatl-quetzalcoatl-riftwalker-non-crafted-1,mage,Quetzalcoatl,Riftwalker,family_unclassified,spell_display_avg_max,116478.1368,132521.5281,149197.4324,16043.3913,16675.9043,13.7737,12.5835
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,ehp,11654.1667,11654.1667,11654.1667,0,0,0,0
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,ehp_no_agi,11654.1667,11654.1667,11654.1667,0,0,0,0
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,hpr,0,0,0,0,0,,
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,ls,0,0,0,0,0,,
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,total_mr,-8,6,18,14,12,-175,200
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,ms,-9,3,14,12,11,-133.3333,366.6667
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,main_attack_dps,8005.78,8380.4592,8802.3181,374.6792,421.8589,4.6801,5.0338
+ubg-riptide-riptide-arcanist-non-crafted-1,mage,Riptide,Arcanist,family_unclassified,spell_display_avg_max,50249.6774,59321.7702,68232.0497,9072.0928,8910.2795,18.054,15.0203
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,ehp,29993.4735,29993.4735,29993.4735,0,0,0,0
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,ehp_no_agi,21048.8441,21048.8441,21048.8441,0,0,0,0
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,hpr,385.7,598.5,827.13,212.8,228.63,55.1724,38.2005
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,ls,168,221,273,53,52,31.5476,23.5294
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,total_mr,52,60,66,8,6,15.3846,10
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,ms,-12,-10,-8,2,2,-16.6667,-20
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,main_attack_dps,6461.2942,7380.0527,8296.6294,918.7585,916.5767,14.2194,12.4196
+ubg-singularity-singularity-riftwalker-standard-1,mage,Singularity,Riftwalker,family_unclassified,spell_display_avg_max,108664.2599,130569.285,151121.2812,21905.0251,20551.9962,20.1584,15.7403
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,ehp,25276.257,25276.257,25276.257,0,0,0,0
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,ehp_no_agi,16602.8399,16602.8399,16602.8399,0,0,0,0
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,hpr,-80.08,26.46,92.38,106.54,65.92,-133.042,249.1308
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,ls,640,841,1040,201,199,31.4062,23.6623
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,total_mr,24,29,34,5,5,20.8333,17.2414
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,ms,23,27,31,4,4,17.3913,14.8148
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,main_attack_dps,6728.3403,7009.103,7304.821,280.7627,295.718,4.1728,4.2191
+ubg-theatre-cane-theatre-cane-arcanist-standard-1,mage,Theatre Cane,Arcanist,family_unclassified,spell_display_avg_max,34671.174,37692.2374,40642.8575,3021.0634,2950.6201,8.7135,7.8282
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,ehp,21399.7988,21399.7988,21399.7988,0,0,0,0
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,ehp_no_agi,21399.7988,21399.7988,21399.7988,0,0,0,0
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,hpr,-182,-154,-128,28,26,-15.3846,-16.8831
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,ls,931,1306,1679,375,373,40.2793,28.5605
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,total_mr,25,25,25,0,0,0,0
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,ms,24,32,39,8,7,33.3333,21.875
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,main_attack_dps,34862.1496,39659.127,44443.5386,4796.9774,4784.4116,13.7598,12.0638
+ubg-trance-trance-riftwalker-melee-non-crafted-1,mage,Trance,Riftwalker,family_cancelstack,spell_display_avg_max,54619.3239,55674.0182,56915.0256,1054.6943,1241.0074,1.931,2.2291
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,ehp,38192.7998,38314.2953,38435.7909,121.4955,121.4956,0.3181,0.3171
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,ehp_no_agi,11788.3333,11825.8333,11863.3333,37.5,37.5,0.3181,0.3171
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,hpr,-1305,-726.4,-243.95,578.6,482.45,-44.3372,-66.4166
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,ls,368,483,598,115,115,31.25,23.8095
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,total_mr,11,21,33,10,12,90.9091,57.1429
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,ms,0,0,0,0,0,,
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,main_attack_dps,3891.1683,4683.141,5482.2498,791.9727,799.1088,20.3531,17.0635
+ubg-warp-warp-arcanist-lootrun-2,mage,Warp,Arcanist,family_lootrun,spell_display_avg_max,32972.7902,36212.5851,39523.4657,3239.7949,3310.8806,9.8257,9.1429
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,ehp,42546.0032,42546.0032,42546.0032,0,0,0,0
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,ehp_no_agi,14122.6571,14122.6571,14122.6571,0,0,0,0
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,hpr,-992.5,-551.61,-180.4,440.89,371.21,-44.4222,-67.2957
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,ls,139,182,225,43,43,30.9353,23.6264
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,total_mr,-3,7,17,10,10,-333.3333,142.8571
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,ms,6,11,16,5,5,83.3333,45.4545
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,main_attack_dps,1511.3593,1683.8028,1864.0845,172.4435,180.2817,11.4098,10.7068
+ubg-warp-warp-arcanist-non-crafted-1,mage,Warp,Arcanist,family_unclassified,spell_display_avg_max,38661.4007,43059.0532,47696.1218,4397.6525,4637.0686,11.3748,10.7691
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,ehp,25546.5939,25546.5939,25546.5939,0,0,0,0
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,ehp_no_agi,17928.1094,17928.1094,17928.1094,0,0,0,0
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,hpr,271,430,592,159,162,58.6716,37.6744
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,ls,168,221,273,53,52,31.5476,23.5294
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,total_mr,27,38,47,11,9,40.7407,23.6842
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,ms,-32,-27,-22,5,5,-15.625,-18.5185
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,main_attack_dps,3915.7966,4081.2135,4221.8335,165.4169,140.62,4.2243,3.4455
+ubg-fantasia-fantasia-acolyte-non-crafted-1,shaman,Fantasia,Acolyte,family_unclassified,spell_display_avg_max,24161.0076,27934.2986,31707.5897,3773.291,3773.2911,15.6173,13.5077
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,ehp,22715.9803,22715.9803,22715.9803,0,0,0,0
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,ehp_no_agi,14195.9527,14195.9527,14195.9527,0,0,0,0
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,hpr,0,0,0,0,0,,
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,ls,-90,-76,-63,14,13,-15.5556,-17.1053
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,total_mr,25,25,25,0,0,0,0
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,ms,13,14,15,1,1,7.6923,7.1429
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,main_attack_dps,12700.6194,14785.4069,16722.6138,2084.7875,1937.2069,16.4148,13.1022
+ubg-fate-fate-tierstack-ritualist-standard-1,shaman,Fate,Ritualist,family_tierstack,spell_display_avg_max,24586.8868,25739.2541,26858.8665,1152.3673,1119.6124,4.6869,4.3498
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,ehp,15159.1157,15571.9908,15983.6445,412.8751,411.6537,2.7236,2.6436
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,ehp_no_agi,14117.2486,14501.7473,14885.1086,384.4987,383.3613,2.7236,2.6436
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,hpr,293,384,475,91,91,31.058,23.6979
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,ls,672,883,1092,211,209,31.3988,23.6693
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,total_mr,57,63,69,6,6,10.5263,9.5238
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,ms,-12,-10,-8,2,2,-16.6667,-20
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,main_attack_dps,5836.3986,6514.6358,7157.8434,678.2372,643.2076,11.6208,9.8733
+ubg-latent-disorder-latent-disorder-acolyte-standard-1,shaman,Latent Disorder,Acolyte,family_unclassified,spell_display_avg_max,21937.2831,24704.0124,27541.5601,2766.7293,2837.5477,12.612,11.4862
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,ehp,13054.5176,14541.3647,16028.2118,1486.8471,1486.8471,11.3895,10.2249
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,ehp_no_agi,6611.4932,7364.5106,8117.5281,753.0174,753.0175,11.3895,10.2249
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,hpr,0,0,0,0,0,,
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,ls,221,289,358,68,69,30.7692,23.8754
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,total_mr,25,25,25,0,0,0,0
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,ms,12,18,23,6,5,50,27.7778
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,main_attack_dps,544.2385,652.2631,766.6895,108.0246,114.4264,19.8488,17.543
+ubg-panic-zealot-panic-zealot-summoner-standard-1,shaman,Panic Zealot,Summoner,family_unclassified,spell_display_avg_max,26294.293,29039.0779,32013.5262,2744.7849,2974.4483,10.4387,10.2429
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,ehp,17333.3482,17602.6535,17870.619,269.3053,267.9655,1.5537,1.5223
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,ehp_no_agi,17333.3482,17602.6535,17870.619,269.3053,267.9655,1.5537,1.5223
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,hpr,-147,-112.88,-82.2,34.12,30.68,-23.2109,-27.1793
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,ls,568,746,923,178,177,31.338,23.7265
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,total_mr,49,57,66,8,9,16.3265,15.7895
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,ms,25,32,40,7,8,28,25
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,main_attack_dps,3402.3037,4000.1403,4608.3004,597.8366,608.1601,17.5715,15.2035
+ubg-resonance-resonance-acolyte-non-crafted-1,shaman,Resonance,Acolyte,family_unclassified,spell_display_avg_max,26317.0698,30459.759,34610.118,4142.6892,4150.359,15.7415,13.6257
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,ehp,16369.0693,16369.0693,16369.0693,0,0,0,0
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,ehp_no_agi,11235,11235,11235,0,0,0,0
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,hpr,-109.2,-90.09,-72.96,19.11,17.13,-17.5,-19.0143
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,ls,70,134,197,64,63,91.4286,47.0149
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,total_mr,25,25,25,0,0,0,0
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,ms,0,0,0,0,0,,
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,main_attack_dps,15110.2044,17538.8106,19967.4167,2428.6062,2428.6061,16.0726,13.847
+ubg-alkatraz-alkatraz-fallen-melee-non-crafted-1,warrior,Alkatraz,Fallen,family_cancelstack,spell_display_avg_max,18965.6035,20745.3886,22606.0869,1779.7851,1860.6983,9.3843,8.9692
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,ehp,58121.7663,58121.7663,58121.7663,0,0,0,0
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,ehp_no_agi,58121.7663,58121.7663,58121.7663,0,0,0,0
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,hpr,0,0,0,0,0,,
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,ls,1320,1733,2145,413,412,31.2879,23.7738
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,total_mr,9,11,13,2,2,22.2222,18.1818
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,ms,10,13,16,3,3,30,23.0769
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,main_attack_dps,22262.8222,27382.202,32574.9,5119.3798,5192.698,22.9952,18.9638
+ubg-apocalypse-apocalypse-fallen-heavy-melee-standard-1,warrior,Apocalypse,Fallen,family_heavy_melee,spell_display_avg_max,44541.2208,48698.948,53267.413,4157.7272,4568.465,9.3346,9.381
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,ehp,19678.73,20228.269,20777.8081,549.539,549.5391,2.7926,2.7167
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,ehp_no_agi,11878.4874,12210.2004,12541.9135,331.713,331.7131,2.7926,2.7167
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,hpr,1415.88,2017.5,2697.3,601.62,679.8,42.4909,33.6952
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,ls,0,0,0,0,0,,
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,total_mr,35,40,45,5,5,14.2857,12.5
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,ms,-8,-7,-6,1,1,-12.5,-14.2857
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,main_attack_dps,949.4602,1091.1237,1226.2092,141.6635,135.0855,14.9204,12.3804
+ubg-ascendancy-ascendancy-paladin-big-mac-non-crafted-1,warrior,Ascendancy,Paladin,family_cancelstack,spell_display_avg_max,8759.184,10395.6439,11979.6839,1636.4599,1584.04,18.6828,15.2375
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,ehp,6310,6910,7510,600,600,9.5087,8.6831
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,ehp_no_agi,6310,6910,7510,600,600,9.5087,8.6831
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,hpr,0,0,0,0,0,,
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,ls,493,646,800,153,154,31.0345,23.839
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,total_mr,-111,-90,-70,21,20,-18.9189,-22.2222
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,ms,8,12,16,4,4,50,33.3333
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,main_attack_dps,3905.924,4065.1139,4212.9438,159.1899,147.8299,4.0756,3.6366
+ubg-bloodbath-bloodbath-fallen-upperbash-non-crafted-1,warrior,Bloodbath,Fallen,family_spell_sustained,spell_display_avg_max,47826.8064,52605.7543,57372.2793,4778.9479,4766.525,9.9922,9.0608
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,ehp,35765.2315,35765.2315,35765.2315,0,0,0,0
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,ehp_no_agi,25099.3531,25099.3531,25099.3531,0,0,0,0
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,hpr,271,430,592,159,162,58.6716,37.6744
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,ls,168,221,273,53,52,31.5476,23.5294
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,total_mr,47,55,61,8,6,17.0213,10.9091
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,ms,2,9,15,7,6,350,66.6667
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,main_attack_dps,6741.7688,7426.5136,8079.1547,684.7448,652.6411,10.1568,8.788
+ubg-collapse-collapse-fallen-upperscream-standard-1,warrior,Collapse,Fallen,family_spell_sustained,spell_display_avg_max,26035.9377,29951.2133,33950.9726,3915.2756,3999.7593,15.038,13.3542
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,ehp,26179.0053,26179.0053,26179.0053,0,0,0,0
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,ehp_no_agi,25388.391,25388.391,25388.391,0,0,0,0
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,hpr,0,0,0,0,0,,
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,ls,-324,-276,-227,48,49,-14.8148,-17.7536
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,total_mr,0,3,5,3,2,,66.6667
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,ms,-19,-16,-13,3,3,-15.7895,-18.75
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,main_attack_dps,1720.6578,1842.2776,1956.8252,121.6198,114.5476,7.0682,6.2177
+ubg-convergence-convergence-fallen-upperbash-standard-1,warrior,Convergence,Fallen,family_spell_sustained,spell_display_avg_max,33160.6115,35527.3022,37802.9358,2366.6907,2275.6336,7.1371,6.4053
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,ehp,29249.2719,29249.2719,29249.2719,0,0,0,0
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,ehp_no_agi,14190.9258,14190.9258,14190.9258,0,0,0,0
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,hpr,269.5,283.5,294,14,10.5,5.1948,3.7037
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,ls,0,0,0,0,0,,
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,total_mr,-21,-18,-15,3,3,-14.2857,-16.6667
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,ms,19,20,21,1,1,5.2632,5
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,main_attack_dps,1111.9235,1355.7751,1598.6379,243.8516,242.8628,21.9306,17.9132
+ubg-forsaken-forsaken-fallen-upperscream-standard-1,warrior,Forsaken,Fallen,family_spell_sustained,spell_display_avg_max,30343.8754,33655.6439,36780.3068,3311.7685,3124.6629,10.9141,9.2842
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,ehp,25955.9492,27135.0504,28314.1517,1179.1012,1179.1013,4.5427,4.3453
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,ehp_no_agi,8692.863,9087.7538,9482.6447,394.8908,394.8909,4.5427,4.3453
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,hpr,0,0,0,0,0,,
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,ls,0,0,0,0,0,,
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,total_mr,19,20,21,1,1,5.2632,5
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,ms,8,11,13,3,2,37.5,18.1818
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,main_attack_dps,4910.022,5771.8078,6633.5937,861.7858,861.7859,17.5516,14.931
+ubg-hero-hero-fallen-upperscream-non-crafted-1,warrior,Hero,Fallen,family_spell_sustained,spell_display_avg_max,22747.9712,24486.34,26262.0752,1738.3688,1775.7352,7.6419,7.2519
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,ehp,34632.7941,34632.7941,34632.7941,0,0,0,0
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,ehp_no_agi,33858.4121,33858.4121,33858.4121,0,0,0,0
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,hpr,1141,1497,1853,356,356,31.2007,23.7809
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,ls,-250,-212,-175,38,37,-15.2,-17.4528
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,total_mr,89,106,121,17,15,19.1011,14.1509
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,ms,0,0,0,0,0,,
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,main_attack_dps,1003.3284,1122.8628,1244.2208,119.5344,121.358,11.9138,10.8079
+ubg-idol-idol-surf-lootrun-3,warrior,Idol,,family_spellsteal,spell_display_avg_max,15631.5826,18015.0325,20636.9473,2383.4499,2621.9148,15.2477,14.554
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,ehp,15512.7995,16490.4502,17469.9526,977.6507,979.5024,6.3022,5.9398
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,ehp_no_agi,13904.4516,14780.7408,15658.6895,876.2892,877.9487,6.3022,5.9398
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,hpr,0,0,0,0,0,,
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,ls,-324,-276,-227,48,49,-14.8148,-17.7536
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,total_mr,12,21,29,9,8,75,38.0952
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,ms,-9,-6,-3,3,3,-33.3333,-50
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,main_attack_dps,2268.8757,2578.0778,2875.0577,309.2021,296.9799,13.628,11.5194
+ubg-restitution-restitution-fallen-upperscream-non-crafted-1,warrior,Restitution,Fallen,family_spell_sustained,spell_display_avg_max,37006.66,41466.372,45506.1247,4459.712,4039.7527,12.0511,9.7422
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,ehp,10835,10835,10835,0,0,0,0
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,ehp_no_agi,10835,10835,10835,0,0,0,0
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,hpr,0,0,0,0,0,,
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,ls,-324,-276,-227,48,49,-14.8148,-17.7536
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,total_mr,-9,-3,1,6,4,-66.6667,-133.3333
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,ms,-1,3,6,4,3,-400,100
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,main_attack_dps,2206.7494,2375.3354,2526.4816,168.586,151.1462,7.6396,6.3632
+ubg-thrundacrack-thrundacrack-fallen-bash-cut-non-crafted-1,warrior,Thrundacrack,Fallen,family_spell_sustained,spell_display_avg_max,50260.4135,55220.3616,60054.7823,4959.9481,4834.4207,9.8685,8.7548
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,ehp,34482.1232,34482.1232,34482.1232,0,0,0,0
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,ehp_no_agi,33701.9413,33701.9413,33701.9413,0,0,0,0
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,hpr,226,461,696,235,235,103.9823,50.9761
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,ls,-250,-212,-175,38,37,-15.2,-17.4528
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,total_mr,56,63,68,7,5,12.5,7.9365
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,ms,12,12,12,0,0,0,0
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,main_attack_dps,0,1.9856,339.8206,1.9856,337.835,,17014.2526
+ubg-trikaya-trikaya-battlemonk-standard-1,warrior,Trikaya,Battle Monk,family_unclassified,spell_display_avg_max,17369.9777,20568.9231,23842.7751,3198.9454,3273.852,18.4165,15.9165

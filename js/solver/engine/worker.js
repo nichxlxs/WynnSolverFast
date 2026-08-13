@@ -188,9 +188,67 @@ function _insert_top5(score, candidateFactory) {
 
 let _cached_hp_sim = null;  // cached simulate_combo_mana_hp result (avoids double-sim)
 
+// Tome optimisation state. All null when optimisation is off, which is the
+// default and leaves every path below behaving exactly as before.
+//   _tome_guild_optimistic — per-lane maximum over the enabled guild tomes,
+//     used as an admissible feasibility bound in the leaf SP gate.
+//   _tome_guild_candidates — [{idx, sm}] real guild choices tried at the leaf
+//     (idx indexes GUILD_TOMES; 0 is "none"). Null → guild tome is fixed.
+//   _tome_wa_bundles — [{stats: Map|null, names: string[]|null}] weapon+armour
+//     tome bundles from the once-per-search Pareto front. Null → no bundles.
+//   _tome_wa_optimistic — per-key maximum across the bundles; upper-bounds any
+//     single bundle for the score-ceiling gate.
+//   _leaf_extra_stats — the CURRENT candidate's bundle during leaf scoring.
+//     _assemble_combo_stats and the greedy trial read it implicitly so every
+//     reassembly inside greedy / mana rescue sees the same bundle.
+let _tome_guild_optimistic = null;
+let _tome_guild_candidates = null;
+let _tome_wa_bundles = null;
+let _tome_wa_optimistic = null;
+let _leaf_extra_stats = null;
+const _tome_cand_base = [0, 0, 0, 0, 0];   // per-candidate SP snapshot (restored per bundle)
+const _tome_cand_total = [0, 0, 0, 0, 0];
+const _tome_bundle_pass = [];              // bundles surviving the per-bundle ceiling gate
+const _TOME_NO_BUNDLES = [{ stats: null, names: null }];   // "no bundle" placeholder
+
+function _tome_setup(msg) {
+    _tome_guild_candidates = null;
+    _tome_guild_optimistic = null;
+    _tome_wa_bundles = null;
+    _tome_wa_optimistic = null;
+    _leaf_extra_stats = null;
+    const mode = msg.tome_opt ?? 0;
+    if (mode >= 1 && Array.isArray(msg.guild_tome_candidates) && msg.guild_tome_candidates.length > 0) {
+        _tome_guild_candidates = msg.guild_tome_candidates;
+        // Per-lane maximum over the candidates. Looser than any single tome
+        // (a build needing +4 in two lanes passes here but no candidate will
+        // satisfy it — the candidate loop rejects it), but never tighter, so
+        // the SP feasibility gate stays admissible.
+        const lanes = [0, 0, 0, 0, 0];
+        for (const c of _tome_guild_candidates) {
+            const skp = c.sm?.get('skillpoints') ?? [0, 0, 0, 0, 0];
+            for (let i = 0; i < 5; i++) lanes[i] = Math.max(lanes[i], skp[i] ?? 0);
+        }
+        const opt = new Map();
+        opt.set('skillpoints', lanes);
+        opt.set('reqs', [0, 0, 0, 0, 0]);
+        _tome_guild_optimistic = opt;
+    }
+    if (mode === 2 && Array.isArray(msg.tome_wa_bundles) && msg.tome_wa_bundles.length > 0) {
+        _tome_wa_bundles = msg.tome_wa_bundles;
+        const opt = new Map();
+        for (const b of _tome_wa_bundles) {
+            if (!b.stats) continue;
+            for (const [k, v] of b.stats) {
+                const cur = opt.get(k);
+                if (cur === undefined || v > cur) opt.set(k, v);
+            }
+        }
+        _tome_wa_optimistic = opt.size ? opt : null;
+    }
+}
+
 const _scratch_finalize = new Map();
-const _scratch_pre_scale = new Map();
-const _scratch_pre_scale_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
 const _scratch_combo_base = new Map();
 const _scratch_combo_base_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
 const _scratch_thresh = new Map();
@@ -238,7 +296,13 @@ function _build_constraint_prechecks() {
     // Compute fixed stat contributions (constant across all candidates).
     // atree_raw and static_boosts are both Maps.
     const fixed = (stat) => {
-        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0);
+        // _cfg.tome_bound is the per-key maximum over every enabled tome bundle.
+        // Including it here keeps the precheck admissible when tome optimisation
+        // is on: a gearset is only rejected if it fails even with the best
+        // conceivable tomes. It is null (contributing 0) when optimisation is
+        // off, so the default path is unchanged.
+        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0)
+            + (_cfg.tome_bound?.get(stat) ?? 0);
     };
 
     for (const { stat, op, value } of thresholds) {
@@ -489,14 +553,17 @@ function _ceiling_gate_setup(analysis) {
     _ceiling_gate_ok = true;
 }
 
-function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
+// extra_stats defaults to the current tome bundle so every reassembly inside
+// greedy trials and mana rescue sees it without parameter threading. It is
+// null outside a tome candidate iteration, i.e. always null when tome
+// optimisation is off.
+function _assemble_combo_stats(build_sm, total_sp, weapon_sm, extra_stats = _leaf_extra_stats) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
-        { pre_scale: _scratch_pre_scale, pre_scale_nested: _scratch_pre_scale_nested,
-          combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
+        { combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
           atree: _scratch_atree },
-        _ATREE_SCALING_OPTS);
+        _ATREE_SCALING_OPTS, extra_stats);
 }
 
 function _assemble_threshold_stats(combo_base) {
@@ -988,6 +1055,10 @@ function _run_level_enum() {
                 msg.top5_names = _top5.map(r => ({
                     score: r.score, item_names: r.item_names,
                     base_sp: r.base_sp, total_sp: r.total_sp, assigned_sp: r.assigned_sp,
+                    // Tome optimisation fields — absent when optimisation is
+                    // off; without them here, interim results shown mid-search
+                    // would silently lose the chosen tome.
+                    guild_tome_idx: r.guild_tome_idx, tome_names: r.tome_names,
                 }));
                 _last_sent_top5_version = _top5_version;
             }
@@ -1130,6 +1201,10 @@ function _run_level_enum() {
             _merge_into_undo(P, atree_scaled_stats);
             if (atree_var_stats) _merge_into_undo(P, atree_var_stats);
             _merge_into_undo(P, _cfg.static_boosts);
+            // Current tome bundle, merged in the same position assemble_combo_stats
+            // merges it (after atree scaling and static boosts). Null unless a
+            // tome candidate iteration is in progress.
+            if (_leaf_extra_stats) _merge_into_undo(P, _leaf_extra_stats);
             const s = _eval_score(P, P);
             _undo_rollback();
             return s;
@@ -1233,6 +1308,82 @@ function _run_level_enum() {
 
     // ── Leaf evaluation ─────────────────────────────────────────────────────
 
+    // Fixed-guild candidate used by the tome loop when only weapon/armour
+    // bundles are being optimised (guild slot locked or guild opt disabled).
+    const _fixed_guild_cand = [{ idx: -1, sm: guild_tome_sm }];
+
+    /**
+     * Post-gate scoring pipeline for ONE SP solution (and, in tome mode, one
+     * bundle via _leaf_extra_stats): greedy → assemble → threshold →
+     * mana(+rescue) → score. base_sp/total_sp are mutated in place by greedy
+     * and rescue. Returns {score, final_assigned} or null on reject, with the
+     * reject counters updated. Extracted verbatim from _evaluate_leaf so the
+     * tome candidate loop and the default path run the identical pipeline.
+     */
+    function _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp) {
+        // Greedily assign any remaining SP budget to maximise the scoring target
+        const greedy_t0 = _trace_start('greedy');
+        const final_assigned = _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm);
+        _trace_end('greedy', greedy_t0);
+
+        // Stat assembly + atree scaling
+        const assemble_t0 = _trace_start('assemble');
+        const combo_base = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
+        _trace_end('assemble', assemble_t0);
+
+        // Compute thresh_stats once: used for threshold gate and non-damage scoring
+        const need_thresh = restrictions.stat_thresholds.length > 0
+            || (_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage';
+        const threshold_t0 = _trace_start('threshold');
+        let thresh_stats = need_thresh ? _assemble_threshold_stats(combo_base) : null;
+
+        // Threshold check
+        if (restrictions.stat_thresholds.length > 0) {
+            if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
+                _trace_end('threshold', threshold_t0);
+                _dbg_threshold_reject++;
+                return null;
+            }
+        }
+        _trace_end('threshold', threshold_t0);
+
+        // Mana / HP constraint check (with rescue attempt on failure)
+        const mana_t0 = _trace_start('mana');
+        let mana_hp_result = _eval_combo_mana_check(combo_base);
+        if (!mana_hp_result) {
+            if (!_cfg.hp_casting && _mana_rescue(build_sm, base_sp, total_sp, _scratch_orig_base_sp, weapon_sm)) {
+                // Rescue succeeded — combo_base was reassembled by _mana_rescue.
+                // Re-check thresholds since SP distribution changed.
+                if (restrictions.stat_thresholds.length > 0) {
+                    const ts2 = _assemble_threshold_stats(combo_base);
+                    if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
+                        _trace_end('mana', mana_t0);
+                        _dbg_threshold_reject++;
+                        return null;
+                    }
+                    thresh_stats = ts2;
+                } else if (need_thresh) {
+                    thresh_stats = _assemble_threshold_stats(combo_base);
+                }
+                // final_assigned unchanged: rescue is a zero-sum redistribution
+                _dbg_mana_rescued++;
+                mana_hp_result = true;
+            }
+            if (!mana_hp_result) {
+                _trace_end('mana', mana_t0);
+                if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
+                return null;
+            }
+        }
+        _trace_end('mana', mana_t0);
+
+        // Score
+        const score_t0 = _trace_start('score');
+        const score = _eval_score(combo_base, thresh_stats);
+        _trace_end('score', score_t0);
+        return { score, final_assigned };
+    }
+
     function _evaluate_leaf() {
         _checked++;
         if (_trace) _trace.leaf_count++;
@@ -1271,7 +1422,14 @@ function _run_level_enum() {
 
         // SP input: 8 equips + guild_tome (reuse scratch)
         for (let i = 0; i < 8; i++) _scratch_sp_input[i] = _scratch_equip_8[i];
-        _scratch_sp_input[8] = guild_tome_sm;
+        // When the solver is choosing the guild tome, the feasibility pass uses
+        // the OPTIMISTIC tome — the per-lane maximum over the enabled set. No
+        // guild tome carries a requirement, so it can only ever make a build
+        // more feasible; a gearset infeasible against the per-lane maximum is
+        // infeasible for every real choice, which makes this prune admissible.
+        // Gearsets that only work *with* a tome therefore survive to the search
+        // below instead of being discarded here.
+        _scratch_sp_input[8] = _tome_guild_optimistic ?? guild_tome_sm;
 
         // Combined SP feasibility check + full calculation (single pass).
         const sp_t0 = _trace_start('sp');
@@ -1311,7 +1469,10 @@ function _run_level_enum() {
         if (_top5.length >= 15 && _top5[14].score > _gate_cutoff) _gate_cutoff = _top5[14].score;
         if (_ceiling_gate_ok && _gate_cutoff > -Infinity) {
             const ceiling_t0 = _trace_start('ceiling');
-            const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm);
+            // In all-tomes mode the ceiling is evaluated with the per-key
+            // optimistic bundle, which upper-bounds every real bundle; null
+            // otherwise, giving the unchanged pre-tome gate.
+            const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm, _tome_wa_optimistic);
             _cached_hp_sim = null;
             const ceiling = _eval_combo_damage(cb150);
             _trace_end('ceiling', ceiling_t0);
@@ -1326,82 +1487,108 @@ function _run_level_enum() {
             }
         }
 
-        // Greedily assign any remaining SP budget to maximise the scoring target
-        const greedy_t0 = _trace_start('greedy');
-        let final_assigned = _greedy_allocate_sp(build_sm, base_sp, total_sp, assigned_sp, weapon_sm);
-        _trace_end('greedy', greedy_t0);
+        if (_tome_guild_candidates === null && _tome_wa_bundles === null) {
+            // Default path — single SP solution, no tome loop. Pipeline,
+            // counters, and inserted entries identical to the pre-tome code.
+            const res = _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
+            if (_dbg) _dbg_leaf_time += performance.now() - t0;
+            if (!res) { _maybe_progress(); return; }
+            _dbg_scored++;
+            _met_req++;
+            const topn_t0 = _trace_start('topn');
+            _insert_top5(res.score, () => {
+                const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
+                // Clone SP arrays only for competitive results; they alias scratch buffers.
+                const entry = { score: res.score, item_names, base_sp: base_sp.slice(), total_sp: total_sp.slice(), assigned_sp: res.final_assigned };
+                if (SOLVER_DEBUG_COMBO) entry._debug_combo_base = _deep_clone_statmap(_scratch_combo_base);
+                return entry;
+            });
+            _trace_end('topn', topn_t0);
+            _maybe_progress();
+            return;
+        }
 
-        // Stat assembly + atree scaling
-        const assemble_t0 = _trace_start('assemble');
-        const combo_base = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
-        _trace_end('assemble', assemble_t0);
+        // ── Tome candidate loop ────────────────────────────────────────────
+        // The SP gate above ran with the optimistic guild tome and the ceiling
+        // gate with the optimistic bundle, so every real (guild, bundle)
+        // combination is bounded by what already passed. Here the real
+        // combinations are tried and the best feasible score kept.
 
-        // Compute thresh_stats once: used for threshold gate and non-damage scoring
-        const need_thresh = restrictions.stat_thresholds.length > 0
-            || (_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage';
-        const threshold_t0 = _trace_start('threshold');
-        let thresh_stats = need_thresh ? _assemble_threshold_stats(combo_base) : null;
-
-        // Threshold check
-        if (restrictions.stat_thresholds.length > 0) {
-            if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
-                _trace_end('threshold', threshold_t0);
-                _dbg_threshold_reject++;
+        // Per-bundle ceiling gate: one damage eval per bundle decides which
+        // bundles can still beat the cutoff at this leaf. Only worth running
+        // with more than one bundle — with one, the pre-loop gate already
+        // evaluated exactly that bundle's optimistic bound.
+        let bundles = _tome_wa_bundles;
+        if (bundles && bundles.length > 1 && _ceiling_gate_ok && _gate_cutoff > -Infinity) {
+            _tome_bundle_pass.length = 0;
+            for (let bi = 0; bi < bundles.length; bi++) {
+                const b = bundles[bi];
+                const ceiling_t0 = _trace_start('ceiling');
+                const cb = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm, b.stats);
+                _cached_hp_sim = null;
+                const c = _eval_combo_damage(cb);
+                _trace_end('ceiling', ceiling_t0);
+                // Same strict margin as the main gate: a float-ulp wobble must
+                // never gate a genuine candidate.
+                if (c >= _gate_cutoff - Math.abs(_gate_cutoff) * 1e-9) _tome_bundle_pass.push(b);
+            }
+            bundles = _tome_bundle_pass;
+            if (bundles.length === 0) {
+                _dbg_ceiling_skip++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
                 return;
             }
         }
-        _trace_end('threshold', threshold_t0);
+        if (!bundles) bundles = _TOME_NO_BUNDLES;
 
-        // Mana / HP constraint check (with rescue attempt on failure)
-        const mana_t0 = _trace_start('mana');
-        let mana_hp_result = _eval_combo_mana_check(combo_base);
-        if (!mana_hp_result) {
-            if (!_cfg.hp_casting && _mana_rescue(build_sm, base_sp, total_sp, _scratch_orig_base_sp, weapon_sm)) {
-                // Rescue succeeded — combo_base was reassembled by _mana_rescue.
-                // Re-check thresholds since SP distribution changed.
-                if (restrictions.stat_thresholds.length > 0) {
-                    const ts2 = _assemble_threshold_stats(combo_base);
-                    if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
-                        _trace_end('mana', mana_t0);
-                        _dbg_threshold_reject++;
-                        if (_dbg) _dbg_leaf_time += performance.now() - t0;
-                        _maybe_progress();
-                        return;
-                    }
-                    thresh_stats = ts2;
-                } else if (need_thresh) {
-                    thresh_stats = _assemble_threshold_stats(combo_base);
+        const guild_cands = _tome_guild_candidates ?? _fixed_guild_cand;
+        let best = null;
+        for (let gi = 0; gi < guild_cands.length; gi++) {
+            const cand = guild_cands[gi];
+            _scratch_sp_input[8] = cand.sm;
+            const csp_t0 = _trace_start('sp');
+            const cr = calculate_skillpoints(_scratch_sp_input, weapon_sm, sp_budget, _scratch_sp_set_counts, _scratch_sp);
+            _trace_end('sp', csp_t0);
+            if (!cr) continue;
+            const cand_base = cr[0], cand_total = cr[1], cand_assigned = cr[2];
+            // Snapshot the solve result: greedy and rescue mutate the arrays,
+            // so each bundle run starts from the solved state, not the
+            // previous bundle's post-greedy state.
+            for (let i = 0; i < 5; i++) { _tome_cand_base[i] = cand_base[i]; _tome_cand_total[i] = cand_total[i]; }
+            for (let bi = 0; bi < bundles.length; bi++) {
+                for (let i = 0; i < 5; i++) { cand_base[i] = _tome_cand_base[i]; cand_total[i] = _tome_cand_total[i]; }
+                _leaf_extra_stats = bundles[bi].stats;
+                const res = _score_leaf_candidate(build_sm, cand_base, cand_total, cand_assigned);
+                if (res && (best === null || res.score > best.score)) {
+                    best = {
+                        score: res.score,
+                        final_assigned: res.final_assigned,
+                        base_sp: cand_base.slice(),
+                        total_sp: cand_total.slice(),
+                        guild_idx: cand.idx,
+                        tome_names: bundles[bi].names ?? null,
+                    };
                 }
-                // final_assigned unchanged: rescue is a zero-sum redistribution
-                _dbg_mana_rescued++;
-                mana_hp_result = true;
-            }
-            if (!mana_hp_result) {
-                _trace_end('mana', mana_t0);
-                if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
-                if (_dbg) _dbg_leaf_time += performance.now() - t0;
-                _maybe_progress();
-                return;
             }
         }
-        _trace_end('mana', mana_t0);
-
-        // Score
-        const score_t0 = _trace_start('score');
-        const score = _eval_score(combo_base, thresh_stats);
-        _trace_end('score', score_t0);
+        _leaf_extra_stats = null;
+        if (_dbg) _dbg_leaf_time += performance.now() - t0;
+        if (!best) { _maybe_progress(); return; }
         _dbg_scored++;
         _met_req++;
-        if (_dbg) _dbg_leaf_time += performance.now() - t0;
         const topn_t0 = _trace_start('topn');
-        _insert_top5(score, () => {
+        _insert_top5(best.score, () => {
             const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
-            // Clone SP arrays only for competitive results; they alias scratch buffers.
-            const entry = { score, item_names, base_sp: base_sp.slice(), total_sp: total_sp.slice(), assigned_sp: final_assigned };
-            if (SOLVER_DEBUG_COMBO) entry._debug_combo_base = _deep_clone_statmap(combo_base);
-            return entry;
+            return {
+                score: best.score, item_names,
+                base_sp: best.base_sp, total_sp: best.total_sp,
+                assigned_sp: best.final_assigned,
+                // GUILD_TOMES index of the chosen tome; -1 when the guild slot
+                // was fixed and only bundles were optimised.
+                guild_tome_idx: best.guild_idx,
+                tome_names: best.tome_names ?? undefined,
+            };
         });
         _trace_end('topn', topn_t0);
         _maybe_progress();
@@ -1642,10 +1829,17 @@ function _run_level_enum() {
             }
         }
 
-        // Guild tome: adds provisions + effective reqs
-        if (guild_tome_sm && !guild_tome_sm.has('NONE')) {
-            const skp = guild_tome_sm.get('skillpoints');
-            const req = guild_tome_sm.get('reqs');
+        // Guild tome: adds provisions + effective reqs.
+        //
+        // In optimisation mode use the per-lane maximum over the candidates,
+        // matching what the SP solve itself feeds in (_scratch_sp_input[8]).
+        // The baseline is an OPTIMISTIC provision used to prune subtrees, so it
+        // must bound every candidate: pruning against a fixed "none" while the
+        // solve may pick a +4 tome would discard gearsets that tome rescues.
+        const guild_baseline_sm = _tome_guild_optimistic ?? guild_tome_sm;
+        if (guild_baseline_sm && !guild_baseline_sm.has('NONE')) {
+            const skp = guild_baseline_sm.get('skillpoints');
+            const req = guild_baseline_sm.get('reqs');
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
             }
@@ -2018,6 +2212,7 @@ self.onmessage = function (e) {
         _cfg.bp_slider_name = _sn.bp_slider_name;
         _cfg.state_slider_names = _sn.state_slider_names;
         try {
+            _tome_setup(msg);
             _build_constraint_prechecks();
             _build_sp_constraints();
             _vec_setup();

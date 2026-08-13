@@ -1,0 +1,94 @@
+{
+  "name": "solver_family_spellsteal_known_good",
+  "description": "Oblivion spellsteal exact known-good seed with all equipment slots locked.",
+  "benchmark_family": "spellsteal",
+  "benchmark_size": "known_good",
+  "seed_build_id": "ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+  "core_weapon": "Oblivion",
+  "provided_ideal_item_count": 9,
+  "provided_ideal_items": [
+    "Prosencephalon",
+    "Umbral Mail",
+    "Chaos-Woven Greaves",
+    "Stardew",
+    "Yang",
+    "Photon",
+    "Misalignment",
+    "Metamorphosis",
+    "Oblivion"
+  ],
+  "free_equipment_slots": [],
+  "url_hash": "CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4_GJ4Poa9BTW0x22G010OW00880000",
+  "scoring_target": "combo_damage",
+  "free_mask": 0,
+  "lvl_min": 106,
+  "lvl_max": 121,
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -250
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 1,
+  "calibrated_search_combinations": 1,
+  "combination_budget": {
+    "input_min": 1,
+    "input_max": 1,
+    "search_min": 1,
+    "search_max": 1
+  },
+  "known_good_seed_verification": true,
+  "locked_items": {
+    "helmet": {
+      "name": "Prosencephalon",
+      "stat_hash": "4b38ff396e202269acd5f20a5f0e762151f4711a5fe3355645a331e7fb958e5e"
+    },
+    "chestplate": {
+      "name": "Umbral Mail",
+      "stat_hash": "a7ffdd405cf1bee573da805be8f94daa012f377a4f02bea76e10a37f111f47f8"
+    },
+    "leggings": {
+      "name": "Chaos-Woven Greaves",
+      "stat_hash": "03c67150aa074066f25ec8ff8cd5204c5b9c2d6f7b420ee4109fd69baca829ed"
+    },
+    "boots": {
+      "name": "Stardew",
+      "stat_hash": "92f6a535c4623b5f10a1f7d30a12e718fe510fd8b82ef2f756e41767b8bd91e4"
+    },
+    "ring1": {
+      "name": "Yang",
+      "stat_hash": "9d1d3ef1b4d65a53476fe8b022662f4d9f4c15749a5d79f62a1dd99ded2a7423"
+    },
+    "ring2": {
+      "name": "Photon",
+      "stat_hash": "13ad1e6b61b14f7d1334944c9076259fe9d4dacd6812bf206096938fcb62320e"
+    },
+    "bracelet": {
+      "name": "Misalignment",
+      "stat_hash": "8906ab1659ea54810129d7c6c3bc4a731b0c75ab83f14dab748be8366517690c"
+    },
+    "necklace": {
+      "name": "Metamorphosis",
+      "stat_hash": "02246fdfdd468f54bac8004064d7e5dc64cddc47fadd98152d3e49998031f167"
+    }
+  },
+  "created": "2026-08-13T03:59:36.608Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

@@ -1,0 +1,85 @@
+{
+  "name": "solver_family_tierstack_medium",
+  "description": "Fate tierstack medium search. 4 ideal-build items provided; helmet, chestplate, leggings, boots, ring2 free.",
+  "benchmark_family": "tierstack",
+  "benchmark_size": "medium",
+  "seed_build_id": "ubg-fate-fate-tierstack-ritualist-standard-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2",
+  "core_weapon": "Fate",
+  "seed_score": 166361.89991284287,
+  "seed_item_names": [
+    "Timeskip",
+    "Calidade Mail",
+    "Runebound Chains",
+    "Nether's Scar",
+    "Breezehands",
+    "Vivisected",
+    "Prowess",
+    "Recalcitrance"
+  ],
+  "provided_ideal_item_count": 4,
+  "provided_ideal_items": [
+    "Breezehands",
+    "Prowess",
+    "Recalcitrance",
+    "Fate"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring2"
+  ],
+  "url_hash": "CX0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2_GN8Poa9xbqG0s74000",
+  "scoring_target": "combo_damage",
+  "free_mask": 47,
+  "lvl_min": 106,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp_no_agi",
+      "op": "ge",
+      "value": 12000
+    },
+    {
+      "stat": "atkTier",
+      "op": "ge",
+      "value": 3
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -100
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 2562488880,
+  "calibrated_search_combinations": 171360000,
+  "combination_budget": {
+    "input_min": 1921866660,
+    "input_max": 3203111100,
+    "search_min": 128520000,
+    "search_max": 214200000
+  },
+  "locked_items": {
+    "ring1": {
+      "name": "Breezehands",
+      "stat_hash": "d7ff6cf27122a01ee0d97be39018fe1f3d1f5150385ae23898cc926c2c913e65"
+    },
+    "bracelet": {
+      "name": "Prowess",
+      "stat_hash": "2e1716f299ca17a5d7f693b6ee853536ad4b2b3d71aa8d4db7851c340a12b553"
+    },
+    "necklace": {
+      "name": "Recalcitrance",
+      "stat_hash": "30f3045d85a52bcf1bac66f3f97a5a0d7b397176e398d983c0a4ee68f1413562"
+    }
+  },
+  "created": "2026-08-13T03:59:43.905Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

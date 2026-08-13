@@ -58,6 +58,10 @@ vm.runInContext(fs.readFileSync(searchPath, 'utf8'), ctx, { filename: searchPath
 // Export let/const vars from search.js we need.
 vm.runInContext(`
     globalThis._build_item_pools = _build_item_pools;
+    globalThis._prepare_tome_optimisation = typeof _prepare_tome_optimisation !== 'undefined' ? _prepare_tome_optimisation : null;
+    // Page global read by _prepare_tome_optimisation; empty array = no tome
+    // equipped in any slot, so every tome slot is optimisable.
+    globalThis.solver_item_final_nodes = [];
     globalThis._serialize_pools = _serialize_pools;
     globalThis._serialize_locked = _serialize_locked;
     globalThis._build_worker_init_msg = _build_worker_init_msg;
@@ -379,6 +383,7 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
         restrictions,
         // Pool building restrictions
         lvl_min: snap.lvl_min ?? sp.lvl_min ?? 1,
+        lvl_overrides: snap.lvl_overrides ?? sp.lvl_overrides ?? {},
         lvl_max: snap.lvl_max ?? sp.lvl_max ?? decoded.level,
         no_major_id: sp.nomaj || false,
         dir_enabled: sp.dir_enabled ?? 0x1F,
@@ -695,6 +700,50 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
     });
 }
 
+
+/**
+ * Ground truth for tome optimisation: run the plain oracle once per
+ * (guild candidate × bundle) with the candidate as the FIXED guild tome and
+ * the bundle's stats folded into static_boosts (merged additively — the same
+ * arithmetic position assemble_combo_stats gives the bundle), then take the
+ * per-gearset maximum. Per-variant top-15 truncation is safe: any gearset
+ * outside a variant's top-15 is beaten by 15 distinct gearsets whose merged
+ * scores are at least as high, so it cannot enter the merged top-15.
+ */
+async function runTomeOracle(initMsgBase, ringPoolSer) {
+    const cands = initMsgBase.guild_tome_candidates
+        ?? [{ idx: -1, sm: initMsgBase.guild_tome_sm }];
+    const bundles = initMsgBase.tome_wa_bundles ?? [{ stats: null, names: null }];
+    const byGear = new Map();
+    let tupleCount = 0;
+    for (const cand of cands) {
+        for (const b of bundles) {
+            const variant = { ...initMsgBase };
+            variant.tome_opt = 0;
+            variant.guild_tome_candidates = null;
+            variant.tome_wa_bundles = null;
+            variant.tome_bound = null;
+            variant.guild_tome_sm = cand.sm;
+            if (b.stats) {
+                const sb = new Map(initMsgBase.static_boosts ?? []);
+                for (const [k, v] of b.stats) sb.set(k, (sb.get(k) ?? 0) + v);
+                variant.static_boosts = sb;
+            }
+            const res = await runOracleEnumeration(variant, ringPoolSer);
+            tupleCount = res.tupleCount;
+            for (const r of res.top) {
+                const key = r.item_names.join('|');
+                const cur = byGear.get(key);
+                if (!cur || r.score > cur.score) {
+                    byGear.set(key, { score: r.score, item_names: r.item_names, guild_idx: cand.idx });
+                }
+            }
+        }
+    }
+    const top = [...byGear.values()].sort((a, b) => b.score - a.score).slice(0, 15);
+    return { top, tupleCount, variants: cands.length * bundles.length };
+}
+
 // ── Rust score-kernel differential fixture export (P2.4 layer 1) ────────────
 //
 // SOLVER_EXPORT_SCORE=<path> samples K random feasible builds (seeded LCG),
@@ -844,6 +893,7 @@ async function runSolverTest(snapName) {
         buildDir[dirOrder[i]] = !!((solverSnap.dir_enabled) & (1 << i));
     }
     const poolRestrictions = {
+        lvl_overrides: solverSnap.lvl_overrides,
         lvl_min: solverSnap.lvl_min,
         lvl_max: solverSnap.lvl_max,
         no_major_id: solverSnap.no_major_id,
@@ -906,8 +956,9 @@ async function runSolverTest(snapName) {
 
     // 7. Sensitivity weights, dominance pruning, priority sorting
     const dmgWeights = ctx._build_dmg_weights(solverSnap, locked, freePools);
+    let domStats = null;
     if (dmgWeights) {
-        const domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
+        domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
         ctx._prune_dominated_items(freePools, domStats, {
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
         });
@@ -944,6 +995,13 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
     const combinations = countCombinations(freePools);
     console.log(`  [${snapName}] search combinations: ${combinations}`);
+    if (snap.combination_budget) {
+        const budget = snap.combination_budget;
+        t.assert(inputCombinations >= budget.input_min && inputCombinations <= budget.input_max,
+            `${snapName}: input combinations ${inputCombinations} within calibrated band ${budget.input_min}-${budget.input_max}`);
+        t.assert(combinations >= budget.search_min && combinations <= budget.search_max,
+            `${snapName}: search combinations ${combinations} within calibrated band ${budget.search_min}-${budget.search_max}`);
+    }
 
     // 8. Serialize for worker transfer
     const poolsSer = ctx._serialize_pools(freePools);
@@ -1014,8 +1072,48 @@ async function runSolverTest(snapName) {
     // Match the real solver's worker count: min(hardwareConcurrency - 2, 16), at least 1.
     const numWorkers = Number(process.env.SOLVER_BENCH_WORKERS)
         || snap.num_workers || Math.max(1, Math.min((os.cpus().length || 4) - 2, 16));
-    const timeLimitMs = (Number(process.env.SOLVER_BENCH_SECONDS)
-        || snap.time_limit_seconds || 30) * 1000;
+    const requestedTimeLimitSeconds = Number(process.env.SOLVER_BENCH_SECONDS)
+        || snap.time_limit_seconds || 30;
+    // Tome optimisation: run the PRODUCTION preparation (guild candidates,
+    // scoped bundle front, precheck bound). solver_item_final_nodes is an empty
+    // stub in the sandbox, so every tome slot counts as empty/optimisable —
+    // both the production run and the tome oracle below see the same inputs,
+    // so the comparison stays internally consistent even if the URL carried
+    // equipped tomes.
+    if (snap.tome_opt) {
+        ctx.__tome_mode = snap.tome_opt;
+        ctx.__tome_level = solverSnap.level;
+        ctx.__dom_stats_tome = domStats;
+        // tome_roll / tome_inventory come from the snapshot so a fixture can
+        // pin the assumed roll quality and restrict the pool to owned tomes.
+        // Absent means the production defaults (80%, owns everything).
+        ctx.__tome_roll = snap.tome_roll ?? null;
+        ctx.__tome_inv = snap.tome_inventory ?? null;
+        const prep = vm.runInContext(`(function(){
+            const s = {
+                tome_opt: __tome_mode, level: __tome_level,
+                tome_roll: __tome_roll ?? TOME_ROLL_DEFAULT,
+                tome_inventory: __tome_inv ? new Set(__tome_inv) : null,
+            };
+            _prepare_tome_optimisation(s, {}, __dom_stats_tome ?? { higher: new Set(), lower: new Set() });
+            return s;
+        })()`, ctx);
+        initMsgBase.tome_opt = snap.tome_opt;
+        // tome_guild_locked simulates a real tome equipped in the guildTome1
+        // slot: the guild choice stays fixed and only bundles are optimised.
+        initMsgBase.guild_tome_candidates = snap.tome_guild_locked
+            ? null : (prep.guild_tome_candidates ?? null);
+        initMsgBase.tome_wa_bundles = prep.tome_wa_bundles ?? null;
+        initMsgBase.tome_bound = prep.tome_bound ?? null;
+        console.log(`  [${snapName}] tome opt mode ${snap.tome_opt}: `
+            + `${prep.guild_tome_candidates?.length ?? 0} guild candidates, `
+            + `${prep.tome_wa_bundles?.length ?? 0} bundles`);
+    }
+
+    const timeLimitSeconds = snap.benchmark_family
+        ? Math.min(requestedTimeLimitSeconds, snap.time_limit_seconds || 30)
+        : requestedTimeLimitSeconds;
+    const timeLimitMs = timeLimitSeconds * 1000;
     // Real solver creates 4× worker count partitions for work-stealing.
     const numPartitions = Math.max(numWorkers * 4, numWorkers);
     const partitions = ctx._partition_work(freePools, locked, numPartitions);
@@ -1072,15 +1170,32 @@ async function runSolverTest(snapName) {
     if (snap.oracle) {
         t.assert(!result.timedOut, `${snapName}: oracle run completed within time limit`);
 
-        const oracle = await runOracleEnumeration(initMsgBase, ringPoolSer);
-        console.log(`  [${snapName}] oracle: ${oracle.tupleCount} tuples, ${oracle.blocked} illegal-set blocked, ${oracle.feasible} feasible`);
+        let oracle;
+        if (initMsgBase.tome_opt) {
+            oracle = await runTomeOracle(initMsgBase, ringPoolSer);
+            console.log(`  [${snapName}] tome oracle: ${oracle.tupleCount} tuples x ${oracle.variants} tome variants`);
+            t.assert(oracle.tupleCount === combinations,
+                `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
+            t.assert(result.checked === oracle.tupleCount,
+                `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
+            // No feasible-count comparison in tome mode: production counts a
+            // leaf feasible when the OPTIMISTIC gate passes, which is a
+            // superset of any single candidate's feasibility.
+            for (const r of result.top5) {
+                t.assert(typeof r.guild_tome_idx === 'number',
+                    `${snapName}: tome-mode result entries carry guild_tome_idx`);
+            }
+        } else {
+            oracle = await runOracleEnumeration(initMsgBase, ringPoolSer);
+            console.log(`  [${snapName}] oracle: ${oracle.tupleCount} tuples, ${oracle.blocked} illegal-set blocked, ${oracle.feasible} feasible`);
 
-        t.assert(oracle.tupleCount === combinations,
-            `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
-        t.assert(result.checked === oracle.tupleCount,
-            `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
-        t.assert(result.feasible === oracle.feasible,
-            `${snapName}: production feasible ${result.feasible} == oracle ${oracle.feasible}`);
+            t.assert(oracle.tupleCount === combinations,
+                `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
+            t.assert(result.checked === oracle.tupleCount,
+                `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
+            t.assert(result.feasible === oracle.feasible,
+                `${snapName}: production feasible ${result.feasible} == oracle ${oracle.feasible}`);
+        }
 
         const prodScores = result.top5.map(r => r.score);
         const oracleScores = oracle.top.map(r => r.score);

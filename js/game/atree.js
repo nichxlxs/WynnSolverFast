@@ -55,7 +55,8 @@ add_spell_prop: {
                                     //     overwrite: set part. do nothing if not exist
     cost:           Optional[int]   // change to spellcost. If the spell is not spell 1-4, this must be left empty.
     multipliers:    Optional[array[float, 6]]   // Additive changes to spellmult (for damage spell)
-    max_hp_heal_pct: Optional[float] // Additive change to healing power (for heal spell)
+    power:          Optional[float] // Additive change to healing power (for heal spell). Data 2.2.3.0+.
+    max_hp_heal_pct: Optional[float] // Pre-2.2.3.0 spelling of `power`.
 
     hits:           Optional[Map[str, Union[str, float]]]   // Additive changes to hits (for total entry)
                                                             // Can either be a raw value number, or a reference
@@ -967,9 +968,15 @@ const atree_collect_spells = new (class extends ComputeNode {
                                 else { part.multipliers[idx] += v; }
                             }
                         }
-                        else if ('max_hp_heal_pct' in effect) {
-                            if (behavior === 'overwrite') { part.max_hp_heal_pct = effect.max_hp_heal_pct; }
-                            else { part.max_hp_heal_pct += effect.max_hp_heal_pct; }
+                        else if ('power' in effect || 'max_hp_heal_pct' in effect) {
+                            // Data 2.2.3.0 renamed this field to `power`. Read
+                            // whichever key the effect carries, and write back to
+                            // whichever key the target part already uses so that
+                            // old-version atrees keep round-tripping unchanged.
+                            const delta = ('power' in effect) ? effect.power : effect.max_hp_heal_pct;
+                            const key = ('power' in part) ? 'power' : 'max_hp_heal_pct';
+                            if (behavior === 'overwrite') { part[key] = delta; }
+                            else { part[key] += delta; }
                         }
                         else if ('hits' in effect) {
                             for (const [idx, _v] of Object.entries(effect.hits)) { // looks kinda similar to multipliers case... hmm... can we unify all of these three? (make healpower a list)

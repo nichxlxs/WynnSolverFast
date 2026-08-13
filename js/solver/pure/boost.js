@@ -283,7 +283,7 @@ function is_boost_relevant(entry, spell) {
     if (!spell) return true;  // no spell selected = show all
 
     const has_damage = spell.parts.some(p => 'multipliers' in p || 'hits' in p);
-    const has_heal = spell.parts.some(p => 'max_hp_heal_pct' in p || 'hits' in p);
+    const has_heal = spell.parts.some(p => spell_part_heal_power(p) !== undefined || 'hits' in p);
 
     const use_spell = (spell.scaling ?? 'spell') === 'spell';
 

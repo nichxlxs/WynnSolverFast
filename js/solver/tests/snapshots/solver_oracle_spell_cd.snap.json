@@ -1,11 +1,13 @@
 {
   "name": "solver_oracle_spell_cd",
-  "description": "Oracle: README build, truncated pools, combo_damage scoring \u2014 validates the score-ceiling gate against ungated Cartesian ground truth",
+  "description": "Oracle: README build, truncated pools, combo_damage scoring — validates the score-ceiling gate against ungated Cartesian ground truth",
   "url_hash": "CV0X60iCme0eDH05yb066M10tqDSw6qIW70yUUbcq6TEj1_GPYXkWG8403bbWA05oI10120XoeGMA00G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94482bHXiKG132KkBGeCAab2AWG0CKM2g0K8B50080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4224XoeGMAeW11At58K65oI1500",
   "scoring_target": "combo_damage",
   "time_limit_seconds": 60,
   "num_workers": 2,
   "free_mask": 3,
+  "max_pool_size": 8,
+  "oracle": true,
   "locked_items": {
     "leggings": {
       "name": "The Crossing",
@@ -32,9 +34,7 @@
       "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
     }
   },
-  "created": "2026-08-12T02:55:45.320Z",
-  "compress_hash": "cdc99a2213d372827a56bb31520f9e0ba0448789a2daba46bcb6c249f98ce65f",
-  "atree_hash": "88657abc7e0cccad546539a7ccfe13796b22a0e35923f4a38e13c4ceb138d24c",
-  "max_pool_size": 8,
-  "oracle": true
+  "created": "2026-08-13T03:21:27.585Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
 }

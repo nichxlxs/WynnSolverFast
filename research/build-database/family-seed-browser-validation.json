@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "validated_at": "2026-08-13T03:19:09.704Z",
+  "validator": "Playwright against the live official WynnBuilder after automatic migration to its current data",
+  "source_record_count": 6,
+  "results": [
+    {
+      "family": "cancelstack",
+      "weapon": "Trance",
+      "url": "https://wynnbuilder.github.io/builder/#CW0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+      "source_url": "https://wynnbuilder.github.io/builder/#CW0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 121,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.2.0 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    },
+    {
+      "family": "heavy_melee",
+      "weapon": "Vengeance",
+      "url": "https://wynnbuilder.github.io/builder/#CW04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+      "source_url": "https://wynnbuilder.github.io/builder/#CW04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 121,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.2.0 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    },
+    {
+      "family": "tierstack",
+      "weapon": "Fate",
+      "url": "https://wynnbuilder-beta.github.io/builder/#CT0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2",
+      "source_url": "https://wynnbuilder-beta.github.io/builder/#CT0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 121,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.0.21 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    },
+    {
+      "family": "spellsteal",
+      "weapon": "Oblivion",
+      "url": "https://wynnbuilder.github.io/builder/#CW0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+      "source_url": "https://wynnbuilder.github.io/builder/#CW0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 120,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.2.0 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    },
+    {
+      "family": "spell_sustained",
+      "weapon": "Divzer",
+      "url": "https://wynnbuilder.github.io/builder/#CW0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30",
+      "source_url": "https://wynnbuilder.github.io/builder/#CW0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 121,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.2.0 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    },
+    {
+      "family": "hybrid",
+      "weapon": "Divzer",
+      "url": "https://wynnbuilder.github.io/builder/#CW0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8",
+      "source_url": "https://wynnbuilder.github.io/builder/#CW0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8",
+      "final_url": "https://wynnbuilder.github.io/builder/#CX0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8",
+      "status": "current_functional",
+      "valid_current_builder": true,
+      "ability_tree_valid": true,
+      "ability_tree_completeness_proxy": 1,
+      "navigation_error": null,
+      "page_errors": [],
+      "current_game_version": "2.2.3.0",
+      "level": 121,
+      "error_text": "",
+      "atree_warning": "",
+      "ap_cost": 50,
+      "ap_cap": 50,
+      "confirm_messages": [
+        "This build was created in an older version of wynncraft (2.2.2.0 < 2.2.3.0). Would you like to update to the latest version? Updating may break the build and ability tree."
+      ],
+      "has_effective_hp": true
+    }
+  ]
+}

@@ -388,18 +388,28 @@ function eval_combo_damage_with_bp(combo_base, weapon_sm, parsed_combo, bp_confi
  * Worker passes scratch objects for zero-allocation; main thread passes null.
  *
  * @param {Object|null} scratch - Optional pre-allocated Maps:
- *   { pre_scale, pre_scale_nested, combo_base, combo_base_nested, atree }
+ *   { combo_base, combo_base_nested, atree }
+ * @param {Map|null} extra_stats - Additional additive stats merged last (tome bundle).
  */
 function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance_boost,
                                atree_merged, button_states, slider_states, static_boosts,
-                               scratch, scaling_opts) {
-    let pre_scale;
-    if (scratch?.pre_scale) {
-        _deep_clone_statmap_into(scratch.pre_scale, build_sm, scratch.pre_scale_nested);
-        pre_scale = scratch.pre_scale;
+                               scratch, scaling_opts, extra_stats) {
+    // One working map, not two. The pre-scale stats and the returned combo_base
+    // used to be separate clones of the build statmap, but nothing reads
+    // pre_scale after the atree scaling below is computed from it — neither
+    // atree_compute_scaling nor atree_eval_stat_effects mutates the stat map it
+    // is handed — so the second full deep clone was pure copying. On a wide
+    // search this runs once per leaf that reaches the score-ceiling gate, and
+    // the build statmap is hundreds of keys wide, which made the removed clone
+    // one of the largest single costs in the whole search.
+    let combo_base;
+    if (scratch?.combo_base) {
+        _deep_clone_statmap_into(scratch.combo_base, build_sm, scratch.combo_base_nested);
+        combo_base = scratch.combo_base;
     } else {
-        pre_scale = _deep_clone_statmap(build_sm);
+        combo_base = _deep_clone_statmap(build_sm);
     }
+    const pre_scale = combo_base;
     for (let i = 0; i < skp_order.length; i++) {
         pre_scale.set(skp_order[i], total_sp[i]);
     }
@@ -427,16 +437,13 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
             scaling_opts?.skip_edit ?? false);
     }
 
-    let combo_base;
-    if (scratch?.combo_base) {
-        _deep_clone_statmap_into(scratch.combo_base, pre_scale, scratch.combo_base_nested);
-        combo_base = scratch.combo_base;
-    } else {
-        combo_base = _deep_clone_statmap(pre_scale);
-    }
     _merge_into(combo_base, atree_scaled_stats);
     if (atree_var_stats) _merge_into(combo_base, atree_var_stats);
     _merge_into(combo_base, static_boosts);
+    // extra_stats is the tome bundle for this candidate (or the optimistic tome
+    // bound during gating). Merged last, like static_boosts, because tomes are
+    // plain additive stat bundles with no requirements of their own.
+    if (extra_stats) _merge_into(combo_base, extra_stats);
     return combo_base;
 }
 

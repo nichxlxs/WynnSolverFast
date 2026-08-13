@@ -1,0 +1,81 @@
+{
+  "name": "solver_family_hybrid_large",
+  "description": "Divzer hybrid large search. 3 ideal-build items provided; helmet, chestplate, leggings, boots, ring1, ring2 free.",
+  "benchmark_family": "hybrid",
+  "benchmark_size": "large",
+  "seed_build_id": "ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8",
+  "core_weapon": "Divzer",
+  "seed_score": 282400.7169377645,
+  "seed_item_names": [
+    "Nighthawk",
+    "Ornate Shadow Cloak",
+    "Asphyxia",
+    "Warchief",
+    "Vivisected",
+    "Vivisected",
+    "Diamond Static Bracelet",
+    "Achromatic Gloom"
+  ],
+  "provided_ideal_item_count": 3,
+  "provided_ideal_items": [
+    "Diamond Static Bracelet",
+    "Achromatic Gloom",
+    "Divzer"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring1",
+    "ring2"
+  ],
+  "url_hash": "CX0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8_GN4Poa9x7qX1iB80120W11000",
+  "scoring_target": "combo_damage",
+  "free_mask": 63,
+  "lvl_min": 105,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 10
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -250
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
+  "benchmark_only": true,
+  "calibrated_input_combinations": 98223840000,
+  "calibrated_search_combinations": 37581181200,
+  "combination_budget": {
+    "input_min": 73667880000,
+    "input_max": 122779800000,
+    "search_min": 28185885900,
+    "search_max": 46976476500
+  },
+  "locked_items": {
+    "bracelet": {
+      "name": "Diamond Static Bracelet",
+      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
+    },
+    "necklace": {
+      "name": "Achromatic Gloom",
+      "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
+    }
+  },
+  "created": "2026-08-13T03:59:33.974Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

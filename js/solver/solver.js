@@ -358,6 +358,29 @@ function _restore_from_url(solver_params) {
         if (inp) inp.value = solver_params.lvl_max;
     }
 
+    // Per-slot level overrides
+    if (solver_params.lvl_overrides) {
+        let any = false;
+        for (const slot of LVL_OVERRIDE_SLOTS) {
+            const ov = solver_params.lvl_overrides[slot];
+            if (!ov) continue;
+            any = true;
+            // Only refill sides that were explicitly set; a side stored as null
+            // must stay blank so it keeps inheriting the global bound.
+            const mn = document.getElementById('restr-lvl-min-' + slot);
+            const mx = document.getElementById('restr-lvl-max-' + slot);
+            if (mn) mn.value = (ov.min === null || ov.min === undefined) ? '' : ov.min;
+            if (mx) mx.value = (ov.max === null || ov.max === undefined) ? '' : ov.max;
+        }
+        // Open the panel when a link carries overrides, so they are visible
+        // rather than hidden behind a collapsed section.
+        if (any) {
+            const panel = document.getElementById('restr-lvl-perslot');
+            if (panel) panel.style.display = '';
+        }
+        if (typeof _refresh_lvl_perslot_indicator === 'function') _refresh_lvl_perslot_indicator();
+    }
+
     // No Major ID
     if (solver_params.nomaj) {
         const btn = document.getElementById('restr-no-major-id');
@@ -368,6 +391,28 @@ function _restore_from_url(solver_params) {
     if (solver_params.gtome) {
         const sel = document.getElementById('restr-guild-tome');
         if (sel) sel.value = String(solver_params.gtome);
+    }
+
+    // Tome optimisation mode
+    if (solver_params.tome_opt) {
+        const sel = document.getElementById('restr-tome-opt');
+        if (sel) sel.value = String(solver_params.tome_opt);
+        _refresh_tome_opt_state();
+    }
+
+    // Tome roll percentage assumed for solver-chosen tomes
+    if (solver_params.tome_roll !== undefined) {
+        const inp = document.getElementById('restr-tome-roll');
+        if (inp) inp.value = solver_params.tome_roll;
+    }
+
+    // Owned-tome inventory. Only applied when the link actually carries one:
+    // building the panel is data-driven work, and an absent inventory already
+    // means "owns everything", which is the panel's default state.
+    if (solver_params.tome_inventory) {
+        apply_tome_inventory(solver_params.tome_inventory);
+        const panel = document.getElementById('restr-tome-inventory');
+        if (panel) panel.style.display = '';
     }
 
     // Stat threshold rows (binary: structured array of {stat_index, op, value})
@@ -435,6 +480,30 @@ function _restore_from_url(solver_params) {
     }
 }
 
+/**
+ * Reflect the tome optimisation mode in the guild tome dropdown: when the
+ * solver is choosing the guild tome, the manual selection is inert, so grey it
+ * out rather than let it look load-bearing. An equipped tome in the guildTome1
+ * item slot still locks the choice regardless of this dropdown.
+ */
+function _refresh_tome_opt_state() {
+    const mode = parseInt(document.getElementById('restr-tome-opt')?.value) || 0;
+    const gsel = document.getElementById('restr-guild-tome');
+    if (gsel) {
+        gsel.disabled = mode >= 1;
+        gsel.title = mode >= 1
+            ? 'Chosen automatically by tome optimization (equip a tome in the guild tome slot to lock it instead)'
+            : 'Which guild tome is equipped. Every guild tome grants a fixed per-attribute skill point bonus, so the exact tome must be chosen — the bonus cannot be split across attributes.';
+    }
+    // The roll percentage only bites in All-tomes mode: guild tomes grant a
+    // fixed skill point bonus with nothing to roll. The inventory bites in both
+    // optimising modes. Grey each out where it would otherwise look load-bearing.
+    const roll_inp = document.getElementById('restr-tome-roll');
+    if (roll_inp) roll_inp.disabled = mode !== TOME_OPT_ALL;
+    const inv_btn = document.getElementById('restr-tome-inventory-toggle');
+    if (inv_btn) inv_btn.disabled = mode === TOME_OPT_OFF;
+}
+
 /** Wire all event listeners for restriction inputs, equipment slots, tooltips, and locks. */
 function _wire_event_listeners() {
     // Wire static restriction inputs so URL stays in sync as user edits them
@@ -442,8 +511,28 @@ function _wire_event_listeners() {
     if (restr_lvl_min) restr_lvl_min.addEventListener('input', _schedule_solver_hash_update);
     const restr_lvl_max = document.getElementById('restr-lvl-max');
     if (restr_lvl_max) restr_lvl_max.addEventListener('input', _schedule_solver_hash_update);
+    for (const slot of LVL_OVERRIDE_SLOTS) {
+        for (const id of ['restr-lvl-min-' + slot, 'restr-lvl-max-' + slot]) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.addEventListener('input', () => {
+                _refresh_lvl_perslot_indicator();
+                _schedule_solver_hash_update();
+            });
+        }
+    }
     const restr_guild_tome = document.getElementById('restr-guild-tome');
     if (restr_guild_tome) restr_guild_tome.addEventListener('change', _schedule_solver_hash_update);
+    const restr_tome_opt = document.getElementById('restr-tome-opt');
+    if (restr_tome_opt) restr_tome_opt.addEventListener('change', () => {
+        _refresh_tome_opt_state();
+        _schedule_solver_hash_update();
+    });
+    const restr_tome_roll = document.getElementById('restr-tome-roll');
+    if (restr_tome_roll) restr_tome_roll.addEventListener('input', _schedule_solver_hash_update);
+    // Reflect the initial mode (usually Off) so the tome roll and inventory
+    // start greyed out rather than looking like they apply.
+    _refresh_tome_opt_state();
 
     // When the user manually edits an equipment slot, update its lock state.
     // Entering an item → locked (solver keeps it).

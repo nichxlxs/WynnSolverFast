@@ -1,0 +1,1260 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-13T03:59:22.447Z",
+  "time_cap_seconds": 30,
+  "minimum_small_search_combinations": 1000001,
+  "maximum_large_input_combinations": 1880000000000,
+  "maximum_large_search_combinations": 1880000000000,
+  "roll_profile": {
+    "damage": 50,
+    "mana": 50,
+    "healing": 50,
+    "misc": 50
+  },
+  "scale_semantics": "Each family has small, medium, and large variants created only by changing how many equipment pieces from the ideal build remain locked. Search space means the post-dominance Cartesian space.",
+  "families": [
+    {
+      "family": "cancelstack",
+      "core_weapon": "Trance",
+      "seed_build_id": "ubg-trance-trance-riftwalker-melee-non-crafted-1",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0rkkvWHycp3ZRgpUnRgZfHCDIvHamn8lRgpmWW1W+tjqzDJMm2",
+      "seed_score": 476516.7353716639,
+      "seed_item_names": [
+        "Shawl of Gaea",
+        "Lithosphere",
+        "Writhing Growth",
+        "Boulderstorm",
+        "Vivisected",
+        "Vivisected",
+        "Ironleaf Bangle",
+        "Recalcitrance"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp",
+          "op": "ge",
+          "value": 18000
+        },
+        {
+          "stat": "ls",
+          "op": "ge",
+          "value": 0
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -200
+        },
+        {
+          "stat": "mainAttackRange",
+          "op": "ge",
+          "value": -20
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_cancelstack_small",
+          "family": "cancelstack",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Vivisected",
+            "Vivisected",
+            "Ironleaf Bangle",
+            "Recalcitrance",
+            "Trance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 198563904,
+          "calibrated_search_combinations": 76976100,
+          "combination_budget": {
+            "input_min": 148922928,
+            "input_max": 248204880,
+            "search_min": 57732075,
+            "search_max": 96220125
+          }
+        },
+        {
+          "snapshot": "solver_family_cancelstack_medium",
+          "family": "cancelstack",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Vivisected",
+            "Vivisected",
+            "Recalcitrance",
+            "Trance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "bracelet"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 15289420608,
+          "calibrated_search_combinations": 4079733300,
+          "combination_budget": {
+            "input_min": 11467065456,
+            "input_max": 19111775760,
+            "search_min": 3059799975,
+            "search_max": 5099666625
+          }
+        },
+        {
+          "snapshot": "solver_family_cancelstack_large",
+          "family": "cancelstack",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Vivisected",
+            "Recalcitrance",
+            "Trance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "bracelet"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 1024391180736,
+          "calibrated_search_combinations": 195827198400,
+          "combination_budget": {
+            "input_min": 768293385552,
+            "input_max": 1280488975920,
+            "search_min": 146870398800,
+            "search_max": 244783998000
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_cancelstack_known_good"
+    },
+    {
+      "family": "heavy_melee",
+      "core_weapon": "Vengeance",
+      "seed_build_id": "ubg-vengeance-vengeance-heavy-melee-shadestepper-non-crafted-2",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX04KQuCA3c1HXX6EE0n1827XD8xDRmna0m-ybq-j82BB",
+      "seed_score": 38613.608150629116,
+      "seed_item_names": [
+        "Obsidian-Framed Helmet",
+        "Taurus",
+        "Babel",
+        "Blind Thrust",
+        "Ad Terram",
+        "Ad Terram",
+        "Silent Grove",
+        "Auxetic Capacitor"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp",
+          "op": "ge",
+          "value": 18000
+        },
+        {
+          "stat": "ls",
+          "op": "ge",
+          "value": 0
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -100
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_heavy_melee_small",
+          "family": "heavy_melee",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Taurus",
+            "Ad Terram",
+            "Ad Terram",
+            "Auxetic Capacitor",
+            "Vengeance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "leggings",
+            "boots",
+            "bracelet"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 57758022,
+          "calibrated_search_combinations": 18216000,
+          "combination_budget": {
+            "input_min": 43318516,
+            "input_max": 72197528,
+            "search_min": 13662000,
+            "search_max": 22770000
+          }
+        },
+        {
+          "snapshot": "solver_family_heavy_melee_medium",
+          "family": "heavy_melee",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Ad Terram",
+            "Ad Terram",
+            "Auxetic Capacitor",
+            "Vengeance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "bracelet"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 5371496046,
+          "calibrated_search_combinations": 1256904000,
+          "combination_budget": {
+            "input_min": 4028622034,
+            "input_max": 6714370058,
+            "search_min": 942678000,
+            "search_max": 1571130000
+          }
+        },
+        {
+          "snapshot": "solver_family_heavy_melee_large",
+          "family": "heavy_melee",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Ad Terram",
+            "Auxetic Capacitor",
+            "Vengeance"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "bracelet"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 290060786484,
+          "calibrated_search_combinations": 50276160000,
+          "combination_budget": {
+            "input_min": 217545589863,
+            "input_max": 362575983105,
+            "search_min": 37707120000,
+            "search_max": 62845200000
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_heavy_melee_known_good"
+    },
+    {
+      "family": "tierstack",
+      "core_weapon": "Fate",
+      "seed_build_id": "ubg-fate-fate-tierstack-ritualist-standard-1",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0i21s1Cn3OVWw4CDI15amn8q6fpb0WsxDL3NNv4a2",
+      "seed_score": 166361.89991284287,
+      "seed_item_names": [
+        "Timeskip",
+        "Calidade Mail",
+        "Runebound Chains",
+        "Nether's Scar",
+        "Breezehands",
+        "Vivisected",
+        "Prowess",
+        "Recalcitrance"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp_no_agi",
+          "op": "ge",
+          "value": 12000
+        },
+        {
+          "stat": "atkTier",
+          "op": "ge",
+          "value": 3
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -100
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_tierstack_small",
+          "family": "tierstack",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Breezehands",
+            "Vivisected",
+            "Prowess",
+            "Recalcitrance",
+            "Fate"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 54521040,
+          "calibrated_search_combinations": 6854400,
+          "combination_budget": {
+            "input_min": 40890780,
+            "input_max": 68151300,
+            "search_min": 5140800,
+            "search_max": 8568000
+          }
+        },
+        {
+          "snapshot": "solver_family_tierstack_medium",
+          "family": "tierstack",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Breezehands",
+            "Prowess",
+            "Recalcitrance",
+            "Fate"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 2562488880,
+          "calibrated_search_combinations": 171360000,
+          "combination_budget": {
+            "input_min": 1921866660,
+            "input_max": 3203111100,
+            "search_min": 128520000,
+            "search_max": 214200000
+          }
+        },
+        {
+          "snapshot": "solver_family_tierstack_large",
+          "family": "tierstack",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Prowess",
+            "Recalcitrance",
+            "Fate"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 61499733120,
+          "calibrated_search_combinations": 2227680000,
+          "combination_budget": {
+            "input_min": 46124799840,
+            "input_max": 76874666400,
+            "search_min": 1670760000,
+            "search_max": 2784600000
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_tierstack_known_good"
+    },
+    {
+      "family": "spellsteal",
+      "core_weapon": "Oblivion",
+      "seed_build_id": "ubg-oblivion-oblivion-spell-shadestepper-non-crafted-1",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4",
+      "seed_score": 96191.52388364627,
+      "seed_item_names": [
+        "Prosencephalon",
+        "Umbral Mail",
+        "Chaos-Woven Greaves",
+        "Stardew",
+        "Yang",
+        "Photon",
+        "Misalignment",
+        "Metamorphosis"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp",
+          "op": "ge",
+          "value": 10000
+        },
+        {
+          "stat": "ms",
+          "op": "ge",
+          "value": 20
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -250
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_spellsteal_small",
+          "family": "spellsteal",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Yang",
+            "Photon",
+            "Misalignment",
+            "Metamorphosis",
+            "Oblivion"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 54521040,
+          "calibrated_search_combinations": 34424208,
+          "combination_budget": {
+            "input_min": 40890780,
+            "input_max": 68151300,
+            "search_min": 25818156,
+            "search_max": 43030260
+          }
+        },
+        {
+          "snapshot": "solver_family_spellsteal_medium",
+          "family": "spellsteal",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Yang",
+            "Misalignment",
+            "Metamorphosis",
+            "Oblivion"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 2562488880,
+          "calibrated_search_combinations": 1411392528,
+          "combination_budget": {
+            "input_min": 1921866660,
+            "input_max": 3203111100,
+            "search_min": 1058544396,
+            "search_max": 1764240660
+          }
+        },
+        {
+          "snapshot": "solver_family_spellsteal_large",
+          "family": "spellsteal",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Misalignment",
+            "Metamorphosis",
+            "Oblivion"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 61499733120,
+          "calibrated_search_combinations": 29639243088,
+          "combination_budget": {
+            "input_min": 46124799840,
+            "input_max": 76874666400,
+            "search_min": 22229432316,
+            "search_max": 37049053860
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_spellsteal_known_good"
+    },
+    {
+      "family": "spell_sustained",
+      "core_weapon": "Divzer",
+      "seed_build_id": "ubg-divzer-divzer-spell-boltslinger-non-crafted-1",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0o2tm9im6EfJsm1jv6E2QGG3OOG09TQsmfRGB1m-exVq7SEa30",
+      "seed_score": 1476409.9923970918,
+      "seed_item_names": [
+        "Jailbroken",
+        "Bete Noire",
+        "Chaos-Woven Greaves",
+        "Static Cling",
+        "Lodestone",
+        "Lodestone",
+        "Diamond Static Bracelet",
+        "Stormleader"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp",
+          "op": "ge",
+          "value": 8000
+        },
+        {
+          "stat": "ms",
+          "op": "ge",
+          "value": 20
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -300
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_spell_sustained_small",
+          "family": "spell_sustained",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Lodestone",
+            "Lodestone",
+            "Diamond Static Bracelet",
+            "Stormleader",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 198563904,
+          "calibrated_search_combinations": 99810090,
+          "combination_budget": {
+            "input_min": 148922928,
+            "input_max": 248204880,
+            "search_min": 74857567,
+            "search_max": 124762613
+          }
+        },
+        {
+          "snapshot": "solver_family_spell_sustained_medium",
+          "family": "spell_sustained",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Lodestone",
+            "Diamond Static Bracelet",
+            "Stormleader",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 13303781568,
+          "calibrated_search_combinations": 5788985220,
+          "combination_budget": {
+            "input_min": 9977836176,
+            "input_max": 16629726960,
+            "search_min": 4341738915,
+            "search_max": 7236231525
+          }
+        },
+        {
+          "snapshot": "solver_family_spell_sustained_large",
+          "family": "spell_sustained",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Diamond Static Bracelet",
+            "Stormleader",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 452328573312,
+          "calibrated_search_combinations": 170775063990,
+          "combination_budget": {
+            "input_min": 339246429984,
+            "input_max": 565410716640,
+            "search_min": 128081297992,
+            "search_max": 213468829988
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_spell_sustained_known_good"
+    },
+    {
+      "family": "hybrid",
+      "core_weapon": "Divzer",
+      "seed_build_id": "ubg-divzer-divzer-boltslinger-hybrid-non-crafted-1",
+      "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0cVAwCufe3dWYwZlcYwZfHCD266M1GdcDSM7qI830qFwzFuXx9S8",
+      "seed_score": 282400.7169377645,
+      "seed_item_names": [
+        "Nighthawk",
+        "Ornate Shadow Cloak",
+        "Asphyxia",
+        "Warchief",
+        "Vivisected",
+        "Vivisected",
+        "Diamond Static Bracelet",
+        "Achromatic Gloom"
+      ],
+      "seed_browser_validation": "research/build-database/family-seed-browser-validation.json",
+      "success_restrictions": [
+        {
+          "stat": "ehp",
+          "op": "ge",
+          "value": 10000
+        },
+        {
+          "stat": "ms",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "stat": "hpr",
+          "op": "ge",
+          "value": -250
+        }
+      ],
+      "variants": [
+        {
+          "snapshot": "solver_family_hybrid_small",
+          "family": "hybrid",
+          "size": "small",
+          "provided_ideal_item_count": 5,
+          "provided_ideal_items": [
+            "Vivisected",
+            "Vivisected",
+            "Diamond Static Bracelet",
+            "Achromatic Gloom",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 71280000,
+          "calibrated_search_combinations": 34765200,
+          "combination_budget": {
+            "input_min": 53460000,
+            "input_max": 89100000,
+            "search_min": 26073900,
+            "search_max": 43456500
+          }
+        },
+        {
+          "snapshot": "solver_family_hybrid_medium",
+          "family": "hybrid",
+          "size": "medium",
+          "provided_ideal_item_count": 4,
+          "provided_ideal_items": [
+            "Vivisected",
+            "Diamond Static Bracelet",
+            "Achromatic Gloom",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 3706560000,
+          "calibrated_search_combinations": 1599199200,
+          "combination_budget": {
+            "input_min": 2779920000,
+            "input_max": 4633200000,
+            "search_min": 1199399400,
+            "search_max": 1998999000
+          }
+        },
+        {
+          "snapshot": "solver_family_hybrid_large",
+          "family": "hybrid",
+          "size": "large",
+          "provided_ideal_item_count": 3,
+          "provided_ideal_items": [
+            "Diamond Static Bracelet",
+            "Achromatic Gloom",
+            "Divzer"
+          ],
+          "free_equipment_slots": [
+            "helmet",
+            "chestplate",
+            "leggings",
+            "boots",
+            "ring1",
+            "ring2"
+          ],
+          "time_cap_seconds": 30,
+          "calibrated_input_combinations": 98223840000,
+          "calibrated_search_combinations": 37581181200,
+          "combination_budget": {
+            "input_min": 73667880000,
+            "input_max": 122779800000,
+            "search_min": 28185885900,
+            "search_max": 46976476500
+          }
+        }
+      ],
+      "known_good_snapshot": "solver_family_hybrid_known_good"
+    }
+  ],
+  "scenarios": [
+    {
+      "snapshot": "solver_family_cancelstack_small",
+      "family": "cancelstack",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Vivisected",
+        "Vivisected",
+        "Ironleaf Bangle",
+        "Recalcitrance",
+        "Trance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 198563904,
+      "calibrated_search_combinations": 76976100,
+      "combination_budget": {
+        "input_min": 148922928,
+        "input_max": 248204880,
+        "search_min": 57732075,
+        "search_max": 96220125
+      }
+    },
+    {
+      "snapshot": "solver_family_cancelstack_medium",
+      "family": "cancelstack",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Vivisected",
+        "Vivisected",
+        "Recalcitrance",
+        "Trance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "bracelet"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 15289420608,
+      "calibrated_search_combinations": 4079733300,
+      "combination_budget": {
+        "input_min": 11467065456,
+        "input_max": 19111775760,
+        "search_min": 3059799975,
+        "search_max": 5099666625
+      }
+    },
+    {
+      "snapshot": "solver_family_cancelstack_large",
+      "family": "cancelstack",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Vivisected",
+        "Recalcitrance",
+        "Trance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "bracelet"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 1024391180736,
+      "calibrated_search_combinations": 195827198400,
+      "combination_budget": {
+        "input_min": 768293385552,
+        "input_max": 1280488975920,
+        "search_min": 146870398800,
+        "search_max": 244783998000
+      }
+    },
+    {
+      "snapshot": "solver_family_heavy_melee_small",
+      "family": "heavy_melee",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Taurus",
+        "Ad Terram",
+        "Ad Terram",
+        "Auxetic Capacitor",
+        "Vengeance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "leggings",
+        "boots",
+        "bracelet"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 57758022,
+      "calibrated_search_combinations": 18216000,
+      "combination_budget": {
+        "input_min": 43318516,
+        "input_max": 72197528,
+        "search_min": 13662000,
+        "search_max": 22770000
+      }
+    },
+    {
+      "snapshot": "solver_family_heavy_melee_medium",
+      "family": "heavy_melee",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Ad Terram",
+        "Ad Terram",
+        "Auxetic Capacitor",
+        "Vengeance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "bracelet"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 5371496046,
+      "calibrated_search_combinations": 1256904000,
+      "combination_budget": {
+        "input_min": 4028622034,
+        "input_max": 6714370058,
+        "search_min": 942678000,
+        "search_max": 1571130000
+      }
+    },
+    {
+      "snapshot": "solver_family_heavy_melee_large",
+      "family": "heavy_melee",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Ad Terram",
+        "Auxetic Capacitor",
+        "Vengeance"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "bracelet"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 290060786484,
+      "calibrated_search_combinations": 50276160000,
+      "combination_budget": {
+        "input_min": 217545589863,
+        "input_max": 362575983105,
+        "search_min": 37707120000,
+        "search_max": 62845200000
+      }
+    },
+    {
+      "snapshot": "solver_family_tierstack_small",
+      "family": "tierstack",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Breezehands",
+        "Vivisected",
+        "Prowess",
+        "Recalcitrance",
+        "Fate"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 54521040,
+      "calibrated_search_combinations": 6854400,
+      "combination_budget": {
+        "input_min": 40890780,
+        "input_max": 68151300,
+        "search_min": 5140800,
+        "search_max": 8568000
+      }
+    },
+    {
+      "snapshot": "solver_family_tierstack_medium",
+      "family": "tierstack",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Breezehands",
+        "Prowess",
+        "Recalcitrance",
+        "Fate"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 2562488880,
+      "calibrated_search_combinations": 171360000,
+      "combination_budget": {
+        "input_min": 1921866660,
+        "input_max": 3203111100,
+        "search_min": 128520000,
+        "search_max": 214200000
+      }
+    },
+    {
+      "snapshot": "solver_family_tierstack_large",
+      "family": "tierstack",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Prowess",
+        "Recalcitrance",
+        "Fate"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 61499733120,
+      "calibrated_search_combinations": 2227680000,
+      "combination_budget": {
+        "input_min": 46124799840,
+        "input_max": 76874666400,
+        "search_min": 1670760000,
+        "search_max": 2784600000
+      }
+    },
+    {
+      "snapshot": "solver_family_spellsteal_small",
+      "family": "spellsteal",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Yang",
+        "Photon",
+        "Misalignment",
+        "Metamorphosis",
+        "Oblivion"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 54521040,
+      "calibrated_search_combinations": 34424208,
+      "combination_budget": {
+        "input_min": 40890780,
+        "input_max": 68151300,
+        "search_min": 25818156,
+        "search_max": 43030260
+      }
+    },
+    {
+      "snapshot": "solver_family_spellsteal_medium",
+      "family": "spellsteal",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Yang",
+        "Misalignment",
+        "Metamorphosis",
+        "Oblivion"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 2562488880,
+      "calibrated_search_combinations": 1411392528,
+      "combination_budget": {
+        "input_min": 1921866660,
+        "input_max": 3203111100,
+        "search_min": 1058544396,
+        "search_max": 1764240660
+      }
+    },
+    {
+      "snapshot": "solver_family_spellsteal_large",
+      "family": "spellsteal",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Misalignment",
+        "Metamorphosis",
+        "Oblivion"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 61499733120,
+      "calibrated_search_combinations": 29639243088,
+      "combination_budget": {
+        "input_min": 46124799840,
+        "input_max": 76874666400,
+        "search_min": 22229432316,
+        "search_max": 37049053860
+      }
+    },
+    {
+      "snapshot": "solver_family_spell_sustained_small",
+      "family": "spell_sustained",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Lodestone",
+        "Lodestone",
+        "Diamond Static Bracelet",
+        "Stormleader",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 198563904,
+      "calibrated_search_combinations": 99810090,
+      "combination_budget": {
+        "input_min": 148922928,
+        "input_max": 248204880,
+        "search_min": 74857567,
+        "search_max": 124762613
+      }
+    },
+    {
+      "snapshot": "solver_family_spell_sustained_medium",
+      "family": "spell_sustained",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Lodestone",
+        "Diamond Static Bracelet",
+        "Stormleader",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 13303781568,
+      "calibrated_search_combinations": 5788985220,
+      "combination_budget": {
+        "input_min": 9977836176,
+        "input_max": 16629726960,
+        "search_min": 4341738915,
+        "search_max": 7236231525
+      }
+    },
+    {
+      "snapshot": "solver_family_spell_sustained_large",
+      "family": "spell_sustained",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Diamond Static Bracelet",
+        "Stormleader",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 452328573312,
+      "calibrated_search_combinations": 170775063990,
+      "combination_budget": {
+        "input_min": 339246429984,
+        "input_max": 565410716640,
+        "search_min": 128081297992,
+        "search_max": 213468829988
+      }
+    },
+    {
+      "snapshot": "solver_family_hybrid_small",
+      "family": "hybrid",
+      "size": "small",
+      "provided_ideal_item_count": 5,
+      "provided_ideal_items": [
+        "Vivisected",
+        "Vivisected",
+        "Diamond Static Bracelet",
+        "Achromatic Gloom",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 71280000,
+      "calibrated_search_combinations": 34765200,
+      "combination_budget": {
+        "input_min": 53460000,
+        "input_max": 89100000,
+        "search_min": 26073900,
+        "search_max": 43456500
+      }
+    },
+    {
+      "snapshot": "solver_family_hybrid_medium",
+      "family": "hybrid",
+      "size": "medium",
+      "provided_ideal_item_count": 4,
+      "provided_ideal_items": [
+        "Vivisected",
+        "Diamond Static Bracelet",
+        "Achromatic Gloom",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 3706560000,
+      "calibrated_search_combinations": 1599199200,
+      "combination_budget": {
+        "input_min": 2779920000,
+        "input_max": 4633200000,
+        "search_min": 1199399400,
+        "search_max": 1998999000
+      }
+    },
+    {
+      "snapshot": "solver_family_hybrid_large",
+      "family": "hybrid",
+      "size": "large",
+      "provided_ideal_item_count": 3,
+      "provided_ideal_items": [
+        "Diamond Static Bracelet",
+        "Achromatic Gloom",
+        "Divzer"
+      ],
+      "free_equipment_slots": [
+        "helmet",
+        "chestplate",
+        "leggings",
+        "boots",
+        "ring1",
+        "ring2"
+      ],
+      "time_cap_seconds": 30,
+      "calibrated_input_combinations": 98223840000,
+      "calibrated_search_combinations": 37581181200,
+      "combination_budget": {
+        "input_min": 73667880000,
+        "input_max": 122779800000,
+        "search_min": 28185885900,
+        "search_max": 46976476500
+      }
+    }
+  ]
+}

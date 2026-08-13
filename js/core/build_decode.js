@@ -690,13 +690,13 @@ function decodeSolverParams(b64_str) {
         if (version === 0) {
             version = cursor.advanceBy(4);  // extended version (8-15)
         }
-        if (version > 10) {
+        if (version > 11) {
             console.warn('[decode] decodeSolverParams: unknown version', version);
             return null;
         }
 
-        // ── Presence bitmask (10 bits) ──
-        const presence = cursor.advanceBy(10);
+        // ── Presence bitmask (10 bits pre-v11, 16 from v11) ──
+        const presence = cursor.advanceBy(version >= 11 ? 16 : 10);
 
         // ── Conditional fixed fields (defaults from _SOLVER_DEFAULTS) ──
         // v2: single 7-bit roll → all groups get that value.
@@ -722,7 +722,30 @@ function decodeSolverParams(b64_str) {
         const lvl_min = (presence & (1 << 3)) ? cursor.advanceBy(7) + 1 : _SOLVER_DEFAULTS.lvl_min;
         const lvl_max = (presence & (1 << 4)) ? cursor.advanceBy(7) + 1 : max_lvl;
         const nomaj = (presence & (1 << 5)) ? cursor.advanceBy(1) === 1 : _SOLVER_DEFAULTS.nomaj;
-        const gtome = (presence & (1 << 6)) ? cursor.advanceBy(2) : _SOLVER_DEFAULTS.gtome;
+        // gtome widened from 2 to 3 bits in v11 when "Standard (+4 SP)" was
+        // replaced by explicit per-tome selection.
+        let gtome;
+        if (presence & (1 << 6)) {
+            const raw = cursor.advanceBy(version >= 11 ? 3 : 2);
+            if (version >= 11) {
+                gtome = raw;
+            } else if (raw === 2) {
+                gtome = GUILD_TOME_RAINBOW;      // legacy Rainbow -> the real tome
+            } else if (raw === 1) {
+                // Legacy "Standard (+4 SP)" was a freely-distributable budget
+                // bump that no real guild tome can produce. There is no correct
+                // tome to map it to, so fall back to none: that can only ever
+                // understate the build, never claim SP it cannot have.
+                console.warn('[decode] legacy guild tome "Standard (+4 SP)" is not a real tome '
+                    + '(the bonus cannot be split across attributes); falling back to Off. '
+                    + 'Re-select the specific guild tome you use.');
+                gtome = 0;
+            } else {
+                gtome = 0;
+            }
+        } else {
+            gtome = _SOLVER_DEFAULTS.gtome;
+        }
         const dtime = (presence & (1 << 7)) ? cursor.advanceBy(1) === 1 : _SOLVER_DEFAULTS.dtime;
         let mana_disabled;
         if (version >= 5) {
@@ -732,6 +755,49 @@ function decodeSolverParams(b64_str) {
             // v3/v4: bit 8 had a 10-bit ctime payload — read and discard
             if (presence & (1 << 8)) cursor.advanceBy(10);
             mana_disabled = false;
+        }
+
+        // v11+: bit 9 carries per-slot item-level overrides. Older versions
+        // never set it (it was flat_mana in v5 and removed in v6), so nothing
+        // to skip on the legacy path.
+        // Written before lvl_overrides so the two stay in bit order.
+        const tome_opt = (version >= 11 && (presence & (1 << 10))) ? cursor.advanceBy(2) : 0;
+
+        const tome_roll_default = (typeof TOME_ROLL_DEFAULT !== 'undefined') ? TOME_ROLL_DEFAULT : 80;
+        const tome_roll = (version >= 11 && (presence & (1 << 11)))
+            ? cursor.advanceBy(7) : tome_roll_default;
+
+        // Owned-tome inventory: a list of ids plus a polarity bit saying whether
+        // the list names what the user HAS or what they LACK (see the layout
+        // note in build_encode.js). Absent = owns everything, which decodes to
+        // null so the solver skips inventory filtering entirely.
+        let tome_inventory = null;
+        if (version >= 11 && (presence & (1 << 12))) {
+            const polarity = cursor.advanceBy(1);
+            const count = cursor.advanceBy(8);
+            const listed = [];
+            for (let i = 0; i < count; i++) listed.push(cursor.advanceBy(8));
+            if (polarity === 0) {
+                // Sorted so both polarities return the same order for the same
+                // set — read_tome_inventory sorts to match.
+                tome_inventory = listed.sort((a, b) => a - b);
+            } else {
+                const missing = new Set(listed);
+                tome_inventory = _solver_tome_universe().filter(id => !missing.has(id));
+            }
+        }
+
+        const lvl_overrides = {};
+        if (version >= 11 && (presence & (1 << 9))) {
+            const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
+            const mask = cursor.advanceBy(7);
+            for (let i = 0; i < slot_names.length; i++) {
+                if (!(mask & (1 << i))) continue;
+                const flags = cursor.advanceBy(2);
+                const omin = (flags & 1) ? cursor.advanceBy(7) + 1 : null;
+                const omax = (flags & 2) ? cursor.advanceBy(7) + 1 : null;
+                lvl_overrides[slot_names[i]] = { min: omin, max: omax };
+            }
         }
         // v5 and earlier: bit 9 was flat_mana (10-bit signed) — read and discard.
         // v6+: bit 9 is unused.
@@ -848,7 +914,8 @@ function decodeSolverParams(b64_str) {
         }
 
         return {
-            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, nomaj, gtome, dtime, mana_disabled,
+            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides,
+            tome_opt, tome_roll, tome_inventory, nomaj, gtome, dtime, mana_disabled,
             restrictions, combo_rows, blacklist_ids, custom_weights
         };
     } catch (e) {

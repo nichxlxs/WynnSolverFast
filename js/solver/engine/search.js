@@ -81,13 +81,21 @@ function _build_item_pools(restrictions, illegal_at_2 = new Set(), blacklist = n
     for (const [slot, type] of Object.entries(slot_types)) {
         const pool = [];
         const names = itemLists.get(type) ?? [];
+        // Per-slot level override, falling back to the global range. `ring` is a
+        // single shared pool feeding both ring slots, so it carries one override
+        // for the pair — see TOME_AND_LEVEL_PLAN.md "Ring caveat": giving the two
+        // rings different ranges would break the ring canonicalisation that stops
+        // (A,B) and (B,A) both being enumerated.
+        const override = restrictions.lvl_overrides?.[slot];
+        const slot_lvl_min = override?.min ?? restrictions.lvl_min;
+        const slot_lvl_max = override?.max ?? restrictions.lvl_max;
         for (const name of names) {
             const item_obj = itemMap.get(name);
             if (!item_obj) continue;
             if (item_obj.name?.startsWith('No ')) continue;
             if (blacklist.has(name)) continue;
             const lvl = item_obj.lvl ?? 0;
-            if (lvl < restrictions.lvl_min || lvl > restrictions.lvl_max) continue;
+            if (lvl < slot_lvl_min || lvl > slot_lvl_max) continue;
             if (restrictions.no_major_id && item_obj.majorIds?.length > 0) continue;
             let skip = false;
             for (let i = 0; i < 5; i++) {
@@ -238,21 +246,29 @@ function _build_solver_snapshot(restrictions) {
         : new Item(none_tomes[2]);
 
     const has_real_guild_tome = !guild_tome_item.statMap.has('NONE');
-    let sp_budget = levelToSkillPoints(level);
-    if (!has_real_guild_tome) {
-        const gtome_mode = restrictions.guild_tome ?? 0;
-        if (gtome_mode === 1) {
-            // TODO: Standard mode currently inflates sp_budget by +4 with no
-            // per-attribute constraint, allowing the solver to split the bonus
-            // across attributes (e.g. [102,102,0,0,0]).
-
-            // Standard: +4 freely assignable SP (solver picks optimal distribution)
-            sp_budget = levelToSkillPoints(level) + 4;
-        } else if (gtome_mode === 2) {
-            // Rainbow: fixed [1,1,1,1,1] — create synthetic tome so SP calc
-            // sees the exact per-attribute contribution (not freely distributable)
+    // The assignable budget never changes with the guild tome. Every guild tome
+    // is a skill-point item granting a FIXED per-attribute amount, so it is
+    // modelled as a real item statMap and counted as bonus skillpoints inside
+    // calculate_skillpoints — exactly as an equipped tome would be.
+    //
+    // This deliberately replaces the pre-v11 "Standard (+4 SP)" mode, which
+    // inflated sp_budget by 4 with no per-attribute constraint and so let the
+    // solver spread the bonus (e.g. [102,102,0,0,0]) — a distribution no guild
+    // tome can actually produce. See GUILD_TOMES in solver/constants.js.
+    const sp_budget = levelToSkillPoints(level);
+    // The dropdown only contributes when the SOLVER is not choosing the guild
+    // tome. With optimisation on the UI greys the dropdown out and says the
+    // choice is automatic, so letting its stale value flow into guild_tome_sm
+    // would contradict that: it skews the SP baseline, seeds the current-build
+    // evaluation with a tome the solver may not pick, and — wherever the
+    // candidate list is absent — gets used outright. An equipped tome in the
+    // item slot is a real lock and still wins over both.
+    const solver_picks_guild_tome = (restrictions.tome_opt ?? 0) >= 1;
+    if (!has_real_guild_tome && !solver_picks_guild_tome) {
+        const gtome_choice = GUILD_TOMES[restrictions.guild_tome ?? 0] ?? GUILD_TOMES[0];
+        if (gtome_choice.sp.some(v => v !== 0)) {
             const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
+            synth.set('skillpoints', gtome_choice.sp.slice());
             synth.set('reqs', [0, 0, 0, 0, 0]);
             guild_tome_item = { statMap: synth };
         }
@@ -350,6 +366,9 @@ function _build_solver_snapshot(restrictions) {
         guild_tome_item, spell_map, boost_registry, parsed_combo,
         restrictions, button_states, slider_states, scoring_target, custom_weights,
         combo_time, allow_downtime, hp_casting, has_dynamic_sliders, health_config, auto_slider_names: [...auto_slider_names], spell_base_costs,
+        tome_opt: restrictions.tome_opt ?? 0,
+        tome_roll: restrictions.tome_roll ?? TOME_ROLL_DEFAULT,
+        tome_inventory: restrictions.tome_inventory ?? null,
     };
 }
 
@@ -517,6 +536,10 @@ function _merge_worker_top5(workers, include_interim) {
                     total_sp: r.total_sp ?? [0, 0, 0, 0, 0],
                     assigned_sp: r.assigned_sp ?? 0,
                 };
+                // Tome optimisation: which guild tome / weapon+armour tomes
+                // this result assumes (absent when optimisation is off).
+                if (typeof r.guild_tome_idx === 'number') merged.guild_tome_idx = r.guild_tome_idx;
+                if (r.tome_names) merged.tome_names = r.tome_names;
                 if (r._debug_combo_base) merged._debug_combo_base = r._debug_combo_base;
                 _insert_top5(merged);
             }
@@ -771,6 +794,47 @@ function _fill_build_into_ui(result) {
             }
         }
     }
+    // Apply the chosen guild tome so the displayed build's SP math matches the
+    // solver's result. idx 0 = "none" (the solver chose no guild tome); -1 or
+    // absent = the guild slot was fixed, leave the dropdown alone.
+    if (typeof result.guild_tome_idx === 'number' && result.guild_tome_idx >= 0) {
+        const sel = document.getElementById('restr-guild-tome');
+        if (sel && sel.value !== String(result.guild_tome_idx)) {
+            sel.value = String(result.guild_tome_idx);
+            sel.dispatchEvent(new Event('change'));
+        }
+    }
+
+    // Apply the chosen weapon/armour tomes into their slots so the displayed
+    // stats and the generated build link match the ranked score. Only slots
+    // that are empty or that the solver itself filled are touched — a tome the
+    // user equipped is a lock and is never overwritten. This runs even for
+    // results with no tome fields (the seed build, default mode): the chosen
+    // list is then empty, which CLEARS solver-filled leftovers from a
+    // previously applied result instead of leaving stale tomes under a score
+    // that never assumed them. All entries carry solverFilled so the next
+    // search still treats them as optimisable.
+    {
+        for (const type of ['weaponTome', 'armorTome']) {
+            const chosen = [...(result.tome_names?.[type] ?? [])];
+            for (let ti = 0; ti < tome_fields.length; ti++) {
+                if (!tome_fields[ti].startsWith(type)) continue;
+                const input = document.getElementById(tome_fields[ti] + '-choice');
+                if (!input) continue;
+                const user_locked = input.value !== '' && input.dataset.solverFilled !== 'true';
+                if (user_locked) continue;
+                const next = chosen.shift() ?? '';
+                if (input.value !== next) {
+                    input.dataset.solverFilled = next ? 'true' : '';
+                    input.value = next;
+                    input.dispatchEvent(new Event('change'));
+                    any_item_changed = true;
+                } else if (next) {
+                    input.dataset.solverFilled = 'true';
+                }
+            }
+        }
+    }
     _solver_filling_ui = false;
     _schedule_solver_hash_update();
 
@@ -790,7 +854,17 @@ function _build_result_row(r, i, target) {
         return item.statMap.get('displayName') ?? item.statMap.get('name') ?? '?';
     });
     const non_none = item_names.filter(n => n !== '\u2014');
-    const names_str = non_none.length ? non_none.join(', ') : '(all empty)';
+    let names_str = non_none.length ? non_none.join(', ') : '(all empty)';
+    // Chosen tomes (tome optimisation): guild tome label + any bundle tomes.
+    const tome_bits = [];
+    if (typeof r.guild_tome_idx === 'number' && r.guild_tome_idx >= 0) {
+        const g = GUILD_TOMES[r.guild_tome_idx];
+        if (g && g.key !== 'none') tome_bits.push('Guild: ' + g.label);
+    }
+    const flat_tomes = r.tome_names
+        ? [...(r.tome_names.weaponTome ?? []), ...(r.tome_names.armorTome ?? [])] : [];
+    if (flat_tomes.length) tome_bits.push('Tomes: ' + flat_tomes.join(', '));
+    if (tome_bits.length) names_str += ' \u2022 ' + tome_bits.join(' \u2022 ');
     const result_hash = solver_compute_result_hash(r);
     let new_tab_link = '';
     if (result_hash) {
@@ -1044,6 +1118,184 @@ function _get_none_sms() {
     return { none_item_sms: _cached_none_sms, none_idx_map: _cached_none_idx_map };
 }
 
+
+// ── Tome optimisation preparation ────────────────────────────────────────────
+
+/**
+ * Build the tome-search inputs for the workers and stash them on the snapshot:
+ *   snap.guild_tome_candidates — [{idx, sm}] guild choices ("none" + the six
+ *     real tomes), or null when the guildTome1 item slot holds a real tome
+ *     (an equipped tome is a lock, same semantics as gear slots).
+ *   snap.tome_wa_bundles — Pareto front of weapon/armour tome bundles over the
+ *     EMPTY weapon/armour tome slots, scoped to the stats this search actually
+ *     scores or filters on. Equipped tomes stay locked; their stats already
+ *     flow through tome_sms, so bundles only ever fill empty slots.
+ *   snap.tome_bound — per-key maximum across the bundles, folded into the
+ *     workers' ge-prechecks so tome-rescuable gearsets survive enumeration.
+ *
+ * The bundle front is computed ONCE here, not per leaf — bundles do not depend
+ * on the gear. Scoping the front to the search's own stat set is what keeps it
+ * small (measured: 56,700 bundles over all combat stats vs ~6 scoped).
+ */
+function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
+    snap.guild_tome_candidates = null;
+    snap.tome_wa_bundles = null;
+    snap.tome_bound = null;
+    const mode = snap.tome_opt ?? 0;
+    if (!mode) return;
+
+    // Guild candidates — skipped when a real tome is equipped in the slot.
+    const gt_idx = tome_fields.indexOf('guildTome1');
+    const gt_val = (gt_idx >= 0) ? solver_item_final_nodes[9 + gt_idx]?.value : null;
+    const guild_locked = !!(gt_val && !gt_val.statMap.has('NONE'));
+    const inventory = snap.tome_inventory ?? null;
+    if (!guild_locked) {
+        const cands = [{ idx: 0, sm: new Item(none_tomes[2]).statMap }];
+        for (let i = 1; i < GUILD_TOMES.length; i++) {
+            // Guild tomes are level-gated items (all currently level 100). A
+            // build below that level cannot equip any of them, so offering
+            // them would let the optimiser rank builds on skill points the
+            // player cannot have. Resolve the real tome by skill point vector
+            // (see guild_tome_real — a name lookup silently misses four of six)
+            // so both this gate and the inventory check below actually bite.
+            const real = guild_tome_real(i);
+            if ((real?.lvl ?? 100) > snap.level) continue;
+            // The inventory constrains what the solver may PROPOSE. A tome the
+            // user equipped by hand is a lock and is never filtered (that path
+            // exits above, via guild_locked).
+            if (real && !tome_inventory_allows(inventory, real)) continue;
+            cands.push({ idx: i, sm: guild_tome_statmap(i) });
+        }
+        // Always keep the list, even when only "none" survived the level gate
+        // and the inventory. A null list means "the guild tome is FIXED" to the
+        // worker, which then falls back to guild_tome_sm — the manual dropdown
+        // that the UI greys out in this mode. Collapsing to null there would
+        // hand back builds wearing a tome the user just excluded.
+        snap.guild_tome_candidates = cands;
+    }
+
+    if (mode !== TOME_OPT_ALL) return;
+
+    // Empty weapon/armour tome slots are the ones bundles may fill. A slot the
+    // SOLVER filled when a previous result was applied counts as empty too —
+    // mirroring gear-slot semantics, where dataset.solverFilled distinguishes
+    // "user equipped this" (a lock) from "the last result put this here".
+    const empty = { weaponTome: 0, armorTome: 0 };
+    for (let ti = 0; ti < tome_fields.length; ti++) {
+        const type = tome_fields[ti].replace(/[0-9]/g, '');
+        if (!(type in empty)) continue;
+        const input = document.getElementById(tome_fields[ti] + '-choice');
+        if (input?.dataset?.solverFilled === 'true') { empty[type]++; continue; }
+        const v = solver_item_final_nodes[9 + ti]?.value;
+        if (!v || v.statMap.has('NONE')) empty[type]++;
+    }
+    if (empty.weaponTome === 0 && empty.armorTome === 0) return;
+
+    // Rolled tome pools at the TOME roll percentage, not the item one: a tome
+    // the solver proposes is hypothetical, so its stats are an assumption about
+    // what the user would roll. Rolled IDs live in maxRolls (see tome_stat) —
+    // reading top-level keys silently yields zero.
+    const pools = { weaponTome: [], armorTome: [] };
+    with_tome_roll(snap.tome_roll, () => {
+        for (const [, raw] of tomeMap) {
+            if (!(raw.type in pools)) continue;
+            if ((raw.name || '').startsWith('No ')) continue;
+            if ((raw.lvl ?? 0) > snap.level) continue;
+            if (!tome_inventory_allows(inventory, raw)) continue;
+            pools[raw.type].push(_apply_roll_mode_to_item(new Item(raw)).statMap);
+        }
+    });
+
+    // Scoped key set: dominance stats (the search's scoring surface plus its
+    // restriction stats, with direction) limited to keys any tome carries.
+    const tome_keys = new Set();
+    for (const type of Object.keys(pools)) {
+        for (const sm of pools[type]) {
+            const rolled = sm.get('maxRolls');
+            if (rolled) for (const k of rolled.keys()) tome_keys.add(k);
+        }
+    }
+    const keys = [];
+    const signs = [];
+    for (const k of dominance_stats.higher ?? []) {
+        if (tome_keys.has(k)) { keys.push(k); signs.push(1); }
+    }
+    for (const k of dominance_stats.lower ?? []) {
+        if (tome_keys.has(k) && !keys.includes(k)) { keys.push(k); signs.push(-1); }
+    }
+    // Equality-scoped stats (score-positive but le-capped): neither direction
+    // is safely better, so a dominator must match them exactly. Without this a
+    // higher-tier tome could prune the only cap-compliant variant.
+    for (const k of dominance_stats.equal ?? []) {
+        if (tome_keys.has(k) && !keys.includes(k)) { keys.push(k); signs.push(0); }
+    }
+    if (keys.length === 0) {
+        // Either the search reads nothing a tome can carry, or the inventory
+        // left no tome to read it from. Leaving the front null removes the
+        // bundle dimension entirely so workers run their plain path; guild
+        // optimisation is unaffected, its candidates are already set above.
+        return;
+    }
+
+    // Per-type: dominance-prune, add the empty-slot option, enumerate multiset
+    // bundles, Pareto-prune. The none tome survives only where a key is
+    // negatively scoped ('le' restriction), where an empty slot can win.
+    const none_sm = new Map();
+    const fronts = {};
+    for (const type of Object.keys(pools)) {
+        const count = empty[type];
+        if (count === 0) { fronts[type] = [{ vec: keys.map(() => 0), picks: [] }]; continue; }
+        const pruned = tome_prune_dominated(pools[type], keys, signs);
+        pruned.push(none_sm);
+        fronts[type] = tome_bundles(pruned, count, keys, signs);
+    }
+
+    // Cross product of the two per-type fronts → concrete bundles for the
+    // workers: summed stat Maps (rolled values, unsigned) + display names.
+    const bundles = [];
+    for (const wb of fronts.weaponTome) {
+        for (const ab of fronts.armorTome) {
+            const stats = new Map();
+            const names = { weaponTome: [], armorTome: [] };
+            for (const [type, picklist] of [['weaponTome', wb.picks], ['armorTome', ab.picks]]) {
+                for (const sm of picklist) {
+                    if (sm === none_sm) continue;
+                    const rolled = sm.get('maxRolls');
+                    if (rolled) {
+                        for (const k of rolled.keys()) {
+                            const v = tome_stat(sm, k);
+                            if (v) stats.set(k, (stats.get(k) ?? 0) + v);
+                        }
+                    }
+                    names[type].push(sm.get('displayName') ?? sm.get('name') ?? '?');
+                }
+            }
+            const any_names = names.weaponTome.length || names.armorTome.length;
+            bundles.push({ stats: stats.size ? stats : null, names: any_names ? names : null });
+        }
+    }
+    snap.tome_wa_bundles = bundles;
+
+    // Admissible per-key maximum for the workers' ge-prechecks.
+    const bound = new Map();
+    for (const b of bundles) {
+        if (!b.stats) continue;
+        for (const [k, v] of b.stats) {
+            const cur = bound.get(k);
+            if (cur === undefined || v > cur) bound.set(k, v);
+        }
+    }
+    snap.tome_bound = bound.size ? bound : null;
+
+    console.log('[solver] tome optimisation:', mode === TOME_OPT_ALL ? 'all' : 'guild',
+        '| guild candidates:', snap.guild_tome_candidates?.length ?? 0,
+        '| wa bundles:', bundles.length,
+        '| roll:', (snap.tome_roll ?? TOME_ROLL_DEFAULT) + '%',
+        '| pool:', pools.weaponTome.length + 'w/' + pools.armorTome.length + 'a',
+        inventory ? '(inventory-filtered)' : '',
+        '| scoped keys:', keys.join(','));
+}
+
 function _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, partition, worker_id) {
     const { none_item_sms, none_idx_map } = _get_none_sms();
 
@@ -1057,6 +1309,12 @@ function _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, part
         level: snap.level,
         tome_sms: snap.tomes.map(t => t.statMap),
         guild_tome_sm: snap.guild_tome_item.statMap,
+        // Tome optimisation (null/0 when off — workers then run the exact
+        // pre-tome pipeline)
+        tome_opt: snap.tome_opt ?? 0,
+        guild_tome_candidates: snap.guild_tome_candidates ?? null,
+        tome_wa_bundles: snap.tome_wa_bundles ?? null,
+        tome_bound: snap.tome_bound ?? null,
         sp_budget: snap.sp_budget,
         // Atree state
         atree_merged: snap.atree_mgd,
@@ -1171,28 +1429,22 @@ function _compute_sp_overflow_warnings() {
     if (gt_node_val && !gt_node_val.statMap.has('NONE')) {
         gt_sm = gt_node_val.statMap;
     } else {
-        // No specific tome — check restriction dropdown for rainbow synthetic
+        // No specific tome equipped — synthesise the dropdown selection. Every
+        // choice is a real fixed per-attribute bonus (see GUILD_TOMES), so this
+        // must not special-case individual encoded values.
         const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 2) {
-            const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
-            synth.set('reqs', [0, 0, 0, 0, 0]);
-            gt_sm = synth;
-        } else {
-            gt_sm = new Item(none_tomes[2]).statMap;
-        }
+        gt_sm = guild_tome_statmap(gtome_mode) ?? new Item(none_tomes[2]).statMap;
     }
     equip_sms.push(gt_sm);
 
     const weapon = solver_item_final_nodes[8]?.value;
     if (!weapon || weapon.statMap.has('NONE')) return warnings;
 
-    // SP budget: standard mode inflates budget, rainbow uses synthetic tome above
-    let sp_overflow_budget = SP_TOTAL_CAP;
-    if (!gt_node_val || gt_node_val.statMap.has('NONE')) {
-        const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 1) sp_overflow_budget = SP_GUILD_TOME_STD;
-    }
+    // The budget never varies with the guild tome: the tome contributes fixed
+    // per-attribute skill points through gt_sm above, not extra assignable
+    // points. (Pre-v11 this inflated the budget for "Standard", which let the
+    // bonus be split across attributes — see GUILD_TOMES.)
+    const sp_overflow_budget = SP_TOTAL_CAP;
 
     const result = calculate_skillpoints(equip_sms, weapon.statMap, sp_overflow_budget);
     if (!result) {
@@ -1981,6 +2233,10 @@ function start_solver_search() {
     // Remove dominated items before sorting; smaller pools benefit search and sort.
     const dominance_stats = _build_dominance_stats(snap, dmg_weights, restrictions);
     _prune_dominated_items(pools, dominance_stats);
+
+    // Tome optimisation inputs (guild candidates, scoped bundle front,
+    // precheck bound) — computed once per search, before serialization.
+    _prepare_tome_optimisation(snap, restrictions, dominance_stats);
 
     // Sort each pool by damage/constraint relevance so level-0 visits the
     // best build first. NONE items are moved to the end of each pool.

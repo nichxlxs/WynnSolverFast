@@ -1,4 +1,5 @@
-let ASPECT_DB_VERSION = 39;
+// Bumped with the 2.2.3.0 aspect data; matches upstream wynnbuilder.github.io.
+let ASPECT_DB_VERSION = 40;
 let aspects = {};
 
 // Map<className, Map<string, AspectSpec>>

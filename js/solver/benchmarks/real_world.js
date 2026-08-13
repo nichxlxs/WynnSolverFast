@@ -10,13 +10,28 @@ const { parseSolverOutput, compareVariants } = require('./real_world_lib');
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 const testScript = path.join(repoRoot, 'js', 'solver', 'tests', 'test_solver_search.js');
 const samples = Math.max(1, Number(process.env.BENCH_SAMPLES) || 3);
-const seconds = Math.max(1, Number(process.env.BENCH_SECONDS) || 10);
+const suite = process.env.BENCH_SUITE || 'default';
+const isFamilySuite = suite === 'family' || suite.startsWith('family-');
+const seconds = isFamilySuite
+    ? Math.min(30, Math.max(1, Number(process.env.BENCH_SECONDS) || 30))
+    : Math.max(1, Number(process.env.BENCH_SECONDS) || 10);
 const workers = Math.max(1, Number(process.env.BENCH_WORKERS) || 1);
 const includeIsolation = process.env.BENCH_INCLUDE_ISOLATION !== '0';
-const defaultScenarios = process.env.BENCH_SUITE === 'large'
-    ? ['gaia_armor_bracelet_1m', 'gaia_armor_ring_2m', 'gaia_armor_ring_5m',
+const familyNames = ['cancelstack', 'heavy_melee', 'tierstack', 'spellsteal', 'spell_sustained', 'hybrid'];
+const familySize = suite === 'family' ? 'medium' : suite.slice('family-'.length);
+const allowedFamilySizes = new Set(['small', 'medium', 'large', 'all']);
+if (isFamilySuite && !allowedFamilySizes.has(familySize)) {
+    throw new Error(`Unknown family benchmark suite: ${suite}`);
+}
+const familyScenarios = familySize === 'all'
+    ? ['small', 'medium', 'large'].flatMap(size => familyNames.map(family => `family_${family}_${size}`))
+    : familyNames.map(family => `family_${family}_${familySize}`);
+const defaultScenarios = isFamilySuite
+    ? familyScenarios
+    : suite === 'large'
+        ? ['gaia_armor_bracelet_1m', 'gaia_armor_ring_2m', 'gaia_armor_ring_5m',
         'gaia_armor_bracelet_10m', 'gaia_wide_95m_input', 'gaia_armor4_ring_135m_input']
-    : ['readme_rings2', 'readme_armor2', 'readme_armor4'];
+        : ['readme_rings2', 'readme_armor2', 'readme_armor4'];
 const scenarios = (process.env.BENCH_SCENARIOS
     ? process.env.BENCH_SCENARIOS.split(',')
     : defaultScenarios)
