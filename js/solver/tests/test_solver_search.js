@@ -1063,7 +1063,13 @@ async function runSolverTest(snapName) {
     // Optional: dump sampled score cases for the Rust damage-core port and stop.
     if (process.env.SOLVER_EXPORT_SCORE) {
         const k = parseInt(process.env.SOLVER_EXPORT_SCORE_CASES ?? '96', 10);
-        const n = await exportScoreFixture(process.env.SOLVER_EXPORT_SCORE, initMsgBase, ringPoolSer, k);
+        const fixture = await exportScoreFixture(
+            process.env.SOLVER_EXPORT_SCORE, initMsgBase, ringPoolSer, k);
+        // The builder resolves with the fixture. It used to `return` it from
+        // an inner function instead, leaving this promise pending forever -
+        // the file was still written, so the only visible symptom was that
+        // this assertion never ran.
+        const n = fixture?.cases?.length ?? 0;
         t.assert(n > 0, `${snapName}: exported ${n} score cases`);
         return;
     }

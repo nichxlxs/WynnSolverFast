@@ -70,6 +70,16 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
         let posted = 0, doneNoTop = 0, doneNoDebug = 0, spFiltered = 0, blocked = 0;
         const MAX_ATTEMPTS = numCases * 2000;
 
+        // The browser passes no sampling machinery and asks for no cases, so
+        // there is nothing to sample and no worker to build. Constructing one
+        // here threw (WorkerCtor undefined), rejecting a promise whose only
+        // handler was `.then(start)` — the solve then hung with neither
+        // engine running.
+        if (numCases <= 0 || !WorkerCtor || !WORKER_THREAD_PATH) {
+            finish();
+            return;
+        }
+
         const worker = new WorkerCtor(WORKER_THREAD_PATH, { workerData: { repoRoot: REPO_ROOT } });
 
         const sendNext = () => {
@@ -351,11 +361,11 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                 cases,
             };
             if (writeOut) writeOut(JSON.stringify(fixture));
-            return fixture;
-            console.log(`  [score-export] wrote ${cases.length} cases (${attempts} attempts, `
-                + `${blocked} blocked, ${spFiltered} sp-filtered, ${posted} posted, `
-                + `${doneNoTop} no-top, ${doneNoDebug} no-debug) to ${outPath}`);
-            resolve(cases.length);
+            // Resolve, don't return: the value of `finish` is discarded by
+            // every caller, so returning here left the outer promise pending
+            // forever. The exporter awaited it and only survived because the
+            // file is written above and Node's loop drained anyway.
+            resolve(fixture);
         };
 
         worker.on('message', (msg) => {
@@ -568,7 +578,6 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
     }
 
     return L.join('\n') + '\n';
-    console.log(`  [export] Rust fixture written to ${outPath}`);
 }
 
 /// Default env for the browser, where the game functions are globals.
@@ -577,6 +586,11 @@ function browserEnv(scope) {
     return { ctx: g, evalInCtx: (src) => (0, eval)(src) };
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { buildScoreFixture, buildEnumFixture, browserEnv, _jser };
-}
+const _bridge = { buildScoreFixture, buildEnumFixture, browserEnv, _jser };
+
+// The solver page loads this as a plain script and `search.js` looks for it
+// under this name. Without the assignment the lookup returned undefined, the
+// Rust path bailed out, and the browser silently ran the JS engine every
+// time — the engine shipped but was never reachable.
+if (typeof window !== 'undefined') window.__solver_rust_bridge = _bridge;
+if (typeof module !== 'undefined' && module.exports) module.exports = _bridge;

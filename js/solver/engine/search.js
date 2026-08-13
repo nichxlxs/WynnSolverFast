@@ -1625,6 +1625,18 @@ function solver_engine_changed() {
 function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
                                      on_unsupported) {
     if (!_rust_engine_available()) return false;
+    // Tome optimisation makes the tome a *searched* dimension: the JS workers
+    // pick a guild tome from `snap.guild_tome_candidates` and a weapon/armour
+    // bundle from `snap.tome_wa_bundles` per leaf. The Rust fixture serialises
+    // only the currently fixed tome maps and the engine has no concept of the
+    // candidate lists, so it would rank gear against one arbitrary tome set —
+    // silently returning a non-optimal build rather than refusing. Until the
+    // dimension is ported, this scenario belongs to the JS engine.
+    if ((snap.tome_opt ?? 0) >= 1) {
+        console.info('[solver] tome optimisation is on — using the JS engine '
+            + '(the Rust engine does not search tome combinations yet)');
+        return false;
+    }
     try {
         const bridge = window.__solver_rust_bridge;
         if (!bridge) return false;
@@ -1805,11 +1817,23 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
             state._cur_precheck_reject = 0;
             state._cur_feasible = 0;
             state._cur_met_req = 0;
-            for (const t of m.top_n || []) {
-                const items = _reconstruct_result_items(t.item_names ?? t.items);
-                _insert_top5({ score: t.score, items,
-                    base_sp: [0, 0, 0, 0, 0], total_sp: [0, 0, 0, 0, 0], assigned_sp: 0 });
-            }
+            // Onto the worker's own list, not straight into the merged one:
+            // `_on_all_workers_done` runs `_merge_worker_top5(states, false)`,
+            // which clears `_solver_state.top5` and rebuilds it from each
+            // state's `top5`. Inserting directly meant every Rust result was
+            // discarded a moment later and the UI showed only the seed build.
+            //
+            // The SP assignment comes from the engine. Synthesising zeroes
+            // here fed `_fill_build_into_ui` a bogus allocation, which it
+            // installs into `_solver_sp_override` — the loaded build would
+            // then display stats that contradict the score it was ranked by.
+            state.top5 = (m.top_n || []).map((t) => ({
+                score: t.score,
+                item_names: t.item_names ?? t.items,
+                base_sp: t.base_sp,
+                total_sp: t.total_sp,
+                assigned_sp: t.assigned_sp,
+            }));
             finish_one();
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');

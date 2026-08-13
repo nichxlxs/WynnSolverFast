@@ -350,7 +350,7 @@ pub struct Search<'a> {
     // (floor(score) as u64; 0 = unset — floor is admissible for the gate).
     equip_names: [&'a str; 8],
     scoring: Option<&'a crate::scoring::ScoringCtx>,
-    top_n: Vec<(f64, Vec<String>)>,
+    top_n: Vec<TopEntry>,
     shared_cutoff: Option<&'a AtomicU64>,
     scored: u64,
     gated: u64,
@@ -585,7 +585,7 @@ impl<'a> Search<'a> {
     fn cutoff(&self) -> Option<f64> {
         let mut cutoff: Option<f64> = None;
         if self.top_n.len() >= 15 {
-            cutoff = Some(self.top_n[14].0);
+            cutoff = Some(self.top_n[14].score);
         }
         if let Some(shared) = self.shared_cutoff {
             let s = shared.load(Ordering::Relaxed);
@@ -888,7 +888,7 @@ impl<'a> Search<'a> {
             // floored cutoff — whichever is higher.
             let mut cutoff: Option<f64> = None;
             if self.top_n.len() >= 15 {
-                cutoff = Some(self.top_n[14].0);
+                cutoff = Some(self.top_n[14].score);
             }
             if let Some(shared) = self.shared_cutoff {
                 let s = shared.load(Ordering::Relaxed);
@@ -911,15 +911,19 @@ impl<'a> Search<'a> {
                 LeafOutcome::Scored(r) => {
                     self.feasible += 1;
                     self.scored += 1;
-                    let pos = self.top_n.iter().position(|(s, _)| r.score > *s)
+                    let pos = self.top_n.iter().position(|x| r.score > x.score)
                         .unwrap_or(self.top_n.len());
                     if pos < 15 {
                         let names_owned = names.iter().map(|s| s.to_string()).collect();
-                        self.top_n.insert(pos, (r.score, names_owned));
+                        self.top_n.insert(pos, TopEntry {
+                            score: r.score, items: names_owned,
+                            base_sp: r.base_sp, total_sp: r.total_sp,
+                            assigned_sp: r.assigned_sp,
+                        });
                         self.top_n.truncate(15);
                         if self.top_n.len() == 15 {
                             if let Some(shared) = self.shared_cutoff {
-                                let floored = self.top_n[14].0.floor();
+                                let floored = self.top_n[14].score.floor();
                                 if floored > 0.0 {
                                     shared.fetch_max(floored as u64, Ordering::Relaxed);
                                 }
@@ -1280,7 +1284,7 @@ pub struct ProgressSnapshot {
     pub mana_reject: u64,
     pub thresh_reject: u64,
     pub bound_pruned: f64,
-    pub top_n: Vec<(f64, Vec<String>)>,
+    pub top_n: Vec<TopEntry>,
 }
 
 #[derive(Default)]
@@ -1298,14 +1302,29 @@ pub struct Totals {
     /// True when the search stopped on a budget/cap rather than exhausting
     /// the space.
     pub stopped_early: bool,
-    pub top_n: Vec<(f64, Vec<String>)>,
+    pub top_n: Vec<TopEntry>,
 }
 
-pub fn merge_top(into: &mut Vec<(f64, Vec<String>)>, from: Vec<(f64, Vec<String>)>) {
-    for (score, names) in from {
-        let pos = into.iter().position(|(s, _)| score > *s).unwrap_or(into.len());
+/// One entry of the merged top-N.
+///
+/// Carries the SP assignment the greedy chose alongside the score. The
+/// browser installs that as the build's skill points when a result is
+/// loaded, so dropping it means the UI shows a zero allocation whose
+/// recomputed stats do not match the score the build was ranked by.
+#[derive(Clone, Debug, Default)]
+pub struct TopEntry {
+    pub score: f64,
+    pub items: Vec<String>,
+    pub base_sp: [i32; 5],
+    pub total_sp: [i32; 5],
+    pub assigned_sp: i32,
+}
+
+pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
+    for e in from {
+        let pos = into.iter().position(|x| e.score > x.score).unwrap_or(into.len());
         if pos < 15 {
-            into.insert(pos, (score, names));
+            into.insert(pos, e);
             into.truncate(15);
         }
     }
@@ -1444,7 +1463,8 @@ pub fn partition_bounds(pool_len: usize, part_index: usize, part_count: usize) -
 /// Serializes a `ProgressSnapshot` for a JS sink.
 pub fn progress_json(p: &ProgressSnapshot) -> String {
     let mut top = String::from("[");
-    for (i, (score, items)) in p.top_n.iter().enumerate() {
+    for (i, e) in p.top_n.iter().enumerate() {
+        let (score, items) = (&e.score, &e.items);
         if i > 0 { top.push(','); }
         top.push_str(&format!("{{\"score\":{:.17e},\"item_names\":[", score));
         for (j, name) in items.iter().enumerate() {
@@ -1504,14 +1524,20 @@ pub fn solve_json_full(
     let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress, part);
     let complete = !totals.stopped_early;
     let mut top = String::from("[");
-    for (i, (score, items)) in totals.top_n.iter().enumerate() {
+    for (i, e) in totals.top_n.iter().enumerate() {
+        let (score, items) = (&e.score, &e.items);
         if i > 0 { top.push(','); }
         top.push_str(&format!("{{\"score\":{:.17e},\"items\":[", score));
         for (j, name) in items.iter().enumerate() {
             if j > 0 { top.push(','); }
             top.push_str(&json_str(name));
         }
-        top.push_str("]}");
+        // The SP assignment the greedy chose. The browser installs this as
+        // the build's skill points; without it the UI would show a zeroed
+        // allocation whose stats contradict the score.
+        let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
     }
     top.push(']');
     format!(
@@ -1883,7 +1909,8 @@ pub fn cli_main() {
             "scoring: scored {} | gated {} | mana_reject {} | thresh_reject {} | bound_pruned {}",
             totals.scored, totals.gated, totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
         );
-        for (score, names) in &totals.top_n {
+        for e in &totals.top_n {
+            let (score, names) = (&e.score, &e.items);
             println!("top15: {:.17e} | {}", score,
                 names.iter().filter(|n| !n.starts_with("No ")).cloned()
                     .collect::<Vec<_>>().join(", "));
