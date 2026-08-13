@@ -1536,8 +1536,17 @@ async function runSolverTest(snapName) {
         ctx.__tome_mode = snap.tome_opt;
         ctx.__tome_level = solverSnap.level;
         ctx.__dom_stats_tome = domStats;
+        // tome_roll / tome_inventory come from the snapshot so a fixture can
+        // pin the assumed roll quality and restrict the pool to owned tomes.
+        // Absent means the production defaults (80%, owns everything).
+        ctx.__tome_roll = snap.tome_roll ?? null;
+        ctx.__tome_inv = snap.tome_inventory ?? null;
         const prep = vm.runInContext(`(function(){
-            const s = { tome_opt: __tome_mode, level: __tome_level };
+            const s = {
+                tome_opt: __tome_mode, level: __tome_level,
+                tome_roll: __tome_roll ?? TOME_ROLL_DEFAULT,
+                tome_inventory: __tome_inv ? new Set(__tome_inv) : null,
+            };
             _prepare_tome_optimisation(s, {}, __dom_stats_tome ?? { higher: new Set(), lower: new Set() });
             return s;
         })()`, ctx);

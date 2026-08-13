@@ -227,6 +227,9 @@ function _allRollsMax() {
  * producing builds no real tome can support. `sp` here is the exact
  * per-attribute contribution, applied as a real item statMap instead.
  *
+ * The `item` names are the tomes' INTERNAL names and are documentation only —
+ * see guild_tome_real() for why they must never be used to look a tome up.
+ *
  * WARNING: order is LOAD-BEARING for URL encoding — append only.
  */
 const GUILD_TOMES = [
@@ -238,6 +241,89 @@ const GUILD_TOMES = [
     { key: 'agi',   label: 'Agility (+4 Agi)',     item: "Sycophant's Tome of Allegiance",    sp: [0, 0, 0, 0, 4] },
     { key: 'rainbow', label: 'Rainbow (+1 each)',  item: "Assimilator's Tome of Allegiance",  sp: [1, 1, 1, 1, 1] },
 ];
+
+let _guild_tome_by_sp = null;
+
+/**
+ * The real tome backing a GUILD_TOMES entry, or null for "Off" / not found.
+ *
+ * Resolved by SKILL POINT VECTOR, never by name. tomeMap is keyed by
+ * displayName, and four of the six guild tomes display under a different name
+ * than the internal one recorded above (Psychopath's ships as "Brute's",
+ * Warlock's as "Mastermind's", Destroyer's as "Arsonist's", Sycophant's as
+ * "Ghost's"). A name lookup therefore returns undefined for four of six, which
+ * silently disables every check written against it — the level gate falls back
+ * to its default and the owned-tome filter waves the tome through.
+ *
+ * The vector is the tome's defining property and the thing the UI labels are
+ * derived from, so matching on it survives renames in either direction.
+ */
+function guild_tome_real(idx) {
+    const g = GUILD_TOMES[idx];
+    if (!g || !g.sp.some(v => v !== 0)) return null;
+    if (typeof tomeMap === 'undefined' || !tomeMap) return null;
+    if (!_guild_tome_by_sp) {
+        _guild_tome_by_sp = new Map();
+        for (const [, raw] of tomeMap) {
+            if (raw.type !== 'guildTome') continue;
+            const sp = raw.skillpoints;
+            if (!Array.isArray(sp) || !sp.some(v => v !== 0)) continue;
+            const key = sp.join(',');
+            if (!_guild_tome_by_sp.has(key)) _guild_tome_by_sp.set(key, raw);
+        }
+    }
+    return _guild_tome_by_sp.get(g.sp.join(',')) ?? null;
+}
+
+/**
+ * Default average roll percentage for TOMES, kept separate from the item roll
+ * groups. Tomes are acquired and rerolled far less often than gear, so
+ * assuming the same roll quality as items misrepresents them in both
+ * directions. 80 is the agreed default.
+ */
+const TOME_ROLL_DEFAULT = 80;
+
+/**
+ * Run `fn` with the global roll mode forced to a single percentage across all
+ * groups, then restore it.
+ *
+ * getRolledValue() reads the module-global current_roll_mode, and tome stats
+ * only materialise when a roll mode is applied (see tome_stat), so expanding a
+ * tome at the tome percentage means swapping that global for the duration.
+ * The restore runs in a finally block: leaking a tome percentage into item
+ * expansion would silently reroll every item in the search.
+ */
+function with_tome_roll(pct, fn) {
+    const saved = current_roll_mode;
+    const p = Math.max(0, Math.min(100, pct ?? TOME_ROLL_DEFAULT));
+    current_roll_mode = { damage: p, mana: p, healing: p, misc: p };
+    try {
+        return fn();
+    } finally {
+        current_roll_mode = saved;
+    }
+}
+
+/**
+ * Tome types the solver is allowed to choose. The remaining types in tomes.json
+ * (dungeonXp, gatherXp, mobXp, lootrun) carry no combat stats, so neither the
+ * optimiser nor the inventory has anything to say about them.
+ */
+const TOME_INVENTORY_TYPES = ['weaponTome', 'armorTome', 'guildTome'];
+
+/**
+ * Does the user's tome inventory allow this tome?
+ *
+ * `inventory` is a Set of owned tome ids, or null meaning "no inventory
+ * recorded" — which is treated as owning everything, so a user who never opens
+ * the panel gets the full search rather than an empty one. A tome with no id
+ * (synthetic "none" entries) is always allowed.
+ */
+function tome_inventory_allows(inventory, raw) {
+    if (!inventory) return true;
+    if (raw?.id === undefined || raw.id === null) return true;
+    return inventory.has(raw.id);
+}
 
 /** Encoded value for the Rainbow tome — the one pre-v11 value that survives. */
 const GUILD_TOME_RAINBOW = 6;

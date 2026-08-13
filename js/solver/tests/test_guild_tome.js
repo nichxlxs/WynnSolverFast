@@ -59,6 +59,47 @@ for (const g of GUILD_TOMES) {
         `guild tome "${g.key}" spreads over ${lanes} attribute(s) (expected ${want_lanes})`);
 }
 
+// ── Every guild tome resolves to a REAL tome ───────────────────────────────
+//
+// Regression: GUILD_TOMES records each tome's INTERNAL name, but tomeMap is
+// keyed by displayName, and four of the six ship under a different display
+// name (Psychopath's -> Brute's, Warlock's -> Mastermind's, Destroyer's ->
+// Arsonist's, Sycophant's -> Ghost's). Looking them up by name returned
+// undefined for those four, which silently defeated every check written
+// against the lookup — the level gate fell back to its default and the
+// owned-tome filter waved the tome through. guild_tome_real matches on the
+// skill point vector instead, which no rename can break.
+
+const resolved = JSON.parse(vm.runInContext(`(function(){
+    return JSON.stringify(GUILD_TOMES.map((g, i) => {
+        const r = guild_tome_real(i);
+        return { key: g.key, name: g.item, found: r ? r.displayName : null,
+                 id: r ? r.id : null, lvl: r ? r.lvl : null,
+                 sp: r ? r.skillpoints : null };
+    }));
+})()`, ctx));
+
+t.assert(resolved[0].found === null, 'the "Off" entry resolves to no tome');
+for (let i = 1; i < resolved.length; i++) {
+    const r = resolved[i];
+    t.assert(r.found !== null,
+        `guild tome "${r.key}" resolves to a real tome (got ${r.found})`);
+    t.assert(JSON.stringify(r.sp) === JSON.stringify(GUILD_TOMES[i].sp),
+        `"${r.key}" resolves to the tome granting exactly ${JSON.stringify(GUILD_TOMES[i].sp)}`);
+    t.assert(Number.isInteger(r.id) && Number.isInteger(r.lvl),
+        `"${r.key}" carries the id and level the gates and inventory need`);
+}
+const found_ids = resolved.slice(1).map(r => r.id);
+t.assert(new Set(found_ids).size === found_ids.length,
+    `each guild tome resolves to a DISTINCT tome (got ids ${JSON.stringify(found_ids)})`);
+
+// Pin the mismatch itself, so a future data update that re-aligns the names
+// (or breaks a different one) shows up here rather than as a silent no-op.
+const renamed = resolved.slice(1).filter(r => r.found !== r.name);
+t.assert(renamed.length === 4,
+    `4 of 6 guild tomes display under a different name than the internal one `
+    + `(got ${renamed.length}: ${renamed.map(r => r.name + ' -> ' + r.found).join('; ')})`);
+
 // ── Per-attribute cap: the tome must supply the right attribute ─────────────
 //
 // An item needing 104 Strength cannot be worn on assigned points alone (the cap

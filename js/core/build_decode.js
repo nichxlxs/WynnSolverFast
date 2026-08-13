@@ -763,6 +763,30 @@ function decodeSolverParams(b64_str) {
         // Written before lvl_overrides so the two stay in bit order.
         const tome_opt = (version >= 11 && (presence & (1 << 10))) ? cursor.advanceBy(2) : 0;
 
+        const tome_roll_default = (typeof TOME_ROLL_DEFAULT !== 'undefined') ? TOME_ROLL_DEFAULT : 80;
+        const tome_roll = (version >= 11 && (presence & (1 << 11)))
+            ? cursor.advanceBy(7) : tome_roll_default;
+
+        // Owned-tome inventory: a list of ids plus a polarity bit saying whether
+        // the list names what the user HAS or what they LACK (see the layout
+        // note in build_encode.js). Absent = owns everything, which decodes to
+        // null so the solver skips inventory filtering entirely.
+        let tome_inventory = null;
+        if (version >= 11 && (presence & (1 << 12))) {
+            const polarity = cursor.advanceBy(1);
+            const count = cursor.advanceBy(8);
+            const listed = [];
+            for (let i = 0; i < count; i++) listed.push(cursor.advanceBy(8));
+            if (polarity === 0) {
+                // Sorted so both polarities return the same order for the same
+                // set — read_tome_inventory sorts to match.
+                tome_inventory = listed.sort((a, b) => a - b);
+            } else {
+                const missing = new Set(listed);
+                tome_inventory = _solver_tome_universe().filter(id => !missing.has(id));
+            }
+        }
+
         const lvl_overrides = {};
         if (version >= 11 && (presence & (1 << 9))) {
             const slot_names = (typeof LVL_OVERRIDE_SLOTS !== 'undefined') ? LVL_OVERRIDE_SLOTS : [];
@@ -890,7 +914,8 @@ function decodeSolverParams(b64_str) {
         }
 
         return {
-            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides, tome_opt, nomaj, gtome, dtime, mana_disabled,
+            roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides,
+            tome_opt, tome_roll, tome_inventory, nomaj, gtome, dtime, mana_disabled,
             restrictions, combo_rows, blacklist_ids, custom_weights
         };
     } catch (e) {

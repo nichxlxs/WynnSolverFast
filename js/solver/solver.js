@@ -400,6 +400,21 @@ function _restore_from_url(solver_params) {
         _refresh_tome_opt_state();
     }
 
+    // Tome roll percentage assumed for solver-chosen tomes
+    if (solver_params.tome_roll !== undefined) {
+        const inp = document.getElementById('restr-tome-roll');
+        if (inp) inp.value = solver_params.tome_roll;
+    }
+
+    // Owned-tome inventory. Only applied when the link actually carries one:
+    // building the panel is data-driven work, and an absent inventory already
+    // means "owns everything", which is the panel's default state.
+    if (solver_params.tome_inventory) {
+        apply_tome_inventory(solver_params.tome_inventory);
+        const panel = document.getElementById('restr-tome-inventory');
+        if (panel) panel.style.display = '';
+    }
+
     // Stat threshold rows (binary: structured array of {stat_index, op, value})
     if (solver_params.restrictions && solver_params.restrictions.length > 0) {
         for (const r of solver_params.restrictions) {
@@ -480,6 +495,13 @@ function _refresh_tome_opt_state() {
             ? 'Chosen automatically by tome optimization (equip a tome in the guild tome slot to lock it instead)'
             : 'Which guild tome is equipped. Every guild tome grants a fixed per-attribute skill point bonus, so the exact tome must be chosen — the bonus cannot be split across attributes.';
     }
+    // The roll percentage only bites in All-tomes mode: guild tomes grant a
+    // fixed skill point bonus with nothing to roll. The inventory bites in both
+    // optimising modes. Grey each out where it would otherwise look load-bearing.
+    const roll_inp = document.getElementById('restr-tome-roll');
+    if (roll_inp) roll_inp.disabled = mode !== TOME_OPT_ALL;
+    const inv_btn = document.getElementById('restr-tome-inventory-toggle');
+    if (inv_btn) inv_btn.disabled = mode === TOME_OPT_OFF;
 }
 
 /** Wire all event listeners for restriction inputs, equipment slots, tooltips, and locks. */
@@ -506,6 +528,11 @@ function _wire_event_listeners() {
         _refresh_tome_opt_state();
         _schedule_solver_hash_update();
     });
+    const restr_tome_roll = document.getElementById('restr-tome-roll');
+    if (restr_tome_roll) restr_tome_roll.addEventListener('input', _schedule_solver_hash_update);
+    // Reflect the initial mode (usually Off) so the tome roll and inventory
+    // start greyed out rather than looking like they apply.
+    _refresh_tome_opt_state();
 
     // When the user manually edits an equipment slot, update its lock state.
     // Entering an item → locked (solver keeps it).
