@@ -73,36 +73,38 @@ both SP states from the lowered leaf and needs no Obj base at all.
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | The dense lowering is off — it bakes row damage in at build time, which is exactly what a per-leaf token changes | **Was ~500x per greedy trial; the compiled half is now recovered (1.55x, 10.4 s -> 6.7 s on a 496-leaf slider scenario).** What remains is the dense-versus-Obj gap, measured at 28x on the same scenario | Teach the dense lowering to take a per-leaf slider value. Harder than the compiled half: dense bakes damage in at build time |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the per-leaf simulation runs on every greedy SP trial | **Compiled and dense paths both recovered.** A slider the lowering can express now scores on the dense path: **1.56x** (2.32 s against 3.62 s), top-15 identical. What is left is the simulation itself — **73%** of the remaining time | Make the per-leaf simulation cheaper, or run it less often. It is now the bottleneck, not the scoring |
 
-**How the compiled half was recovered.** Injection only *appends* tokens, and
-with no unroll the rows line up 1:1 with the originals — so the load-time
-compiled rows stay valid and only the appended tokens need bonuses.
-`compile_token_bonuses` (extracted from `compile_rows`, so the two cannot
-drift) compiles those one or two tokens per row, and `score_compiled_extra`
-applies them after the static ones, preserving the (token, match, bonus)
-order the uncompiled path uses.
+**Getting the dense path to serve injected tokens.** The lowering bakes row
+damage in at build time, which is exactly what a per-leaf token changes.
+Four things had to hold:
 
-A prop bonus on an injected token would change that row's `mod_spell`, which
-the compiled row baked in at load — that case falls back to the uncompiled
-scorer rather than silently scoring against a stale spell.
+- **Slots reserved up front.** `DScratch` is sized from the key universe, so
+  a stat key only an injected token produces has nowhere to live.
+  `DenseCtx::build` takes the injectable keys and interns them.
+- **`row_canon` bypassed.** It shares one per-cast result between rows the
+  lowering proved identical — but injected values are per-leaf and can differ
+  between exactly those rows, so a cache hit could return another row's
+  damage.
+- **All three bonus shapes.** Injected `damMult`/`defMult` bonuses go through
+  the same journaled `dam_ops`/`def_ops` application as static ones; plain
+  stats become slot writes applied right after the row's own, matching the
+  Obj path's `comp.bonuses.chain(extra)` order.
+- **A load-time gate.** A slider whose registry entry carries a *prop* bonus
+  rewrites the row's spell, which the lowering baked in — no slot can
+  represent that, so those scenarios keep the Obj path. Same for `atkSpd` and
+  dotted stat keys, which the lowering refuses for static rows too.
 
-**What is left, and why nothing smaller will move it.** The remaining cost
-is not allocation or bookkeeping. Per row: dense is ~0.15 us, the compiled
-Obj path is ~16 us — a **100x** gap, because the Obj path reads every stat
-through a string-keyed map while dense reads an indexed `f64` array. Three
-contained attempts confirmed there is nothing cheaper to win first:
+Validated by the existing net rather than a new one: `SCORE_DENSE_CHECK=1`
+asserts dense against Obj on **every trial of every leaf**, and it earned its
+place immediately — it caught that only the trial site had been wired and the
+final-score site still used the static path.
 
-- recompiling each leaf's rows outright (slower: `compile_rows` rebuilds
-  `mod_spell`, plan and DPS analysis, not just bonuses)
-- assuming row *construction* dominated (it is 19%)
-- skipping the write-only `spell_costs` build in the per-trial simulation
-  (correct, and within measurement noise)
+**What the numbers say to do next.** Dense cut the damage term from ~1.95 s to
+~0.6 s, so the per-leaf simulation is now 1.57 s of 2.16 s. Further scoring
+work is close to pointless; the simulation is the target.
 
-Even a perfect dense path leaves the per-trial simulation, ~1.3 s of the
-6.7 s, so the realistic ceiling is about **4.8x**, not 100x.
-
-| B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
+| B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
 

@@ -2088,7 +2088,13 @@ pub fn leaf_pipeline_gated(
         Some(dy) if dy.needs_unroll => None,
         _ => compiled,
     };
-    let dense = if dynamic.is_some() { None } else { dense };
+    // A per-leaf unroll changes the row count, which the lowering cannot
+    // follow. Without one, dense can serve these too — the injected tokens
+    // become extra slot writes (see `dense_dynamic_score`).
+    let dense = match dynamic {
+        Some(dy) if dy.needs_unroll => None,
+        _ => dense,
+    };
     let gate_cutoff = if dynamic.is_some() { None } else { gate_cutoff };
 
     let obj_score = |cb: &mut Obj| -> f64 {
@@ -2363,7 +2369,13 @@ pub fn leaf_pipeline_gated(
         if let Some((d, w)) = dwork.as_mut() {
             let DenseWork { leaf, scratch } = &mut **w;
             phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
-            let v = phase!(DMG_NS, dense_score(d, leaf, scratch, rows, compiled_rows, tables));
+            let v = phase!(DMG_NS, match dynamic {
+                Some(dy) => dense_dynamic_score(
+                    d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                    .expect("dense dynamic score: injected key without a slot — \
+                             DenseCtx::build should have reserved one"),
+                None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+            });
             if dense_check {
                 let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &trial_sp_f, weapon);
                 let o = obj_score(&mut cb);
@@ -2416,7 +2428,12 @@ pub fn leaf_pipeline_gated(
             assert!(!doom_reject_expected, "bounded doom would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
                 let DenseWork { leaf, scratch } = &mut **w;
-                let v = dense_score(d, leaf, scratch, rows, compiled_rows, tables);
+                let v = match dynamic {
+                    Some(dy) => dense_dynamic_score(
+                        d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                        .expect("dense dynamic score: injected key without a slot"),
+                    None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+                };
                 if dense_check {
                     let mut cb = l2.assemble_from_base(base_opt.as_ref().unwrap(), &sp_f5, weapon);
                     let o = obj_score(&mut cb);
@@ -2458,7 +2475,12 @@ pub fn leaf_pipeline_gated(
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
                 let DenseWork { leaf, scratch } = &mut **w;
-                dense_score(d, leaf, scratch, rows, compiled_rows, tables)
+                match dynamic {
+                    Some(dy) => dense_dynamic_score(
+                        d, leaf, scratch, rows, compiled_rows, tables, registry, consts, dy)
+                        .expect("dense dynamic score: injected key without a slot"),
+                    None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
+                }
             });
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -2689,10 +2711,48 @@ impl ScoringCtx {
         let weapon = as_map(&fixture["weapon_sm"]).ok_or("weapon_sm must be a map")?.clone();
         let thresholds = parse_thresholds(fixture);
         let spell_base_costs = parse_spell_base_costs(fixture);
-        let dense = if consts.dynamic.is_some()
+        // A per-leaf unroll changes the row count, which the lowering cannot
+        // follow. A declared slider only adds slot writes, so dense serves
+        // those too — see `dense_dynamic_score`.
+        let dense_blocked = consts.dynamic.as_ref().map(|d| d.needs_unroll).unwrap_or(false);
+        let dense = if dense_blocked
             || std::env::var("SCORE_DENSE").as_deref() == Ok("0") { None } else {
+            // What a per-leaf injected token can produce has to be expressible
+            // by the lowering, and its stat keys need slots reserved up front
+            // (see DenseCtx::build). A *prop* bonus rewrites the row's spell,
+            // which the lowering baked in — no slot can represent that, so
+            // those scenarios keep the Obj path.
+            let mut extra_keys: Vec<String> = Vec::new();
+            let mut inject_ok = true;
+            if let Some(dy) = consts.dynamic.as_ref() {
+                let mut names: Vec<&str> = Vec::new();
+                if let Some(n) = dy.bp_slider.as_deref() { names.push(n); }
+                for (_, n) in &dy.state_sliders { names.push(n.as_str()); }
+                for entry in &registry_parsed {
+                    let Some(en) = entry.get("name").and_then(|v| v.as_str()) else { continue };
+                    if !names.contains(&en) { continue; }
+                    if entry.get("prop_bonuses").and_then(|v| v.as_array())
+                        .map(|a| !a.is_empty()).unwrap_or(false)
+                    {
+                        inject_ok = false;
+                        break;
+                    }
+                    for b in entry.get("stat_bonuses").and_then(|v| v.as_array())
+                        .map(|a| a.as_slice()).unwrap_or(&[])
+                    {
+                        let Some(k) = b.get("key").and_then(|v| v.as_str()) else { continue };
+                        if k.starts_with("damMult.") || k.starts_with("defMult.") { continue; }
+                        // The lowering refuses these for static rows too.
+                        if k == "atkSpd" || k.contains('.') { inject_ok = false; break; }
+                        if !extra_keys.iter().any(|e| e == k) { extra_keys.push(k.to_string()); }
+                    }
+                    if !inject_ok { break; }
+                }
+            }
+            if !inject_ok { None } else {
             DenseCtx::build(&layer2, &tables, &weapon, &rows_parsed, &compiled_rows, &objective,
-                            &thresholds, &spell_base_costs)
+                            &thresholds, &spell_base_costs, &extra_keys)
+            }
         };
         Ok(ScoringCtx {
             objective,
@@ -3947,10 +4007,16 @@ impl DenseCtx {
         }
     }
 
+    /// `extra_keys` are stat names no static row mentions but a per-leaf
+    /// injected token can produce. They need slots in the key universe up
+    /// front — `DScratch` is sized from it, so a key discovered mid-search
+    /// has nowhere to live.
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         l2: &Layer2, tables: &Tables, weapon: &Obj, rows: &[Row],
         compiled: &[CompiledRow], objective: &Objective,
         raw_thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
+        extra_keys: &[String],
     ) -> Option<DenseCtx> {
         // Radiance applies a nonlinear scale-and-floor between the atree_raw
         // merge and the scaling stage; the dense fold has no equivalent, so
@@ -3972,6 +4038,7 @@ impl DenseCtx {
             keys.push(k.to_string());
             i
         };
+        for k in extra_keys { intern(k, &mut idx, &mut keys); }
         macro_rules! it { ($k:expr) => { intern($k, &mut idx, &mut keys) } }
 
         let skp_idx = std::array::from_fn(|i| it!(SKP_ORDER[i]));
@@ -4805,9 +4872,14 @@ enum DenseUndo {
     DefAppend,
 }
 
-/// with_row_overlay over the dense scratch.
-fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) {
-    for &(i, contrib, use_max) in &drow.stat_ops {
+/// with_row_overlay over the dense scratch. `extra_row` carries bonuses for
+/// tokens injected after the lowering was built; they apply after the row's
+/// own ops, matching the Obj path's `comp.bonuses.chain(extra)` order.
+fn dense_apply_row(
+    s: &mut DScratch, drow: &DRow, extra_row: &DenseRowExtra,
+    journal: &mut Vec<DenseUndo>,
+) {
+    for &(i, contrib, use_max) in drow.stat_ops.iter().chain(&extra_row.stat) {
         let old = s.vals[i as usize];
         let was = bit_get(&s.present, i);
         let cur = if was && !old.is_nan() { old } else { 0.0 };
@@ -4815,7 +4887,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
         bit_set(&mut s.present, i);
         journal.push(DenseUndo::Val(i, old, was));
     }
-    for (tmpl, contrib, use_max) in &drow.dam_ops {
+    for (tmpl, contrib, use_max) in drow.dam_ops.iter().chain(&extra_row.dam) {
         match s.dam_entries.iter().position(|e| e.key == tmpl.key) {
             Some(p) => {
                 let old = s.dam_vals[p];
@@ -4830,7 +4902,7 @@ fn dense_apply_row(s: &mut DScratch, drow: &DRow, journal: &mut Vec<DenseUndo>) 
             }
         }
     }
-    for (tmpl, contrib, use_max) in &drow.def_ops {
+    for (tmpl, contrib, use_max) in drow.def_ops.iter().chain(&extra_row.def) {
         match s.def_entries.iter().position(|e| e.key == tmpl.key) {
             Some(p) => {
                 let old = s.def_vals[p];
@@ -4867,6 +4939,24 @@ pub fn dense_combo_damage(
     d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
     compiled: &[CompiledRow], tables: &Tables,
 ) -> f64 {
+    dense_combo_damage_extra(d, leaf, s, rows, compiled, tables, &[])
+}
+
+/// `dense_combo_damage` with per-row bonuses for tokens injected after the
+/// lowering was built — the dynamic-row path's sliders.
+///
+/// Two things change when `extra` is non-empty. The deltas are applied as
+/// journaled index writes right after the row's own `stat_ops`, matching the
+/// order `with_row_overlay` uses on the Obj path. And the `row_canon` cache
+/// is bypassed: it shares one per-cast result between rows the lowering
+/// proved identical, but injected values are per-leaf and can differ between
+/// exactly those rows, so a cache hit could return another row's damage.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_combo_damage_extra(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, extra: &[DenseRowExtra],
+) -> f64 {
+    let use_cache = extra.is_empty();
     let crit = {
         let dex = s.num(d.dex_idx);
         tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex })
@@ -4879,7 +4969,8 @@ pub fn dense_combo_damage(
         if row.qty <= 0.0 || row.pseudo { continue; }
 
         let canon = d.row_canon[ri];
-        let (per_cast, flat_per_cast) = match row_cache[canon] {
+        let cached = if use_cache { row_cache[canon] } else { None };
+        let (per_cast, flat_per_cast) = match cached {
             Some(pair) => pair,
             None => {
                 let mut eff_dps_name: Option<&str> = row.dps_per_hit_name.as_deref();
@@ -4895,7 +4986,10 @@ pub fn dense_combo_damage(
                 let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
                 let plan = comp.plan.as_ref().expect("dense requires plans");
 
-                dense_apply_row(s, drow, &mut journal);
+                static NO_EXTRA: std::sync::OnceLock<DenseRowExtra> = std::sync::OnceLock::new();
+                let extra_row = extra.get(ri)
+                    .unwrap_or_else(|| NO_EXTRA.get_or_init(DenseRowExtra::default));
+                dense_apply_row(s, drow, extra_row, &mut journal);
                 let (mut per_cast, flat) = dense_spell_plan(
                     d, s, plan, drow, crit, tables, eff_dps_name.is_some());
                 dense_undo_row(s, &mut journal);
@@ -4962,6 +5056,72 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
     }
 }
 
+/// Per-row bonuses for tokens injected after the lowering was built,
+/// in the three shapes `DRow` uses.
+#[derive(Default)]
+pub struct DenseRowExtra {
+    pub stat: Vec<(u32, f64, bool)>,
+    pub dam: Vec<(DMultEntry, f64, bool)>,
+    pub def: Vec<(DMultEntry, f64, bool)>,
+}
+
+/// One leaf-trial's dynamic score on the dense path.
+///
+/// Materializes just the stats the simulation reads (`dense_sim_obj`), runs
+/// the per-leaf chain to get this trial's damage rows, resolves the injected
+/// tokens' bonuses to dense slot writes, and scores. Returns `None` when an
+/// injected bonus is not a plain stat or its key is absent from the dense
+/// universe — the caller then has to use the Obj path.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_dynamic_score(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, registry: &[Value], consts: &L2Consts,
+    dy: &DynamicRows,
+) -> Option<f64> {
+    let (mini, damage_rows) = phase!(DYN_NS, {
+        let mini = dense_sim_obj(d, leaf, s);
+        let rows_out = dynamic_damage_rows(&mini, rows, registry, tables, consts, dy);
+        (mini, rows_out)
+    });
+    let _ = mini;
+    let n_static: Vec<usize> = rows.iter().map(|r| r.tokens.len()).collect();
+
+    let mut extra: Vec<DenseRowExtra> = Vec::with_capacity(damage_rows.len());
+    let mut bonuses = Vec::new();
+    let mut props: HashMap<String, PropOverride> = HashMap::new();
+    for (i, r) in damage_rows.iter().enumerate() {
+        let base_n = n_static.get(i).copied().unwrap_or(r.tokens.len());
+        bonuses.clear();
+        props.clear();
+        compile_token_bonuses(&r.tokens[base_n..], registry, &mut bonuses, &mut props);
+        // A prop bonus rewrites the row's spell, which the lowering baked in.
+        if !props.is_empty() { return None; }
+        let mut row_extra = DenseRowExtra::default();
+        for b in &bonuses {
+            match b.kind {
+                // `atkSpd` and the nested-map roots are what the lowering
+                // refuses at build time; refuse them here for the same reason.
+                CompiledBonusKind::Stat => {
+                    if b.key == "atkSpd" || b.key.contains('.') { return None; }
+                    let Some(&slot) = d.idx.get(&b.key) else {
+                        if std::env::var("DENSE_DYN_DEBUG").is_ok() {
+                            eprintln!("dense dynamic: no slot for injected key {:?}", b.key);
+                        }
+                        return None;
+                    };
+                    row_extra.stat.push((slot, b.contrib, b.use_max));
+                }
+                CompiledBonusKind::DamMult =>
+                    row_extra.dam.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+                CompiledBonusKind::DefMult =>
+                    row_extra.def.push((parse_mult_entry(&b.key), b.contrib, b.use_max)),
+            }
+        }
+        extra.push(row_extra);
+    }
+    Some(dense_score_extra(d, leaf, s, &damage_rows, compiled, tables, &extra))
+}
+
 /// `dense_score` restricted to the terms whose weight sign matches `want_neg`.
 ///
 /// Used to build the two-sided ceiling: the negative-weight terms are read
@@ -5001,8 +5161,20 @@ pub fn dense_score(
     d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
     compiled: &[CompiledRow], tables: &Tables,
 ) -> f64 {
+    dense_score_extra(d, leaf, s, rows, compiled, tables, &[])
+}
+
+/// `dense_score` with per-row injected bonuses (see
+/// `dense_combo_damage_extra`). Only the damage term can see them; the
+/// indirect stats read the assembled state, which already has them.
+#[allow(clippy::too_many_arguments)]
+pub fn dense_score_extra(
+    d: &DenseCtx, leaf: &DenseLeaf, s: &mut DScratch, rows: &[Row],
+    compiled: &[CompiledRow], tables: &Tables, extra: &[DenseRowExtra],
+) -> f64 {
     match &d.obj {
-        DObjective::Damage => dense_combo_damage(d, leaf, s, rows, compiled, tables),
+        DObjective::Damage =>
+            dense_combo_damage_extra(d, leaf, s, rows, compiled, tables, extra),
         DObjective::Indirect(ind) => dense_indirect(d, s, ind, tables),
         DObjective::Custom(weights) => {
             let mut damage: Option<f64> = None;
@@ -5012,7 +5184,8 @@ pub fn dense_score(
                     None => match damage {
                         Some(dv) => dv,
                         None => {
-                            let dv = dense_combo_damage(d, leaf, s, rows, compiled, tables);
+                            let dv = dense_combo_damage_extra(
+                                d, leaf, s, rows, compiled, tables, extra);
                             damage = Some(dv);
                             dv
                         }
@@ -5565,6 +5738,25 @@ pub fn dense_assemble_doom(
         if leaf.var_out_absent[slot] { s.vals[ki as usize] = acc; }
         else { s.vals[ki as usize] += acc; }
     }
+}
+
+/// `dense_mana_obj` plus the two stats only the *stateful* simulation reads.
+///
+/// The fast simulation has no HP-regen tick, so `hprRaw`/`hprPct` are absent
+/// from `mana_keys`; `simulate_combo_mana_hp` does tick HP, so a dynamic-row
+/// scenario materializing its stats for the per-leaf simulation needs them
+/// or the HP trajectory silently differs from the Obj path's.
+pub fn dense_sim_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
+    let mut o = dense_mana_obj(d, leaf, s);
+    for (name, i) in [("hprRaw", d.s_hpr_raw), ("hprPct", d.s_hpr_pct)] {
+        if o.contains_key(name) { continue; }
+        if bit_get(&s.present, i) {
+            let v = s.vals[i as usize];
+            if v.is_nan() { o.insert(name.into(), Value::Null); }
+            else { o.insert(name.into(), Value::from(v)); }
+        }
+    }
+    o
 }
 
 /// Mini stat map for the fast mana sim, materialized from the dense

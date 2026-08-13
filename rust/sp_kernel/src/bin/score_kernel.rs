@@ -148,7 +148,8 @@ fn main() {
     let mut lc_pass = 0u64;
     let mut lc_fail = 0u64;
     let dense_ctx = layer2.as_ref().and_then(|l2| {
-        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[], &Default::default())
+        DenseCtx::build(l2, &tables, &weapon, &rows, &compiled_rows, &objective, &[],
+                        &Default::default(), &[])
     });
     let mut ld_pass = 0u64;
     let mut ld_fail = 0u64;
