@@ -29,7 +29,13 @@ const { performance } = require('perf_hooks');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const JS_ROOT = path.join(REPO_ROOT, 'js');
 const SNAP_DIR = path.join(__dirname, 'snapshots');
-const LATEST_VERSION = '2.2.0.21';
+// Must track the last entry of wynn_version_names in js/data/load_item.js.
+// Items come from data/baseline (always the newest patch), but atree, majid,
+// aspects and encoding_consts are read out of data/<LATEST_VERSION>/ — so
+// letting this drift silently pairs current items with an old ability tree,
+// which is exactly the class of mismatch these tests exist to catch. It had
+// drifted to 2.2.0.21 while the site served 2.2.2.0.
+const LATEST_VERSION = '2.2.3.0';
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 

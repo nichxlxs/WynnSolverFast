@@ -40,14 +40,18 @@ function calculateSpellDamage(stats, weapon, _conversions, use_spell_damage, ign
     else {
         weapon_damages = damage_keys.map(x => weapon.get(x));
     }
-    let present = structuredClone(weapon.get(damage_present_key));
+    // Both of these are flat 6-element arrays of primitives (booleans /
+    // numbers), so a shallow copy is an exact copy. structuredClone() goes
+    // through the serializer and costs ~1000x more per call; at solver leaf
+    // rates that alone was ~8% of total search time.
+    let present = weapon.get(damage_present_key).slice();
 
     // Also theres prop and rainbow!!
     const damage_elements = ['n'].concat(skp_elements); // netwfa
 
     // 2. Conversions.
     // 2.0: First, modify conversions.
-    let conversions = structuredClone(_conversions);
+    let conversions = _conversions.slice();
     if (part_filter !== undefined) {
         const conv_postfix = ':' + part_filter;
         for (let i in damage_elements) {
@@ -286,7 +290,9 @@ spell_damage: {
 spell_heal: {
     name:           str != "total"  Name of the part.
     type:           "heal"          [TODO: DEPRECATED/REMOVE] flag signaling what type of part it is. Can infer from fields
-    max_hp_heal_pct: num            floating point healing power (1 is 100% of max hp).
+    power:          num             floating point healing power (1 is 100% of max hp). Data 2.2.3.0+.
+    max_hp_heal_pct: num            Pre-2.2.3.0 spelling of `power`. Still read so
+                                    that builds pinned to older data versions work.
     display:        bool            To show part or not (for some spells there are too many intermediate calc parts). Default: True
     ignored_mults:  List[str]       Multiplier effects to ignore.
 }
@@ -367,3 +373,22 @@ const default_spells = {
         ]
     }]
 };
+
+/**
+ * Read a heal part's healing power, in units of max HP (1 == 100%).
+ *
+ * Wynncraft data 2.2.3.0 renamed this spell-part field from `max_hp_heal_pct`
+ * to `power`. Both spellings are accepted because the site still serves every
+ * older data version out of data/<version>/, and a build pinned to one of
+ * those decodes against an ability tree that uses the old name. Returns
+ * undefined when the part is not a heal part at all, so callers can use it as
+ * the "is this a heal part" test.
+ *
+ * @param {Object} part - A spell part.
+ * @returns {number|undefined} Healing power, or undefined if not a heal part.
+ */
+function spell_part_heal_power(part) {
+    if ('power' in part) return part.power;
+    if ('max_hp_heal_pct' in part) return part.max_hp_heal_pct;
+    return undefined;
+}

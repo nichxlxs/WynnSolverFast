@@ -65,6 +65,21 @@ This is the sole durable performance record. Raw benchmark JSON, profiler files,
 and narrative reports are temporary and must not be treated as portable results.
 Rates are machine-specific; compare rows only when the scenario/hardware match.
 
+**Measurement warning (2026-08-13).** On the current container, end-to-end rate
+on time-boxed scenarios is not reliable below roughly ±20%. Three traps were hit
+in one session: (a) running variant A before variant B for every scenario gives
+B a systematically warmer machine — always alternate order, as
+`benchmarks/real_world.js` already does; (b) `checked` advances in large
+deterministic jumps when a level band is bulk-pruned, so two runs of different
+speed routinely report the identical number; (c) per-phase µs/call is not
+comparable across different time limits, because the cost of a leaf depends on
+how far into the priority-ordered space the search has walked, and because the
+ceiling gate's cutoff feedback changes which leaves reach which phase. An
+apparent +18.7% for the row below survived three interleaved rounds and still
+evaporated on re-measurement — identical baseline code measured 23.47 and 25.20
+leaves/ms in the same session. Prefer fixed-work microbenchmarks or the
+completing scenarios for attribution.
+
 | Date | Change | Scenario | Original space | Current space | Original rate | Current rate | Improvement | Result check |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | 2026-08-12 | Cutoff-aware top-N (`549b29b`) | Two armor, same set-safe pools | 1,872 | 1,872 | 469/s | 473/s | +0.86% | Same 15,095 score |
@@ -106,6 +121,8 @@ Rates are machine-specific; compare rows only when the scenario/hardware match.
 | 2026-08-12 | Rust layer-2 leaf pipeline (greedy+mana+rescue) | 96 melee + 96 spell sampled builds | — | — | — | — | full (base_sp, total_sp, assigned, score) reproduction | **192/192 bit-exact** vs worker |
 | 2026-08-12 | Rust scored enumeration (layer 3: gate + shared cutoff + top-15) | Dense combo_damage 3,712 search, 4 threads | — | 3,712 | JS 10.2s | **5.1s → 2.9s** (with layer-4 first pass) | top-15 scores + items bit-identical to JS | restriction scenarios need check_thresholds port |
 | 2026-08-12 | Rust spell-spam coverage (first end-to-end Rust spell benchmark) | `readme_spell_wide` 20.07B search, 180s cap | — | 430K (JS) → **1.38M checked (3.2x)** | ~2.4K leaves/s (JS avg) | **~7.6K leaves/s and climbing at cap** | gate warms as shared cutoff rises | same scenario, zero JS at runtime |
+| 2026-08-13 | New restriction-heavy mage benchmark (`solver_mage_gaia_6free_lvl50`) | Mage/Gaia, 6 free slots, lvl_min 50, 6 stat restrictions; 2.98T input / 21.39B search | — | 21,392,446,680 | — | ~25 leaves/ms (2 workers) | new baseline row | best 86,856; cannot complete (~24h at this rate) |
+| 2026-08-13 | `structuredClone` → `.slice()` in `calculateSpellDamage`; single working statmap in `assemble_combo_stats`; closure fast path generalized to negative SP lanes | `solver_mage_gaia_6free_lvl50` + all standing scenarios | — | unchanged | — | **not resolvable on this container** | fixed-work: removed clone 5,289 ns/assemble call; `structuredClone`→`.slice()` 2,160 → 21 ns (103x) per damage call; closure hit rate 0% → 55.6% | best score identical on every scenario; completing scenarios bit-identical checked/feasible; suite 253/253; 160,000-pair SP differential clean |
 
 The larger current spaces are themselves correctness improvements: original set
 dominance removed candidates without proving that their cross-slot bonuses were
@@ -122,6 +139,45 @@ to incremental add and 43.00% to remove. After caching, add/remove remained abou
 10% of wall time, and exact SP calculation below 1% on Gaia. This is provisional
 and must be replaced after the next hot-path change rather than accumulated as a
 permanent report.
+
+On 2026-08-13, a restriction-heavy mage workload
+(`solver_mage_gaia_6free_lvl50`: 6 free slots, lvl_min 50, six stat
+restrictions, one-spell combo) profiled very differently from the Gaia
+scenarios, and the "exact SP below 1%" line above does **not** generalize:
+
+- The additive prechecks are doing their job (0.14µs/leaf, ~80% of tuples
+  rejected before the leaf pipeline), and the ceiling gate is admitting only
+  0.3% of feasible leaves, so greedy/mana/score/topn together are under 1% of
+  wall. The cost is entirely in the two gates themselves.
+- `calculate_skillpoints` is **51.7%** of wall after the changes below, with
+  `_bt` alone at 40.1%. Every leaf pays it, k is 6–8 on most leaves, and the
+  surviving hard instances average ~116 backtracking nodes. This is now the
+  single dominant cost in the search.
+- The score-ceiling gate is ~30% of wall: 1.77M ceiling evaluations to admit
+  ~5.4K leaves. Per call it is one statmap clone plus one full damage eval.
+- Leaf statmap materialization (`_finalize_leaf_statmap` → `_vec_materialize`
+  → `_deep_clone_statmap_into` → `merge_stat`) is ~18% of wall. The dense
+  vector is materialized into a JS Map and then cloned again for scoring;
+  the Rust kernel already scores straight off dense vectors, the JS engine
+  does not.
+
+Ranked remaining levers for this class of workload: (1) cut `_bt` — memoize on
+the ordering-item signature, or move to subset-mask DP, or take the measured
+8.5x from the Rust SP kernel; (2) amortize the ceiling gate over enumeration
+prefixes (the Rust engine's last-slot cluster bound) instead of paying it per
+leaf; (3) carry dense stat vectors through assembly and damage evaluation so
+the Map round-trip disappears.
+
+These percentages are a single-run attribution snapshot and shift with search
+position; treat them as a ranking, not as budgets.
+
+Note on scale: this scenario has 21.39B search combinations and completes no
+faster than ~24h at the current rate, so throughput work alone does not make it
+finish — better bounds or the native engine would. Its best result (86,856) is
+found within the first seconds and never improves, so the anytime answer is
+already good; what is missing is proof of optimality. Raising `lvl_min` to 100
+shrinks the space 254x (to 84.3M) but loses the winning build, which uses
+sub-level-100 items — so it is not a safe user-side workaround here.
 
 ## SP algorithm / Lodestone status
 
@@ -141,18 +197,56 @@ The SP-Algorithm-Bounty archive was reviewed in full on 2026-08-12. Findings:
   cascade invariant (`need[s] = max(req[s] + bonus[s])`) and an admissible
   count/weight bound.
 - **Adopted**: the greedy-fixpoint insight, transposed to minimization, is now
-  an exact closure fast path in `calculate_skillpoints` — when no ordering item
-  has a negative SP bonus lane and the closure at `assign = post_floor`
-  activates everything, `post_floor` is optimal and the activation-order
-  backtracking is skipped (O(k²) vs pruned k!). A differential test runs 300
-  seeded real-item builds against a backtracking-only copy and requires
-  identical outputs. The k==0/tiny-k structure, caps, budget, crafted/weapon/
-  set handling are unchanged.
+  an exact closure fast path in `calculate_skillpoints` — when the closure at
+  `assign = post_floor` activates everything, `post_floor` is optimal and the
+  activation-order backtracking is skipped (O(k²) vs pruned k!). A differential
+  test runs 300 seeded real-item builds against a backtracking-only copy and
+  requires identical outputs. The k==0/tiny-k structure, caps, budget,
+  crafted/weapon/set handling are unchanged.
+- **2026-08-13**: that fast path originally refused to run at all when any
+  ordering item had a negative SP lane, because with negative lanes activation
+  is no longer monotone and a later activation can un-sustain an earlier item.
+  Negative lanes are common on endgame items: on
+  `solver_mage_gaia_6free_lvl50` the path fired on **zero** of 400,000 sampled
+  calls, so every leaf paid the full k! search. Re-adding _bt's own
+  intermediate sustainability check inside the closure loop (and rolling back
+  an activation that breaks it) makes the path sound with negative lanes
+  present; hit rate on that workload goes 0% → 55.6%. The check is gated on a
+  per-item negative-lane mask, not a per-build flag: activating an item whose
+  lanes are all >= 0 cannot un-sustain anything, so only the negative-lane
+  item's own activation pays for it, and an all-non-negative build runs
+  bit-for-bit the old code path. Note the 55.6% that now skip _bt were the
+  *cheap* instances — total _bt node count barely moved (20.4M → 18.3M over
+  400,000 calls), because the hard instances are hard for reasons this path
+  does not address. Do not expect this alone to move SP-bound wall time. Optimality of the conclusion is unchanged:
+  the activation sequence is a path _bt could walk on which `assign` never
+  exceeds `post_floor`, so its leaf value is exactly `lb_total`, and any leaf
+  scoring `lb_total` must have `best_assign == post_floor` — which is why
+  setting `best_assign` here cannot pick a different one of several tied
+  optima than the search would have.
+- **Measured and not adopted** (2026-08-13): seeding `best_total` at
+  `sp_budget + 1` instead of `Infinity` to arm the `lb < best_total` cut before
+  the first complete leaf. Sound (the caller rejects anything over budget
+  anyway) but worthless on this workload — only 5.7% of 400,000 sampled calls
+  were budget- or cap-rejected at level 121, so the seed almost never binds.
+  Worth revisiting only for low-level or tight-budget searches.
+- **Tie-break warning for future work here**: `_bt` records the *first* leaf
+  attaining the optimum (its leaf test is a strict `<`), and several orderings
+  routinely tie on total while assigning to different attributes. Any heuristic
+  that seeds `best_assign` from a non-optimal witness silently changes which
+  tied optimum is returned, and therefore changes downstream scores. A
+  cheapest-first greedy incumbent was tried and rejected for exactly this
+  reason — seeding only `best_total` (as a bound) is safe, seeding
+  `best_assign` is not unless the value provably pins the assignment.
 - **Not adopted**: the max-valid-subset objective, node caps, and the fallback
   repair heuristic — they answer a different question than build legality.
 
 Exact SP remains <1% of Gaia wall time; the fast path mainly hardens SP-heavy
-workloads (many ordering items) and simplified the Rust kernel port.
+workloads (many ordering items) and simplified the Rust kernel port. On
+restriction-heavy workloads where the additive prechecks and the ceiling gate
+absorb everything else, SP is instead the dominant cost — 51.7% of wall on
+`solver_mage_gaia_6free_lvl50` — so "SP is cheap" is a Gaia-specific
+observation, not a general one.
 
 ## Gaia incumbent clarification
 

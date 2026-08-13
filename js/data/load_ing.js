@@ -1,4 +1,9 @@
-const ING_DB_VERSION = 53;
+// Cached IndexedDB store for BOTH ingreds_compress.json and
+// recipes_compress.json (see remote_paths below), so it has to move whenever
+// either changes. recipes_compress.json changed in the 2.2.3.0 drop; upstream
+// left this at 53, which leaves returning crafter users on stale recipes, so
+// this intentionally sits one ahead of upstream.
+const ING_DB_VERSION = 54;
 
 /*
  * Non exhaustive list of dependencies (add them here if you see them!)

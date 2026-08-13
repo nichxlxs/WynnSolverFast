@@ -1144,7 +1144,7 @@
                   "bonuses": [
                     {
                       "type": "stat",
-                      "name": "defMult.Ivyroot Mamba",
+                      "name": "defMult.AbilityWeaken",
                       "value": 2
                     }
                   ]
@@ -1184,7 +1184,7 @@
                   "bonuses": [
                     {
                       "type": "stat",
-                      "name": "defMult.Ivyroot Mamba",
+                      "name": "defMult.AbilityWeaken",
                       "value": 3
                     }
                   ]
@@ -1224,7 +1224,7 @@
                   "bonuses": [
                     {
                       "type": "stat",
-                      "name": "defMult.Ivyroot Mamba",
+                      "name": "defMult.AbilityWeaken",
                       "value": 4
                     }
                   ]
@@ -2651,78 +2651,22 @@
         {
           "threshold": 1,
           "description": "Exhilarate restores +2% of your Corrupted bar as max health.",
-          "abilities": [
-            {
-              "base_abil": "Exhilarate",
-              "properties": {},
-              "effects": [
-                {
-                  "type": "trigger",
-                  "on": "exit",
-                  "state": "Corrupted",
-                  "effect": "heal_pct_of_state",
-                  "value": 0.02
-                }
-              ]
-            }
-          ]
+          "abilities": []
         },
         {
           "threshold": 5,
           "description": "Exhilarate restores +3% of your Corrupted bar as max health.",
-          "abilities": [
-            {
-              "base_abil": "Exhilarate",
-              "properties": {},
-              "effects": [
-                {
-                  "type": "trigger",
-                  "on": "exit",
-                  "state": "Corrupted",
-                  "effect": "heal_pct_of_state",
-                  "value": 0.03
-                }
-              ]
-            }
-          ]
+          "abilities": []
         },
         {
           "threshold": 30,
           "description": "Exhilarate restores +4% of your Corrupted bar as max health.",
-          "abilities": [
-            {
-              "base_abil": "Exhilarate",
-              "properties": {},
-              "effects": [
-                {
-                  "type": "trigger",
-                  "on": "exit",
-                  "state": "Corrupted",
-                  "effect": "heal_pct_of_state",
-                  "value": 0.04
-                }
-              ]
-            }
-          ]
+          "abilities": []
         },
         {
           "threshold": 150,
           "description": "Exhilarate restores +5% of your Corrupted bar as max health.",
-          "abilities": [
-            {
-              "base_abil": "Exhilarate",
-              "properties": {},
-              "effects": [
-                {
-                  "type": "trigger",
-                  "on": "exit",
-                  "state": "Corrupted",
-                  "effect": "heal_pct_of_state",
-                  "value": 0.05
-                }
-              ]
-            }
-          ]
+          "abilities": []
         }
       ],
       "aliases": [
@@ -4078,7 +4022,7 @@
                     "name": "damMult.Distortion:0.Vacuokinesis"
                   },
                   "scaling": [
-                    0.08
+                    0.064
                   ]
                 }
               ]
@@ -4104,7 +4048,7 @@
                     "name": "damMult.Distortion:0.Vacuokinesis"
                   },
                   "scaling": [
-                    0.12
+                    0.096
                   ]
                 }
               ]
@@ -4130,7 +4074,7 @@
                     "name": "damMult.Distortion:0.Vacuokinesis"
                   },
                   "scaling": [
-                    0.16
+                    0.128
                   ]
                 }
               ]
@@ -4156,7 +4100,7 @@
                     "name": "damMult.Distortion:0.Vacuokinesis"
                   },
                   "scaling": [
-                    0.2
+                    0.16
                   ]
                 }
               ]

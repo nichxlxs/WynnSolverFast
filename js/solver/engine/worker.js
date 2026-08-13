@@ -189,8 +189,6 @@ function _insert_top5(score, candidateFactory) {
 let _cached_hp_sim = null;  // cached simulate_combo_mana_hp result (avoids double-sim)
 
 const _scratch_finalize = new Map();
-const _scratch_pre_scale = new Map();
-const _scratch_pre_scale_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
 const _scratch_combo_base = new Map();
 const _scratch_combo_base_nested = { damMult: new Map(), defMult: new Map(), healMult: new Map() };
 const _scratch_thresh = new Map();
@@ -493,8 +491,7 @@ function _assemble_combo_stats(build_sm, total_sp, weapon_sm) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
-        { pre_scale: _scratch_pre_scale, pre_scale_nested: _scratch_pre_scale_nested,
-          combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
+        { combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
           atree: _scratch_atree },
         _ATREE_SCALING_OPTS);
 }
