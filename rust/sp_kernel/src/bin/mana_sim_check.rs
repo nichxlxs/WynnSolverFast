@@ -88,7 +88,8 @@ impl Report {
     }
 }
 
-fn check_case(name: &str, res: &SimResult, expected: &Value, rep: &mut Report) {
+fn check_case(name: &str, res: &SimResult, expected: &Value, rep: &mut Report,
+              order: &[sp_kernel::mana_sim::BuffState]) {
     let g = |k: &str| dec_num(&expected[k]);
     rep.eq(name, "end_mana", res.end_mana, g("end_mana"));
     rep.eq(name, "start_mana", res.start_mana, g("start_mana"));
@@ -156,8 +157,10 @@ fn check_case(name: &str, res: &SimResult, expected: &Value, rep: &mut Report) {
         rep.eq_i64(name, &f("state_values.len"), rr.state_values.len() as i64,
             want_sv.len() as i64);
         for (j, ws) in want_sv.iter().enumerate() {
-            let Some((k, v)) = rr.state_values.get(j) else { continue };
-            rep.eq_str(name, &f(&format!("state_values[{j}].key")), k,
+            let Some(v) = rr.state_values.get(j) else { continue };
+            // Positional now: index j must be buff_states[j].
+            rep.eq_str(name, &f(&format!("state_values[{j}].key")),
+                order.get(j).map(|b| b.state_name.as_str()).unwrap_or(""),
                 ws[0].as_str().unwrap_or(""));
             rep.eq(name, &f(&format!("state_values[{j}].value")), *v, dec_num(&ws[1]));
         }
@@ -272,7 +275,7 @@ fn main() {
         rep.eq_bool(name, "fast.has_mana_warning", f_mana,
             want_fast["has_mana_warning"].as_bool().unwrap_or(false));
         let before = rep.failures.len();
-        check_case(name, &res, &case["expected"], &mut rep);
+        check_case(name, &res, &case["expected"], &mut rep, &hc.buff_states);
 
         // extract_slider_names
         let (bp, states) = extract_slider_names(&hc);
@@ -284,7 +287,9 @@ fn main() {
             want_states.len() as i64);
         for (j, ws) in want_states.iter().enumerate() {
             let Some((sn, sl)) = states.get(j) else { continue };
-            rep.eq_str(name, &format!("slider_names.states[{j}].state"), sn,
+            // Indices now; map back to the name for the comparison.
+            rep.eq_str(name, &format!("slider_names.states[{j}].state"),
+                hc.buff_states.get(*sn).map(|b| b.state_name.as_str()).unwrap_or(""),
                 ws[0].as_str().unwrap_or(""));
             rep.eq_str(name, &format!("slider_names.states[{j}].slider"), sl,
                 ws[1].as_str().unwrap_or(""));

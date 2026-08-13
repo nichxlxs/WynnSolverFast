@@ -185,8 +185,13 @@ impl ExitTrigger {
 pub struct RowResult {
     pub filled: bool,
     pub blood_pact_bonus: f64,
-    /// `state_values`, in `buff_states` declaration order.
-    pub state_values: Vec<(String, f64)>,
+    /// `state_values`, positionally in `buff_states` declaration order.
+    ///
+    /// Indexed rather than keyed by name: this is rebuilt for every row of
+    /// every greedy SP trial, and cloning a state name per row per trial
+    /// dominated the dynamic-row path. Callers that need names zip against
+    /// `HealthConfig::buff_states`.
+    pub state_values: Vec<f64>,
     pub hp_warning: bool,
     pub mana_warning: bool,
     pub computed_delay: Option<f64>,
@@ -367,21 +372,18 @@ fn apply_exit_trigger(
     }
 }
 
-fn snapshot_states(
-    order: &[BuffState], slots: &[StateSlot], row_deact: Option<&Vec<(String, f64)>>,
-) -> Vec<(String, f64)> {
-    order
+/// `_snapshot_states`. `row_deact` holds values captured when a state was
+/// deactivated during *this* row, positionally aligned with `slots`.
+fn snapshot_states(slots: &[StateSlot], row_deact: Option<&Vec<Option<f64>>>) -> Vec<f64> {
+    slots
         .iter()
-        .zip(slots)
-        .map(|(bs, st)| {
-            let v = if st.active {
+        .enumerate()
+        .map(|(i, st)| {
+            if st.active {
                 st.value
             } else {
-                row_deact
-                    .and_then(|d| d.iter().find(|(k, _)| *k == bs.state_name).map(|(_, v)| *v))
-                    .unwrap_or(0.0)
-            };
-            (bs.state_name.clone(), v)
+                row_deact.and_then(|d| d.get(i).copied().flatten()).unwrap_or(0.0)
+            }
         })
         .collect()
 }
@@ -548,7 +550,7 @@ pub fn simulate_combo_mana_hp(
             }
             row_results[idx] = RowResult {
                 filled: true,
-                state_values: snapshot_states(&hc.buff_states, &slots, None),
+                state_values: snapshot_states(&slots, None),
                 elapsed_time,
                 ..Default::default()
             };
@@ -573,7 +575,7 @@ pub fn simulate_combo_mana_hp(
             }
             row_results[idx] = RowResult {
                 filled: true,
-                state_values: snapshot_states(&hc.buff_states, &slots, None),
+                state_values: snapshot_states(&slots, None),
                 elapsed_time,
                 ..Default::default()
             };
@@ -606,7 +608,7 @@ pub fn simulate_combo_mana_hp(
                 }
                 row_results[idx] = RowResult {
                     filled: true,
-                    state_values: snapshot_states(&hc.buff_states, &slots, None),
+                    state_values: snapshot_states(&slots, None),
                     mana_lost: js_max(0.0, mana_before - mana),
                     elapsed_time,
                     row_dt: elapsed_time - time_before,
@@ -624,7 +626,7 @@ pub fn simulate_combo_mana_hp(
                 }
                 row_results[idx] = RowResult {
                     filled: true,
-                    state_values: snapshot_states(&hc.buff_states, &slots, None),
+                    state_values: snapshot_states(&slots, None),
                     mana_lost: js_max(0.0, mana_before - mana),
                     mana_gained: mana_gained_amt,
                     elapsed_time,
@@ -646,7 +648,7 @@ pub fn simulate_combo_mana_hp(
                 }
                 row_results[idx] = RowResult {
                     filled: true,
-                    state_values: snapshot_states(&hc.buff_states, &slots, None),
+                    state_values: snapshot_states(&slots, None),
                     mana_lost: js_max(0.0, mana_before - mana),
                     elapsed_time,
                     row_dt: elapsed_time - time_before,
@@ -661,7 +663,7 @@ pub fn simulate_combo_mana_hp(
         if row.qty <= 0.0 || row.spell.is_none() {
             row_results[idx] = RowResult {
                 filled: true,
-                state_values: snapshot_states(&hc.buff_states, &slots, None),
+                state_values: snapshot_states(&slots, None),
                 elapsed_time,
                 ..Default::default()
             };
@@ -674,7 +676,7 @@ pub fn simulate_combo_mana_hp(
         if row.mana_excl {
             row_results[idx] = RowResult {
                 filled: true,
-                state_values: snapshot_states(&hc.buff_states, &slots, None),
+                state_values: snapshot_states(&slots, None),
                 elapsed_time,
                 ..Default::default()
             };
@@ -720,7 +722,7 @@ pub fn simulate_combo_mana_hp(
         let mut mana_warning = false;
         let mut row_mana_cost = 0.0f64;
         let mut row_mana_gained = 0.0f64;
-        let mut row_deact: Option<Vec<(String, f64)>> = None;
+        let mut row_deact: Option<Vec<Option<f64>>> = None;
         let mut row_computed_delay: Option<f64> = None;
 
         let eff_melee_period = row.melee_cd_override.unwrap_or(melee_period);
@@ -773,8 +775,7 @@ pub fn simulate_combo_mana_hp(
                         }
                     }
                     row_deact
-                        .get_or_insert_with(Vec::new)
-                        .push((bs.state_name.clone(), slots[bi].value));
+                        .get_or_insert_with(|| vec![None; n_states])[bi] = Some(slots[bi].value);
                     slots[bi].active = false;
                     slots[bi].value = 0.0;
                     state_melee_hits[bi] = 0.0;
@@ -943,7 +944,7 @@ pub fn simulate_combo_mana_hp(
         row_results[idx] = RowResult {
             filled: true,
             blood_pact_bonus: avg_blood_bonus,
-            state_values: snapshot_states(&hc.buff_states, &slots, row_deact.as_ref()),
+            state_values: snapshot_states(&slots, row_deact.as_ref()),
             hp_warning,
             mana_warning,
             computed_delay: row_computed_delay,
@@ -1145,13 +1146,18 @@ pub fn unroll_loops_dynamic(rows: &[Row], iteration_counts: &[(usize, i64)]) -> 
 }
 
 /// `extract_slider_names` (simulate.js:173) — returns
-/// `(bp_slider_name, [(state_name, slider_name)])`.
-pub fn extract_slider_names(hc: &HealthConfig) -> (Option<String>, Vec<(String, String)>) {
+/// `(bp_slider_name, [(buff_state index, slider_name)])`.
+///
+/// The state is identified by index rather than name so injection can read
+/// `RowResult::state_values` positionally, with no name comparison in the
+/// per-trial path.
+pub fn extract_slider_names(hc: &HealthConfig) -> (Option<String>, Vec<(usize, String)>) {
     let bp = hc.damage_boost.as_ref().and_then(|d| d.slider_name.clone());
     let states = hc
         .buff_states
         .iter()
-        .filter_map(|bs| bs.slider_name.clone().map(|sn| (bs.state_name.clone(), sn)))
+        .enumerate()
+        .filter_map(|(i, bs)| bs.slider_name.clone().map(|sn| (i, sn)))
         .collect();
     (bp, states)
 }
@@ -1164,7 +1170,7 @@ pub fn extract_slider_names(hc: &HealthConfig) -> (Option<String>, Vec<(String, 
 /// overridden), matching the JS `_has_manual` check.
 pub fn inject_blood_pact_boosts(
     rows: &[Row], sim: &SimResult, bp_slider_name: Option<&str>,
-    state_slider_names: &[(String, String)],
+    state_slider_names: &[(usize, String)],
 ) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::with_capacity(rows.len());
     for (i, row) in rows.iter().enumerate() {
@@ -1189,13 +1195,8 @@ pub fn inject_blood_pact_boosts(
                 }
             }
         }
-        for (state_name, slider_name) in state_slider_names {
-            let val = res
-                .state_values
-                .iter()
-                .find(|(k, _)| k == state_name)
-                .map(|(_, v)| *v)
-                .unwrap_or(0.0);
+        for (state_idx, slider_name) in state_slider_names {
+            let val = res.state_values.get(*state_idx).copied().unwrap_or(0.0);
             if val > 0.0 && !has_manual(slider_name) {
                 extra.push(Token {
                     name: slider_name.clone(),

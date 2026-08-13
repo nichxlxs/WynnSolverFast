@@ -44,8 +44,8 @@ It still made the run **2% slower** — 12.05 s versus 11.79 s over repeated 1M-
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
 | B7 | Warm start on SP-antagonistic objectives (e.g. xpb) | The elite subspace has NO jointly SP-feasible build, so the warm pass seeds nothing | ~0.2s wasted, then organic cutoff | **Tried and rejected**: falling back to a level-ordered top-K also scored 0 (that subspace is infeasible too) and merely doubled the wasted time, so it was not shipped. A real fix needs SP-feasibility folded into the *selection* (pick a jointly-feasible elite set), not a second guess. Cost is ~0.1% of a 180s run, so this is low priority. |
-| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so compiled rows, dense lowering, the ceiling gate and every bound are off, and the whole chain re-runs on each greedy SP trial | ~0.9 s/leaf on a synthetic until-OOM loop sustaining to the 255-iteration cap. **Measured split** (`SCORE_TRACE=1`, 381 trials): 16.9 s in greedy, of which **3.2 s (19%) is dynamic row construction** and the remaining 13.7 s is the damage evaluation itself over the 1,785-row unrolled combo | Not the row build, despite the obvious guess — that is only a fifth of it. The damage evaluation dominates, and it runs on the *uncompiled* Obj path because injected tokens rule out `compile_rows`. A compiled path that tolerates per-leaf token values is the real target |
-| B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
+| B9 | Dynamic-row scenarios (declared sliders, until-OOM loops) | Rows are leaf-dependent, so the compiled and dense lowerings are both off and scoring falls all the way back to the uncompiled Obj path | **~500x per greedy trial.** Same 496-leaf space, same ~10,130 trials: plain runs them in 0.02 s on the dense path, a slider scenario takes 10.40 s. Row construction is only 2.2 s of that; the other 7.8 s is uncompiled damage evaluation | Get these onto the compiled path. Injection only *appends* tokens, and in the slider case the rows line up 1:1 with the originals, so the compiled bonuses stay valid and only the injected token needs per-leaf handling. The dense path is harder — it bakes row damage in at build time |
+| B8 | The JS engine as a whole || B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
 
 ## C. Integration gaps
 
@@ -59,11 +59,11 @@ It still made the run **2% slower** — 12.05 s versus 11.79 s over repeated 1M-
 ## Remaining work, in the order I'd tackle it
 
 1. **Speed, not coverage.** Every section-A gap the engine used to refuse is
-   now supported; what remains is that dynamic-row scenarios (B9) run with
-   every fast path off. The measurement above says where to aim: the damage
-   evaluation over the unrolled combo is 81% of it, so the win is a compiled
-   row path that tolerates per-leaf boost-token values — not the row
-   construction, which is the intuitive but wrong target.
+   now supported; what remains is that dynamic-row scenarios (B9) score on
+   the uncompiled Obj path and pay ~500x per greedy trial for it. Two
+   tried-and-rejected attempts are recorded above (B1's mana memo, and the
+   assumption that row *construction* was B9's cost) — both were measured
+   rather than reasoned about, and both were wrong.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no
    `SharedArrayBuffer` or cross-origin isolation needed. Exact (verified at

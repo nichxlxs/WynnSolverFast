@@ -1825,7 +1825,9 @@ pub struct L2Consts {
 #[derive(Clone, Default)]
 pub struct DynamicRows {
     pub bp_slider: Option<String>,
-    pub state_sliders: Vec<(String, String)>,
+    /// `(buff_state index, slider name)` — indexed so injection reads
+    /// `RowResult::state_values` positionally in the per-trial path.
+    pub state_sliders: Vec<(usize, String)>,
     /// Rows still carry loop markers and must be unrolled per leaf.
     pub needs_unroll: bool,
 }

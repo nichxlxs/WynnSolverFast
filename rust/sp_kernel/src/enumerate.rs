@@ -1679,9 +1679,14 @@ pub fn cli_main() {
             eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
             return None;
         }
+        // Same gate as `run_single_with_progress`: dynamic rows make the
+        // all-150-SP ceiling meaningless, because the rows themselves change
+        // per leaf. Missing this here pruned every leaf of a slider scenario
+        // and scored none of them.
         if !sc.objective.supports_ceiling()
             || !sc.layer2.ceiling_vars_ok
-            || sc.consts.hp_casting { return None; }
+            || sc.consts.hp_casting
+            || sc.consts.dynamic.is_some() { return None; }
         let slot_pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         Some(sc.layer2.build_bound_tables(&slot_pools).expect("bound tables"))
     });
