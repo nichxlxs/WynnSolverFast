@@ -182,6 +182,62 @@ Against ~300 ms of actual search on `armor4`, 4-way spends 261 ms of
 overhead to save ~167 ms. It is a **net loss**, and the measurement says so:
 384 ms at 1 worker versus 666 ms at 4.
 
+Re-measured on a **real search** rather than empty partitions — `armor4` at
+`combo_damage`, 511,758 leaves, run to completion through the page, two
+repetitions per configuration:
+
+| partitions | 1 | 2 | 4 |
+|---|---:|---:|---:|
+| wall | 1481 / 1465 ms | 1467 / 1381 ms | 1394 / 1447 ms |
+
+Flat. At roughly 1.4 s of work, four partitions are still no better than
+one: the startup cost has grown in step with the search. So partitioning
+does not currently pay on any scenario small enough to finish quickly, and
+the scenarios where it should pay are the ones too large to finish at all.
+
+**Do not measure this on an unfinished run.** Comparing leaves-checked per
+second at a fixed time budget on a space that never completes looks like a
+clean scaling experiment and is not one: partitions are split by first-slot
+offset, so each explores a different region, and regions differ enormously
+in how cheaply they prune. A configuration whose partitions happen to land
+in easily-pruned regions racks up a huge `checked` count without doing more
+useful work. Done that way the numbers come out wildly non-monotonic
+(1.8M/s at 1 partition, 18M/s at 2, 4-7M/s at 3, 10.6M/s at 4) and mean
+nothing. Only a run that covers the whole space is comparable.
+
+### wasm threads
+
+Still not implemented, and the blocker is not the Rust side. Checked here:
+a nightly toolchain with `rust-src` installs fine, so an atomics-enabled
+`-Z build-std` wasm build is available in principle.
+
+What actually blocks it is the browser contract. `SharedArrayBuffer`
+requires cross-origin isolation (`COOP: same-origin` + `COEP: require-corp`),
+which a statically-hosted app cannot set without either server headers or
+shipping a service worker to synthesize them — a product decision about the
+app, not a kernel change.
+
+Worth separating two things that get conflated:
+
+- **Threaded wasm** (many threads inside one module) needs nightly, an
+  atomics std rebuild, a second build artifact, *and* isolation.
+- **A shared cutoff across the existing ordinary workers** — which is the
+  only thing `solve_partition` documents as lost versus native threads —
+  needs isolation alone. The engine already has the mechanism
+  (`shared_cutoff: Option<&AtomicU64>`, used by the native threaded path);
+  a `SharedArrayBuffer` holding one value, read via `Atomics` at each
+  progress emission, would feed it without any threaded build.
+
+The second is much the smaller change and captures the pruning benefit. It
+is still gated on cross-origin isolation, because `solve_partition` is one
+blocking call: the worker cannot receive a `postMessage` mid-run, so the
+cutoff cannot be delivered by messaging without first making the engine
+resumable across chunks.
+
+Given the table above, neither is the first thing to fix: on every workload
+that completes, per-worker startup dominates, and a shared cutoff does
+nothing about startup.
+
 Two fixes followed from that:
 
 - **The module is compiled once** on the main thread and structured-cloned
