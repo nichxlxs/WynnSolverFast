@@ -37,6 +37,9 @@ pub const HPR_TICK_SECONDS: f64 = 4.0;
 pub struct DamageBoost {
     pub min: f64,
     pub max: f64,
+    /// Non-null makes this a *dynamic* slider: the sim's `blood_pact_bonus`
+    /// is injected into the damage rows under this name.
+    pub slider_name: Option<String>,
 }
 
 /// `buff_state.drain_pct_per_second`. Missing keys read as 0, matching the
@@ -66,6 +69,8 @@ pub struct BuffState {
     pub spell_flat_field: Option<String>,
     /// `'mana_loss'` | `'hp_loss_pct'` | absent.
     pub tracking: Option<String>,
+    /// Non-null makes this state a *dynamic* slider (see `DamageBoost`).
+    pub slider_name: Option<String>,
 }
 
 /// One entry of `health_config.exit_triggers`.
@@ -110,6 +115,7 @@ impl HealthConfig {
             damage_boost: v.get("damage_boost").filter(|d| !d.is_null()).map(|d| DamageBoost {
                 min: d.get("min").and_then(|x| x.as_f64()).unwrap_or(0.0),
                 max: d.get("max").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                slider_name: d.get("slider_name").and_then(|x| x.as_str()).map(String::from),
             }),
             buff_states,
             exit_triggers,
@@ -153,6 +159,7 @@ impl BuffState {
                 .and_then(|x| x.as_str())
                 .map(String::from),
             tracking: v.get("tracking").and_then(|x| x.as_str()).map(String::from),
+            slider_name: v.get("slider_name").and_then(|x| x.as_str()).map(String::from),
         }
     }
 }
@@ -963,4 +970,247 @@ pub fn simulate_combo_mana_hp(
         mana_wasted,
         loop_iteration_counts,
     }
+}
+
+// ── connective functions between the sim and scoring ────────────────────────
+
+/// `RECAST_MANA_PENALTY` (js/solver/constants.js).
+pub const RECAST_MANA_PENALTY: f64 = 5.0;
+
+/// `compute_recast_penalties` (simulate.js:193) — fills each row's
+/// `recast_penalties` / `recast_penalty_per_cast` in place.
+///
+/// Reads `sim_qty` (not `qty`): casts are discrete, and the caller has
+/// already resolved melee-time rows into a hit count. Must be re-run after
+/// a dynamic loop unroll, because the flat sequence changes which casts are
+/// consecutive.
+pub fn compute_recast_penalties(rows: &mut [Row]) {
+    let penalty_per = RECAST_MANA_PENALTY;
+    let mut last_base: Option<i64> = None;
+    let mut consec: f64 = 0.0;
+    let mut penalty: f64 = 0.0;
+
+    for row in rows.iter_mut() {
+        if row.loop_start.is_some() || row.loop_end {
+            continue;
+        }
+        if row.pseudo {
+            if row.pseudo_kind.as_deref() == Some("mana_reset") && !row.mana_excl {
+                last_base = None;
+                consec = 0.0;
+                penalty = 0.0;
+            }
+            continue;
+        }
+
+        let sim_qty = row.sim_qty;
+        row.recast_penalty_per_cast = 0.0;
+        row.recast_penalties.clear();
+
+        // JS: `!spell || !(sim_qty > 0) || !Number.isFinite(sim_qty) ||
+        //      mana_excl || spell.cost == null`. The NaN guard matters — a
+        // half-edited field parses to NaN and `!(NaN > 0)` is true.
+        if row.spell.is_none() || !(sim_qty > 0.0) || !sim_qty.is_finite()
+            || row.mana_excl || !row.sim_cost_present
+        {
+            continue;
+        }
+        let rc_base = row.sim_recast_base;
+        if rc_base == 0 {
+            continue;
+        }
+
+        let n = sim_qty as usize;
+        let mut penalties = vec![f64::NAN; n];
+        let mut row_penalty = 0.0f64;
+        let mut is_switch = false;
+        if Some(rc_base) != last_base {
+            is_switch = true;
+            if consec <= 1.0 { penalty = 0.0; } else { penalty += 1.0; }
+            consec = 0.0;
+            last_base = Some(rc_base);
+        }
+
+        if is_switch && penalty > 0.0 {
+            penalties[0] = penalty * penalty_per;
+            row_penalty = penalties[0];
+            penalty = 0.0;
+            consec = 1.0;
+            let remaining = sim_qty - 1.0;
+            if remaining > 0.0 {
+                let free_remaining = js_min(remaining, 1.0);
+                let mut i = 1usize;
+                while (i as f64) <= free_remaining {
+                    penalties[i] = 0.0;
+                    i += 1;
+                }
+                let penalty_start = 1.0 + free_remaining;
+                let mut i = penalty_start as usize;
+                while i < n {
+                    let k = i as f64 - penalty_start + 1.0;
+                    penalties[i] = k * penalty_per;
+                    row_penalty += penalties[i];
+                    i += 1;
+                }
+                let penalty_remaining = remaining - free_remaining;
+                if penalty_remaining > 0.0 {
+                    penalty = penalty_remaining;
+                }
+                consec += remaining;
+            }
+        } else if penalty > 0.0 {
+            for (i, slot) in penalties.iter_mut().enumerate() {
+                *slot = (penalty + 1.0 + i as f64) * penalty_per;
+                row_penalty += *slot;
+            }
+            penalty += sim_qty;
+            consec += sim_qty;
+        } else {
+            let free_casts = js_max(0.0, js_min(sim_qty, 2.0 - consec));
+            let mut i = 0usize;
+            while (i as f64) < free_casts {
+                penalties[i] = 0.0;
+                i += 1;
+            }
+            let mut i = free_casts as usize;
+            while i < n {
+                let k = i as f64 - free_casts + 1.0;
+                penalties[i] = k * penalty_per;
+                row_penalty += penalties[i];
+                i += 1;
+            }
+            let penalty_casts = sim_qty - free_casts;
+            if penalty_casts > 0.0 {
+                penalty = penalty_casts;
+            }
+            consec += sim_qty;
+        }
+
+        row.recast_penalties = penalties;
+        row.recast_penalty_per_cast = if sim_qty > 0.0 { row_penalty / sim_qty } else { 0.0 };
+    }
+}
+
+/// `_unroll_loops_pure` (engine.js:299) — flattens loop brackets using the
+/// simulation's observed iteration counts.
+///
+/// Unlike `scoring::unroll_count_loops`, this handles until-OOM loops: their
+/// iteration count is whatever the sim actually ran, looked up by the
+/// LOOP_START row index. Count loops still use their static value, so this
+/// agrees with the static unroll on loop-free-after-unroll input.
+pub fn unroll_loops_dynamic(rows: &[Row], iteration_counts: &[(usize, i64)]) -> Vec<Row> {
+    let mut out: Vec<Row> = Vec::with_capacity(rows.len());
+    let mut i = 0usize;
+    while i < rows.len() {
+        if let Some((cond_type, cond_value)) = rows[i].loop_start {
+            let Some(end_idx) = (i + 1..rows.len()).find(|&j| rows[j].loop_end) else {
+                // Unterminated marker: JS skips it and keeps scanning.
+                i += 1;
+                continue;
+            };
+            // JS: `cond.value || 1` for count, `counts[i] || 1` otherwise —
+            // a missing or zero count degenerates to a single pass.
+            let iters = if cond_type == LOOP_COND_COUNT {
+                cond_value
+            } else {
+                iteration_counts
+                    .iter()
+                    .find(|(k, _)| *k == i)
+                    .map(|(_, v)| *v as f64)
+                    .filter(|v| *v != 0.0)
+                    .unwrap_or(1.0)
+            };
+            let body: Vec<&Row> = (i + 1..end_idx)
+                .filter(|&j| rows[j].loop_start.is_none() && !rows[j].loop_end)
+                .map(|j| &rows[j])
+                .collect();
+            let mut iter = 0.0f64;
+            while iter < iters {
+                for br in &body {
+                    out.push((*br).clone());
+                }
+                iter += 1.0;
+            }
+            i = end_idx + 1;
+        } else if rows[i].loop_end {
+            i += 1;
+        } else {
+            out.push(rows[i].clone());
+            i += 1;
+        }
+    }
+    out
+}
+
+/// `extract_slider_names` (simulate.js:173) — returns
+/// `(bp_slider_name, [(state_name, slider_name)])`.
+pub fn extract_slider_names(hc: &HealthConfig) -> (Option<String>, Vec<(String, String)>) {
+    let bp = hc.damage_boost.as_ref().and_then(|d| d.slider_name.clone());
+    let states = hc
+        .buff_states
+        .iter()
+        .filter_map(|bs| bs.slider_name.clone().map(|sn| (bs.state_name.clone(), sn)))
+        .collect();
+    (bp, states)
+}
+
+/// `inject_blood_pact_boosts` (engine.js:237) — appends simulation-derived
+/// boost tokens to each row, so the damage pass sees the Blood Pact bonus and
+/// the buff-state slider values the sim actually produced.
+///
+/// A manually-set token of the same name wins (the user's slider is not
+/// overridden), matching the JS `_has_manual` check.
+pub fn inject_blood_pact_boosts(
+    rows: &[Row], sim: &SimResult, bp_slider_name: Option<&str>,
+    state_slider_names: &[(String, String)],
+) -> Vec<Row> {
+    let mut out: Vec<Row> = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        let Some(res) = sim.row_results.get(i).filter(|r| r.filled) else {
+            out.push(row.clone());
+            continue;
+        };
+        let has_manual =
+            |n: &str| row.tokens.iter().any(|t| t.manual && t.name == n);
+
+        let mut extra: Vec<Token> = Vec::new();
+        if res.blood_pact_bonus > 0.0 {
+            if let Some(name) = bp_slider_name {
+                if !has_manual(name) {
+                    extra.push(Token {
+                        name: name.to_string(),
+                        // JS `Math.round(x * 10) / 10`.
+                        value: js_round(res.blood_pact_bonus * 10.0) / 10.0,
+                        is_pct: true,
+                        manual: false,
+                    });
+                }
+            }
+        }
+        for (state_name, slider_name) in state_slider_names {
+            let val = res
+                .state_values
+                .iter()
+                .find(|(k, _)| k == state_name)
+                .map(|(_, v)| *v)
+                .unwrap_or(0.0);
+            if val > 0.0 && !has_manual(slider_name) {
+                extra.push(Token {
+                    name: slider_name.clone(),
+                    value: js_round(val),
+                    is_pct: false,
+                    manual: false,
+                });
+            }
+        }
+
+        if extra.is_empty() {
+            out.push(row.clone());
+            continue;
+        }
+        let mut r = row.clone();
+        r.tokens.extend(extra);
+        out.push(r);
+    }
+    out
 }

@@ -10,8 +10,11 @@
 //! Usage: mana_sim_check [fixtures/mana_sim_cases.json] [--verbose]
 
 use serde_json::Value;
-use sp_kernel::mana_sim::{simulate_combo_mana_hp, HealthConfig, SimConsts, SimResult};
-use sp_kernel::scoring::{parse_rows, Obj, Tables};
+use sp_kernel::mana_sim::{
+    compute_recast_penalties, extract_slider_names, inject_blood_pact_boosts,
+    simulate_combo_mana_hp, unroll_loops_dynamic, HealthConfig, SimConsts, SimResult,
+};
+use sp_kernel::scoring::{parse_rows, Obj, Row, Tables};
 
 /// The exporter encodes non-finite doubles as strings ("@NaN", "@Inf").
 fn dec_num(v: &Value) -> f64 {
@@ -160,6 +163,44 @@ fn check_case(name: &str, res: &SimResult, expected: &Value, rep: &mut Report) {
     }
 }
 
+/// Compares a row list against the exporter's `encRows` shape.
+fn check_rows(case: &str, label: &str, rows: &[Row], want: &Value, rep: &mut Report) {
+    let want = want.as_array().cloned().unwrap_or_default();
+    rep.eq_i64(case, &format!("{label}.len"), rows.len() as i64, want.len() as i64);
+    for (i, w) in want.iter().enumerate() {
+        let Some(r) = rows.get(i) else { continue };
+        let f = |k: &str| format!("{label}[{i}].{k}");
+        rep.eq_str(case, &f("spell_name"),
+            r.spell.as_ref().and_then(|s| s.get("name")).and_then(|n| n.as_str()).unwrap_or(""),
+            w["spell_name"].as_str().unwrap_or(""));
+        rep.eq(case, &f("recast_penalty_per_cast"), r.recast_penalty_per_cast,
+            dec_num(&w["recast_penalty_per_cast"]));
+        if w["recast_penalties"].is_null() {
+            rep.eq_i64(case, &f("recast_penalties<null>"), r.recast_penalties.len() as i64, 0);
+        } else {
+            let wp = w["recast_penalties"].as_array().cloned().unwrap_or_default();
+            rep.eq_i64(case, &f("recast_penalties.len"), r.recast_penalties.len() as i64,
+                wp.len() as i64);
+            for (j, wv) in wp.iter().enumerate() {
+                let Some(gv) = r.recast_penalties.get(j) else { continue };
+                rep.eq(case, &f(&format!("recast_penalties[{j}]")), *gv, dec_num(wv));
+            }
+        }
+        let wt = w["boost_tokens"].as_array().cloned().unwrap_or_default();
+        rep.eq_i64(case, &f("boost_tokens.len"), r.tokens.len() as i64, wt.len() as i64);
+        for (j, wv) in wt.iter().enumerate() {
+            let Some(t) = r.tokens.get(j) else { continue };
+            rep.eq_str(case, &f(&format!("boost_tokens[{j}].name")), &t.name,
+                wv["name"].as_str().unwrap_or(""));
+            rep.eq(case, &f(&format!("boost_tokens[{j}].value")), t.value, dec_num(&wv["value"]));
+            rep.eq_bool(case, &f(&format!("boost_tokens[{j}].is_pct")), t.is_pct,
+                wv["is_pct"].as_bool().unwrap_or(false));
+            rep.eq_bool(case, &f(&format!("boost_tokens[{j}].manual")), t.manual,
+                wv["manual"].as_bool().unwrap_or(false));
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let verbose = args.iter().any(|a| a == "--verbose");
@@ -203,6 +244,33 @@ fn main() {
         );
         let before = rep.failures.len();
         check_case(name, &res, &case["expected"], &mut rep);
+
+        // extract_slider_names
+        let (bp, states) = extract_slider_names(&hc);
+        let want_sn = &case["expected_slider_names"];
+        rep.eq_str(name, "slider_names.bp", bp.as_deref().unwrap_or(""),
+            want_sn["bp"].as_str().unwrap_or(""));
+        let want_states = want_sn["states"].as_array().cloned().unwrap_or_default();
+        rep.eq_i64(name, "slider_names.states.len", states.len() as i64,
+            want_states.len() as i64);
+        for (j, ws) in want_states.iter().enumerate() {
+            let Some((sn, sl)) = states.get(j) else { continue };
+            rep.eq_str(name, &format!("slider_names.states[{j}].state"), sn,
+                ws[0].as_str().unwrap_or(""));
+            rep.eq_str(name, &format!("slider_names.states[{j}].slider"), sl,
+                ws[1].as_str().unwrap_or(""));
+        }
+
+        // dynamic unroll + recast-penalty re-run, then boost injection
+        let mut flat = unroll_loops_dynamic(&rows, &res.loop_iteration_counts);
+        compute_recast_penalties(&mut flat);
+        check_rows(name, "unrolled", &flat, &case["expected_unrolled"], &mut rep);
+
+        let flat_sim = simulate_combo_mana_hp(
+            &flat, &stats, &hc, has_trans, &registry, &tables, &consts,
+        );
+        let injected = inject_blood_pact_boosts(&flat, &flat_sim, bp.as_deref(), &states);
+        check_rows(name, "injected", &injected, &case["expected_injected"], &mut rep);
         if verbose {
             let status = if rep.failures.len() == before { "ok" } else { "FAIL" };
             println!("  {status:4} {name}");

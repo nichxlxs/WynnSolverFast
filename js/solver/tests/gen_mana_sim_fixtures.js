@@ -367,6 +367,42 @@ add('spell hp_cost with blood pact damage_boost',
       buff_states: corruptionConfig({ tracking: 'hp_loss_pct',
         drain: { mana: 0 } }).buff_states });
 
+// -- Boost-token injection (damage feedback from the sim) ---------------------
+add('inject: blood pact slider',
+    [makeRow(4, makeSpell('Totem', 40, { base_spell: 1 }))],
+    makeStats({ mr: 5, hp: 3000 }),
+    bloodPactConfig({ damage_boost: { min: 10, max: 40, slider_name: 'Blood Pact' } }));
+
+add('inject: blood pact slider overridden by a manual token',
+    [makeRow(4, makeSpell('Totem', 40, { base_spell: 1 }),
+        { boost_tokens: [{ name: 'Blood Pact', value: 12, is_pct: true, manual: true }] })],
+    makeStats({ mr: 5, hp: 3000 }),
+    bloodPactConfig({ damage_boost: { min: 10, max: 40, slider_name: 'Blood Pact' } }));
+
+add('inject: state slider overridden by a manual token',
+    [makeRow(1, makeSpell('Dash', 10, { base_spell: 2 }),
+        { boost_tokens: [{ name: 'Mana Lost', value: 7, is_pct: false, manual: true }] }),
+     makeRow(1, makeSpell('Attack', 10, { base_spell: 1 }),
+        { boost_tokens: [{ name: 'Mana Lost', value: 7, is_pct: false, manual: true }] })],
+    makeStats(), vanishConfig({ mana_drain: true }));
+
+add('inject: both sliders on the same row',
+    [makeRow(1, makeSpell('Bakal', 20, { base_spell: 3 })),
+     makeRow(4, makeSpell('Totem', 55, { base_spell: 1 }))],
+    makeStats({ mr: 5, hp: 3000 }),
+    { ...bloodPactConfig({ damage_boost: { min: 10, max: 40, slider_name: 'Blood Pact' } }),
+      buff_states: corruptionConfig({ tracking: 'hp_loss_pct', drain: { mana: 0 } })
+        .buff_states.map(bs => ({ ...bs, slider_name: 'Corruption' })) });
+
+add('inject: loop body rows get per-iteration values',
+    [makeRow(1, makeSpell('Bakal', 20, { base_spell: 3 })),
+     loopStart(0, 3),
+     makeRow(2, makeSpell('Melee', null, { base_spell: 0, scaling: 'melee', mana_derived_from: 0 })),
+     makeRow(1, makeSpell('Attack', 15, { base_spell: 1 })),
+     loopEnd()],
+    makeStats({ mr: 30, atkSpd: 'NORMAL' }),
+    corruptionConfig({ tracking: 'mana_loss' }));
+
 // -- Loop brackets -----------------------------------------------------------
 add('loop: count 3',
     [loopStart(0, 3),
@@ -515,18 +551,80 @@ const out = {
     cases: [],
 };
 
+const compute_recast_penalties = ctx.compute_recast_penalties;
+const _unroll_loops_pure = inCtx('_unroll_loops_pure');
+const inject_blood_pact_boosts = inCtx('inject_blood_pact_boosts');
+const extract_slider_names = inCtx('extract_slider_names');
+
+// Rows carry `sim_qty` in the real pipeline (set by _parse_combo_for_search);
+// the sim derives it the same way, so mirror that here.
+function withSimQty(rows, stats) {
+    const sm = new Map(Object.entries(stats));
+    return rows.map(r => {
+        if (r.loop_start || r.loop_end) return { ...r };
+        const sim_qty = r.is_melee_time
+            ? Math.round(inCtx('compute_melee_time_hits')(
+                r.qty, sm, r.delay ?? undefined, r.melee_cd_override ?? undefined))
+            : Math.round(r.qty ?? 0);
+        return { ...r, sim_qty };
+    });
+}
+
+function encRows(rows) {
+    return rows.map(r => ({
+        sim_qty: r.sim_qty == null ? null : encNum(r.sim_qty),
+        recast_penalty_per_cast: encNum(r.recast_penalty_per_cast ?? 0),
+        recast_penalties: r.recast_penalties == null ? null
+            : r.recast_penalties.map(encNum),
+        boost_tokens: (r.boost_tokens ?? []).map(t => ({
+            name: t.name, value: encNum(t.value),
+            is_pct: !!t.is_pct, manual: !!t.manual,
+        })),
+        spell_name: r.spell?.name ?? null,
+    }));
+}
+
 for (const c of cases) {
     const stats = new Map(Object.entries(c.stats));
+    const rows = withSimQty(c.rows, c.stats);
     const result = simulate_combo_mana_hp(
-        c.rows, stats, c.health_config, c.has_transcendence, c.registry);
+        rows, stats, c.health_config, c.has_transcendence, c.registry);
+
+    // Dynamic unroll by the sim's observed iteration counts, then the
+    // recast-penalty re-run the JS damage path performs on the flat combo.
+    //
+    // _unroll_loops_pure reuses (does not copy) rows outside a loop body, so
+    // compute_recast_penalties would write through to `rows` and leave the
+    // serialized input disagreeing with the `expected` captured above. The
+    // engine is unaffected — recast penalties depend only on the row
+    // sequence, so recomputing them is idempotent — but the fixture has to
+    // record the inputs as they were. Unroll a deep copy instead.
+    const flat = _unroll_loops_pure(
+        JSON.parse(JSON.stringify(rows)), result.loop_iteration_counts ?? {});
+    compute_recast_penalties(flat);
+
+    // Boost-token injection needs a sim over the FLAT rows (row_results must
+    // line up 1:1), exactly as eval_combo_damage_with_bp does.
+    const flatSim = simulate_combo_mana_hp(
+        flat, stats, c.health_config, c.has_transcendence, c.registry);
+    const { bp_slider_name, state_slider_names } = extract_slider_names(c.health_config);
+    const injected = inject_blood_pact_boosts(
+        flat, flatSim, bp_slider_name, state_slider_names);
+
     out.cases.push({
         name: c.name,
         stats: c.stats,
-        rows: c.rows,
+        rows,
         health_config: c.health_config,
         has_transcendence: c.has_transcendence,
         registry: c.registry,
         expected: encResult(result),
+        expected_slider_names: {
+            bp: bp_slider_name,
+            states: Object.entries(state_slider_names),
+        },
+        expected_unrolled: encRows(flat),
+        expected_injected: encRows(injected),
     });
 }
 

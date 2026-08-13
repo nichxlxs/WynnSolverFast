@@ -665,10 +665,14 @@ pub fn compute_spell_flat_damage(
 
 // ── Boost application (pure/boost.js) ────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct Token {
     pub name: String,
     pub value: f64,
     pub is_pct: bool,
+    /// User-set slider. `inject_blood_pact_boosts` will not override a
+    /// manual token of the same name.
+    pub manual: bool,
 }
 
 pub struct PropOverride {
@@ -841,6 +845,7 @@ pub fn compute_melee_time_hits(
 
 // ── compute_combo_damage_totals (pure/engine.js) ─────────────────────────────
 
+#[derive(Clone)]
 pub struct Row {
     pub qty: f64,
     pub dmg_excl: bool,
@@ -866,6 +871,12 @@ pub struct Row {
     pub loop_end: bool,
     /// JS destructures `auto_delay = true`, i.e. absent means true.
     pub auto_delay: bool,
+    /// `row.sim_qty` as set by `_parse_combo_for_search`. Only
+    /// `compute_recast_penalties` reads it (the sim recomputes its own).
+    pub sim_qty: f64,
+    /// `row.recast_penalty_per_cast` — the per-cast average. Carried for
+    /// parity with the JS row shape; the sim reads `recast_penalties`.
+    pub recast_penalty_per_cast: f64,
     // Static spell fields hoisted for the mana sim (reads the ORIGINAL
     // spell, which is parse-time constant).
     pub sim_cost_present: bool,
@@ -938,6 +949,7 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
                 name: t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
                 value: t.get("value").and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
                 is_pct: t.get("is_pct").and_then(|x| x.as_bool()).unwrap_or(false),
+                manual: t.get("manual").and_then(|x| x.as_bool()).unwrap_or(false),
             }).collect())
             .unwrap_or_default();
         let spell_ref: Option<Value> = r.get("spell").filter(|s| !s.is_null()).cloned();
@@ -978,6 +990,9 @@ pub fn parse_rows(v: &Value) -> Vec<Row> {
             )),
             loop_end: r.get("loop_end").map(|v| !v.is_null()).unwrap_or(false),
             auto_delay: r.get("auto_delay").and_then(|v| v.as_bool()).unwrap_or(true),
+            sim_qty: r.get("sim_qty").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
+            recast_penalty_per_cast: r.get("recast_penalty_per_cast")
+                .and_then(|v| v.as_f64()).unwrap_or(0.0),
             static_dps: spell_ref.as_ref()
                 .and_then(|s| compute_dps_spell_hits_info(s))
                 .map(|i| (i.per_hit_name, i.max_hits, i.dps_chain_root)),
