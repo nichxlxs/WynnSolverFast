@@ -116,7 +116,7 @@ the materialized Obj base on every leaf for a value only the Obj fallback
 needs — `base` went from 0.00 s to 0.13 s on `hp2`. The dense path assembles
 both SP states from the lowered leaf and needs no Obj base at all.
 
-| B3 | Atrees failing `ceiling_vars_ok` (negative stat-input factors, or `atkTier`/`*ConvBase` var outputs) | All-150 SP is not an upper bound → gate + bounds off (matches JS) | Unpruned | Extremal-per-output ceiling assemble (like the bounded doom) could re-arm the gate soundly |
+| ~~B3~~ | Atrees failing `ceiling_vars_ok` (negative stat-input factors, or `atkTier`/`*ConvBase` var outputs) | All-150 SP is not an upper bound → gate + bounds off (matches JS) | **Never triggered**: no shipped ability tree has either shape | Same answer as A8 — `test_atree_lowering_coverage.js` now asserts it across all 35 data versions, and every scaling factor in them is a plain non-negative number. An extremal-per-output ceiling would be code for a shape the game has not produced; build it if the test ever fails |
 | ~~B4~~ | `hp_casting` builds — **gate re-armed, 3.85x** | Was gate-off for JS parity, so every leaf was fully scored | **48,021 → 184,640 checked/s** on spell_wide. Greedy 32.5 s → 0.14 s, trials 22.0M → 93K | Done. The exclusion was conservative, not necessary — see below |
 | B5 | Scenarios with maxMana/int var couplings in ≤5-sustain mode | Bounded doom disabled (start-mana monotonicity hole) | Full greedy+mana on mana-dead leaves | Two-sided doom bound on start-minus-end |
 | B6 | ehp-family **thresholds** on huge pools | Additive prechecks are weaker than the exact leaf check; ehp thresholds only reject at the leaf | Scenario-dependent | Fold atree scaling into the precheck (JS TODO notes this too) |
@@ -247,9 +247,11 @@ never exercised looks exactly like a gating change that is correct.
 ## Remaining work, in the order I'd tackle it
 
 1. ~~**Speed, not coverage**~~ — B9 is closed (16.7x), B1's doom precheck is
-   1.46x, and B4's gate is re-armed (3.85x). What is left in section B needs
-   new bound *shapes* rather than tuning: B3 still has no admissible ceiling,
-   and B5 needs a two-sided doom bound. Six tried-and-rejected attempts are recorded above;
+   1.46x, and B4's gate is re-armed (3.85x). B3 turned out to be unreachable
+   in shipped data, like A8, and is now guarded by the same test. **B5 is the
+   only section-B item left with real work in it**: a two-sided doom bound on
+   start-minus-end mana, for scenarios where maxMana/int couplings disable the
+   bounded doom. Six tried-and-rejected attempts are recorded above;
    each was plausible and each was wrong until measured.
 2. ~~**wasm threads**~~ — **addressed by partitioning** (see WASM.md): one
    ordinary worker per core, split by first-slot offset, no

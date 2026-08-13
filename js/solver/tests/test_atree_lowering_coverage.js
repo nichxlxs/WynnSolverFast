@@ -1,5 +1,6 @@
-// Guards that every shipped ability tree can be LOWERED for the Rust engine
-// (support matrix A8).
+// Guards that every shipped ability tree stays on the Rust engine's fast path
+// — that it can be LOWERED (support matrix A8) and that its ceiling stays
+// admissible so the engine can still PRUNE (B3).
 //
 // rust_bridge.js classifies a build's atree scaling into 'cached' (no
 // stat-dependent effects), 'split' (a constant partition plus a list of
@@ -26,6 +27,20 @@
 // update introduces one, this fails and names the class and ability — which is
 // the signal to do the porting work, and the place to start looking.
 //
+// A fourth and fifth condition cost pruning rather than support. The
+// score-ceiling gate and the mid-tree bounds assemble at all-150 SP and treat
+// that as an upper bound, which holds only while every variable effect is
+// non-decreasing in skill points (`ceiling_vars_ok`). Two shapes break it:
+//
+//   4. a variable effect with a NEGATIVE scaling factor — more skill points
+//      then means less of that stat, so all-150 is not the maximum.
+//   5. a variable output of `atkTier` or a `*ConvBase` key, where more is not
+//      monotonically better for the score.
+//
+// Either one switches the gate and the bounds off for the whole scenario,
+// which does not change any answer but leaves the search unpruned. Neither
+// occurs in any shipped tree either.
+//
 // Method. For each class it builds the all-nodes ability tree — every node
 // active at once, which no real build is — and classifies that. All three
 // conditions are monotone in the node set: each needs a specific effect (or
@@ -44,10 +59,13 @@ const path = require('path');
 const vm = require('vm');
 const { createSandbox, TestRunner, REPO_ROOT } = require('./harness');
 
-const t = new TestRunner('Atree Lowering Coverage (A8)');
+const t = new TestRunner('Atree Fast-Path Coverage (A8 lowering, B3 ceiling)');
 
 const ctx = createSandbox();
 const atree_collect_stat_effects = vm.runInContext('(atree_collect_stat_effects)', ctx);
+// Factors are resolved the way the exporter resolves them when it lowers, so
+// a translated constant is checked at its real value rather than its name.
+const atree_translate = vm.runInContext('(atree_translate)', ctx);
 
 const MULT_ROOTS = ['damMult', 'defMult', 'healMult', 'manaMult'];
 
@@ -113,6 +131,8 @@ t.assert(versions.length > 0, 'found at least one data version to scan');
 const propIo = [];
 const multRoot = [];
 const collisions = [];
+const negFactor = [];
+const nonMonotoneOut = [];
 let classesScanned = 0;
 let varEffects = 0;
 
@@ -128,6 +148,29 @@ for (const version of versions) {
         varEffects += plan.var_effects.length;
 
         if (plan.var_has_prop_io) propIo.push(`${version}/${cls}`);
+
+        // B3: what `ceiling_vars_ok` rejects, checked on the same effects the
+        // exporter would lower — factors through atree_translate, so a named
+        // constant is judged by its value.
+        for (const eff of plan.var_effects) {
+            const scaling = eff.scaling ?? [0];
+            const inputs = eff.inputs ?? [];
+            for (let i = 0; i < Math.min(scaling.length, inputs.length); i++) {
+                if (inputs[i].type !== 'stat') continue;
+                const factor = atree_translate(merged, scaling[i]);
+                if (!(typeof factor === 'number' && factor >= 0)) {
+                    negFactor.push(`${version}/${cls}: factor ${JSON.stringify(factor)}`);
+                }
+            }
+            const outs = 'output' in eff
+                ? (Array.isArray(eff.output) ? eff.output : [eff.output]) : [];
+            for (const o of outs) {
+                if (!o || o.type !== 'stat') continue;
+                if (o.name === 'atkTier' || o.name.includes('ConvBase')) {
+                    nonMonotoneOut.push(`${version}/${cls}: ${o.name}`);
+                }
+            }
+        }
 
         const constKeys = constWrittenKeys(merged.values());
         for (const key of plan.var_keys) {
@@ -153,6 +196,16 @@ t.assert(propIo.length === 0,
 t.assert(multRoot.length === 0,
     'no shipped ability tree may have a variable effect writing a bare multiplier '
     + `root. Found: ${multRoot.join(', ')}`);
+
+t.assert(negFactor.length === 0,
+    'no shipped ability tree may have a variable effect with a negative scaling '
+    + 'factor — all-150 SP stops being an upper bound, so the ceiling gate and '
+    + `every mid-tree bound switch off and the search runs unpruned. Found: ${negFactor.join(', ')}`);
+
+t.assert(nonMonotoneOut.length === 0,
+    'no shipped ability tree may have a variable effect writing atkTier or a '
+    + '*ConvBase key — more is not monotonically better for the score, so the '
+    + `ceiling stops bounding it. Found: ${nonMonotoneOut.join(', ')}`);
 
 t.assert(collisions.length === 0,
     'no shipped ability tree may have a variable key its constant partition also '
