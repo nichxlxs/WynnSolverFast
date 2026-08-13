@@ -378,6 +378,7 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
         restrictions,
         // Pool building restrictions
         lvl_min: snap.lvl_min ?? sp.lvl_min ?? 1,
+        lvl_overrides: snap.lvl_overrides ?? sp.lvl_overrides ?? {},
         lvl_max: snap.lvl_max ?? sp.lvl_max ?? decoded.level,
         no_major_id: sp.nomaj || false,
         dir_enabled: sp.dir_enabled ?? 0x1F,
@@ -1296,6 +1297,7 @@ async function runSolverTest(snapName) {
         buildDir[dirOrder[i]] = !!((solverSnap.dir_enabled) & (1 << i));
     }
     const poolRestrictions = {
+        lvl_overrides: solverSnap.lvl_overrides,
         lvl_min: solverSnap.lvl_min,
         lvl_max: solverSnap.lvl_max,
         no_major_id: solverSnap.no_major_id,

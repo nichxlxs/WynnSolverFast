@@ -189,6 +189,33 @@ function toggle_no_major_id() {
     _schedule_solver_hash_update();
 }
 
+/**
+ * Show/hide the per-slot item level panel. Purely a display toggle — the values
+ * inside stay in effect either way, so collapsing the panel never silently
+ * changes the search. The button stays lit while any override is set so a
+ * collapsed panel can't hide an active filter.
+ */
+function toggle_lvl_perslot_panel() {
+    const panel = document.getElementById('restr-lvl-perslot');
+    if (!panel) return;
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : '';
+    _refresh_lvl_perslot_indicator();
+}
+
+/** Light the per-slot button whenever at least one override is set. */
+function _refresh_lvl_perslot_indicator() {
+    const btn = document.getElementById('restr-lvl-perslot-toggle');
+    if (!btn) return;
+    let any = false;
+    for (const slot of LVL_OVERRIDE_SLOTS) {
+        const mn = document.getElementById('restr-lvl-min-' + slot)?.value;
+        const mx = document.getElementById('restr-lvl-max-' + slot)?.value;
+        if ((mn && mn !== '') || (mx && mx !== '')) { any = true; break; }
+    }
+    btn.classList.toggle('toggleOn', any);
+}
+
 let _restriction_row_counter = 0;
 
 /**
@@ -304,7 +331,7 @@ function _init_restriction_stat_autocomplete(input_id) {
  *   lvl_min: number,
  *   lvl_max: number,
  *   no_major_id: boolean,
- *   guild_tome: number,   // 0 = off, 1 = standard (+4 SP), 2 = rare (+5 SP)
+ *   guild_tome: number,   // index into GUILD_TOMES (0 = off, 1-5 = +4 to one attr, 6 = rainbow)
  *   stat_thresholds: Array<{stat: string, op: string, value: number}>
  * }}
  */
@@ -317,6 +344,26 @@ function get_restrictions() {
 
     const lvl_min = parseInt(document.getElementById('restr-lvl-min')?.value) || 1;
     const lvl_max = parseInt(document.getElementById('restr-lvl-max')?.value) || MAX_PLAYER_LEVEL;
+
+    // Per-slot item-level overrides. A slot with neither field filled in uses the
+    // global range; a slot with only one filled in inherits the other bound.
+    const lvl_overrides = {};
+    for (const slot of LVL_OVERRIDE_SLOTS) {
+        const min_raw = parseInt(document.getElementById('restr-lvl-min-' + slot)?.value);
+        const max_raw = parseInt(document.getElementById('restr-lvl-max-' + slot)?.value);
+        const has_min = Number.isFinite(min_raw);
+        const has_max = Number.isFinite(max_raw);
+        if (!has_min && !has_max) continue;
+        // null means "inherit the global bound" and is preserved through the
+        // URL, so a blank field keeps following later edits to the global range
+        // instead of being frozen at whatever the global happened to be when
+        // the link was generated.
+        lvl_overrides[slot] = {
+            min: has_min ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, min_raw)) : null,
+            max: has_max ? Math.max(1, Math.min(MAX_PLAYER_LEVEL, max_raw)) : null,
+        };
+    }
+
     const no_major_id = document.getElementById('restr-no-major-id')?.classList.contains('toggleOn') ?? false;
     const guild_tome = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
 
@@ -339,7 +386,7 @@ function get_restrictions() {
         });
     }
 
-    return { build_dir, lvl_min, lvl_max, no_major_id, guild_tome, stat_thresholds };
+    return { build_dir, lvl_min, lvl_max, lvl_overrides, no_major_id, guild_tome, stat_thresholds };
 }
 
 // ── Item Blacklist ──────────────────────────────────────────────────────────

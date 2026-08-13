@@ -214,6 +214,239 @@ function _allRollsMax() {
 }
 
 /**
+ * Guild tome choices, indexed by the value encoded in solver URLs (v11+).
+ *
+ * Every guild tome in the game is a skill-point tome: five grant +4 to one
+ * attribute, and Assimilator's grants +1 to all five. There is no guild tome
+ * that does anything else, so the only decision is which one — hence an
+ * explicit list rather than an abstract "+4 SP" mode.
+ *
+ * This replaces the pre-v11 `gtome` encoding, where value 1 meant "Standard
+ * (+4 SP)" and was implemented by inflating the assignable SP budget by 4. That
+ * let the solver split the bonus across attributes (e.g. [102,102,0,0,0]),
+ * producing builds no real tome can support. `sp` here is the exact
+ * per-attribute contribution, applied as a real item statMap instead.
+ *
+ * WARNING: order is LOAD-BEARING for URL encoding — append only.
+ */
+const GUILD_TOMES = [
+    { key: 'none',  label: 'Off (200 SP)',         item: null,                            sp: [0, 0, 0, 0, 0] },
+    { key: 'str',   label: 'Strength (+4 Str)',    item: "Psychopath's Tome of Allegiance",   sp: [4, 0, 0, 0, 0] },
+    { key: 'dex',   label: 'Dexterity (+4 Dex)',   item: "Sadist's Tome of Allegiance",       sp: [0, 4, 0, 0, 0] },
+    { key: 'int',   label: 'Intelligence (+4 Int)', item: "Warlock's Tome of Allegiance",     sp: [0, 0, 4, 0, 0] },
+    { key: 'def',   label: 'Defense (+4 Def)',     item: "Destroyer's Tome of Allegiance",    sp: [0, 0, 0, 4, 0] },
+    { key: 'agi',   label: 'Agility (+4 Agi)',     item: "Sycophant's Tome of Allegiance",    sp: [0, 0, 0, 0, 4] },
+    { key: 'rainbow', label: 'Rainbow (+1 each)',  item: "Assimilator's Tome of Allegiance",  sp: [1, 1, 1, 1, 1] },
+];
+
+/** Encoded value for the Rainbow tome — the one pre-v11 value that survives. */
+const GUILD_TOME_RAINBOW = 6;
+
+/**
+ * Total skill points a guild tome choice grants. Use this instead of testing
+ * the encoded value against a literal: the values changed meaning in v11 (1 was
+ * "Standard", now Strength; 2 was "Rainbow", now Dexterity), so any surviving
+ * `=== 1` / `=== 2` comparison is a latent bug.
+ */
+function guild_tome_sp_total(idx) {
+    const g = GUILD_TOMES[idx] ?? GUILD_TOMES[0];
+    return g.sp.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * A synthetic statMap for a guild tome choice, shaped like an equipped tome so
+ * calculate_skillpoints counts it as bonus skillpoints. Returns null for "Off".
+ */
+function guild_tome_statmap(idx) {
+    const g = GUILD_TOMES[idx] ?? GUILD_TOMES[0];
+    if (!g.sp.some(v => v !== 0)) return null;
+    const sm = new Map();
+    sm.set('skillpoints', g.sp.slice());
+    sm.set('reqs', [0, 0, 0, 0, 0]);
+    return sm;
+}
+
+/**
+ * Tome optimisation modes (encoded value in solver URLs, v11+).
+ *
+ * OFF   — tomes are whatever the user selected; the solver never varies them.
+ * GUILD — the solver picks the best guild tome from the enabled set.
+ * ALL   — the solver also picks weapon and armour tomes.
+ */
+const TOME_OPT_OFF = 0;
+const TOME_OPT_GUILD = 1;
+const TOME_OPT_ALL = 2;
+
+/**
+ * Build the admissible optimistic stat bound over a set of tome statMaps: the
+ * per-key maximum, which is an upper bound on any single legal choice.
+ *
+ * This is the "tighten the bound per tome type" rule from
+ * solver/TOME_AND_LEVEL_PLAN.md — call it once per tome type rather than once
+ * across all types, because a global maximum is reachable by no real
+ * combination and would prune far less.
+ *
+ * Soundness: no combat tome carries a skill point requirement (verified across
+ * all 101), so a tome can only ever make a build more feasible. A gearset that
+ * fails a threshold against these per-key maxima therefore fails against every
+ * real tome choice, and pruning it discards nothing reachable.
+ *
+ * @param {Map[]} statmaps  - candidate tome statMaps
+ * @param {number} count    - how many of this tome type are equipped at once
+ * @returns {Map} per-key maxima, scaled by `count`
+ */
+function tome_optimistic_bound(statmaps, count = 1) {
+    const out = new Map();
+    const bump = (k, v) => {
+        const cur = out.get(k);
+        if (cur === undefined || v > cur) out.set(k, v);
+    };
+    for (const sm of statmaps) {
+        if (!sm) continue;
+        for (const [k, v] of sm) {
+            if (typeof v === 'number') bump(k, v);
+            else if (k === 'skillpoints' && Array.isArray(v)) {
+                const cur = out.get(k) ?? [0, 0, 0, 0, 0];
+                out.set(k, cur.map((c, i) => Math.max(c, v[i] ?? 0)));
+            }
+        }
+        // Rolled IDs live in maxRolls after _apply_roll_mode_to_item; missing
+        // them here would make the bound too tight and prune real builds.
+        const rolled = sm.get('maxRolls');
+        if (rolled) for (const [k, v] of rolled) if (typeof v === 'number') bump(k, v);
+    }
+    if (count !== 1) {
+        for (const [k, v] of out) {
+            out.set(k, Array.isArray(v) ? v.map(x => x * count) : v * count);
+        }
+    }
+    return out;
+}
+
+/**
+ * Read a tome's effective value for `key`.
+ *
+ * Rolled IDs do NOT live as top-level statMap keys. `_apply_roll_mode_to_item`
+ * rewrites the `maxRolls` map in place to the rolled value, and leaf assembly
+ * reads from there. Anything inspecting tome stats must do the same or it
+ * silently sees zero for every rolled stat — which is every stat that matters
+ * on weapon and armour tomes.
+ */
+function tome_stat(sm, key) {
+    if (!sm) return 0;
+    const direct = sm.get(key);
+    if (typeof direct === 'number') return direct;
+    const rolled = sm.get('maxRolls');
+    if (rolled) {
+        const v = rolled.get(key);
+        if (typeof v === 'number') return v;
+    }
+    return 0;
+}
+
+/**
+ * Drop tomes that another tome in the same pool matches or beats on every
+ * solver-relevant stat. Tome lines are heavily tiered (Combat Mastery I/II/III),
+ * so this collapses the pools hard before any combination is enumerated.
+ *
+ * Only `keys` are compared. As with item dominance, a stat outside that set is
+ * invisible here — so `keys` must cover everything the current search can score
+ * or threshold on, or a genuinely better tome can be discarded.
+ */
+function tome_prune_dominated(statmaps, keys) {
+    const vecs = statmaps.map(sm => keys.map(k => tome_stat(sm, k)));
+    const keep = [];
+    for (let i = 0; i < statmaps.length; i++) {
+        let dominated = false;
+        for (let j = 0; j < statmaps.length && !dominated; j++) {
+            if (i === j) continue;
+            let ge_all = true, gt_any = false;
+            for (let k = 0; k < keys.length; k++) {
+                if (vecs[j][k] < vecs[i][k]) { ge_all = false; break; }
+                if (vecs[j][k] > vecs[i][k]) gt_any = true;
+            }
+            // Ties are broken by index so two identical tomes don't delete each
+            // other, which would leave the pool empty.
+            if (ge_all && (gt_any || j < i)) dominated = true;
+        }
+        if (!dominated) keep.push(statmaps[i]);
+    }
+    return keep;
+}
+
+/**
+ * Enumerate the distinct stat bundles obtainable by filling `count` slots from
+ * `statmaps`, then Pareto-prune them.
+ *
+ * Duplicates are allowed (the same tome may occupy more than one slot), so
+ * these are multiset combinations: C(n+count-1, count). Prune the pool with
+ * tome_prune_dominated first — this is exponential in `count` and enumerating
+ * raw pools (35 armour tomes over 4 slots is ~74k quads) is not viable.
+ *
+ * The result does not depend on the gear, so compute it ONCE per search and
+ * reuse it at every leaf. That is the difference between a short front to
+ * iterate and re-enumerating the tome space inside the hot loop.
+ *
+ * @returns {{vec: number[], picks: Map[]}[]} bundles, each a summed stat vector
+ *          over `keys` plus the tomes that produced it
+ */
+function tome_bundles(statmaps, count, keys) {
+    if (count <= 0 || statmaps.length === 0) return [{ vec: keys.map(() => 0), picks: [] }];
+    const out = [];
+    const cur = [];
+    const vecs = statmaps.map(sm => keys.map(k => tome_stat(sm, k)));
+    (function pick(start, depth, acc) {
+        if (depth === count) {
+            out.push({ vec: acc.slice(), picks: cur.slice() });
+            return;
+        }
+        // start, not start+1: duplicates are legal.
+        for (let i = start; i < statmaps.length; i++) {
+            cur.push(statmaps[i]);
+            pick(i, depth + 1, acc.map((v, k) => v + vecs[i][k]));
+            cur.pop();
+        }
+    })(0, 0, keys.map(() => 0));
+    return pareto_prune_bundles(out);
+}
+
+/** Keep only bundles no other bundle matches or beats on every stat. */
+function pareto_prune_bundles(bundles) {
+    const keep = [];
+    for (let i = 0; i < bundles.length; i++) {
+        let dominated = false;
+        for (let j = 0; j < bundles.length && !dominated; j++) {
+            if (i === j) continue;
+            const a = bundles[i].vec, b = bundles[j].vec;
+            let ge_all = true, gt_any = false;
+            for (let k = 0; k < a.length; k++) {
+                if (b[k] < a[k]) { ge_all = false; break; }
+                if (b[k] > a[k]) gt_any = true;
+            }
+            if (ge_all && (gt_any || j < i)) dominated = true;
+        }
+        if (!dominated) keep.push(bundles[i]);
+    }
+    return keep;
+}
+
+/**
+ * Slots that can carry a per-slot item-level override, in encoding order.
+ *
+ * WARNING: This order is LOAD-BEARING for URL encoding — solver URLs encode the
+ * override set as a bitmask over these indices. Never reorder or remove
+ * entries; only append, and only behind a solver URL version bump.
+ *
+ * `ring` is deliberately one entry covering BOTH ring slots. The two rings draw
+ * from a single shared, priority-ordered pool and the enumerator canonicalises
+ * ring pairs so (A,B) and (B,A) are not both visited; per-ring ranges would
+ * break that symmetry. See solver/TOME_AND_LEVEL_PLAN.md, "Ring caveat".
+ */
+const LVL_OVERRIDE_SLOTS = [
+    'helmet', 'chestplate', 'leggings', 'boots', 'ring', 'bracelet', 'necklace',
+];
+
+/**
  * Stats available for use in restriction threshold rows.
  * Each entry: { key: <statMap key>, label: <display name> }
  * Ordered by category for readability in the autocomplete list.

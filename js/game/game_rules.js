@@ -6,8 +6,13 @@
 // ── Skill Points ──────────────────────────────────────────────────────────────
 const SP_TOTAL_CAP = 200;           // Max assignable skill points
 const SP_PER_ATTR_CAP = 100;        // Max skill points per attribute
-const SP_GUILD_TOME_STD = 204;      // Assignable SP with standard guild tome (+4)
-const SP_GUILD_TOME_RARE = 205;     // Assignable SP with rare/rainbow guild tome (+5) - Not used
+// Guild tomes do NOT raise the assignable budget. They grant fixed
+// per-attribute skill points and are modelled as item statMaps (see
+// GUILD_TOMES in js/solver/constants.js). These two constants encoded the old
+// "inflate the budget" model, which allowed the bonus to be split across
+// attributes in a way no real tome can produce; both are unused.
+const SP_GUILD_TOME_STD = 204;      // DEPRECATED — do not use for new code
+const SP_GUILD_TOME_RARE = 205;     // DEPRECATED — never used
 const SP_PERCENTAGE_RATE = 0.9908;  // Geometric series rate for SP→% conversion
 const SP_PERCENTAGE_INPUT_CAP = 150;// SP input cap for percentage conversion
 

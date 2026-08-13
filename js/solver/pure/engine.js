@@ -389,10 +389,11 @@ function eval_combo_damage_with_bp(combo_base, weapon_sm, parsed_combo, bp_confi
  *
  * @param {Object|null} scratch - Optional pre-allocated Maps:
  *   { combo_base, combo_base_nested, atree }
+ * @param {Map|null} extra_stats - Additional additive stats merged last (tome bundle).
  */
 function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance_boost,
                                atree_merged, button_states, slider_states, static_boosts,
-                               scratch, scaling_opts) {
+                               scratch, scaling_opts, extra_stats) {
     // One working map, not two. The pre-scale stats and the returned combo_base
     // used to be separate clones of the build statmap, but nothing reads
     // pre_scale after the atree scaling below is computed from it — neither
@@ -439,6 +440,10 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
     _merge_into(combo_base, atree_scaled_stats);
     if (atree_var_stats) _merge_into(combo_base, atree_var_stats);
     _merge_into(combo_base, static_boosts);
+    // extra_stats is the tome bundle for this candidate (or the optimistic tome
+    // bound during gating). Merged last, like static_boosts, because tomes are
+    // plain additive stat bundles with no requirements of their own.
+    if (extra_stats) _merge_into(combo_base, extra_stats);
     return combo_base;
 }
 

@@ -1058,15 +1058,100 @@
                             ID</button>
                     </div>
 
+                    <!-- Per-slot item level overrides (blank = inherit the global range above) -->
+                    <div class="px-2 pb-1">
+                        <button class="btn btn-sm btn-outline-secondary dir-btn" id="restr-lvl-perslot-toggle"
+                            onclick="toggle_lvl_perslot_panel()"
+                            title="Set item level ranges per slot, overriding the global range">Per-slot levels</button>
+                        <div id="restr-lvl-perslot" style="display:none;" class="mt-2">
+                            <div class="text-secondary small mb-1">Blank fields inherit the global range. Both
+                                ring slots share one range.</div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Helmet</span>
+                                <input id="restr-lvl-min-helmet" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Helmet level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-helmet" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Helmet level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Chestplate</span>
+                                <input id="restr-lvl-min-chestplate" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Chestplate level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-chestplate" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Chestplate level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Leggings</span>
+                                <input id="restr-lvl-min-leggings" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Leggings level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-leggings" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Leggings level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Boots</span>
+                                <input id="restr-lvl-min-boots" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Boots level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-boots" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Boots level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Rings</span>
+                                <input id="restr-lvl-min-ring" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Rings level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-ring" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Rings level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Bracelet</span>
+                                <input id="restr-lvl-min-bracelet" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Bracelet level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-bracelet" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Bracelet level (blank = use the global maximum)">
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-secondary small" style="width:5.5em;">Necklace</span>
+                                <input id="restr-lvl-min-necklace" type="number" min="1" max="121" placeholder="Min"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Minimum Necklace level (blank = use the global minimum)">
+                                <span class="text-secondary small">–</span>
+                                <input id="restr-lvl-max-necklace" type="number" min="1" max="121" placeholder="Max"
+                                    class="combo-row-input" style="width:3.5em; text-align:center;"
+                                    title="Maximum Necklace level (blank = use the global maximum)">
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Guild Tomes -->
                     <div class="px-2 pb-1 d-flex align-items-center gap-2 flex-wrap">
                         <span class="text-light small fw-bold">Guild Tomes</span>
                         <select class="solver-select form-select form-select-sm scaled-font" id="restr-guild-tome"
                             style="width:auto;"
-                            title="Guild tome grants extra assignable SP. Off = 200 SP budget (100 per type); Standard = +4 SP total; Rainbow = +5 SP total">
+                            title="Which guild tome is equipped. Every guild tome grants a fixed per-attribute skill point bonus, so the exact tome must be chosen — the bonus cannot be split across attributes.">
                             <option value="0" selected>Off (200 SP)</option>
-                            <option value="1">Standard (+4 SP)</option>
-                            <option value="2">Rainbow (+5 SP)</option>
+                            <option value="1">Strength (+4 Str)</option>
+                            <option value="2">Dexterity (+4 Dex)</option>
+                            <option value="3">Intelligence (+4 Int)</option>
+                            <option value="4">Defense (+4 Def)</option>
+                            <option value="5">Agility (+4 Agi)</option>
+                            <option value="6">Rainbow (+1 each)</option>
                         </select>
                     </div>
 

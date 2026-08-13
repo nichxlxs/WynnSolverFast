@@ -358,6 +358,29 @@ function _restore_from_url(solver_params) {
         if (inp) inp.value = solver_params.lvl_max;
     }
 
+    // Per-slot level overrides
+    if (solver_params.lvl_overrides) {
+        let any = false;
+        for (const slot of LVL_OVERRIDE_SLOTS) {
+            const ov = solver_params.lvl_overrides[slot];
+            if (!ov) continue;
+            any = true;
+            // Only refill sides that were explicitly set; a side stored as null
+            // must stay blank so it keeps inheriting the global bound.
+            const mn = document.getElementById('restr-lvl-min-' + slot);
+            const mx = document.getElementById('restr-lvl-max-' + slot);
+            if (mn) mn.value = (ov.min === null || ov.min === undefined) ? '' : ov.min;
+            if (mx) mx.value = (ov.max === null || ov.max === undefined) ? '' : ov.max;
+        }
+        // Open the panel when a link carries overrides, so they are visible
+        // rather than hidden behind a collapsed section.
+        if (any) {
+            const panel = document.getElementById('restr-lvl-perslot');
+            if (panel) panel.style.display = '';
+        }
+        if (typeof _refresh_lvl_perslot_indicator === 'function') _refresh_lvl_perslot_indicator();
+    }
+
     // No Major ID
     if (solver_params.nomaj) {
         const btn = document.getElementById('restr-no-major-id');
@@ -442,6 +465,16 @@ function _wire_event_listeners() {
     if (restr_lvl_min) restr_lvl_min.addEventListener('input', _schedule_solver_hash_update);
     const restr_lvl_max = document.getElementById('restr-lvl-max');
     if (restr_lvl_max) restr_lvl_max.addEventListener('input', _schedule_solver_hash_update);
+    for (const slot of LVL_OVERRIDE_SLOTS) {
+        for (const id of ['restr-lvl-min-' + slot, 'restr-lvl-max-' + slot]) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.addEventListener('input', () => {
+                _refresh_lvl_perslot_indicator();
+                _schedule_solver_hash_update();
+            });
+        }
+    }
     const restr_guild_tome = document.getElementById('restr-guild-tome');
     if (restr_guild_tome) restr_guild_tome.addEventListener('change', _schedule_solver_hash_update);
 

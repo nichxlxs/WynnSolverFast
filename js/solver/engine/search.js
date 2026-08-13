@@ -80,13 +80,21 @@ function _build_item_pools(restrictions, illegal_at_2 = new Set(), blacklist = n
     for (const [slot, type] of Object.entries(slot_types)) {
         const pool = [];
         const names = itemLists.get(type) ?? [];
+        // Per-slot level override, falling back to the global range. `ring` is a
+        // single shared pool feeding both ring slots, so it carries one override
+        // for the pair — see TOME_AND_LEVEL_PLAN.md "Ring caveat": giving the two
+        // rings different ranges would break the ring canonicalisation that stops
+        // (A,B) and (B,A) both being enumerated.
+        const override = restrictions.lvl_overrides?.[slot];
+        const slot_lvl_min = override?.min ?? restrictions.lvl_min;
+        const slot_lvl_max = override?.max ?? restrictions.lvl_max;
         for (const name of names) {
             const item_obj = itemMap.get(name);
             if (!item_obj) continue;
             if (item_obj.name?.startsWith('No ')) continue;
             if (blacklist.has(name)) continue;
             const lvl = item_obj.lvl ?? 0;
-            if (lvl < restrictions.lvl_min || lvl > restrictions.lvl_max) continue;
+            if (lvl < slot_lvl_min || lvl > slot_lvl_max) continue;
             if (restrictions.no_major_id && item_obj.majorIds?.length > 0) continue;
             let skip = false;
             for (let i = 0; i < 5; i++) {
@@ -237,21 +245,21 @@ function _build_solver_snapshot(restrictions) {
         : new Item(none_tomes[2]);
 
     const has_real_guild_tome = !guild_tome_item.statMap.has('NONE');
-    let sp_budget = levelToSkillPoints(level);
+    // The assignable budget never changes with the guild tome. Every guild tome
+    // is a skill-point item granting a FIXED per-attribute amount, so it is
+    // modelled as a real item statMap and counted as bonus skillpoints inside
+    // calculate_skillpoints — exactly as an equipped tome would be.
+    //
+    // This deliberately replaces the pre-v11 "Standard (+4 SP)" mode, which
+    // inflated sp_budget by 4 with no per-attribute constraint and so let the
+    // solver spread the bonus (e.g. [102,102,0,0,0]) — a distribution no guild
+    // tome can actually produce. See GUILD_TOMES in solver/constants.js.
+    const sp_budget = levelToSkillPoints(level);
     if (!has_real_guild_tome) {
-        const gtome_mode = restrictions.guild_tome ?? 0;
-        if (gtome_mode === 1) {
-            // TODO: Standard mode currently inflates sp_budget by +4 with no
-            // per-attribute constraint, allowing the solver to split the bonus
-            // across attributes (e.g. [102,102,0,0,0]).
-
-            // Standard: +4 freely assignable SP (solver picks optimal distribution)
-            sp_budget = levelToSkillPoints(level) + 4;
-        } else if (gtome_mode === 2) {
-            // Rainbow: fixed [1,1,1,1,1] — create synthetic tome so SP calc
-            // sees the exact per-attribute contribution (not freely distributable)
+        const gtome_choice = GUILD_TOMES[restrictions.guild_tome ?? 0] ?? GUILD_TOMES[0];
+        if (gtome_choice.sp.some(v => v !== 0)) {
             const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
+            synth.set('skillpoints', gtome_choice.sp.slice());
             synth.set('reqs', [0, 0, 0, 0, 0]);
             guild_tome_item = { statMap: synth };
         }
@@ -1154,28 +1162,22 @@ function _compute_sp_overflow_warnings() {
     if (gt_node_val && !gt_node_val.statMap.has('NONE')) {
         gt_sm = gt_node_val.statMap;
     } else {
-        // No specific tome — check restriction dropdown for rainbow synthetic
+        // No specific tome equipped — synthesise the dropdown selection. Every
+        // choice is a real fixed per-attribute bonus (see GUILD_TOMES), so this
+        // must not special-case individual encoded values.
         const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 2) {
-            const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
-            synth.set('reqs', [0, 0, 0, 0, 0]);
-            gt_sm = synth;
-        } else {
-            gt_sm = new Item(none_tomes[2]).statMap;
-        }
+        gt_sm = guild_tome_statmap(gtome_mode) ?? new Item(none_tomes[2]).statMap;
     }
     equip_sms.push(gt_sm);
 
     const weapon = solver_item_final_nodes[8]?.value;
     if (!weapon || weapon.statMap.has('NONE')) return warnings;
 
-    // SP budget: standard mode inflates budget, rainbow uses synthetic tome above
-    let sp_overflow_budget = SP_TOTAL_CAP;
-    if (!gt_node_val || gt_node_val.statMap.has('NONE')) {
-        const gtome_mode = parseInt(document.getElementById('restr-guild-tome')?.value) || 0;
-        if (gtome_mode === 1) sp_overflow_budget = SP_GUILD_TOME_STD;
-    }
+    // The budget never varies with the guild tome: the tome contributes fixed
+    // per-attribute skill points through gt_sm above, not extra assignable
+    // points. (Pre-v11 this inflated the budget for "Standard", which let the
+    // bonus be split across attributes — see GUILD_TOMES.)
+    const sp_overflow_budget = SP_TOTAL_CAP;
 
     const result = calculate_skillpoints(equip_sms, weapon.statMap, sp_overflow_budget);
     if (!result) {
