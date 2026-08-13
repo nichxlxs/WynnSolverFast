@@ -36,6 +36,21 @@ SCENARIOS = {
     "melee_restr": ("enum_gaia2m.txt",         "score_gaia2m.json"),
     "melee_colossal": ("enum_gaia_colossal.txt", None),
 }
+
+# Build-family benchmarks (PR #8). Six families, each supplied 5/4/3 items from
+# its validated ideal build, so small -> medium -> large widens the same search.
+# The JS side drives these from snapshots; the Rust engine needs exported
+# fixtures, which `gen_family_fixtures.sh` produces.
+FAMILIES = ["cancelstack", "heavy_melee", "tierstack", "spellsteal",
+            "spell_sustained", "hybrid"]
+for _fam in FAMILIES:
+    for _sz in ("small", "medium", "large"):
+        SCENARIOS[f"fam_{_fam}_{_sz}"] = (
+            f"enum_fam_{_fam}_{_sz}.txt", f"score_fam_{_fam}_{_sz}.json")
+
+FAMILY_SCENARIOS = [f"fam_{f}_{s}" for f in FAMILIES
+                    for s in ("small", "medium", "large")]
+
 DEFAULT_SCENARIOS = ["spell_wide", "ehp", "xpb", "spell_8free"]
 
 # Ablation layers: name -> env that DISABLES it.
@@ -156,6 +171,8 @@ def main():
     ap.add_argument("--no-verify", action="store_true",
                     help="skip cross-config result verification")
     args = ap.parse_args()
+    if args.scenarios and "families" in args.scenarios:
+        args.scenarios = [x for x in args.scenarios if x != "families"] + FAMILY_SCENARIOS
 
     if not BIN.exists():
         sys.exit(f"missing {BIN} — run: cargo build --release")

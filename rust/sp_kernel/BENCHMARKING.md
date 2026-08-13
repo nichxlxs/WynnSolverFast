@@ -39,6 +39,23 @@ Reproducing B9's 16.7x, for example:
 ./target/release/enum_kernel fixtures/enum_spell2.txt 1 fixtures/score_slider.json
 ```
 
+## Build-family fixtures
+
+The six build-family benchmarks (PR #8) are defined as **JS solver snapshots**,
+so the Rust engine cannot run them until each is exported as an (enum, score)
+fixture pair. Until that was done they were simply absent from the Rust
+matrix — `bench.py` only knew the older fixtures, so `./bench.py` reported
+nothing for them and the omission was invisible.
+
+```bash
+rust/sp_kernel/gen_family_fixtures.sh     # ~15 min, all 18
+./bench.py --scenarios families
+```
+
+`families` expands to all 18 (`fam_<family>_<size>`), or name them
+individually. Each family is supplied 5, then 4, then 3 items from its
+validated ideal build, so small → medium → large widens the same search.
+
 ## bench.py — scenario × configuration matrix
 
 ```bash
