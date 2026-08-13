@@ -6,6 +6,7 @@ const _TOP_N_DISPLAY = 5;
 const _solver_state = {
     running: false,
     engine_used: 'javascript',  // 'rust' | 'javascript' — which engine actually ran
+    partitions: 1,         // how many Rust partitions the last run used
     top5: [],              // [{score, items:[Item×8], base_sp, total_sp, assigned_sp}] (up to _TOP_N entries)
     seed_build: null,      // seeded from current UI build (survives worker merges)
     checked: 0,
@@ -1713,11 +1714,28 @@ function _rust_search_space_estimate(enum_fixture) {
 /// ~10M leaves/s the engine sustains. Below that, one worker wins; the
 /// threshold keeps a 2x margin.
 const _RUST_PARTITION_MIN_SPACE = 8e6;
+
+/// Tests may lower the threshold via `window.__SOLVER_TEST_PARTITION_MIN_SPACE`.
+///
+/// This guard is a PERFORMANCE cut-off, not a correctness one: partitioning is
+/// exact at any size (verified natively by `partition_check` at 2..8 partitions
+/// on three fixtures), and the threshold exists only so worker startup does not
+/// dominate a short solve. But it also means no scenario small enough to finish
+/// in a browser test ever partitions, while every scenario that does partition
+/// is far too large to run to completion — so without an override there is no
+/// way to check the part that is genuinely browser-specific: that N workers get
+/// disjoint ranges, all report, and merge back to the single-worker answer.
+function _rust_partition_min_space() {
+    const override = (typeof window !== 'undefined')
+        ? window.__SOLVER_TEST_PARTITION_MIN_SPACE : undefined;
+    return (Number.isFinite(override) && override > 0) ? override : _RUST_PARTITION_MIN_SPACE;
+}
+
 function _rust_partition_count(enum_fixture) {
     const selected = Math.max(1, solver_selected_worker_count());
     if (selected <= 1) return 1;
     const space = _rust_search_space_estimate(enum_fixture);
-    if (!Number.isFinite(space) || space < _RUST_PARTITION_MIN_SPACE) return 1;
+    if (!Number.isFinite(space) || space < _rust_partition_min_space()) return 1;
     return selected;
 }
 
@@ -1765,6 +1783,11 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     // That is precisely how the Rust engine stayed unreachable unnoticed:
     // results looked right because they were right, just not Rust's.
     _solver_state.engine_used = 'rust';
+    // How many partitions this run used. Recorded rather than inferred: the
+    // worker array is emptied when the search ends, and sampling it while the
+    // search runs misses short solves entirely, because the main thread is
+    // blocked spawning workers and cloning the fixture into them.
+    _solver_state.partitions = part_count;
 
     const finish_one = () => {
         if (failed) return;
@@ -2316,6 +2339,7 @@ function start_solver_search() {
     // Default to the JS workers; the Rust path sets this to 'rust' only once it
     // actually starts, and every fallback resets it. See _rust_solve_in_worker.
     _solver_state.engine_used = 'javascript';
+    _solver_state.partitions = 1;
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
     _solver_state.checked = 0;
