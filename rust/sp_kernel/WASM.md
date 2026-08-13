@@ -127,8 +127,10 @@ scenario.
    setup the existing JS shared-cutoff already prefers — and a
    `wasm-bindgen-rayon`-style pool. Single-threaded is already ~1000x the
    current JS engine per core.
-3. **Feature coverage**: scenarios using loop brackets, buff states, Blood
-   Pact, Radiance, dynamic sliders, `total_healing`, or non-lowered
-   ability trees still hard-fail and must fall back to the JS engine
-   (see `SUPPORT_MATRIX.md` section A).
-4. **Size**: run `wasm-opt -Oz` for a meaningful shrink before shipping.
+3. **Feature coverage**: scenarios using until-OOM loop brackets, buff
+   states, Blood Pact, dynamic sliders, or non-lowered ability trees
+   hard-fail and fall back to the JS engine. `solve` returns
+   `{"error": "..."}` naming the unsupported mechanic, and `search.js`
+   drops back to the JS workers on it. (Count loops, Radiance and
+   `total_healing` are supported — see `SUPPORT_MATRIX.md` section A.)
+4. **Size**: `wasm-opt -Oz` runs as part of `build-wasm.sh` (587 KB -> 517 KB).

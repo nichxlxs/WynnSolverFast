@@ -12,9 +12,9 @@ ordered roughly by expected user impact within each section.
 
 | # | Feature | Where it appears | Notes |
 |---|---------|------------------|-------|
-| A1 | Loop brackets — **count loops now SUPPORTED**; until-OOM still not | Combo editor `[loop]` sections | A count loop's iteration count is a static constant, so `unroll_count_loops` expands the body at load (mirroring `_unroll_loops_pure`) and everything downstream stays on the validated loop-free path. Verified: a count-2 loop produces byte-identical results (funnel counters + full top-15) to the manually duplicated combo. **until-OOM loops** still reject with a clear error — their iteration count depends on the mana simulation's own outcome, which needs the stateful sim (tied to A2/A3). |
-| A2 | Buff states | Combos toggling buff uptime windows | Hard-fail at export; needs the stateful simulate path. |
-| A3 | Blood Pact | Shaman HP-cost casting + BP boost injection | Requires simulation-derived boost tokens (`inject_blood_pact_boosts`) per leaf. |
+| A1 | Loop brackets — **count loops now SUPPORTED**; until-OOM still not | Combo editor `[loop]` sections | A count loop's iteration count is a static constant, so `unroll_count_loops` expands the body at load (mirroring `_unroll_loops_pure`) and everything downstream stays on the validated loop-free path. Verified: a count-2 loop produces byte-identical results (funnel counters + full top-15) to the manually duplicated combo. **until-OOM loops** still reject with a clear error. The stateful sim now handles them (both termination conditions and the 255-iteration safety cap are validated), but consuming the resulting iteration counts needs the dynamic `_unroll_loops_pure` path, so they remain gated with A2/A3. |
+| A2 | Buff states — **sim ported, integration pending** | Combos toggling buff uptime windows | `mana_sim::simulate_combo_mana_hp` ports the full stateful sim (durations, mana-regen suppression, continuous + one-shot drain, exit triggers, corruption tracking, `cancel_state`/`mana_reset` pseudo-spells) and is validated bit-exact against the JS on 48 scenarios / 3,380 value comparisons (`mana_sim_check`). It is **not yet wired into leaf evaluation**, so `ScoringCtx::load` rejects these scenarios with a specific message and the web solver falls back to the JS workers. See "Remaining work" below for what the wiring needs. |
+| A3 | Blood Pact — **sim ported, integration pending** | Shaman HP-cost casting + BP boost injection | Same status as A2: the health-cost payment branch, `blood_pact_bonus` averaging and HP warnings are all ported and validated. The wiring needs `inject_blood_pact_boosts` (feeding simulation-derived boost tokens into the damage rows) per leaf, which also forces those scenarios onto the Obj path. **Previously this silently produced wrong answers** — the exporter shipped `health_config` but the engine never read it, so BP builds were mana-rejected instead of paid from HP. Now a loud refusal. |
 | ~~A4~~ | `total_healing` objective — **SUPPORTED** | Scoring target / custom-blend sub-target | `compute_spell_healing_total` ports the JS heal evaluation (max-HP scaling, part-scoped `healMult`, total-part hit chains) with an `eval_combo_healing` accumulator, on both the uncompiled and compiled-row paths. Validated 96/96 bit-exact at every level on a new `solver_spell_heal` scenario. Also usable as a custom-blend sub-target. Runs on the Obj path — `DenseCtx::build` declines healing objectives, so it is correct but not on the fastest path (dense healing lowering is the follow-up). |
 | ~~A5~~ | Radiance boost — **SUPPORTED** | Radiance major ID scaling | `Layer2::apply_radiance` ports `_apply_radiance_scale_inplace` (scale-and-floor of the 91 affected stats, positive values except the 8 reversed IDs where negatives scale, with the `boost == 1` early return) applied at the same point in `assemble_from_base` as the JS. The exporter now ships `radiance_affected`/`reversed_ids`. Validated against the JS function on identical inputs at boosts 0.5 / 0.9 / 1.0 / 1.35 / 2.0 — all 91 stats identical each time (`radiance_check` bin). Dense lowering declines active Radiance (the floor is nonlinear), so those scenarios use the validated Obj path. |
 | A6 | Dynamic sliders | Atree sliders marked stat-dependent/dynamic | JS gates features on `has_dynamic_sliders`; fixtures never carry them. |
@@ -54,13 +54,26 @@ ordered roughly by expected user impact within each section.
 
 ## Remaining work, in the order I'd tackle it
 
-1. **Stateful simulation port** (A2 buff states, A3 Blood Pact, and the
-   until-OOM half of A1). `simulate_combo_mana_hp` is ~485 lines of dense
-   state/trigger/HP-cost logic, and no existing snapshot exercises it — a
-   test scenario has to be built alongside the port, or bit-exactness
-   cannot be claimed. This is the largest remaining chunk and the one that
-   unlocks the most real builds; it deserves a focused pass, not a rushed
-   one.
+1. **Wire the stateful sim into leaf evaluation** (A2 buff states, A3 Blood
+   Pact, until-OOM half of A1). The sim itself is **done and validated**
+   (`src/mana_sim.rs`, 48 cases bit-exact). What remains is integration, and
+   it is not mechanical:
+   - `mana_check_passes` must route to the stateful sim, which means
+     threading a `HealthConfig` through its ~7 call sites — including the
+     bounded-doom bound, whose admissibility proof assumes the *monotone*
+     fast-sim mana model. Buff-state drain and HP payment break that
+     monotonicity, so those bounds have to be re-proved or disabled for
+     these scenarios.
+   - Blood Pact and dynamic sliders feed simulation-derived boost tokens
+     into the damage rows (`inject_blood_pact_boosts`), so boost tokens
+     become *per-leaf dynamic*. That invalidates `compile_rows` and dense
+     lowering, which both assume parse-time-constant tokens — these
+     scenarios must run on the Obj path.
+   - until-OOM loops additionally need the dynamic `_unroll_loops_pure`
+     (unroll by the sim's `loop_iteration_counts`) plus a
+     `compute_recast_penalties` re-run on the unrolled combo.
+   Expect these scenarios to be *correct but slow* (Obj path, no bounds)
+   rather than fast — which is still far better than today's refusal.
 2. **wasm threads** (SharedArrayBuffer + COOP/COEP): full core scaling in
    the browser on top of the single-threaded engine already shipping.
 3. **A6 dynamic sliders / A8 non-lowered ability trees**: both are
@@ -71,6 +84,20 @@ ordered roughly by expected user impact within each section.
 
 ## Verification status
 
-Everything in section B is covered by the bit-exact validators (9 fixtures ×
-5 levels + per-trial dense assertions + on/off top-15 equivalence). Section A
-items hard-fail loudly at export or load — nothing silently degrades.
+Everything in section B is covered by the bit-exact validators (11 fixtures ×
+5 levels + per-trial dense assertions + on/off top-15 equivalence), plus
+`mana_sim_check` (48 scenarios × every returned field, compared on raw f64
+bit patterns). Section A items hard-fail loudly at load — `solve_json`
+returns `{"error": ...}` and the web solver falls back to the JS workers.
+
+The one case where that was *not* true — `health_config` being exported but
+never read, so buff-state and Blood Pact scenarios silently ran the
+state-free sim — was found and fixed while porting the sim. Absence of a
+reader is now checked by construction: `ScoringCtx::load` inspects
+`health_config` and refuses anything the loop-free path cannot reproduce.
+
+**Threading determinism** (re-verified): `enum_kernel` at 1 / 2 / 4 / 8
+threads produces identical `checked` counts and identical top-15 *score
+sets* on `spell2`, `armor4` (3,223,584 leaves) and `hp2`. Only tie
+membership at the cutoff boundary varies (C3), as does `bound_pruned` —
+both are consequences of cutoff-discovery order, not of the search space.
