@@ -1464,12 +1464,19 @@ pub fn simulate_mana_fast(
 /// and a warning fires, the sim returns immediately — mana_check_passes
 /// fails on any warning regardless of the remaining trajectory, so the
 /// verdict is identical and the rest of the combo is skipped.
+///
+/// Fail-fast on a *mana* warning is only valid when the combo has no
+/// until-OOM loop: there, running out of mana is the loop terminator rather
+/// than a failure, so the caller passes `fail_fast = false`.
 #[allow(clippy::too_many_arguments)]
 pub fn simulate_mana_fast_ff(
     rows: &[Row], combo_base: &Obj, has_transcendence: bool,
     registry: &[Value], tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>, fail_fast: bool,
 ) -> (f64, f64, bool, bool) {
+    use crate::mana_sim::{compute_drain_override, loop_condition_met};
+
+    let hc = &consts.health;
     let stats = StatsView::Borrowed(combo_base);
     let mr = stats.num_or0("mr");
     let ms = stats.num_or0("ms");
@@ -1478,7 +1485,9 @@ pub fn simulate_mana_fast_ff(
     let start_mana = 100.0 + item_mana + int_mana;
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
+    let mut total_mana_drain = 0.0;
 
+    let health_cost_pct = hc.health_cost;
     let base_hp = stats.num_or0("hp");
     let hp_bonus = stats.num_or0("hpBonus");
     let max_hp = js_max(5.0, base_hp + hp_bonus);
@@ -1494,63 +1503,139 @@ pub fn simulate_mana_fast_ff(
 
     let mut mana = start_mana;
     let mut hp = max_hp;
+    let mut elapsed_time = 0.0f64;
     let mut has_hp_warning = false;
     let mut has_mana_warning = false;
 
-    // _advance_time_fast (no buff states): regen with cap + wasted tracking.
+    // Minimal per-state tracking: unlike the full sim this keeps no state
+    // *value* and fires no exit triggers — the fast sim only needs the
+    // mana/HP trajectory, not the slider values the damage pass would want.
+    let n_states = hc.buff_states.len();
+    let mut st_active: Vec<bool> = vec![false; n_states];
+    let mut st_at: Vec<f64> = vec![0.0; n_states];
+    let no_buff_states = n_states == 0;
+
+    let mut loop_body_start: i64 = -1;
+    let mut loop_condition: Option<(i64, f64)> = None;
+    let mut loop_iteration: i64 = 0;
+    let mut loop_mana_warn = false;
+    let mut loop_hp_warn = false;
+
+    // _advance_time_fast. Note there is no HP-regen tick here: the JS fast
+    // sim omits it too (the full sim has it), so mirroring means omitting it.
     macro_rules! advance {
         ($dt:expr) => {{
-            let dt = $dt;
-            if dt > 0.0 {
-                let uncapped = mana + mr_per_sec * dt;
-                if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = if uncapped < max_mana { uncapped } else { max_mana };
+            let advance_dt: f64 = $dt;
+            if advance_dt > 0.0 {
+                let prev_time = elapsed_time;
+                elapsed_time += advance_dt;
+                let mut mana_regen_dt = advance_dt;
+
+                if !no_buff_states {
+                    for (bi, bs) in hc.buff_states.iter().enumerate() {
+                        if !st_active[bi] { continue; }
+                        let mut active_dt = advance_dt;
+                        if let Some(duration) = bs.duration {
+                            let remaining = duration - (prev_time - st_at[bi]);
+                            if remaining <= 0.0 { st_active[bi] = false; continue; }
+                            active_dt = js_min(advance_dt, remaining);
+                            if active_dt < advance_dt { st_active[bi] = false; }
+                        }
+                        if bs.suppress_mana_regen {
+                            mana_regen_dt = js_min(mana_regen_dt, advance_dt - active_dt);
+                        }
+                        if !bs.compute_delay {
+                            if let Some(drain) = &bs.drain_pct_per_second {
+                                if drain.mana > 0.0 {
+                                    let d = drain.mana / 100.0 * max_mana * active_dt;
+                                    let actual = js_min(mana, d);
+                                    mana -= actual;
+                                    total_mana_drain += actual;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if mana_regen_dt > 0.0 {
+                    let uncapped = mana + mr_per_sec * mana_regen_dt;
+                    if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+                    mana = js_min(max_mana, uncapped);
+                }
             }
         }};
     }
     let _ = mana_wasted;
+    let _ = total_mana_drain;
 
-    for (row_idx, row) in rows.iter().enumerate() {
+    let mut ri: i64 = 0;
+    while (ri as usize) < rows.len() {
+        let row = &rows[ri as usize];
+
+        if let Some(cond) = row.loop_start {
+            if loop_condition.is_none() {
+                loop_body_start = ri + 1;
+                loop_condition = Some(cond);
+                loop_iteration = 0;
+                loop_mana_warn = false;
+                loop_hp_warn = false;
+            }
+            ri += 1;
+            continue;
+        }
+        if row.loop_end {
+            if let Some((ct, cv)) = loop_condition {
+                loop_iteration += 1;
+                if !loop_condition_met(ct, cv, loop_iteration, loop_mana_warn, loop_hp_warn) {
+                    ri = loop_body_start;
+                    loop_mana_warn = false;
+                    loop_hp_warn = false;
+                    continue;
+                }
+                loop_condition = None;
+            }
+            ri += 1;
+            continue;
+        }
+
         // Add Flat Mana: inject (or drain) qty mana at this point.
         if row.pseudo_kind.as_deref() == Some("add_flat_mana") {
             if !row.mana_excl && row.qty != 0.0 {
                 let uncapped = mana + row.qty;
                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = js_max(0.0, if uncapped < max_mana { uncapped } else { max_mana });
+                mana = js_max(0.0, js_min(max_mana, uncapped));
             }
+            ri += 1;
             continue;
         }
-        if row.pseudo || row.qty <= 0.0 { continue; }
-        let Some(spell) = &row.spell else { continue };
-        if row.mana_excl { continue; }
+        if row.pseudo || row.qty <= 0.0 || row.spell.is_none() || row.mana_excl {
+            ri += 1;
+            continue;
+        }
+        let spell = row.spell.as_ref().unwrap();
 
         let is_spell = row.sim_cost_present;
         let unclamped_cost = if is_spell {
             match compiled {
-                Some(c) => row_cost_compiled(combo_base, spell, &c[row_idx], tables, consts),
+                Some(c) => row_cost_compiled(combo_base, spell, &c[ri as usize], tables, consts),
                 None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables,
-                    consts.skillpoint_final_mult_2),
+                                                 consts.skillpoint_final_mult_2),
             }
         } else { 0.0 };
         let is_melee_scaling = row.sim_melee_scaling;
-        let recast_base = row.sim_recast_base;
-        let is_melee = recast_base == 0;
+        let is_melee = row.sim_recast_base == 0;
 
         let eff_cast_time = if is_melee { 0.0 } else { row.cast_time.unwrap_or(consts.spell_cast_time) };
         let eff_delay = row.delay.unwrap_or(consts.spell_cast_delay);
-        let base_view = StatsView::Borrowed(combo_base);
         let sim_qty = if row.is_melee_time {
-            // JS passes eff_delay as the floor for the melee period here.
-            let period = match row.melee_cd_override {
-                Some(p) => p,
-                None => melee_period,
-            };
-            js_round(row.qty / period.max(eff_delay))
+            js_round(compute_melee_time_hits(row.qty, &stats, row.melee_cd_override, tables,
+                                             Some(eff_delay)))
         } else {
             js_round(row.qty)
         } as i64;
-        let _ = base_view;
         let eff_melee_period = row.melee_cd_override.unwrap_or(melee_period);
+        let spell_hp_cost = row.sim_hp_cost;
+        let mut fast_post_override: Option<f64> = None;
 
         for c in 0..sim_qty {
             // compute_wall_dt
@@ -1569,11 +1654,19 @@ pub fn simulate_mana_fast_ff(
             if is_melee_scaling && ms_per_hit != 0.0 {
                 let uncapped = mana + ms_per_hit;
                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
-                mana = uncapped.min(max_mana).max(0.0);
+                mana = js_max(0.0, js_min(max_mana, uncapped));
             }
 
-            // Spell-level HP cost (e.g. Mindless Slaughter)
-            let spell_hp_cost = row.sim_hp_cost;
+            // "next_action" deactivation (Vanish). The fast sim only clears
+            // the flag — no exit triggers, no state value.
+            if c == 0 && (is_spell || is_melee_scaling) {
+                for (bi, bs) in hc.buff_states.iter().enumerate() {
+                    if bs.deactivate_next_action && st_active[bi] { st_active[bi] = false; }
+                }
+            }
+
+            // Spell-level HP cost. Unconditional here; the full sim gates it
+            // on a buff state being active. Mirroring means keeping both.
             if spell_hp_cost > 0.0 {
                 let hp_deduction = spell_hp_cost / 100.0 * max_hp;
                 if hp < hp_deduction {
@@ -1587,17 +1680,66 @@ pub fn simulate_mana_fast_ff(
                 let penalty = row.recast_penalties.get(c as usize).copied().unwrap_or(0.0);
                 let effective_cost = js_max(1.0, unclamped_cost + penalty);
                 let adj_cost = if has_transcendence { effective_cost * 0.75 } else { effective_cost };
+
                 if mana >= effective_cost {
                     mana -= adj_cost;
+                } else if health_cost_pct > 0.0 {
+                    // Blood Pact: pay the remainder from health.
+                    let remaining_mana = js_max(0.0, mana);
+                    let health_mana = adj_cost - remaining_mana;
+                    mana = 0.0;
+                    let hp_cost = health_mana * health_cost_pct * max_hp / 100.0;
+                    if hp < hp_cost {
+                        has_hp_warning = true;
+                        if fail_fast { return (start_mana, mana, true, has_mana_warning); }
+                    }
+                    hp -= hp_cost;
                 } else {
                     mana -= effective_cost;
                     has_mana_warning = true;
                     if fail_fast { return (start_mana, mana, has_hp_warning, true); }
                 }
+
+                // State activation.
+                for (bi, bs) in hc.buff_states.iter().enumerate() {
+                    let Some(activate_spell) = bs.activate_on_spell else { continue };
+                    let base_spell = spell.get("base_spell").and_then(|v| v.as_i64())
+                        .unwrap_or(i64::MIN);
+                    if base_spell != activate_spell || st_active[bi] { continue; }
+                    st_active[bi] = true;
+                    st_at[bi] = elapsed_time;
+                    let dro = compute_drain_override(
+                        bs, mana, max_mana, hp, max_hp,
+                        if row.auto_delay { None } else { Some(post_dt) },
+                    );
+                    if let Some(dro) = dro {
+                        if row.auto_delay && fast_post_override.is_none() {
+                            fast_post_override = Some(dro.computed_delay);
+                        }
+                        if dro.is_mana {
+                            mana -= dro.actual_drain;
+                            total_mana_drain += dro.actual_drain;
+                        } else {
+                            hp -= dro.actual_drain;
+                        }
+                        st_at[bi] += dro.computed_delay;
+                    }
+                }
             }
 
-            advance!(post_dt);
+            let mut effective_post = post_dt;
+            if let Some(fpo) = fast_post_override {
+                if c == 0 {
+                    effective_post = fpo;
+                    melee_cd_remaining = js_max(0.0, melee_cd_remaining - (effective_post - post_dt));
+                }
+            }
+            advance!(effective_post);
         }
+
+        if has_hp_warning { loop_hp_warn = true; }
+        if has_mana_warning { loop_mana_warn = true; }
+        ri += 1;
     }
     (start_mana, mana, has_hp_warning, has_mana_warning)
 }
@@ -1657,6 +1799,14 @@ pub struct L2Consts {
     pub allow_downtime: bool,
     pub hp_casting: bool,
     pub sp_budget: i32,
+    /// `layer2.health_config`. The fast mana sim models buff states and the
+    /// Blood Pact payment branch, exactly as `simulate_combo_mana_fast`
+    /// does, so it has to be reachable from every `mana_check_passes` call
+    /// site — which is why it lives here rather than on `ScoringCtx`.
+    pub health: crate::mana_sim::HealthConfig,
+    /// True when any loop bracket is an until-OOM loop. Those deplete mana
+    /// on purpose, so a mana warning is the terminator, not a failure.
+    pub has_oom_loop: bool,
 }
 
 impl L2Consts {
@@ -1674,6 +1824,13 @@ impl L2Consts {
             allow_downtime: l2.get("allow_downtime").and_then(|v| v.as_bool()).unwrap_or(false),
             hp_casting: l2.get("hp_casting").and_then(|v| v.as_bool()).unwrap_or(false),
             sp_budget: l2.get("sp_budget").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
+            health: l2.get("health_config").map(crate::mana_sim::HealthConfig::parse)
+                .unwrap_or_default(),
+            has_oom_loop: fixture.get("parsed_combo").and_then(|c| c.as_array())
+                .map(|rows| rows.iter().any(|r| r.get("loop_start")
+                    .and_then(|c| c.get("type")).and_then(|t| t.as_i64())
+                    == Some(crate::mana_sim::LOOP_COND_UNTIL_OOM)))
+                .unwrap_or(false),
         })
     }
 }
@@ -1687,16 +1844,19 @@ pub fn mana_check_passes(
     if consts.combo_time == 0.0 && !consts.hp_casting {
         return true;
     }
-    assert!(!rows.iter().any(|r| r.has_loop_marker),
-        "loop brackets not supported in the ported fast mana sim");
     let has_transcendence = combo_base.get("activeMajorIDs")
         .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
         .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
         .unwrap_or(false);
-    let (start_mana, end_mana, hp_warn, mana_warn) =
-        simulate_mana_fast_ff(rows, combo_base, has_transcendence, registry, tables, consts, compiled, true);
+    // An until-OOM loop is *meant* to run mana out — the warning terminates
+    // the loop rather than failing the build, so the sim must be allowed to
+    // finish (no fail-fast on a mana warning) and the verdict ignores it.
+    let oom = consts.has_oom_loop;
+    let (start_mana, end_mana, hp_warn, mana_warn) = simulate_mana_fast_ff(
+        rows, combo_base, has_transcendence, registry, tables, consts, compiled, !oom);
     if hp_warn { return false; }
-    if mana_warn { return false; }
+    if !oom && mana_warn { return false; }
+    if oom { return true; }
     if consts.allow_downtime { return end_mana > 0.0; }
     (start_mana - end_mana) <= 5.0
 }
@@ -2008,7 +2168,15 @@ pub fn leaf_pipeline_gated(
             && std::env::var("SCORE_BOUNDED_DOOM").as_deref() != Ok("0"),
         _ => false,
     };
-    if (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
+    // Buff-state drain is a percentage of max_mana, and max_mana rises with
+    // Int — so more Int means MORE absolute drain, and the Int=150 sim no
+    // longer upper-bounds mana feasibility. The precheck is inadmissible
+    // there regardless of `mana_doom_ok` (which only covers atree var-effect
+    // coupling), so switch it off rather than prune a feasible leaf.
+    let drain_breaks_doom = consts.health.buff_states.iter()
+        .any(|bs| bs.drain_pct_per_second.as_ref().map(|d| d.mana > 0.0).unwrap_or(false));
+    if !drain_breaks_doom
+        && (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
         let doomed = phase!(DOOM_NS, {
             let mut doom_sp = [0f64; 5];
             let mut sp_lo = [0f64; 5];
@@ -2285,29 +2453,30 @@ fn unsupported_health_config(fixture: &Value, consts: &L2Consts) -> Option<Strin
     // So gate on the cost itself, not on the flag, or an hp_casting=false
     // scenario with a nonzero cost would slip through and be mana-rejected
     // here while the JS pays it from HP.
-    let health_cost = hc.get("health_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    if health_cost > 0.0 || consts.hp_casting {
-        return Some(format!(
-            "Blood Pact not supported (health_cost {health_cost}, hp_casting \
-             {}): spell costs paid from HP change both the mana verdict and, \
-             through inject_blood_pact_boosts, the damage (matrix A3)",
-            consts.hp_casting));
-    }
-    let buff_states = hc.get("buff_states").and_then(|v| v.as_array())
-        .map(|a| a.as_slice()).unwrap_or(&[]);
-    if !buff_states.is_empty() {
-        return Some(format!(
-            "buff states not supported ({} declared): they change mana regen, \
-             drain and HP over the combo, which the loop-free fast sim does not \
-             model (matrix A2)", buff_states.len()));
-    }
-    // Dynamic sliders: a damage_boost slider with no buff states still feeds
-    // simulation-derived values into the damage rows.
-    let has_dyn_slider = hc.get("damage_boost").and_then(|d| d.get("slider_name"))
+    let _ = consts;
+    // The mana verdict itself is now exact for buff states and Blood Pact —
+    // `simulate_mana_fast_ff` mirrors `simulate_combo_mana_fast`, which
+    // models both (validated bit-exact by `mana_sim_check`). What is still
+    // out of reach is the *damage* feedback: when a slider name is declared,
+    // `eval_combo_damage_with_bp` injects simulation-derived boost tokens
+    // into the damage rows per leaf (`inject_blood_pact_boosts`). That makes
+    // boost tokens leaf-dependent, which the compiled-row and dense lowerings
+    // both assume they are not.
+    //
+    // This is exactly the JS `has_dyn` condition. With no slider declared,
+    // injection adds nothing and the damage is unchanged, so hp_casting and
+    // a nonzero health_cost are fine on their own.
+    let bp_slider = hc.get("damage_boost").and_then(|d| d.get("slider_name"))
         .map(|v| !v.is_null()).unwrap_or(false);
-    if has_dyn_slider {
-        return Some("dynamic damage-boost slider not supported: its value comes \
-                     from the mana simulation (matrix A6)".into());
+    let state_slider = hc.get("buff_states").and_then(|v| v.as_array())
+        .map(|a| a.iter().any(|b| b.get("slider_name").map(|v| !v.is_null()).unwrap_or(false)))
+        .unwrap_or(false);
+    if bp_slider || state_slider {
+        return Some(format!(
+            "dynamic sliders not supported (damage_boost slider: {bp_slider}, \
+             buff-state slider: {state_slider}): their values come from the mana \
+             simulation and are injected into the damage rows per leaf, so boost \
+             tokens stop being parse-time constants (matrix A3/A6)"));
     }
     None
 }

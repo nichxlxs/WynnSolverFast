@@ -25,6 +25,7 @@ const { createSandbox, REPO_ROOT } = require('./harness');
 
 const ctx = createSandbox();
 const simulate_combo_mana_hp = ctx.simulate_combo_mana_hp;
+const simulate_combo_mana_fast = ctx.simulate_combo_mana_fast;
 
 // Top-level `const`s in the sandbox live in its lexical scope, not on the
 // context object, so they have to be read back through an expression.
@@ -611,6 +612,13 @@ for (const c of cases) {
     const injected = inject_blood_pact_boosts(
         flat, flatSim, bp_slider_name, state_slider_names);
 
+    // The worker path runs the FAST sim, which models buff states, the
+    // Blood Pact payment branch and loop brackets too — it just tracks no
+    // state values and fires no exit triggers. The Rust fast sim has to
+    // match this, not the full one.
+    const fast = simulate_combo_mana_fast(
+        rows, stats, c.health_config, c.has_transcendence, c.registry);
+
     out.cases.push({
         name: c.name,
         stats: c.stats,
@@ -619,6 +627,12 @@ for (const c of cases) {
         has_transcendence: c.has_transcendence,
         registry: c.registry,
         expected: encResult(result),
+        expected_fast: {
+            start_mana: encNum(fast.start_mana),
+            end_mana: encNum(fast.end_mana),
+            has_hp_warning: fast.has_hp_warning,
+            has_mana_warning: fast.has_mana_warning,
+        },
         expected_slider_names: {
             bp: bp_slider_name,
             states: Object.entries(state_slider_names),

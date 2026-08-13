@@ -264,15 +264,15 @@ struct StateSlot {
 }
 
 /// `compute_drain_override` (simulate.js:280).
-struct DrainOverride {
-    computed_delay: f64,
-    actual_drain: f64,
-    state_value: f64,
+pub struct DrainOverride {
+    pub computed_delay: f64,
+    pub actual_drain: f64,
+    pub state_value: f64,
     /// true = mana, false = hp.
-    is_mana: bool,
+    pub is_mana: bool,
 }
 
-fn compute_drain_override(
+pub fn compute_drain_override(
     bs: &BuffState, current_mana: f64, max_mana: f64, current_hp: f64, max_hp: f64,
     override_time: Option<f64>,
 ) -> Option<DrainOverride> {
@@ -317,7 +317,7 @@ fn compute_drain_override(
 }
 
 /// `loop_condition_met` (simulate.js:318) — returns true when the loop stops.
-fn loop_condition_met(
+pub fn loop_condition_met(
     cond_type: i64, cond_value: f64, iteration: i64, mana_warning: bool, hp_warning: bool,
 ) -> bool {
     if iteration >= LOOP_SAFETY_CAP {

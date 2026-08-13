@@ -14,7 +14,7 @@ use sp_kernel::mana_sim::{
     compute_recast_penalties, extract_slider_names, inject_blood_pact_boosts,
     simulate_combo_mana_hp, unroll_loops_dynamic, HealthConfig, SimConsts, SimResult,
 };
-use sp_kernel::scoring::{parse_rows, Obj, Row, Tables};
+use sp_kernel::scoring::{parse_rows, simulate_mana_fast_ff, L2Consts, Obj, Row, Tables};
 
 /// The exporter encodes non-finite doubles as strings ("@NaN", "@Inf").
 fn dec_num(v: &Value) -> f64 {
@@ -242,6 +242,33 @@ fn main() {
         let res = simulate_combo_mana_hp(
             &rows, &stats, &hc, has_trans, &registry, &tables, &consts,
         );
+
+        // The fast sim (what the solver's leaf pipeline actually runs) must
+        // match the JS fast sim, which models buff states, Blood Pact and
+        // loops but tracks no state values.
+        let l2 = L2Consts {
+            base_mana_regen: consts.base_mana_regen,
+            mana_tick_seconds: consts.mana_tick_seconds,
+            spell_cast_time: consts.spell_cast_time,
+            spell_cast_delay: consts.spell_cast_delay,
+            skillpoint_final_mult_2: consts.skillpoint_final_mult_2,
+            combo_time: 1.0,
+            allow_downtime: false,
+            hp_casting: false,
+            sp_budget: 200,
+            health: hc.clone(),
+            has_oom_loop: false,
+        };
+        let (f_start, f_end, f_hp, f_mana) = simulate_mana_fast_ff(
+            &rows, &stats, has_trans, &registry, &tables, &l2, None, false,
+        );
+        let want_fast = &case["expected_fast"];
+        rep.eq(name, "fast.start_mana", f_start, dec_num(&want_fast["start_mana"]));
+        rep.eq(name, "fast.end_mana", f_end, dec_num(&want_fast["end_mana"]));
+        rep.eq_bool(name, "fast.has_hp_warning", f_hp,
+            want_fast["has_hp_warning"].as_bool().unwrap_or(false));
+        rep.eq_bool(name, "fast.has_mana_warning", f_mana,
+            want_fast["has_mana_warning"].as_bool().unwrap_or(false));
         let before = rep.failures.len();
         check_case(name, &res, &case["expected"], &mut rep);
 
