@@ -1,0 +1,13 @@
+{
+  "name": "wynnsolverfast",
+  "private": true,
+  "description": "Solver test + benchmark tooling. The site itself is static and needs no install.",
+  "scripts": {
+    "test": "node js/solver/tests/run_all.js",
+    "test:browser": "node js/solver/tests/test_browser_rust_bridge.js",
+    "e2e": "node js/solver/tests/browser_e2e.js"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

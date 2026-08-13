@@ -1652,7 +1652,19 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         if (score_fixture && typeof score_fixture.then === 'function') {
             // Builder is async only in the sampling (test) path; without
             // sampling it resolves immediately, but guard anyway.
-            score_fixture.then(start);
+            //
+            // The rejection handler is not optional. `buildScoreFixture` wraps
+            // a large body — serialization, atree lowering, evalInCtx calls —
+            // in a promise, so anything it throws arrives here as a rejection
+            // and never reaches the `catch` below. We have already returned
+            // true, so the caller will not start the JS workers: without this,
+            // one throw leaves `running` true with neither engine going, which
+            // is exactly how the WorkerCtor bug hung the solve.
+            score_fixture.then(start).catch((err) => {
+                console.warn('[solver] Rust fixture build failed, using JS workers:',
+                             err && err.message, err && err.stack);
+                if (on_unsupported) on_unsupported();
+            });
             return true;
         }
         start(score_fixture);

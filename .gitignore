@@ -5,6 +5,11 @@
 !js/solver/tests/**/*.json
 !js/solver/benchmarks/family_suite.json
 !research/build-database/family-seed-browser-validation.json
+# The browser tests need playwright-core, and `node_modules/playwright-core`
+# is committed without its 12MB `lib/` (swallowed by the `lib/` rule below).
+# Without a manifest a clean checkout cannot install it either, so the
+# browser guard would skip silently forever.
+!/package.json
 data/temp/
 sets/
 

@@ -54,9 +54,30 @@ function chromiumPath() {
 }
 
 (async () => {
+    // A missing dependency is a skip; a BROKEN one must not be. The repo
+    // commits `node_modules/playwright-core` without its 12MB `lib/` (the
+    // `lib/` rule in .gitignore swallows it), so on a clean checkout the
+    // package resolves but `require` fails on `./lib/bootstrap`. Treating that
+    // as "not installed" turned this guard into a silent zero-assertion pass —
+    // and this is the test that catches the most serious bug in this PR, so it
+    // failing open is worse than it failing.
     let chromium;
-    try { ({ chromium } = require('playwright-core')); }
-    catch { console.log('  SKIP: playwright-core not installed'); t.summary(); return; }
+    const pkgDir = path.join(REPO_ROOT, 'node_modules', 'playwright-core');
+    try {
+        ({ chromium } = require('playwright-core'));
+    } catch (e) {
+        if (!fs.existsSync(pkgDir)) {
+            console.log('  SKIP: playwright-core not installed (npm i)');
+            t.summary();
+            return;
+        }
+        t.assert(false,
+            'playwright-core is present but will not load, so the browser guard '
+            + 'cannot run. Reinstall it (npm i) rather than letting this skip: '
+            + `${e && e.message}`);
+        t.summary();
+        return;
+    }
 
     const exe = chromiumPath();
     if (!exe) { console.log('  SKIP: no Chromium binary found'); t.summary(); return; }
