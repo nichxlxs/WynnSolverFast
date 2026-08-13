@@ -1829,10 +1829,17 @@ function _run_level_enum() {
             }
         }
 
-        // Guild tome: adds provisions + effective reqs
-        if (guild_tome_sm && !guild_tome_sm.has('NONE')) {
-            const skp = guild_tome_sm.get('skillpoints');
-            const req = guild_tome_sm.get('reqs');
+        // Guild tome: adds provisions + effective reqs.
+        //
+        // In optimisation mode use the per-lane maximum over the candidates,
+        // matching what the SP solve itself feeds in (_scratch_sp_input[8]).
+        // The baseline is an OPTIMISTIC provision used to prune subtrees, so it
+        // must bound every candidate: pruning against a fixed "none" while the
+        // solve may pick a +4 tome would discard gearsets that tome rescues.
+        const guild_baseline_sm = _tome_guild_optimistic ?? guild_tome_sm;
+        if (guild_baseline_sm && !guild_baseline_sm.has('NONE')) {
+            const skp = guild_baseline_sm.get('skillpoints');
+            const req = guild_baseline_sm.get('reqs');
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
             }

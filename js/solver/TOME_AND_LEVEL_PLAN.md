@@ -249,6 +249,48 @@ No search-algorithm changes; data plumbing and UI.
   fixed skill point bonus with nothing to roll) and the inventory button
   outside the two optimising modes.
 
+### The null-candidate trap (Codex P1 on PR #12)
+
+`_prepare_tome_optimisation` used to collapse the guild candidate list to
+`null` when only "none" survived filtering. But `null` does not mean "no guild
+tome" to the worker — `_tome_setup` reads it as **"the guild tome is FIXED"**
+and the leaf pipeline then falls back to `guild_tome_sm`, which is synthesised
+from the `restr-guild-tome` dropdown. That dropdown is greyed out in
+optimisation mode, so its value is stale by construction.
+
+Net effect: pick Strength, turn on tome optimisation, untick every guild tome —
+and the solver hands back builds wearing the Strength tome you just said you do
+not own. Reachable two ways, and only one of them is new:
+
+1. the inventory excludes every guild tome (new in Phase B), and
+2. the build is below level 100, so the level gate excludes them all
+   (pre-existing since C2 — any sub-100 build with a guild tome left in the
+   dropdown).
+
+Fixed in two places, because one alone leaves the trap armed:
+
+- The candidate list is now always kept. When the solver owns the choice it
+  owns it even if the only legal choice is "none", and the result reports
+  `guild_tome_idx` so the UI dropdown reflects what was actually used.
+- The dropdown no longer contributes to `guild_tome_item` at all when
+  optimisation is on and the slot is not locked by a real equipped tome. That
+  kills the stale value at the source, so any *future* path that falls back to
+  `guild_tome_sm` gets "none" rather than a phantom tome.
+
+**A third bug found while tracing this one.** `_sp_compute_fixed_baseline` fed
+`guild_tome_sm` into `_sp_fixed_sum_prov`, the OPTIMISTIC provision used to
+prune subtrees — while the SP solve itself uses `_tome_guild_optimistic` (the
+per-lane max over candidates). With optimisation on and the dropdown at Off,
+the baseline provided 0 while the solve could pick +4, so the precheck pruned
+gearsets a candidate tome would have rescued: silently missed builds, the
+opposite direction from the Codex finding. The baseline now uses
+`_tome_guild_optimistic ?? guild_tome_sm`, matching the solve.
+
+**Lesson worth keeping:** a test I wrote in Phase B asserted the buggy
+behaviour (`candidates === null` when nothing qualifies) and passed happily.
+"Nothing to optimise" and "the choice is fixed" are different states; encoding
+both as `null` is what let the dropdown leak through.
+
 ### The guild tome name trap (found while wiring the inventory)
 
 `GUILD_TOMES` records each tome's INTERNAL name, but `tomeMap` is keyed by

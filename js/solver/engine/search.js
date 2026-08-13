@@ -255,7 +255,15 @@ function _build_solver_snapshot(restrictions) {
     // solver spread the bonus (e.g. [102,102,0,0,0]) — a distribution no guild
     // tome can actually produce. See GUILD_TOMES in solver/constants.js.
     const sp_budget = levelToSkillPoints(level);
-    if (!has_real_guild_tome) {
+    // The dropdown only contributes when the SOLVER is not choosing the guild
+    // tome. With optimisation on the UI greys the dropdown out and says the
+    // choice is automatic, so letting its stale value flow into guild_tome_sm
+    // would contradict that: it skews the SP baseline, seeds the current-build
+    // evaluation with a tome the solver may not pick, and — wherever the
+    // candidate list is absent — gets used outright. An equipped tome in the
+    // item slot is a real lock and still wins over both.
+    const solver_picks_guild_tome = (restrictions.tome_opt ?? 0) >= 1;
+    if (!has_real_guild_tome && !solver_picks_guild_tome) {
         const gtome_choice = GUILD_TOMES[restrictions.guild_tome ?? 0] ?? GUILD_TOMES[0];
         if (gtome_choice.sp.some(v => v !== 0)) {
             const synth = new Map();
@@ -1141,9 +1149,12 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
             if (real && !tome_inventory_allows(inventory, real)) continue;
             cands.push({ idx: i, sm: guild_tome_statmap(i) });
         }
-        // Only "none" qualified → there is nothing to optimise; leave the
-        // candidates null so the worker runs the plain single-solve path.
-        snap.guild_tome_candidates = cands.length > 1 ? cands : null;
+        // Always keep the list, even when only "none" survived the level gate
+        // and the inventory. A null list means "the guild tome is FIXED" to the
+        // worker, which then falls back to guild_tome_sm — the manual dropdown
+        // that the UI greys out in this mode. Collapsing to null there would
+        // hand back builds wearing a tome the user just excluded.
+        snap.guild_tome_candidates = cands;
     }
 
     if (mode !== TOME_OPT_ALL) return;

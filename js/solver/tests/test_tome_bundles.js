@@ -309,10 +309,18 @@ const prep = run(`
     const all = call(null, 80);
     const some = call(owned, 80);
     const none_owned = call([], 80);
+    // Level 50 is below every guild tome, so the level gate excludes them all —
+    // the other way to reach the "only none survives" case.
+    const low = (() => {
+        const s = { tome_opt: TOME_OPT_ALL, level: 50, tome_roll: 80, tome_inventory: null };
+        _prepare_tome_optimisation(s, {}, ${DOM_STATS});
+        return s;
+    })();
     return JSON.stringify({
         all_guild: all.guild_tome_candidates?.length ?? 0,
         some_guild: some.guild_tome_candidates?.map(c => c.idx) ?? null,
-        none_guild: none_owned.guild_tome_candidates?.length ?? 0,
+        none_guild: none_owned.guild_tome_candidates?.map(c => c.idx) ?? null,
+        low_guild: low.guild_tome_candidates?.map(c => c.idx) ?? null,
         all_bundles: all.tome_wa_bundles?.length ?? 0,
         some_bundles: some.tome_wa_bundles?.length ?? 0,
         none_bundles: none_owned.tome_wa_bundles?.length ?? 0,
@@ -322,8 +330,18 @@ t.assert(prep.all_guild === GUILD_TOMES_LEN(),
     `with no inventory every guild tome is a candidate (got ${prep.all_guild})`);
 t.assert(JSON.stringify(prep.some_guild) === JSON.stringify([0, 3]),
     `owning only the Intelligence tome leaves candidates [none, int] (got ${JSON.stringify(prep.some_guild)})`);
-t.assert(prep.none_guild === 0,
-    'owning no guild tome leaves nothing to optimise (candidates null)');
+// Regression (Codex P1 on PR #12): when NO guild tome survives filtering, the
+// candidate list must still contain the "none" candidate rather than collapsing
+// to null. Null means "the guild tome is fixed" to the worker, which then falls
+// back to guild_tome_sm — synthesised from the manual dropdown that the UI
+// greys out in optimisation mode. A user who picked Strength before enabling
+// optimisation would get builds using a tome they just said they do not own.
+t.assert(JSON.stringify(prep.none_guild) === JSON.stringify([0]),
+    `owning no guild tome leaves the "none" candidate active, not null `
+    + `(got ${JSON.stringify(prep.none_guild)})`);
+t.assert(JSON.stringify(prep.low_guild) === JSON.stringify([0]),
+    `a build below every guild tome's level keeps the "none" candidate too `
+    + `(got ${JSON.stringify(prep.low_guild)})`);
 t.assert(prep.some_bundles > 0 && prep.some_bundles <= prep.all_bundles,
     `the inventory shrinks the bundle front (${prep.all_bundles} -> ${prep.some_bundles})`);
 // No owned weapon/armour tome means no bundle DIMENSION at all, not a bundle
