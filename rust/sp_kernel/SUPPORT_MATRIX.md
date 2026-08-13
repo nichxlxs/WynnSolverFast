@@ -38,7 +38,7 @@ ordered roughly by expected user impact within each section.
 
 It still made the run **2% slower** — 12.05 s versus 11.79 s over repeated 1M-leaf runs. Building and hashing the key costs about what the simulation it replaces costs; the fast mana sim is simply cheap. Two things worth keeping from it: the per-leaf cost is not the problem (the leaf *count* is), and the final mana check is a worse memo target than the doom check, because it runs at the greedy-chosen Int rather than a fixed Int=150, so its key almost never repeats.
 
-| ~~B2~~ | Custom blends with any negative weight — **now gated** | The all-150-SP assemble maximizes every target, which *under*-states a negative term, so it was not an upper bound and the gate and all bounds were switched off | Was unpruned. Now: `hp2` gates 1,533 of 1,872 leaves (**1.31x**), a `total_hp`-negative blend on `spell2` gates 415 of 496 (**1.16x**) | Two-sided ceiling — see below |
+| ~~B2~~ | Custom blends with any negative weight — **now gated** | The all-150-SP assemble maximizes every target, which *under*-states a negative term, so it was not an upper bound and the gate and all bounds were switched off | Was unpruned. Now on `armor4` (3,223,584 leaves): **2.2x** — 10.1 s against 22.4 s, scoring **78 leaves instead of 202,536**. Smaller spaces: `hp2` 1.31x (1,533 of 1,872 gated), a `total_hp`-negative blend on `spell2` 1.16x | Two-sided ceiling — see below |
 
 **Two-sided ceiling.** Every sub-target is non-decreasing in SP (the
 assumption `supports_ceiling` already rested on, backed by
@@ -54,9 +54,10 @@ mana rescue can reach. Summing preserves the inequality.
 
 Validated the only way a bound can be: `SCORE_TWO_SIDED=0` restores the
 unpruned behaviour, and the full-precision top-15 is **identical** with the
-gate on and off across three scenarios (a damage/HP blend, a pure negative
-`total_hp` blend, and a `total_hp`/`ehp` blend on `hp2`) — while the gate
-prunes up to 82% of leaves.
+gate on and off across four scenarios (a damage/HP blend, a pure negative
+`total_hp` blend, a `total_hp`/`ehp` blend on `hp2`, and the same blend on
+`armor4`'s full 3,223,584-leaf space) — while the gate prunes up to 68% of
+leaves outright and cuts leaves *scored* by 2,600x.
 
 The mid-tree bound stays off for these: its machinery evaluates one
 assembled state and cannot express a two-sided bound. Only the leaf gate is
