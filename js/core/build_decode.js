@@ -722,7 +722,30 @@ function decodeSolverParams(b64_str) {
         const lvl_min = (presence & (1 << 3)) ? cursor.advanceBy(7) + 1 : _SOLVER_DEFAULTS.lvl_min;
         const lvl_max = (presence & (1 << 4)) ? cursor.advanceBy(7) + 1 : max_lvl;
         const nomaj = (presence & (1 << 5)) ? cursor.advanceBy(1) === 1 : _SOLVER_DEFAULTS.nomaj;
-        const gtome = (presence & (1 << 6)) ? cursor.advanceBy(2) : _SOLVER_DEFAULTS.gtome;
+        // gtome widened from 2 to 3 bits in v11 when "Standard (+4 SP)" was
+        // replaced by explicit per-tome selection.
+        let gtome;
+        if (presence & (1 << 6)) {
+            const raw = cursor.advanceBy(version >= 11 ? 3 : 2);
+            if (version >= 11) {
+                gtome = raw;
+            } else if (raw === 2) {
+                gtome = GUILD_TOME_RAINBOW;      // legacy Rainbow -> the real tome
+            } else if (raw === 1) {
+                // Legacy "Standard (+4 SP)" was a freely-distributable budget
+                // bump that no real guild tome can produce. There is no correct
+                // tome to map it to, so fall back to none: that can only ever
+                // understate the build, never claim SP it cannot have.
+                console.warn('[decode] legacy guild tome "Standard (+4 SP)" is not a real tome '
+                    + '(the bonus cannot be split across attributes); falling back to Off. '
+                    + 'Re-select the specific guild tome you use.');
+                gtome = 0;
+            } else {
+                gtome = 0;
+            }
+        } else {
+            gtome = _SOLVER_DEFAULTS.gtome;
+        }
         const dtime = (presence & (1 << 7)) ? cursor.advanceBy(1) === 1 : _SOLVER_DEFAULTS.dtime;
         let mana_disabled;
         if (version >= 5) {

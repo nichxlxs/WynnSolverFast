@@ -245,21 +245,21 @@ function _build_solver_snapshot(restrictions) {
         : new Item(none_tomes[2]);
 
     const has_real_guild_tome = !guild_tome_item.statMap.has('NONE');
-    let sp_budget = levelToSkillPoints(level);
+    // The assignable budget never changes with the guild tome. Every guild tome
+    // is a skill-point item granting a FIXED per-attribute amount, so it is
+    // modelled as a real item statMap and counted as bonus skillpoints inside
+    // calculate_skillpoints — exactly as an equipped tome would be.
+    //
+    // This deliberately replaces the pre-v11 "Standard (+4 SP)" mode, which
+    // inflated sp_budget by 4 with no per-attribute constraint and so let the
+    // solver spread the bonus (e.g. [102,102,0,0,0]) — a distribution no guild
+    // tome can actually produce. See GUILD_TOMES in solver/constants.js.
+    const sp_budget = levelToSkillPoints(level);
     if (!has_real_guild_tome) {
-        const gtome_mode = restrictions.guild_tome ?? 0;
-        if (gtome_mode === 1) {
-            // TODO: Standard mode currently inflates sp_budget by +4 with no
-            // per-attribute constraint, allowing the solver to split the bonus
-            // across attributes (e.g. [102,102,0,0,0]).
-
-            // Standard: +4 freely assignable SP (solver picks optimal distribution)
-            sp_budget = levelToSkillPoints(level) + 4;
-        } else if (gtome_mode === 2) {
-            // Rainbow: fixed [1,1,1,1,1] — create synthetic tome so SP calc
-            // sees the exact per-attribute contribution (not freely distributable)
+        const gtome_choice = GUILD_TOMES[restrictions.guild_tome ?? 0] ?? GUILD_TOMES[0];
+        if (gtome_choice.sp.some(v => v !== 0)) {
             const synth = new Map();
-            synth.set('skillpoints', [1, 1, 1, 1, 1]);
+            synth.set('skillpoints', gtome_choice.sp.slice());
             synth.set('reqs', [0, 0, 0, 0, 0]);
             guild_tome_item = { statMap: synth };
         }

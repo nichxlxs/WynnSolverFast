@@ -214,6 +214,35 @@ function _allRollsMax() {
 }
 
 /**
+ * Guild tome choices, indexed by the value encoded in solver URLs (v11+).
+ *
+ * Every guild tome in the game is a skill-point tome: five grant +4 to one
+ * attribute, and Assimilator's grants +1 to all five. There is no guild tome
+ * that does anything else, so the only decision is which one — hence an
+ * explicit list rather than an abstract "+4 SP" mode.
+ *
+ * This replaces the pre-v11 `gtome` encoding, where value 1 meant "Standard
+ * (+4 SP)" and was implemented by inflating the assignable SP budget by 4. That
+ * let the solver split the bonus across attributes (e.g. [102,102,0,0,0]),
+ * producing builds no real tome can support. `sp` here is the exact
+ * per-attribute contribution, applied as a real item statMap instead.
+ *
+ * WARNING: order is LOAD-BEARING for URL encoding — append only.
+ */
+const GUILD_TOMES = [
+    { key: 'none',  label: 'Off (200 SP)',         item: null,                            sp: [0, 0, 0, 0, 0] },
+    { key: 'str',   label: 'Strength (+4 Str)',    item: "Psychopath's Tome of Allegiance",   sp: [4, 0, 0, 0, 0] },
+    { key: 'dex',   label: 'Dexterity (+4 Dex)',   item: "Sadist's Tome of Allegiance",       sp: [0, 4, 0, 0, 0] },
+    { key: 'int',   label: 'Intelligence (+4 Int)', item: "Warlock's Tome of Allegiance",     sp: [0, 0, 4, 0, 0] },
+    { key: 'def',   label: 'Defense (+4 Def)',     item: "Destroyer's Tome of Allegiance",    sp: [0, 0, 0, 4, 0] },
+    { key: 'agi',   label: 'Agility (+4 Agi)',     item: "Sycophant's Tome of Allegiance",    sp: [0, 0, 0, 0, 4] },
+    { key: 'rainbow', label: 'Rainbow (+1 each)',  item: "Assimilator's Tome of Allegiance",  sp: [1, 1, 1, 1, 1] },
+];
+
+/** Encoded value for the Rainbow tome — the one pre-v11 value that survives. */
+const GUILD_TOME_RAINBOW = 6;
+
+/**
  * Slots that can carry a per-slot item-level override, in encoding order.
  *
  * WARNING: This order is LOAD-BEARING for URL encoding — solver URLs encode the

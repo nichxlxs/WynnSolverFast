@@ -80,6 +80,41 @@ Two further reductions:
   `calculate_skillpoints` (`has_skp && !has_req` → `free_bonus`), so it never
   enters the activation-order backtracking. No changes to `_bt`.
 
+- **Only guild tomes touch skill points at all.** Measured across the data:
+  0 of 60 weapon tomes and 0 of 35 armour tomes grant any of str/dex/int/def/agi.
+  So the SP solve — currently ~50% of wall on the restriction-heavy benchmark —
+  is completely invariant to weapon and armour tome choice, and varies only over
+  the seven guild tome options. This is what keeps Phase D off the SP kernel
+  entirely; it lands only on the scoring stage.
+
+### Where the cost actually lands
+
+Being precise about this, because "tomes are cheap" is only true with the
+design below and false without it:
+
+| stage | today | with tomes |
+|---|---|---|
+| SP solve (~50% wall) | 1 per leaf | unchanged for weapon/armour; ×7 only if C2 lands |
+| ceiling gate (~30% wall) | 1 per leaf | 1 per leaf, using the optimistic bundle |
+| bundle evaluation | — | Pareto front size, at gate-passing leaves only (~0.3%) |
+| leaves reaching the pipeline | baseline | **higher** — this is the real cost |
+
+The honest risk is the last row: a looser precheck bound admits more leaves by
+design (that is the feature — gearsets only viable *with* tomes must survive).
+The multiplier is whatever the bound's looseness turns out to be, and it has to
+be measured rather than assumed.
+
+Two mitigations to build in from the start:
+
+1. **Precompute tome bundles once per search, not per leaf.** Weapon pairs and
+   armour quads are multisets over the enabled pools and do not depend on the
+   gear, so their summed stat vectors can be enumerated once, Pareto-pruned, and
+   reused at every leaf. Per-leaf cost becomes "iterate a short front" rather
+   than "enumerate 60² × 35⁴".
+2. **Tighten the bound per tome type** (best weapon bundle + best armour bundle
+   separately) rather than one global per-stat max, which would be reachable by
+   no single legal combination.
+
 ---
 
 ## Phase A — per-slot level ranges — DONE 2026-08-13
@@ -148,16 +183,34 @@ No search changes; data plumbing and UI only.
 - Both feed the pools built in Phase D; until then they only affect the tomes
   already selected in the UI.
 
-## Phase C — guild-tome optimisation
+## Phase C — guild tome
 
-Smallest real search: 7 options (6 tomes + none), evaluated at the leaf.
+### C1 — exact tome selection — DONE 2026-08-13
 
-- Replaces the `sp_budget + 4` hack and deletes the `search.js:243` TODO.
-- The chosen guild tome must be reported in the result so the build is
-  reproducible.
-- Correctness gate: a Standard guild tome must contribute +4 to **one**
-  attribute, never a split. Add a regression test that fails against the
-  current behaviour.
+The `sp_budget + 4` hack is gone, along with the `search.js:243` TODO. The
+dropdown now lists the seven real choices (Off + five single-attribute tomes +
+Rainbow) and each is applied as a real item statMap with the exact
+per-attribute skill points, counted as bonus skillpoints by
+`calculate_skillpoints` exactly as an equipped tome would be.
+
+`gtome` widened from 2 to 3 bits in the v11 solver encoding. Pre-v11 links
+remap on decode: value 2 (Rainbow) maps to the real Rainbow tome; value 1
+(the old "Standard (+4 SP)") has no real tome to map to, so it falls back to
+Off with a console warning. That direction is deliberate — it can only ever
+understate a build, never claim skill points it cannot have.
+
+`test_guild_tome.js` pins the behaviour with 23 assertions, including the case
+that discriminates the old model: an item needing dex 100 + int 100 + def 4 is
+204 effective points against a 200 budget. The old hack raised the budget and
+accepted `assign [0,100,100,4,0]`; now a +4 **Str** tome correctly leaves it
+infeasible and only a +4 **Def** tome makes it work.
+
+### C2 — automatic guild tome selection — not started
+
+Let the solver choose among the seven rather than the user pre-committing.
+Cheap: seven options, and the only tome type that touches the SP kernel (see
+below), so it costs at most 7 SP solves per gearset. Should report the chosen
+tome in the result so the build stays reproducible.
 
 ## Phase D — full weapon/armour tome search
 

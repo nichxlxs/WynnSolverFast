@@ -627,7 +627,7 @@ const _SOLVER_DEFAULTS = {
  *   [7]   lvl_min - 1 (0 to MAX_PLAYER_LEVEL-1)
  *   [7]   lvl_max - 1 (0 to MAX_PLAYER_LEVEL-1)
  *   [1]   nomaj
- *   [2]   gtome
+ *   [3]   gtome  (v11+; 2 bits pre-v11)
  *   [1]   dtime
  *   (bit 8: no payload — presence bit itself is the value)
  *   --- bit 9 (v11+): per-slot item-level overrides ---
@@ -725,7 +725,7 @@ function encodeSolverParams(params) {
     const lvl_min = Math.max(0, Math.min(max_lvl - 1, (params.lvl_min || 1) - 1));
     const lvl_max = Math.max(0, Math.min(max_lvl - 1, (params.lvl_max || max_lvl) - 1));
     const nomaj = params.nomaj ? 1 : 0;
-    const gtome = params.gtome & 0x3;
+    const gtome = params.gtome & 0x7;   // v11: 3 bits (0-6), was 2 bits pre-v11
     const dtime = params.dtime ? 1 : 0;
     const mana_disabled = params.mana_disabled ? 1 : 0;
 
@@ -772,7 +772,7 @@ function encodeSolverParams(params) {
     if (presence & (1 << 3)) bv.append(lvl_min, 7);
     if (presence & (1 << 4)) bv.append(lvl_max, 7);
     if (presence & (1 << 5)) bv.append(nomaj, 1);
-    if (presence & (1 << 6)) bv.append(gtome, 2);
+    if (presence & (1 << 6)) bv.append(gtome, 3);   // v11: 3 bits
     if (presence & (1 << 7)) bv.append(dtime, 1);
     // bit 8 (mana_disabled): bare flag — no payload bits
     if (presence & (1 << 9)) {
