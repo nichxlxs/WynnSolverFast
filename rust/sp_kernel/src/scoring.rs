@@ -1248,6 +1248,8 @@ pub struct Layer2 {
     pub set_bonus_sp: HashMap<String, Vec<[i32; 5]>>,
     /// `set_bonus_sp` addressed by `ItemPrelude::set_id`.
     pub set_bonus_by_id: Vec<Vec<[i32; 5]>>,
+    /// Canonical set name -> dense id, shared by every set-indexed table.
+    pub set_ids: HashMap<String, u32>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
     /// Tome optimisation (0 = off, 1 = guild, 2 = guild + weapon/armour).
@@ -1350,16 +1352,20 @@ impl Layer2 {
             set_bonus_sp.insert(set_name.clone(), per_count);
         }
 
-        // Dense set ids, so the leaf prologue counts sets in a small array of
-        // integers rather than a vector of borrowed names.
-        let mut set_id_of: HashMap<String, u32> = HashMap::new();
-        let mut set_bonus_by_id: Vec<Vec<[i32; 5]>> = Vec::new();
+        // One id space over EVERY set, not just the ones granting skill
+        // points: the dense stat-bonus table is indexed by the same ids, and a
+        // set with stats but no SP still has to be countable.
+        let mut set_ids: HashMap<String, u32> = HashMap::new();
+        for name in sets_data_v.keys() {
+            let n = set_ids.len() as u32;
+            set_ids.insert(name.clone(), n);
+        }
+        let mut set_bonus_by_id: Vec<Vec<[i32; 5]>> = vec![Vec::new(); set_ids.len()];
         for (name, per_count) in &set_bonus_sp {
-            set_id_of.insert(name.clone(), set_bonus_by_id.len() as u32);
-            set_bonus_by_id.push(per_count.clone());
+            if let Some(&i) = set_ids.get(name) { set_bonus_by_id[i as usize] = per_count.clone(); }
         }
         for pre in item_prelude.values_mut() {
-            pre.set_id = pre.set_name.as_deref().and_then(|n| set_id_of.get(n).copied());
+            pre.set_id = pre.set_name.as_deref().and_then(|n| set_ids.get(n).copied());
         }
         let plan = l2.get("scaling_plan")?;
         let strvec = |v: &Value| -> Vec<String> {
@@ -1392,7 +1398,7 @@ impl Layer2 {
         Some(Layer2 {
             mana_doom_ok,
             ceiling_vars_ok,
-            item_registry, item_prelude, set_bonus_sp, set_bonus_by_id,
+            item_registry, item_prelude, set_bonus_sp, set_bonus_by_id, set_ids,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
                 .map(|a| a.iter().filter_map(|t| as_map(t).cloned()).collect()).unwrap_or_default(),
@@ -5210,18 +5216,27 @@ impl DenseCtx {
 
             // Items, tomes, weapon lowered to indexed adds (read keys only).
             let mut items = HashMap::new();
+            let mut add_arena: Vec<(u32, f64)> = Vec::new();
             for (name, item) in &l2.item_registry {
-                let di = DenseDirect::lower_item(l2, item, |k| idx.get(k).copied())?;
+                let mut di = DenseDirect::lower_item(
+                    l2, item, |k| idx.get(k).copied(), &mut add_arena)?;
+                di.set_id = di.set_name.as_deref()
+                    .and_then(|n| l2.set_ids.get(n).copied());
                 items.insert(name.clone(), di);
             }
+            // Tomes and the weapon are folded into a constant tail, so their
+            // adds are copied out and their arena space is not referenced.
             let mut post_item_adds = Vec::new();
+            let mut scratch_arena: Vec<(u32, f64)> = Vec::new();
             for tome in &l2.tome_sms {
-                let di = DenseDirect::lower_item(l2, tome, |k| idx.get(k).copied())?;
-                post_item_adds.extend(di.adds);
+                scratch_arena.clear();
+                DenseDirect::lower_item(l2, tome, |k| idx.get(k).copied(), &mut scratch_arena)?;
+                post_item_adds.extend(scratch_arena.iter().copied());
             }
-            let wdi = DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied())?;
+            scratch_arena.clear();
+            DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
             let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
-            post_item_adds.extend(wdi.adds);
+            post_item_adds.extend(scratch_arena.iter().copied());
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
             let js_num = |v: &Value| -> f64 {
@@ -5233,6 +5248,8 @@ impl DenseCtx {
                 }
             };
             let mut sets = HashMap::new();
+            let mut sets_by_id: Vec<Vec<Option<Vec<(u32, f64)>>>> =
+                vec![Vec::new(); l2.set_ids.len()];
             for (set_name, set_data) in &l2.sets_data {
                 let Some(bonuses) = set_data.get("bonuses").and_then(|b| b.as_array()) else { continue };
                 let mut per_count = Vec::with_capacity(bonuses.len());
@@ -5244,6 +5261,9 @@ impl DenseCtx {
                             .collect::<Vec<_>>()
                     }));
                 }
+                if let Some(&sid) = l2.set_ids.get(set_name) {
+                    sets_by_id[sid as usize] = per_count.clone();
+                }
                 sets.insert(set_name.clone(), per_count);
             }
 
@@ -5254,7 +5274,7 @@ impl DenseCtx {
             Some(DenseDirect {
                 template_vals: Vec::new(),      // sized after interning settles
                 template_present: Vec::new(),
-                items, post_item_adds, sets,
+                items, add_arena, post_item_adds, sets, sets_by_id,
                 atree_prog, const_prog, static_prog,
                 term_capture, dam_mobs_idx, def_mobs_idx,
                 dam_tail: parse_tail(&dam_sim),
@@ -6161,7 +6181,14 @@ pub fn dense_score_extra(
 // that survive the ceiling gate.
 
 pub struct DItem {
-    pub adds: Vec<(u32, f64)>,
+    /// Half-open range into `DenseDirect::add_arena` rather than a Vec of
+    /// this item's own. Eight items per leaf meant eight separate heap
+    /// blocks to chase; one arena keeps the record small and the adds
+    /// contiguous.
+    pub adds: (u32, u32),
+    /// Dense set id, for the same reason the leaf prologue uses one: this
+    /// loop was also counting sets by comparing names.
+    pub set_id: Option<u32>,
     pub set_name: Option<String>,
     pub crafted: bool,
     pub arcanes: bool,
@@ -6178,10 +6205,14 @@ pub struct DenseDirect {
     pub template_vals: Vec<f64>,
     pub template_present: Vec<u64>,
     pub items: HashMap<String, DItem>,
+    /// All items' stat adds, back to back.
+    pub add_arena: Vec<(u32, f64)>,
     /// tome sums + weapon sums, applied after the per-leaf items (add_item order).
     pub post_item_adds: Vec<(u32, f64)>,
     /// set name → per-(count-1) bonus adds (skp keys excluded).
     pub sets: HashMap<String, Vec<Option<Vec<(u32, f64)>>>>,
+    /// `sets` addressed by the canonical set id.
+    pub sets_by_id: Vec<Vec<Option<Vec<(u32, f64)>>>>,
     /// atree_raw / const_scaled / static_boosts scalar merge programs.
     pub atree_prog: Vec<(u32, f64)>,
     pub const_prog: Vec<(u32, f64)>,
@@ -6210,8 +6241,12 @@ pub struct DenseDirect {
 impl DenseDirect {
     /// Lower a stat map to (idx, value) adds, mirroring add_item. Writes to
     /// keys outside the read universe are dropped — nothing dense reads them.
-    fn lower_item(l2: &Layer2, item: &Obj, it: impl Fn(&str) -> Option<u32>) -> Option<DItem> {
-        let mut adds = Vec::new();
+    fn lower_item(
+        l2: &Layer2, item: &Obj, it: impl Fn(&str) -> Option<u32>,
+        arena: &mut Vec<(u32, f64)>,
+    ) -> Option<DItem> {
+        let start = arena.len() as u32;
+        let adds = &mut *arena;
         if let Some(mr) = item.get("maxRolls").and_then(as_map) {
             for (id, value) in mr {
                 if l2.static_ids.iter().any(|s| s == id) { continue; }
@@ -6226,7 +6261,8 @@ impl DenseDirect {
             if let Some(i) = it(id) { adds.push((i, v)); }
         }
         Some(DItem {
-            adds,
+            adds: (start, arena.len() as u32 - start),
+            set_id: None,          // assigned once the set table is known
             set_name: item.get("set").and_then(|v| v.as_str()).map(String::from),
             crafted: item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false),
             arcanes: item_has_arcanes(item),
@@ -6298,25 +6334,27 @@ impl DenseLeaf {
             trace::add(trace::FD_DIFF_SLOTS, diff);
             if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
-        let mut set_counts: Vec<(&str, i64)> = Vec::new();
+        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        let mut n_sets = 0usize;
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
             let Some(item) = dd.items.get(*name) else { return false };
-            add_item_ops!(&item.adds);
+            let (st, ln) = item.adds;
+            add_item_ops!(&dd.add_arena[st as usize..(st + ln) as usize]);
             if item.arcanes { self.has_arcanes = true; }
             if !item.crafted {
-                if let Some(set_name) = &item.set_name {
-                    match set_counts.iter_mut().find(|(n, _)| *n == set_name.as_str()) {
+                if let Some(sid) = item.set_id {
+                    match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
                         Some((_, c)) => *c += 1,
-                        None => set_counts.push((set_name.as_str(), 1)),
+                        None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
                     }
                 }
             }
         }
         add_item_ops!(&dd.post_item_adds);
-        for (set_name, count) in &set_counts {
-            let Some(per_count) = dd.sets.get(*set_name) else { continue };
-            let Some(Some(adds)) = per_count.get((*count - 1) as usize) else { continue };
+        for &(sid, count) in &set_counts[..n_sets] {
+            let Some(per_count) = dd.sets_by_id.get(sid as usize) else { continue };
+            let Some(Some(adds)) = per_count.get((count - 1) as usize) else { continue };
             add_item_ops!(adds);
         }
 
