@@ -2331,7 +2331,7 @@ pub mod trace {
     /// GPU offload would target. Counted in enum_kernel.
     pub const BOUND: usize = 14;
     pub const BOUND_EVALS: usize = 15;
-    /// fill_direct: calls, and total per-item stat adds applied.
+    /// fill_direct call count.
     pub const FD_CALLS: usize = 16;
     pub const FD_ADDS: usize = 17;
     /// Whole-leaf scoring call, so enumeration work can be told apart from
@@ -2342,7 +2342,11 @@ pub mod trace {
     pub const PRE: usize = 19;
     /// Copying the lowered leaf into the per-trial scratch.
     pub const RESET: usize = 20;
-    pub const N: usize = 21;
+    /// fill_direct internals (SCORE_TRACE=2 only).
+    pub const FD_COPY: usize = 21;
+    pub const FD_ITEMS: usize = 22;
+    pub const FD_TAIL: usize = 23;
+    pub const N: usize = 24;
 
     pub static ENABLED: AtomicBool = AtomicBool::new(false);
     /// SCORE_TRACE=2: also time the per-trial sub-phases.
@@ -2423,9 +2427,10 @@ pub mod trace {
                   f(PRE), f(RESET));
         eprintln!("score_trace: whole leaf pipeline {:.2}s (the rest of the wall \
                    time x threads is the enumeration walk)", f(PIPE));
-        if c(FD_CALLS) > 0 {
-            eprintln!("score_trace: fill_direct {} calls, {:.1} stat adds per call",
-                      c(FD_CALLS), c(FD_ADDS) as f64 / c(FD_CALLS) as f64);
+        if fine() && c(FD_CALLS) > 0 {
+            eprintln!("score_trace: fill_direct {} calls — template copy {:.2}s | \
+                       item loop {:.2}s | tail {:.2}s",
+                      c(FD_CALLS), f(FD_COPY), f(FD_ITEMS), f(FD_TAIL));
         }
     }
 }
@@ -6163,10 +6168,13 @@ impl DenseLeaf {
                 dd.template_zero_idxs.len(), dd.sets.len()));
             trace::add(trace::FD_CALLS, 1);
         }
+        let _fd0 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
         self.lc_vals.clear();
         self.lc_vals.extend_from_slice(&dd.template_vals);
         self.present.clear();
         self.present.extend_from_slice(&dd.template_present);
+        if let Some(t) = _fd0 { trace::add(trace::FD_COPY, t.elapsed().as_nanos() as u64); }
+        let _fd1 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
         let vals = &mut self.lc_vals;
         let present = &mut self.present;
 
@@ -6190,7 +6198,6 @@ impl DenseLeaf {
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
             let Some(item) = dd.items.get(*name) else { return false };
-            if trace::on() { trace::add(trace::FD_ADDS, item.adds.len() as u64); }
             add_item_ops!(&item.adds);
             if item.arcanes { self.has_arcanes = true; }
             if !item.crafted {
@@ -6209,6 +6216,8 @@ impl DenseLeaf {
             add_item_ops!(adds);
         }
 
+        if let Some(t) = _fd1 { trace::add(trace::FD_ITEMS, t.elapsed().as_nanos() as u64); }
+        let _fd2 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
         // damMult/defMult tome entries capture damMobs/defMobs here
         // (finalizeStatmap reads them before the assemble-stage merges).
         let read0 = |vals: &[f64], present: &[u64], i: u32| -> f64 {
@@ -6265,6 +6274,7 @@ impl DenseLeaf {
             if absent { bit_set(present, ki); }
         }
         self.atk_spd_idx = dd.atk_spd_idx;
+        if let Some(t) = _fd2 { trace::add(trace::FD_TAIL, t.elapsed().as_nanos() as u64); }
         true
     }
 }
