@@ -29,7 +29,37 @@ pub struct Kernel {
     ord_skp: [[i32; 5]; 9],
     best_assign: [i32; 5],
     save_stack: [i32; 45],
+    /// Direct-mapped record of (subset, assignment) states already expanded
+    /// in the current solve, stamped with a generation so it never needs
+    /// clearing.
+    ///
+    /// `running_bonus` is a sum over the chosen subset and `running_total` is
+    /// the sum of `assign`, so a node is fully described by (used, assign):
+    /// two orders arriving at the same pair have identical continuations.
+    /// Re-expanding the second cannot change the answer — the record only
+    /// updates on a strictly better total, and the first expansion ran with a
+    /// looser incumbent, so it explored at least as much. Measured 35-39% of
+    /// nodes on the skill-point-heavy scenarios.
+    seen: Vec<(u32, u32, [i32; 5])>,
+    seen_gen: u32,
+    seen_on: bool,
+    /// Exponential moving average of nodes per solve, in sixteenths.
+    node_ema16: u32,
+    nodes_this: u32,
 }
+
+const SEEN_SLOTS: usize = 128;
+/// Average nodes per solve, in sixteenths, below which the table is not worth
+/// probing.
+///
+/// Duplicate rates track how big the search actually gets, not how many
+/// ordering items it has: tierstack_large averages 52.8 nodes per solve and
+/// 39% duplicates, spellsteal_medium 42.9 and 35%, spell_8free 8.9 and 19%,
+/// but spell_8free only 8.9 and ehp 2.1 with 2%, where probing cost throughput
+/// saving nothing. Gating on the item count cannot tell them apart, since ehp
+/// has plenty of ordering items and simply prunes to two nodes; the running
+/// average of the search's own size can.
+const SEEN_MIN_NODES_16: u32 = 20 * 16;
 
 impl Kernel {
     pub fn new() -> Self {
@@ -38,6 +68,9 @@ impl Kernel {
             ord_skp: [[0; 5]; 9],
             best_assign: [0; 5],
             save_stack: [0; 45],
+            seen: vec![(0, 0, [0; 5]); SEEN_SLOTS],
+            seen_gen: 0,
+            seen_on: false, node_ema16: 0, nodes_this: 0,
         }
     }
 
@@ -49,6 +82,16 @@ impl Kernel {
     /// Same as calculate, with an optional 9th equipment unit (the guild
     /// tome slot in the solver's calculate_skillpoints input).
     pub fn calculate_with_extra(&mut self, case: &Case, extra: Option<&Unit>) -> Option<([i32; 5], [i32; 5], i32)> {
+        // EMA over the previous solves' node counts, 15/16 decay.
+        self.node_ema16 = self.node_ema16 - (self.node_ema16 >> 4) + self.nodes_this;
+        self.nodes_this = 0;
+        self.seen_on = self.node_ema16 >= SEEN_MIN_NODES_16;
+        self.seen_gen = self.seen_gen.wrapping_add(1);
+        if self.seen_gen == 0 {
+            // Wrapped: stale stamps could alias, so retire them all once.
+            for e in self.seen.iter_mut() { e.0 = 0; }
+            self.seen_gen = 1;
+        }
         let mut free_bonus = [0i32; 5];
         let mut max_passive_req = [0i32; 5];
         let mut no_bonus_skp_sum = [0i32; 5]; // weapon + crafted, added to final
@@ -244,6 +287,16 @@ impl Kernel {
         running_bonus: &mut [i32; 5],
         best_total: &mut i32,
     ) {
+        // Only worth probing where a hit prunes a real subtree.
+        self.nodes_this += 1;
+        if self.seen_on && depth >= 1 && depth + 2 <= k {
+            let mut h: u32 = used.wrapping_mul(0x9E37_79B9);
+            for j in 0..5 { h = (h ^ assign[j] as u32).wrapping_mul(0x85EB_CA6B); }
+            let slot = (h >> 8) as usize % SEEN_SLOTS;
+            let e = self.seen[slot];
+            if e.0 == self.seen_gen && e.1 == used && e.2 == *assign { return; }
+            self.seen[slot] = (self.seen_gen, used, *assign);
+        }
         if depth == k {
             let mut ft = running_total;
             for j in 0..5 {
