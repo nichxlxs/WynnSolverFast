@@ -1204,6 +1204,15 @@ pub fn merge_into(target: &mut Obj, source: Option<&Obj>) {
     }
 }
 
+/// Load-time-resolved per-item inputs to the leaf prologue.
+#[derive(Clone, Default)]
+pub struct ItemPrelude {
+    pub unit: crate::Unit,
+    /// The set this item counts toward, or None when it is crafted or
+    /// belongs to no set -- the two cases the prologue skips.
+    pub set_name: Option<String>,
+}
+
 pub struct Layer2 {
     /// True when no atree var effect outputs a mana-relevant stat, i.e. the
     /// fast mana sim is monotone in Int and the Int=150 doom precheck is
@@ -1216,6 +1225,22 @@ pub struct Layer2 {
     /// gate / subtree bounds would prune inadmissibly.
     pub ceiling_vars_ok: bool,
     pub item_registry: HashMap<String, Obj>,
+    /// Everything the per-leaf prologue used to dig back out of an item's
+    /// JSON: its SP Unit, and its set name when it contributes one.
+    ///
+    /// The prologue ran this for all eight items on every single leaf --
+    /// three map lookups and two five-element array walks for the Unit, two
+    /// more lookups for the set pool, and a String allocation per distinct
+    /// set. On the ehp benchmark that came to 29 of 81 CPU-seconds, more
+    /// than any real phase, to recompute values fixed at load time. Filled
+    /// by exactly the code the prologue used, so the answers are the same
+    /// ones by construction.
+    pub item_prelude: HashMap<String, ItemPrelude>,
+    /// Set name -> per-(count-1) skill-point bonus, in `skp_order`. Same
+    /// reason as `item_prelude`: the prologue walked the sets JSON on every
+    /// leaf (a lookup for the set, one for its bonus list, one per index,
+    /// then five for the attributes) to read numbers fixed at load time.
+    pub set_bonus_sp: HashMap<String, Vec<[i32; 5]>>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
     /// Tome optimisation (0 = off, 1 = guild, 2 = guild + weapon/armour).
@@ -1272,6 +1297,49 @@ impl Layer2 {
                 }
             }
         }
+        let strvec_early = |v: &Value| -> Vec<String> {
+            v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .unwrap_or_default()
+        };
+        // Same reads the prologue used to do per leaf, done once per item.
+        let mut item_prelude = HashMap::new();
+        for (name, sm) in &item_registry {
+            let arr5 = |k: &str| -> [i32; 5] {
+                let mut out = [0i32; 5];
+                if let Some(a) = sm.get(k).and_then(|v| v.as_array()) {
+                    for (i, x) in a.iter().take(5).enumerate() {
+                        out[i] = x.as_f64().unwrap_or(0.0) as i32;
+                    }
+                }
+                out
+            };
+            let crafted = sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
+            item_prelude.insert(name.clone(), ItemPrelude {
+                unit: crate::Unit { crafted, reqs: arr5("reqs"), skp: arr5("skillpoints") },
+                set_name: if crafted { None } else {
+                    sm.get("set").and_then(|v| v.as_str()).map(String::from)
+                },
+            });
+        }
+        // Set skill-point bonuses, resolved once. Mirrors the prologue's walk
+        // exactly, including its skips: a bonus entry that is not an object,
+        // or an attribute the entry omits, contributes nothing.
+        let skp_order_v: Vec<String> = strvec_early(consts.get("skp_order")?);
+        let sets_data_v: Obj = l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default();
+        let mut set_bonus_sp: HashMap<String, Vec<[i32; 5]>> = HashMap::new();
+        for (set_name, set_data) in &sets_data_v {
+            let Some(list) = set_data.get("bonuses").and_then(|b| b.as_array()) else { continue };
+            let per_count = list.iter().map(|entry| {
+                let mut out = [0i32; 5];
+                if let Some(o) = entry.as_object() {
+                    for (i, skp) in skp_order_v.iter().enumerate().take(5) {
+                        if let Some(v) = o.get(skp).and_then(|x| x.as_f64()) { out[i] = v as i32; }
+                    }
+                }
+                out
+            }).collect();
+            set_bonus_sp.insert(set_name.clone(), per_count);
+        }
         let plan = l2.get("scaling_plan")?;
         let strvec = |v: &Value| -> Vec<String> {
             v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
@@ -1303,7 +1371,7 @@ impl Layer2 {
         Some(Layer2 {
             mana_doom_ok,
             ceiling_vars_ok,
-            item_registry,
+            item_registry, item_prelude, set_bonus_sp,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
                 .map(|a| a.iter().filter_map(|t| as_map(t).cloned()).collect()).unwrap_or_default(),
@@ -2224,54 +2292,141 @@ pub fn leaf_pipeline(
 
 #[allow(clippy::too_many_arguments)]
 // ── Phase trace (SCORE_TRACE=1): coarse per-phase nanos across all threads ──
+//
+// Counters accumulate in THREAD-LOCAL cells and are summed into the shared
+// totals when each thread finishes. They used to be shared atomics bumped in
+// place, which put four threads in a fetch_add fight over the same few cache
+// lines several million times a second — the greedy trial counter alone was
+// hit 38M times in a 20s ehp run. The result was a profiler that cost 22% of
+// throughput and charged most of that to the hottest phase it was measuring,
+// which is precisely the phase you would then go and "optimize".
+//
+// The per-trial timers (assemble/damage/dynamic-rows) are separate: two
+// `Instant::now()` calls around work measured in tens of nanoseconds cannot
+// be made cheap, so they only arm at SCORE_TRACE=2. SCORE_TRACE=1 gives the
+// phase-level picture at a cost that does not move the numbers.
 pub mod trace {
+    use std::cell::Cell;
     use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-    pub static ENABLED: AtomicBool = AtomicBool::new(false);
-    pub static SP_NS: AtomicU64 = AtomicU64::new(0);
-    pub static BASE_NS: AtomicU64 = AtomicU64::new(0);
-    pub static GATE_NS: AtomicU64 = AtomicU64::new(0);
-    pub static DOOM_NS: AtomicU64 = AtomicU64::new(0);
-    pub static GREEDY_NS: AtomicU64 = AtomicU64::new(0);
-    pub static MANA_NS: AtomicU64 = AtomicU64::new(0);
-    pub static FINAL_NS: AtomicU64 = AtomicU64::new(0);
-    pub static GREEDY_TRIALS: AtomicU64 = AtomicU64::new(0);
+
+    pub const SP: usize = 0;
+    pub const BASE: usize = 1;
+    pub const GATE: usize = 2;
+    pub const DOOM: usize = 3;
+    pub const GREEDY: usize = 4;
+    pub const MANA: usize = 5;
+    pub const FINAL: usize = 6;
+    pub const GREEDY_TRIALS: usize = 7;
     /// Per-leaf dynamic row construction (simulate + unroll + inject).
-    pub static DYN_NS: AtomicU64 = AtomicU64::new(0);
-    pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
-    pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
+    pub const DYN: usize = 8;
+    pub const ASM: usize = 9;
+    pub const DMG: usize = 10;
     /// Split of the doom + final-mana phases into the three things they do:
     /// assemble the dense vector, materialize the mini stat map for the sim,
-    /// and run (or memo-hit) the sim itself.
-    pub static MASM_NS: AtomicU64 = AtomicU64::new(0);
-    pub static MOBJ_NS: AtomicU64 = AtomicU64::new(0);
-    pub static MSIM_NS: AtomicU64 = AtomicU64::new(0);
+    /// and run the sim itself.
+    pub const MASM: usize = 11;
+    pub const MOBJ: usize = 12;
+    pub const MSIM: usize = 13;
     /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
     /// GPU offload would target. Counted in enum_kernel.
-    pub static BOUND_NS: AtomicU64 = AtomicU64::new(0);
-    pub static BOUND_EVALS: AtomicU64 = AtomicU64::new(0);
+    pub const BOUND: usize = 14;
+    pub const BOUND_EVALS: usize = 15;
+    /// fill_direct: calls, and total per-item stat adds applied.
+    pub const FD_CALLS: usize = 16;
+    pub const FD_ADDS: usize = 17;
+    /// Whole-leaf scoring call, so enumeration work can be told apart from
+    /// scoring work: everything outside this is the tree walk itself.
+    pub const PIPE: usize = 18;
+    /// Per-leaf prologue: rebuilding the 8 equipment Units out of JSON and
+    /// recomputing the set-bonus pool, before the SP solve starts.
+    pub const PRE: usize = 19;
+    /// Copying the lowered leaf into the per-trial scratch.
+    pub const RESET: usize = 20;
+    pub const N: usize = 21;
+
+    pub static ENABLED: AtomicBool = AtomicBool::new(false);
+    /// SCORE_TRACE=2: also time the per-trial sub-phases.
+    pub static FINE: AtomicBool = AtomicBool::new(false);
+    static TOTAL: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
+
+    struct Local {
+        v: [Cell<u64>; N],
+    }
+    impl Drop for Local {
+        /// Worker threads are joined before the report is printed, so their
+        /// destructors have already folded their counts in by then.
+        fn drop(&mut self) {
+            for i in 0..N {
+                let n = self.v[i].get();
+                if n != 0 { TOTAL[i].fetch_add(n, Ordering::Relaxed); }
+            }
+        }
+    }
+    thread_local! {
+        static LOCAL: Local = Local { v: [const { Cell::new(0) }; N] };
+    }
 
     pub fn init_from_env() {
-        if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
-            ENABLED.store(true, Ordering::Relaxed);
+        match std::env::var("SCORE_TRACE").as_deref() {
+            Ok("1") => ENABLED.store(true, Ordering::Relaxed),
+            Ok("2") => {
+                ENABLED.store(true, Ordering::Relaxed);
+                FINE.store(true, Ordering::Relaxed);
+            }
+            _ => {}
         }
     }
     #[inline]
     pub fn on() -> bool { ENABLED.load(Ordering::Relaxed) }
-    pub fn add(c: &AtomicU64, ns: u64) { c.fetch_add(ns, Ordering::Relaxed); }
+    /// Whether the per-trial sub-timers are armed (SCORE_TRACE=2).
+    #[inline]
+    pub fn fine() -> bool { FINE.load(Ordering::Relaxed) }
+
+    #[inline]
+    pub fn add(id: usize, n: u64) {
+        // During TLS teardown the cell is already gone; dropping the sample
+        // is better than panicking inside a destructor.
+        let _ = LOCAL.try_with(|l| l.v[id].set(l.v[id].get() + n));
+    }
+
+    /// Fold this thread's counts into the totals now, rather than waiting for
+    /// its destructor. The reporting thread needs this for its own counts.
+    pub fn flush() {
+        let _ = LOCAL.try_with(|l| {
+            for i in 0..N {
+                let n = l.v[i].replace(0);
+                if n != 0 { TOTAL[i].fetch_add(n, Ordering::Relaxed); }
+            }
+        });
+    }
+
     pub fn report() {
         if !on() { return; }
-        let f = |c: &AtomicU64| c.load(Ordering::Relaxed) as f64 / 1e9;
+        flush();
+        let f = |i: usize| TOTAL[i].load(Ordering::Relaxed) as f64 / 1e9;
+        let c = |i: usize| TOTAL[i].load(Ordering::Relaxed);
         eprintln!(
             "score_trace: sp {:.2}s | base {:.2}s | gate {:.2}s | doom {:.2}s | greedy {:.2}s ({} trials) | mana {:.2}s | final {:.2}s",
-            f(&SP_NS), f(&BASE_NS), f(&GATE_NS), f(&DOOM_NS), f(&GREEDY_NS),
-            GREEDY_TRIALS.load(Ordering::Relaxed), f(&MANA_NS), f(&FINAL_NS),
-        );
-        eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s | dynamic rows {:.2}s",
-                  f(&ASM_NS), f(&DMG_NS), f(&DYN_NS));
+            f(SP), f(BASE), f(GATE), f(DOOM), f(GREEDY), c(GREEDY_TRIALS), f(MANA), f(FINAL));
+        if fine() {
+            eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s | dynamic rows {:.2}s",
+                      f(ASM), f(DMG), f(DYN));
+        } else {
+            eprintln!("score_trace: trial split — (SCORE_TRACE=2; timing every trial \
+                       distorts the phase totals it sits inside)");
+        }
         eprintln!("score_trace: mana split — assemble {:.2}s | mini-obj {:.2}s | sim {:.2}s",
-                  f(&MASM_NS), f(&MOBJ_NS), f(&MSIM_NS));
+                  f(MASM), f(MOBJ), f(MSIM));
         eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
-                  BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
+                  c(BOUND_EVALS), f(BOUND));
+        eprintln!("score_trace: prologue (equip units + set pool) {:.2}s | scratch reset {:.2}s",
+                  f(PRE), f(RESET));
+        eprintln!("score_trace: whole leaf pipeline {:.2}s (the rest of the wall \
+                   time x threads is the enumeration walk)", f(PIPE));
+        if c(FD_CALLS) > 0 {
+            eprintln!("score_trace: fill_direct {} calls, {:.1} stat adds per call",
+                      c(FD_CALLS), c(FD_ADDS) as f64 / c(FD_CALLS) as f64);
+        }
     }
 }
 
@@ -2322,7 +2477,17 @@ macro_rules! phase {
         if trace::on() {
             let t0 = std::time::Instant::now();
             let r = $body;
-            trace::add(&trace::$counter, t0.elapsed().as_nanos() as u64);
+            trace::add(trace::$counter, t0.elapsed().as_nanos() as u64);
+            r
+        } else { $body }
+    }};
+    // Per-trial sub-phase: only armed at SCORE_TRACE=2, because the two
+    // clock reads cost more than the work they bracket.
+    (fine $counter:ident, $body:expr) => {{
+        if trace::fine() {
+            let t0 = std::time::Instant::now();
+            let r = $body;
+            trace::add(trace::$counter, t0.elapsed().as_nanos() as u64);
             r
         } else { $body }
     }};
@@ -2492,7 +2657,7 @@ pub fn leaf_pipeline_gated(
     let obj_score = |cb: &mut Obj| -> f64 {
         if let Some(dy) = dynamic {
             let mut injected: Vec<Vec<Token>> = Vec::new();
-            let damage_rows = phase!(DYN_NS,
+            let damage_rows = phase!(fine DYN,
                 dynamic_damage_rows_split(cb, rows, registry, tables, consts, dy, &mut injected));
             // With no unroll the rows line up 1:1 with the compiled ones, so
             // only the *appended* tokens need bonuses — compiling those (one
@@ -2554,39 +2719,63 @@ pub fn leaf_pipeline_gated(
     // cannot be applied to some stages and missed by others.
     let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_extra(base, sp, weapon, tome_extra);
 
+    let _pre_t0 = if trace::on() { Some(std::time::Instant::now()) } else { None };
     let mut equipment: [crate::Unit; 8] = Default::default();
-    let mut equips: Vec<&Obj> = Vec::new();
+    let mut preludes: [Option<&ItemPrelude>; 8] = [None; 8];
     for (i, name) in item_names.iter().enumerate().take(8) {
-        let item = l2.item_registry.get(*name)
+        let pre = l2.item_prelude.get(*name)
             .ok_or_else(|| format!("item not in registry: {}", name))?;
-        equipment[i] = unit_of(item);
-        equips.push(item);
+        equipment[i] = pre.unit;
+        preludes[i] = Some(pre);
+    }
+    if dense_check_on() {
+        // The cache must agree with reading the item JSON, which is what
+        // this pipeline did before it existed.
+        for (i, name) in item_names.iter().enumerate().take(8) {
+            let item = l2.item_registry.get(*name).expect("registry");
+            assert_eq!(equipment[i], unit_of(item), "item prelude unit drift: {name}");
+            let set = if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { None }
+                      else { item.get("set").and_then(|v| v.as_str()) };
+            assert_eq!(preludes[i].unwrap().set_name.as_deref(), set,
+                       "item prelude set drift: {name}");
+        }
     }
 
     // Set-bonus SP folded into the free pool (worker leaf behavior).
     let mut set_free = [0i32; 5];
     {
-        let mut set_counts: Vec<(String, i64)> = Vec::new();
-        for item in &equips {
-            if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
-            let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
-            match set_counts.iter_mut().find(|(n, _)| n == set_name) {
+        let mut set_counts: Vec<(&str, i64)> = Vec::new();
+        for pre in preludes.iter().flatten() {
+            let Some(set_name) = pre.set_name.as_deref() else { continue };
+            match set_counts.iter_mut().find(|(n, _)| *n == set_name) {
                 Some((_, c)) => *c += 1,
-                None => set_counts.push((set_name.to_string(), 1)),
+                None => set_counts.push((set_name, 1)),
             }
         }
         for (set_name, count) in &set_counts {
-            let Some(set_data) = l2.sets_data.get(set_name) else { continue };
-            let Some(bonus) = set_data.get("bonuses").and_then(|b| b.as_array())
-                .and_then(|b| b.get((*count - 1) as usize)).and_then(|b| b.as_object()) else { continue };
-            for (i, skp) in l2.skp_order.iter().enumerate() {
-                if let Some(v) = bonus.get(skp).and_then(|x| x.as_f64()) {
-                    set_free[i] += v as i32;
+            if let Some(b) = l2.set_bonus_sp.get(*set_name)
+                .and_then(|per| per.get((*count - 1) as usize)) {
+                for i in 0..5 { set_free[i] += b[i]; }
+            }
+        }
+        if dense_check_on() {
+            let mut want = [0i32; 5];
+            for (set_name, count) in &set_counts {
+                let Some(set_data) = l2.sets_data.get(*set_name) else { continue };
+                let Some(bonus) = set_data.get("bonuses").and_then(|b| b.as_array())
+                    .and_then(|b| b.get((*count - 1) as usize)).and_then(|b| b.as_object())
+                    else { continue };
+                for (i, skp) in l2.skp_order.iter().enumerate() {
+                    if let Some(v) = bonus.get(skp).and_then(|x| x.as_f64()) { want[i] += v as i32; }
                 }
             }
+            assert_eq!(set_free, want, "set bonus table drift");
         }
     }
 
+    if let Some(t0) = _pre_t0 {
+        trace::add(trace::PRE, t0.elapsed().as_nanos() as u64);
+    }
     let case = crate::Case {
         budget: consts.sp_budget,
         equipment,
@@ -2594,7 +2783,7 @@ pub fn leaf_pipeline_gated(
         set_free,
         expected: None,
     };
-    let Some((assign, total, assigned)) = phase!(SP_NS, kernel.calculate_with_extra(&case, guild)) else {
+    let Some((assign, total, assigned)) = phase!(SP, kernel.calculate_with_extra(&case, guild)) else {
         return Ok(LeafOutcome::SpInfeasible);
     };
     let mut base_sp = assign;
@@ -2612,12 +2801,12 @@ pub fn leaf_pipeline_gated(
     let mut dwork: Option<(&DenseCtx, &mut DenseWork)> = None;
     if let Some((d, w)) = dense {
         let mut ok = match &d.direct {
-            Some(dd) => phase!(BASE_NS, w.leaf.fill_direct(d, dd, item_names)),
+            Some(dd) => phase!(BASE, w.leaf.fill_direct(d, dd, item_names)),
             None => false,
         };
         if !ok {
             if base_opt.is_none() {
-                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+                base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
             if let Some(l) = DenseLeaf::build(d, l2, base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), tables) {
                 w.leaf = l;
@@ -2625,7 +2814,7 @@ pub fn leaf_pipeline_gated(
             }
         }
         if ok {
-            w.scratch.reset(&w.leaf, d);
+            phase!(RESET, w.scratch.reset(&w.leaf, d));
             dwork = Some((d, w));
         }
     }
@@ -2654,7 +2843,7 @@ pub fn leaf_pipeline_gated(
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
             && !gate_env_off {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
-                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+                base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
             // Blends with a negative weight need each term at its own
             // extreme: the negative ones off the leaf's pre-greedy SP (their
@@ -2665,9 +2854,9 @@ pub fn leaf_pipeline_gated(
             // path assembles both SP states from the lowered leaf. Building
             // it unconditionally cost more than the gate saved.
             if two_sided && dwork.is_none() && base_pre.is_none() && base_opt.is_none() {
-                base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+                base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
-            let gated = phase!(GATE_NS, {
+            let gated = phase!(GATE, {
                 let ceiling_sp = [150f64; 5];
                 let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
@@ -2712,7 +2901,7 @@ pub fn leaf_pipeline_gated(
     // rescue path fires — the mana/doom/final stages read a mini stat map
     // materialized from the dense assembled state instead.
     if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
-        base_opt = Some(phase!(BASE_NS, l2.build_base(item_names, weapon))?);
+        base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
     }
 
     // Mana-doom precheck: mana feasibility depends on the greedy SP only
@@ -2761,23 +2950,23 @@ pub fn leaf_pipeline_gated(
         || dynamic.map(|d| d.needs_unroll).unwrap_or(false);
     if !drain_breaks_doom
         && (l2.mana_doom_ok || bounded_doom_ok) && (consts.combo_time != 0.0 || consts.hp_casting) {
-        let doomed = phase!(DOOM_NS, {
+        let doomed = phase!(DOOM, {
             let mut doom_sp = [0f64; 5];
             let mut sp_lo = [0f64; 5];
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
             doom_sp[2] = doom_int;
             if let Some((d, w)) = dwork.as_mut() {
                 let DenseWork { leaf, scratch, .. } = &mut **w;
-                phase!(MASM_NS, if l2.mana_doom_ok {
+                phase!(MASM, if l2.mana_doom_ok {
                     dense_assemble(d, leaf, scratch, &doom_sp);
                 } else {
                     dense_assemble_doom(d, leaf, scratch, &doom_sp, &sp_lo);
                 });
-                let doomed = phase!(MSIM_NS, match mana_check_passes_dense(
+                let doomed = phase!(MSIM, match mana_check_passes_dense(
                         rows, d, leaf, scratch, registry, tables, consts, compiled) {
                     Some(v) => !v,
                     None => {
-                        let mini = phase!(MOBJ_NS, dense_mana_obj(d, leaf, scratch));
+                        let mini = phase!(MOBJ, dense_mana_obj(d, leaf, scratch));
                         !mana_check_passes(rows, &mini, registry, tables, consts, compiled)
                     }
                 });
@@ -2811,12 +3000,12 @@ pub fn leaf_pipeline_gated(
     let orig_base_sp = base_sp;
     let mut trial_sp_f = [0f64; 5];
     let mut trial = |sp: &[i32; 5]| -> f64 {
-        if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+        if trace::on() { trace::add(trace::GREEDY_TRIALS, 1); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         if let Some((d, w)) = dwork.as_mut() {
             let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
-            phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
-            let v = phase!(DMG_NS, match dynamic {
+            phase!(fine ASM, dense_assemble(d, leaf, scratch, &trial_sp_f));
+            let v = phase!(fine DMG, match dynamic {
                 Some(dy) => dense_dynamic_score(
                     d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts, dy)
                     .expect("dense dynamic score: injected key without a slot — \
@@ -2831,10 +3020,10 @@ pub fn leaf_pipeline_gated(
             }
             return v;
         }
-        let mut cb = phase!(ASM_NS, asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &trial_sp_f));
-        phase!(DMG_NS, obj_score(&mut cb))
+        let mut cb = phase!(fine ASM, asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &trial_sp_f));
+        phase!(fine DMG, obj_score(&mut cb))
     };
-    assigned_sp += phase!(GREEDY_NS, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
+    assigned_sp += phase!(GREEDY, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
 
     // Final assemble + mana check (+ rescue).
     let mut sp_f5 = [0f64; 5];
@@ -2857,13 +3046,13 @@ pub fn leaf_pipeline_gated(
                 assert!(ov, "dense/obj threshold mismatch (dense passes)");
             }
         }
-        let mana_ok = phase!(MANA_NS, {
+        let mana_ok = phase!(MANA, {
             let DenseWork { leaf, scratch, .. } = &mut **w;
-            let ok = phase!(MSIM_NS, match mana_check_passes_dense(
+            let ok = phase!(MSIM, match mana_check_passes_dense(
                     rows, d, leaf, scratch, registry, tables, consts, compiled) {
                 Some(v) => v,
                 None => {
-                    let mini = phase!(MOBJ_NS, dense_mana_obj(d, leaf, scratch));
+                    let mini = phase!(MOBJ, dense_mana_obj(d, leaf, scratch));
                     mana_check_passes(rows, &mini, registry, tables, consts, compiled)
                 }
             });
@@ -2879,7 +3068,7 @@ pub fn leaf_pipeline_gated(
         let _ = (saved_rescue_base, saved_rescue_total);
         if mana_ok {
             assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf");
-            let score = phase!(FINAL_NS, {
+            let score = phase!(FINAL, {
                 let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
                 let v = match dynamic {
                     Some(dy) => dense_dynamic_score(
@@ -2899,7 +3088,7 @@ pub fn leaf_pipeline_gated(
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
         // Rescue on the dense path (identical shift logic and checks).
-        let rescued = phase!(MANA_NS, {
+        let rescued = phase!(MANA, {
             let (d, w) = dwork.as_mut().unwrap();
             let ok = dense_mana_rescue(d, w, &mut base_sp, &mut total_sp, &orig_base_sp,
                                        rows, registry, tables, consts, compiled);
@@ -2926,7 +3115,7 @@ pub fn leaf_pipeline_gated(
                     return Ok(LeafOutcome::ThresholdReject);
                 }
             }
-            let score = phase!(FINAL_NS, {
+            let score = phase!(FINAL, {
                 let (d, w) = dwork.as_mut().unwrap();
                 let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
                 match dynamic {
@@ -2948,7 +3137,7 @@ pub fn leaf_pipeline_gated(
         && !check_thresholds_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts) {
         return Ok(LeafOutcome::ThresholdReject);
     }
-    if phase!(MANA_NS, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
+    if phase!(MANA, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
                           &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
             Some(rescued) => {
@@ -2963,7 +3152,7 @@ pub fn leaf_pipeline_gated(
     }
 
     assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
-    let score = phase!(FINAL_NS, obj_score(&mut combo_base));
+    let score = phase!(FINAL, obj_score(&mut combo_base));
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
 
@@ -5743,7 +5932,7 @@ pub fn dense_dynamic_score(
     };
 
     let mut injected: Vec<Vec<Token>> = Vec::new();
-    let damage_rows = phase!(DYN_NS, {
+    let damage_rows = phase!(fine DYN, {
         let mini = dense_sim_obj(d, leaf, s);
         dynamic_damage_rows_split(&mini, rows, registry, tables, consts, dy, &mut injected)
     });
@@ -5962,6 +6151,18 @@ impl DenseLeaf {
     pub fn fill_direct(
         &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
     ) -> bool {
+        if trace::on() {
+            static ONCE: std::sync::Once = std::sync::Once::new();
+            ONCE.call_once(|| eprintln!(
+                "score_trace: dense universe {} keys ({} B/leaf copy), {} items; \
+                 merge programs atree {} const {} static {}, tails dam {} def {}, \
+                 zero-idxs {}, sets {}",
+                dd.template_vals.len(), dd.template_vals.len() * 8 + dd.template_present.len() * 8,
+                item_names.len(), dd.atree_prog.len(), dd.const_prog.len(),
+                dd.static_prog.len(), dd.dam_tail.len(), dd.def_tail.len(),
+                dd.template_zero_idxs.len(), dd.sets.len()));
+            trace::add(trace::FD_CALLS, 1);
+        }
         self.lc_vals.clear();
         self.lc_vals.extend_from_slice(&dd.template_vals);
         self.present.clear();
@@ -5989,6 +6190,7 @@ impl DenseLeaf {
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
             let Some(item) = dd.items.get(*name) else { return false };
+            if trace::on() { trace::add(trace::FD_ADDS, item.adds.len() as u64); }
             add_item_ops!(&item.adds);
             if item.arcanes { self.has_arcanes = true; }
             if !item.crafted {

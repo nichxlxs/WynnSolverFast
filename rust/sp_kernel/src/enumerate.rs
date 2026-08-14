@@ -34,8 +34,8 @@ fn bound_timer() -> Option<Instant> {
 fn bound_timer_end(t0: Option<Instant>) {
     if let Some(t0) = t0 {
         crate::scoring::trace::add(
-            &crate::scoring::trace::BOUND_NS, t0.elapsed().as_nanos() as u64);
-        crate::scoring::trace::BOUND_EVALS.fetch_add(1, Ordering::Relaxed);
+            crate::scoring::trace::BOUND, t0.elapsed().as_nanos() as u64);
+        crate::scoring::trace::add(crate::scoring::trace::BOUND_EVALS, 1);
     }
 }
 
@@ -910,6 +910,8 @@ impl<'a> Search<'a> {
                 }
             }
             use crate::scoring::LeafOutcome;
+            let _pipe_t0 = if crate::scoring::trace::on() {
+                Some(Instant::now()) } else { None };
             let (outcome, tome_choice) = crate::scoring::leaf_pipeline_tome(
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
@@ -917,6 +919,10 @@ impl<'a> Search<'a> {
                 sc.dense.as_ref().map(|d| (d, &mut self.dense_work)),
                 &sc.thresholds, &sc.spell_base_costs,
             ).expect("scoring pipeline error");
+            if let Some(t0) = _pipe_t0 {
+                crate::scoring::trace::add(
+                    crate::scoring::trace::PIPE, t0.elapsed().as_nanos() as u64);
+            }
             match outcome {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }

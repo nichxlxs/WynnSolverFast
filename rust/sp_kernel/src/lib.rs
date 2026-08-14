@@ -8,7 +8,7 @@
 
 pub const SP_PER_ATTR_CAP: i32 = 100;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Unit {
     pub crafted: bool,
     pub reqs: [i32; 5],
