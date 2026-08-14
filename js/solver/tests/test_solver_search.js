@@ -26,7 +26,9 @@ const path = require('path');
 const vm = require('vm');
 const os = require('os');
 const _rust_bridge = require('../engine/rust_bridge.js');
-const { mergeTraceMetrics, summarizeTraceMetrics } = require('../benchmarks/trace_metrics');
+const {
+    mergeTraceMetrics, summarizeTraceMetrics, reconcileTraceMetrics,
+} = require('../benchmarks/trace_metrics');
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,10 @@ vm.runInContext(`
     globalThis._build_worker_init_msg = _build_worker_init_msg;
     globalThis._apply_roll_mode_to_item = _apply_roll_mode_to_item;
     globalThis._partition_work = _partition_work;
+    globalThis._normalize_dominance_mode = _normalize_dominance_mode;
+    globalThis._tag_illegal_set_item = _tag_illegal_set_item;
+    globalThis._has_illegal_set_conflict = _has_illegal_set_conflict;
+    globalThis._eval_current_build = _eval_current_build;
     globalThis._TOP_N = typeof _TOP_N !== 'undefined' ? _TOP_N : 15;
     globalThis.build_combo_boost_registry = typeof build_combo_boost_registry !== 'undefined' ? build_combo_boost_registry : null;
     globalThis.node_ref_to_boost_name = typeof node_ref_to_boost_name !== 'undefined' ? node_ref_to_boost_name : null;
@@ -111,7 +117,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
     // ── 1. Weapon with powders ──────────────────────────────────────────────
     // Apply roll mode to weapon (expandItem only creates minRolls/maxRolls;
     // _apply_roll_mode_to_item selects actual values for the top-level statMap).
-    const weaponItem = ctx.itemMap.get(decoded.equipment[8]);
+    const weaponName = snap.weapon_override ?? decoded.equipment[8];
+    const weaponItem = ctx.itemMap.get(weaponName);
     const weaponIt = ctx._apply_roll_mode_to_item(new ctx.Item(weaponItem));
     const weaponSM = weaponIt.statMap;
     // Apply weapon powders from decoded URL (powderables map: slot 8 → index 4)
@@ -421,13 +428,13 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
         const cutoffScores = new Map();  // item_names key -> best score seen
         let lastCutoff = -Infinity;
         if (seedResult?.item_names) {
-            cutoffScores.set(seedResult.item_names.join(' '), seedResult.score);
+            cutoffScores.set(seedResult.item_names.join('\0'), seedResult.score);
         }
         function updateCutoff(entries) {
             if (!entries) return;
             for (const r of entries) {
                 if (!r || typeof r.score !== 'number' || !r.item_names) continue;
-                const key = r.item_names.join(' ');
+                const key = r.item_names.join('\0');
                 const prev = cutoffScores.get(key);
                 if (prev === undefined || r.score > prev) cutoffScores.set(key, r.score);
             }
@@ -602,22 +609,39 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
         // Enumerate canonical tuples: Cartesian product of free armor slots,
         // times canonical ring pairs (i <= j) when both rings are free.
         const freeSlots = ORACLE_ARMOR_SLOTS.filter(s => initMsgBase.pools[s]?.length);
-        const ringsFree = !initMsgBase.ring1_locked && !initMsgBase.ring2_locked
-            && ringPoolSer.length > 0;
+        const ring1Free = !initMsgBase.ring1_locked && ringPoolSer.length > 0;
+        const ring2Free = !initMsgBase.ring2_locked && ringPoolSer.length > 0;
 
-        const lockedItems = [
+        // ring1_locked/ring2_locked alias entries already present in `locked`
+        // for this harness. Deduplicate by wrapper identity so an exclusive
+        // locked ring is not mistaken for two copies by the oracle itself.
+        const lockedItems = [...new Set([
             ...Object.values(initMsgBase.locked ?? {}),
             initMsgBase.ring1_locked, initMsgBase.ring2_locked,
-        ].filter(Boolean);
+        ].filter(Boolean)),
+            {
+                statMap: initMsgBase.weapon_sm,
+                _illegalSet: initMsgBase.weapon_illegal_set ?? null,
+                _illegalSetName: initMsgBase.weapon_illegal_set_name ?? null,
+            },
+        ];
 
         const tuples = [];
         const build = (slotIdx, chosen) => {
             if (slotIdx === freeSlots.length) {
-                if (ringsFree) {
+                if (ring1Free && ring2Free) {
                     for (let i = 0; i < ringPoolSer.length; i++) {
                         for (let j = i; j < ringPoolSer.length; j++) {
                             tuples.push({ armor: chosen.slice(), ring1: i, ring2: j });
                         }
+                    }
+                } else if (ring1Free) {
+                    for (let i = 0; i < ringPoolSer.length; i++) {
+                        tuples.push({ armor: chosen.slice(), ring1: i, ring2: -1 });
+                    }
+                } else if (ring2Free) {
+                    for (let j = 0; j < ringPoolSer.length; j++) {
+                        tuples.push({ armor: chosen.slice(), ring1: -1, ring2: j });
                     }
                 } else {
                     tuples.push({ armor: chosen.slice(), ring1: -1, ring2: -1 });
@@ -652,8 +676,11 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
                 let ring2_locked = initMsgBase.ring2_locked;
                 if (tup.ring1 >= 0) {
                     ring1_locked = ringPoolSer[tup.ring1];
+                    items.push(ring1_locked);
+                }
+                if (tup.ring2 >= 0) {
                     ring2_locked = ringPoolSer[tup.ring2];
-                    items.push(ring1_locked, ring2_locked);
+                    items.push(ring2_locked);
                 }
                 items.push(...lockedItems);
 
@@ -900,14 +927,23 @@ async function runSolverTest(snapName) {
         build_dir: buildDir,
     };
 
-    const allPools = ctx._build_item_pools(poolRestrictions);
+    const illegalAt2 = new Set();
+    for (const [setName, setData] of ctx.sets) {
+        if (setData.bonuses?.length >= 2 && setData.bonuses[1]?.illegal) {
+            illegalAt2.add(setName);
+        }
+    }
+    ctx._tag_illegal_set_item(solverSnap.weapon, illegalAt2);
+    const allPools = ctx._build_item_pools(poolRestrictions, illegalAt2);
+    t.assert(Object.values(allPools).every(pool => pool.some(item => item.statMap.has('NONE'))),
+        `${snapName}: every gear pool carries a protected NONE candidate`);
 
     // 6. Determine locked vs free items from sfree mask (from URL).
     // Benchmarks may deliberately widen a real saved build without rewriting
     // its encoded solver section. Production URL behavior remains the default.
     const sfree = snap.free_mask ?? sp.sfree ?? 0;
     const locked = {};
-    const freePools = {};
+    let freePools = {};
 
     for (let i = 0; i < 8; i++) {
         const slot = SLOT_NAMES[i];
@@ -915,7 +951,7 @@ async function runSolverTest(snapName) {
 
         if (!isFree) {
             // Lock this slot
-            const name = decoded.equipment[i];
+            const name = snap.locked_item_overrides?.[slot] ?? decoded.equipment[i];
             const item = (name && ctx.itemMap.has(name)) ? ctx.itemMap.get(name) : ctx.none_items[NONE_IDX[slot]];
             const it = ctx._apply_roll_mode_to_item(new ctx.Item(item));
             // Apply armor powders from decoded URL (powderables indices 0-3 = armor slots 0-3)
@@ -925,7 +961,12 @@ async function runSolverTest(snapName) {
                     it.statMap.set('powders', armorPowders);
                 }
             }
-            locked[slot] = { statMap: it.statMap, _illegalSet: null, _illegalSetName: null };
+            ctx._tag_illegal_set_item(it, illegalAt2);
+            locked[slot] = {
+                statMap: it.statMap,
+                _illegalSet: it._illegalSet,
+                _illegalSetName: it._illegalSetName,
+            };
         }
     }
 
@@ -946,28 +987,72 @@ async function runSolverTest(snapName) {
         if (sfree & (1 << i)) {
             const type = slotToType[slot];
             if (type === 'ring') {
-                if (!freePools.ring) freePools.ring = allPools.ring;
+                if (!freePools.ring) freePools.ring = allPools.ring.slice();
             } else {
-                freePools[slot] = allPools[type];
+                freePools[slot] = allPools[type].slice();
             }
         }
     }
+    // Tiny oracle regressions may name an exact candidate universe. Apply it
+    // before the raw-pool copy and dominance so both enumerators see the same
+    // candidates. `__NONE__` selects the protected empty-slot item.
+    if (snap.oracle_pool_items) {
+        for (const [slot, names] of Object.entries(snap.oracle_pool_items)) {
+            const source = freePools[slot];
+            if (!source) throw new Error(`${snapName}: no free pool named ${slot}`);
+            freePools[slot] = names.map(name => {
+                const item = name === '__NONE__'
+                    ? source.find(it => it.statMap.has('NONE'))
+                    : source.find(it => (it.statMap.get('displayName') ?? it.statMap.get('name')) === name);
+                if (!item) throw new Error(`${snapName}: ${name} not found in ${slot} pool`);
+                return item;
+            });
+        }
+    }
     const inputCombinations = countCombinations(freePools);
+    const preDominancePools = Object.fromEntries(
+        Object.entries(freePools).map(([slot, pool]) => [slot, pool.slice()]));
 
     // 7. Sensitivity weights, dominance pruning, priority sorting
     const dmgWeights = ctx._build_dmg_weights(solverSnap, locked, freePools);
     let domStats = null;
+    const dominanceMode = ctx._normalize_dominance_mode(
+        process.env.SOLVER_DOMINANCE_MODE
+        ?? (process.env.SOLVER_BENCH_VARIANT === 'original' ? 'legacy' : 'off'));
+    const dominanceMetrics = {};
     if (dmgWeights) {
         domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
+
+        // Oracle fixtures retain a separately sorted copy of the raw,
+        // pre-dominance pools. When they truncate pools, truncate that raw
+        // candidate set first and derive the production pools from it; this
+        // prevents a pruned full pool from pulling a different item across the
+        // truncation boundary and invalidating the Cartesian ground truth.
+        if (snap.oracle) ctx._prioritize_pools(preDominancePools, dmgWeights);
+    }
+
+    if (snap.oracle) {
+        if (snap.max_pool_size) {
+            for (const key of Object.keys(preDominancePools)) {
+                preDominancePools[key] = preDominancePools[key].slice(0, snap.max_pool_size);
+            }
+        }
+        freePools = Object.fromEntries(
+            Object.entries(preDominancePools).map(([slot, pool]) => [slot, pool.slice()]));
+    }
+
+    if (dmgWeights) {
         ctx._prune_dominated_items(freePools, domStats, {
+            mode: dominanceMode,
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
+            metrics: dominanceMetrics,
         });
         ctx._prioritize_pools(freePools, dmgWeights);
     }
 
-    // Oracle snapshots truncate every free pool after prioritization so the
-    // full Cartesian space stays small enough for per-tuple re-evaluation.
-    if (snap.max_pool_size) {
+    // Non-oracle snapshots keep the historical order: reduce and prioritize
+    // before any optional benchmark-only truncation.
+    if (!snap.oracle && snap.max_pool_size) {
         for (const key of Object.keys(freePools)) {
             freePools[key] = freePools[key].slice(0, snap.max_pool_size);
         }
@@ -995,6 +1080,8 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
     const combinations = countCombinations(freePools);
     console.log(`  [${snapName}] search combinations: ${combinations}`);
+    console.log(`  [${snapName}] dominance: ${dominanceMode}, `
+        + `${dominanceMetrics.input_items ?? 0} -> ${dominanceMetrics.output_items ?? 0} items`);
     if (snap.combination_budget) {
         const budget = snap.combination_budget;
         t.assert(inputCombinations >= budget.input_min && inputCombinations <= budget.input_max,
@@ -1005,8 +1092,12 @@ async function runSolverTest(snapName) {
 
     // 8. Serialize for worker transfer
     const poolsSer = ctx._serialize_pools(freePools);
+    const oraclePools = snap.oracle ? preDominancePools : freePools;
+    const oracleCombinations = countCombinations(oraclePools);
+    const oraclePoolsSer = ctx._serialize_pools(oraclePools);
     const lockedSer = ctx._serialize_locked(locked);
     const ringPoolSer = poolsSer.ring || [];
+    const oracleRingPoolSer = oraclePoolsSer.ring || [];
     const noneItemSMs = ctx.none_items.slice(0, 8).map(ni => ctx.expandItem(ni));
 
     // 9. Build base init message (without partition)
@@ -1015,6 +1106,8 @@ async function runSolverTest(snapName) {
         pools: poolsSer,
         locked: lockedSer,
         weapon_sm: solverSnap.weapon_sm,
+        weapon_illegal_set: solverSnap.weapon._illegalSet ?? null,
+        weapon_illegal_set_name: solverSnap.weapon._illegalSetName ?? null,
         level: solverSnap.level,
         tome_sms: solverSnap.tomes.map(t => t.statMap),
         guild_tome_sm: solverSnap.guild_tome_item.statMap,
@@ -1050,7 +1143,6 @@ async function runSolverTest(snapName) {
         none_item_sms: noneItemSMs,
         none_idx_map: NONE_IDX,
     };
-
     // Tome optimisation must be prepared BEFORE the fixture exports below.
     // It used to sit after them, so an exported tome fixture carried
     // tome_opt=0 and no candidates or bundles — the Rust engine could never
@@ -1085,6 +1177,15 @@ async function runSolverTest(snapName) {
             + `${prep.guild_tome_candidates?.length ?? 0} guild candidates, `
             + `${prep.tome_wa_bundles?.length ?? 0} bundles`);
     }
+
+    // Clone only after tome preparation so the raw Cartesian oracle receives
+    // exactly the same evaluator configuration as production; only its gear
+    // pools differ.
+    const oracleInitMsgBase = snap.oracle ? {
+        ...initMsgBase,
+        pools: oraclePoolsSer,
+        ring_pool: oracleRingPoolSer,
+    } : initMsgBase;
 
     // Optional: dump this scenario as a Rust enumeration-kernel fixture.
     // Both exports can run in one invocation (the Rust scoring integration
@@ -1146,7 +1247,17 @@ async function runSolverTest(snapName) {
 
     console.log(`  [${snapName}] checked: ${result.checked}, feasible: ${result.feasible}, top5: ${result.top5?.length}, time: ${elapsed}ms${result.timedOut ? ' (timed out)' : ''}`);
     if (process.env.SOLVER_BENCH_TRACE === '1') {
-        console.log(`  [${snapName}] trace: ${JSON.stringify(summarizeTraceMetrics(result.trace))}`);
+        const traceSummary = summarizeTraceMetrics(result.trace);
+        console.log(`  [${snapName}] trace: ${JSON.stringify(traceSummary)}`);
+        if ((result.trace?.schema_version ?? 0) >= 3) {
+            const reconciliation = reconcileTraceMetrics(result.trace);
+            t.assert(reconciliation.credited.ok,
+                `${snapName}: credited-leaf trace counters reconcile`);
+            t.assert(reconciliation.evaluator.ok,
+                `${snapName}: evaluator trace counters do not over-account calls`);
+            t.assert(reconciliation.spExact.ok,
+                `${snapName}: exact-SP trace rejects do not exceed calls`);
+        }
     }
 
     // 11. Assert results
@@ -1174,7 +1285,14 @@ async function runSolverTest(snapName) {
             console.log(`  [${snapName}] best items: ${items.join(', ')}`);
         }
     } else {
-        t.assert(false, `${snapName}: solver found no results`);
+        // An empty result is a valid exact answer when every tuple is
+        // infeasible. Oracle fixtures verify that independently below instead
+        // of treating an empty top-N as a harness failure.
+        if (snap.oracle || snap.expect_empty_results) {
+            t.assert(true, `${snapName}: empty result retained for exact oracle verification`);
+        } else {
+            t.assert(false, `${snapName}: solver found no results`);
+        }
     }
 
     // 12. Oracle verification (P0.4): exact equality against an independent
@@ -1184,12 +1302,12 @@ async function runSolverTest(snapName) {
 
         let oracle;
         if (initMsgBase.tome_opt) {
-            oracle = await runTomeOracle(initMsgBase, ringPoolSer);
+            oracle = await runTomeOracle(oracleInitMsgBase, oracleRingPoolSer);
             console.log(`  [${snapName}] tome oracle: ${oracle.tupleCount} tuples x ${oracle.variants} tome variants`);
-            t.assert(oracle.tupleCount === combinations,
-                `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
-            t.assert(result.checked === oracle.tupleCount,
-                `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
+            t.assert(oracle.tupleCount === oracleCombinations,
+                `${snapName}: raw Cartesian count ${oracleCombinations} == oracle tuple count ${oracle.tupleCount}`);
+            t.assert(result.checked <= oracle.tupleCount,
+                `${snapName}: production checked ${result.checked} <= raw oracle ${oracle.tupleCount}`);
             // No feasible-count comparison in tome mode: production counts a
             // leaf feasible when the OPTIMISTIC gate passes, which is a
             // superset of any single candidate's feasibility.
@@ -1198,29 +1316,45 @@ async function runSolverTest(snapName) {
                     `${snapName}: tome-mode result entries carry guild_tome_idx`);
             }
         } else {
-            oracle = await runOracleEnumeration(initMsgBase, ringPoolSer);
+            oracle = await runOracleEnumeration(oracleInitMsgBase, oracleRingPoolSer);
             console.log(`  [${snapName}] oracle: ${oracle.tupleCount} tuples, ${oracle.blocked} illegal-set blocked, ${oracle.feasible} feasible`);
 
-            t.assert(oracle.tupleCount === combinations,
-                `${snapName}: countCombinations ${combinations} == oracle tuple count ${oracle.tupleCount}`);
-            t.assert(result.checked === oracle.tupleCount,
-                `${snapName}: production checked ${result.checked} == oracle ${oracle.tupleCount}`);
-            t.assert(result.feasible === oracle.feasible,
-                `${snapName}: production feasible ${result.feasible} == oracle ${oracle.feasible}`);
+            if (snap.expected_oracle_blocked != null) {
+                t.assert(oracle.blocked === snap.expected_oracle_blocked,
+                    `${snapName}: oracle blocked ${oracle.blocked} exclusive-set tuples`);
+            }
+
+            t.assert(oracle.tupleCount === oracleCombinations,
+                `${snapName}: raw Cartesian count ${oracleCombinations} == oracle tuple count ${oracle.tupleCount}`);
+            t.assert(result.checked <= oracle.tupleCount,
+                `${snapName}: production checked ${result.checked} <= raw oracle ${oracle.tupleCount}`);
+            if (dominanceMode === 'off' || dominanceMode === 'exact') {
+                t.assert(result.checked === oracle.tupleCount,
+                    `${snapName}: exact-mode checked ${result.checked} == raw oracle ${oracle.tupleCount}`);
+                t.assert(result.feasible === oracle.feasible,
+                    `${snapName}: exact-mode feasible ${result.feasible} == oracle ${oracle.feasible}`);
+            }
         }
 
         const prodScores = result.top5.map(r => r.score);
         const oracleScores = oracle.top.map(r => r.score);
-        t.assert(prodScores.length === oracleScores.length,
-            `${snapName}: top-N length ${prodScores.length} == oracle ${oracleScores.length}`);
-        let scoresEqual = prodScores.length === oracleScores.length;
-        for (let i = 0; i < Math.min(prodScores.length, oracleScores.length); i++) {
-            if (prodScores[i] !== oracleScores[i]) { scoresEqual = false; break; }
+        const exactDominance = dominanceMode === 'off' || dominanceMode === 'exact';
+        if (exactDominance) {
+            t.assert(prodScores.length === oracleScores.length,
+                `${snapName}: top-N length ${prodScores.length} == oracle ${oracleScores.length}`);
+            let scoresEqual = prodScores.length === oracleScores.length;
+            for (let i = 0; i < Math.min(prodScores.length, oracleScores.length); i++) {
+                if (prodScores[i] !== oracleScores[i]) { scoresEqual = false; break; }
+            }
+            t.assert(scoresEqual,
+                `${snapName}: top-N scores match raw oracle exactly`
+                + (scoresEqual ? '' : ` (prod=${JSON.stringify(prodScores)} oracle=${JSON.stringify(oracleScores)})`));
+        } else {
+            t.assert(prodScores[0] === oracleScores[0],
+                `${snapName}: dominance mode ${dominanceMode} preserves the raw-oracle optimum`);
         }
-        t.assert(scoresEqual,
-            `${snapName}: top-N scores match oracle exactly`
-            + (scoresEqual ? '' : ` (prod=${JSON.stringify(prodScores)} oracle=${JSON.stringify(oracleScores)})`));
-        if (result.top5.length && oracle.top.length) {
+        if ((dominanceMode === 'off' || dominanceMode === 'exact')
+            && result.top5.length && oracle.top.length) {
             t.assert(JSON.stringify(result.top5[0].item_names) === JSON.stringify(oracle.top[0].item_names),
                 `${snapName}: best build items match oracle`);
         }
@@ -1242,7 +1376,44 @@ async function runSolverTest(snapName) {
 
 // ── Discover and run test cases ──────────────────────────────────────────────
 
+function testInvalidExclusiveSeedRejected() {
+    const nodes = ctx.none_items.slice(0, 8).map((none, i) => {
+        const item = new ctx.Item(none);
+        item.statMap.set('NONE', true);
+        return { value: item, slot: i };
+    });
+    nodes[4] = { value: new ctx.Item(ctx.itemMap.get('Intensity')), slot: 4 };
+    ctx.solver_item_final_nodes = nodes;
+
+    const weapon = new ctx.Item(ctx.itemMap.get('Infused Hive Wand'));
+    const craftedWeapon = new Map(weapon.statMap);
+    craftedWeapon.set('crafted', true);
+    t.assert(!ctx._has_illegal_set_conflict(
+        [nodes[4].value.statMap], craftedWeapon),
+        'crafted items do not occupy game set exclusivity slots');
+    const originalWarn = ctx.console.warn;
+    ctx.console.warn = () => {};
+    let seed;
+    try {
+        seed = ctx._eval_current_build(
+            { weapon_sm: weapon.statMap }, { stat_thresholds: [] }, new Set());
+    } finally {
+        ctx.console.warn = originalWarn;
+    }
+    t.assert(seed === null,
+        'invalid weapon + gear exclusive-set build is rejected as an incumbent');
+
+    // These are the two guarded consumers in start_solver_search and the
+    // shared-cutoff initialiser: a null evaluator result reaches neither.
+    const seededTop = seed ? [seed] : [];
+    const sharedCutoff = typeof seed?.score === 'number' ? seed.score : null;
+    t.assert(seededTop.length === 0 && sharedCutoff === null,
+        'invalid exclusive-set seed cannot enter top-N or the shared cutoff');
+    ctx.solver_item_final_nodes = [];
+}
+
 async function main() {
+    testInvalidExclusiveSeedRejected();
     const snapDir = path.join(__dirname, 'snapshots');
     const allSnaps = (fs.existsSync(snapDir) ? fs.readdirSync(snapDir) : [])
         .filter(f => f.startsWith('solver_') && f.endsWith('.snap.json'))

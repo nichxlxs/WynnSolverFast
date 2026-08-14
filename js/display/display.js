@@ -118,7 +118,7 @@ function displayBuildStats(parent_id, build, command_group, stats) {
                 modifier_shown = true;
             }
             let int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-            let total_mana = 100 + max_mana + int_mana;
+            let total_mana = Math.min(MAX_MANA, 100 + max_mana + int_mana);
             let row = make_elem('div', ['row']);
             let value_elem = make_elem('div', ['col', 'text-end']);
             let prefix_elem = make_elem('b', [], {

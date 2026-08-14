@@ -76,6 +76,10 @@ for (let c = 0; c < count; c++) {
         const set_name = sm.get('set');
         if (set_name) set_counts.set(set_name, (set_counts.get(set_name) ?? 0) + 1);
     }
+    if (!weaponSM.get('crafted')) {
+        const set_name = weaponSM.get('set');
+        if (set_name) set_counts.set(set_name, (set_counts.get(set_name) ?? 0) + 1);
+    }
     const set_free = [0, 0, 0, 0, 0];
     for (const [set_name, cnt] of set_counts) {
         const bonus = sets.get(set_name).bonuses[cnt - 1];

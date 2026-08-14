@@ -179,6 +179,57 @@ for (const tc of cases) {
     );
 }
 
+// ── Weapon-inclusive set membership ────────────────────────────────────────
+//
+// The separately-passed weapon must contribute to both the active-set count
+// and the SP bonus pool. Bony's two-piece bonus is
+// +8 AGI; together with Bony Bow's +6 AGI it satisfies the weapon's 8 AGI
+// requirement without assigned points.
+(function weaponSetMembership() {
+    const resolved = buildStatMaps({
+        items: ['Bony Circlet', ...NONE_NAMES.slice(1)],
+        weapon: 'Bony Bow',
+    });
+    if (resolved.error) {
+        t.assert(false, `weapon set membership: ${resolved.error}`);
+        return;
+    }
+
+    const result = calculate_skillpoints(resolved.equipSMs, resolved.weaponSM, 200);
+    t.assert(result !== null, 'weapon set membership: Bony pair is feasible');
+    if (result) {
+        t.assert(result.length === 5,
+            `weapon set membership: expected complete five-field result, got ${result.length}`);
+        t.assert(result[3].get('Bony') === 2,
+            `weapon set membership: expected Bony count 2, got ${result[3].get('Bony')}`);
+        t.assert(result[0][4] === 0,
+            `weapon set membership: expected 0 assigned AGI, got ${result[0][4]}`);
+        t.assert(result[1][4] === 14,
+            `weapon set membership: expected 14 final AGI, got ${result[1][4]}`);
+        t.assert(result[4][4] === 14,
+            `weapon set membership: expected 14 item/set AGI, got ${result[4][4]}`);
+        const setStats = ctx.createBaseStatmap(22);
+        ctx.applySetBonuses(setStats, result[3], sets);
+        t.assert(setStats.get('mdRaw') === 45,
+            `weapon set membership: expected +45 set mdRaw, got ${setStats.get('mdRaw')}`);
+    }
+
+    // Crafted/custom weapons may retain a set label in their map, but game
+    // rules exclude crafted items from set membership.
+    const craftedWeapon = new Map(resolved.weaponSM);
+    craftedWeapon.set('crafted', true);
+    const craftedResult = calculate_skillpoints(resolved.equipSMs, craftedWeapon, 200);
+    t.assert(craftedResult !== null, 'crafted weapon set exclusion: build is feasible');
+    if (craftedResult) {
+        t.assert(craftedResult[3].get('Bony') === 1,
+            `crafted weapon set exclusion: expected Bony count 1, got ${craftedResult[3].get('Bony')}`);
+        t.assert(craftedResult[0][4] === 8,
+            `crafted weapon set exclusion: expected 8 assigned AGI, got ${craftedResult[0][4]}`);
+        t.assert(craftedResult[4][4] === 6,
+            `crafted weapon set exclusion: expected no set AGI (6 weapon only), got ${craftedResult[4][4]}`);
+    }
+})();
+
 // ── Closure fast-path differential ──────────────────────────────────────────
 //
 // calculate_skillpoints has a Lodestone-style closure fast path that skips
@@ -186,7 +237,6 @@ for (const tc of cases) {
 // SP bonuses and the closure activates everything at assign = post_floor.
 // Verify it against a second sandbox whose skillpoints.js has the fast path
 // disabled (pure backtracking) over seeded random builds from real items.
-
 (function closureDifferential() {
     const vm = require('vm');
     const REPO = path.join(__dirname, '..', '..', '..');

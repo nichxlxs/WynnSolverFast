@@ -1,0 +1,7 @@
+scenario	current_elapsed_s	prior_safe_elapsed_s	prior_safe_coverage_pct	speedup_lower_bound	current_exhaustive	prior_safe_exhaustive	top_score_sha256_12	top_scores_equal
+fam_cancelstack_small	12.306	130.082	82.2	10.570	true	false	1019d20778d5	true
+fam_heavy_melee_small	4.215	8.071	100.0	1.915	true	true	ebf754d5f0d3	true
+fam_tierstack_small	2.259	4.009	100.0	1.775	true	true	9b0dd099fad5	true
+fam_spellsteal_small	17.965	40.527	100.0	2.256	true	true	3901ec84d91f	true
+fam_spell_sustained_small	13.804	130.083	88.7	9.423	true	false	062e716d9455	true
+fam_hybrid_small	7.303	16.600	100.0	2.273	true	true	fb97a363ed2e	true

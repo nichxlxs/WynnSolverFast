@@ -83,7 +83,7 @@ function displaySolverSummary(parent_id, stats) {
 
     const maxMana = stats.get('maxMana') ?? 0;
     const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-    parent.append(row('Total Mana:', 100 + maxMana + int_mana, 'wDam'));
+    parent.append(row('Total Mana:', Math.min(MAX_MANA, 100 + maxMana + int_mana), 'wDam'));
 
     const ls = stats.get('ls') ?? 0;
     if (ls) {

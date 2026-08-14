@@ -56,6 +56,19 @@ rust/sp_kernel/gen_family_fixtures.sh     # ~15 min, all 18
 individually. Each family is supplied 5, then 4, then 3 items from its
 validated ideal build, so small → medium → large widens the same search.
 
+Use `benchmark_family_capacity.py <bench-json>` to convert a family result into
+an exact-space ETA table. The latest correctness/performance A/B and the
+interpretation of which search tiers are now practical are recorded in
+[OPTIMIZATION_VALIDATION.md](OPTIMIZATION_VALIDATION.md) and
+[CLASS_BUILD_CAPACITY.md](CLASS_BUILD_CAPACITY.md).
+
+For the fixed-work exact A/B used by the validation report:
+
+```bash
+python3 benchmark_family_ab.py --threads 1 --leaf-budget 2000000 \
+  --json /tmp/family-ab.json > /tmp/family-ab.tsv
+```
+
 ## bench.py — scenario × configuration matrix
 
 ```bash

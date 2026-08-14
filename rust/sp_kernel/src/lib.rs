@@ -7,6 +7,7 @@
 //! Usage: sp_kernel <fixtures.txt> [bench_iters]
 
 pub const SP_PER_ATTR_CAP: i32 = 100;
+pub const MAX_MANA: f64 = 400.0;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Unit {

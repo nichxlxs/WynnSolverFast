@@ -1033,7 +1033,7 @@ class SolverComboTotalNode extends ComputeNode {
         const ms = base_stats.get('ms') ?? 0;
         const item_mana = base_stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(base_stats.get('int') ?? 0) * 100);
-        const display_start_mana = 100 + item_mana + int_mana;
+        const display_start_mana = Math.min(MAX_MANA, 100 + item_mana + int_mana);
 
         const end_mana = sim_result.end_mana;
         const deficit = sim_result.start_mana - end_mana;
