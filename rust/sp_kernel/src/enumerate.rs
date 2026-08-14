@@ -60,6 +60,17 @@ struct AdaptiveBound {
     retry_at: f64,
 }
 
+/// Entry cap for the subtree/cluster ceiling memo.
+///
+/// Was four million, which let the map grow far past any cache: every probe
+/// then paid a miss to the table itself, and on a low-hit scenario the memo
+/// cost more than recomputing the ceiling it was caching. A ceiling eval is
+/// microseconds against nanoseconds for a probe, so the memo is worth having
+/// at almost any hit rate -- what it is not worth is being large. Capped
+/// here at a size that stays cache-resident; on overflow the map is cleared
+/// and refills against the current part of the search.
+const BOUND_MEMO_CAP: usize = 1 << 18;
+
 const ADAPT_WINDOW: u64 = 8192;
 const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
 
@@ -1108,7 +1119,7 @@ impl<'a> Search<'a> {
                                                 &sc.rows, &sc.compiled_rows, &sc.tables)
                                         } else { f64::INFINITY };
                                         bound_timer_end(bt0);
-                                        if self.bound_memo.len() >= 4_000_000 {
+                                        if self.bound_memo.len() >= BOUND_MEMO_CAP {
                                             self.bound_memo.clear();
                                         }
                                         self.bound_memo.insert(skey, v);
@@ -1162,7 +1173,7 @@ impl<'a> Search<'a> {
                                     // Bound the memo's memory: recent
                                     // prefixes dominate hits, so a periodic
                                     // clear costs little and caps growth.
-                                    if self.bound_memo.len() >= 4_000_000 {
+                                    if self.bound_memo.len() >= BOUND_MEMO_CAP {
                                         self.bound_memo.clear();
                                     }
                                     self.bound_memo.insert(key, v);
