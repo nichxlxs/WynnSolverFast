@@ -1,0 +1,71 @@
+# Publish the site to GitHub Pages.
+#
+# The repo IS the site — index.html and the asset directories sit at the root,
+# with the solver at /solver/ — so this uploads the checkout as-is rather than
+# running a build.
+#
+# Deploying through Actions rather than "deploy from a branch" on purpose:
+# a branch deploy runs the tree through Jekyll, which silently drops files and
+# directories beginning with an underscore. The artifact path here is served
+# verbatim.
+#
+# This does nothing until Pages is switched to the "GitHub Actions" source in
+# Settings -> Pages. Until then the workflow runs and the deploy step fails
+# with a clear message; it cannot publish anything by accident.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  # Lets you republish without pushing (Actions tab -> this workflow -> Run).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. `cancel-in-progress: false` so a queued deploy
+# finishes rather than being dropped — a half-applied site is worse than a slow
+# one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Drop everything that is not the site
+        # The Rust sources, the toolchain's build output and node_modules are
+        # not served; excluding them keeps the artifact well inside the 1 GB
+        # Pages limit and cuts upload time. `data/` STAYS — the app reads the
+        # item database from it at runtime.
+        run: |
+          rm -rf rust node_modules .github .git
+          echo "site size: $(du -sh . | cut -f1), files: $(find . -type f | wc -l)"
+
+      - name: Disable Jekyll
+        # Not needed for artifact deploys, which serve the upload verbatim, but
+        # it costs nothing and keeps the tree correct if anyone ever switches
+        # this repo to a branch deploy.
+        run: touch .nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

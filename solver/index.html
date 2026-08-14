@@ -9,8 +9,14 @@
          which has to happen before the page does its expensive setup rather
          than after it. Isolation is optional: without it the engine simply
          runs without a shared cutoff. Load any page with ?nocoi=1 to
-         unregister the worker. -->
-    <script src="../coi-serviceworker.js"></script>
+         unregister the worker.
+
+         It lives in THIS directory on purpose. A service worker's scope is
+         the directory it is served from, so registering it from the site root
+         would have cross-origin isolated every other page too (builder, items,
+         atlas) and applied COEP to their subresources for no benefit. Only the
+         solver needs isolation. -->
+    <script src="coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="HandheldFriendly" content="true">
     <meta name="MobileOptimized" content="320">
