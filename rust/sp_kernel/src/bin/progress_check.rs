@@ -16,6 +16,7 @@ fn main() {
         let j = sp_kernel::enumerate::progress_json(&p);
         if n <= 3 { println!("progress[{n}]: {}", &j[..j.len().min(220)]); }
         last = j;
+        None
     };
     let out = sp_kernel::enumerate::solve_json_with_progress(
         &enum_fx, &score_fx, 0.0, Some(&mut sink));

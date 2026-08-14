@@ -23,7 +23,7 @@ ordered roughly by expected user impact within each section.
 
 | # | Feature | Notes |
 |---|---------|-------|
-| A9 | Tome slot search | Tomes are fixed inputs; the solver never searches tome combinations. |
+| A9 | Tome slot search | **DONE.** Both engines search tome combinations. The Rust engine's `leaf_pipeline_tome` runs the same nested loop as the JS worker — each guild candidate (each needs its own SP solve) x each weapon/armour bundle, best per leaf — and `check_tome_parity.sh` holds it to the JS answer on both modes: same top-1 score, same build, same leaves checked. Bundles merge at the end of assembly (Obj path) exactly as the JS does; the dense path is off while a bundle applies, which is a speed follow-up, not a correctness gap. |
 | A10 | Weapon slot search | The weapon is fixed; solving across weapons means separate runs per weapon. |
 | A11 | Powder optimization | Powders are taken as-is on the fixed weapon/armor inputs; no search over powder sets. |
 | A12 | Crafted-item ingredient search | Crafted items participate as fixed statmaps; the solver does not search ingredient/recipe space. |
@@ -258,7 +258,40 @@ Measured on the one scenario that has both an ehp threshold and a score
 fixture; the larger `gaia` fixtures have no score fixture, so their leaf
 pipeline is not measured, only their enumeration. Both point the same way.
 
-| B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | Port improvements back, or ship Rust via WASM (C1) |
+| B8 | The JS engine as a whole | No dense vectors / cluster bounds / warm start | ~430K leaves per 180s vs Rust ~670M | **Won't do for the bounds — see below.** Superseded for users by C1: the Rust engine now ships in the browser |
+
+### B8: why the bound machinery stays out of the JS engine
+
+Closed as **won't do**, deliberately, not for lack of time.
+
+Every correctness claim in this project rests on the JS engine being an
+*independently written* implementation of the same rules. That is what makes
+`score_kernel`'s 25-fixtures-exact, `mana_sim_check`'s 10,419 comparisons and
+the exhaustive oracle scenarios worth anything: two implementations that do
+not share code agreeing bit-for-bit is evidence; one implementation agreeing
+with a copy of itself is not.
+
+Porting the dense vectors and cluster/tail bounds into the JS engine would
+make the two engines share the part *most* likely to be subtly wrong. A
+bound is admissible or it is not, and an inadmissible one silently removes
+results rather than crashing — exactly the failure the cross-check exists to
+catch. Share that logic and the cross-check keeps passing while both engines
+drop the same builds.
+
+The speed argument that motivated B8 has also largely gone away: the Rust
+engine now runs in the browser (C1), so the JS engine is the oracle and the
+fallback, not the thing users wait on.
+
+What is still fair game, because it cannot remove a result:
+
+- **Warm start** — a seeding heuristic. It changes only how quickly the
+  cutoff tightens; a wrong seed costs time, never builds.
+- Data-structure work (flat arrays, fewer allocations) that does not decide
+  what to skip.
+
+The remaining JS-engine slowness that actually reaches users is tome
+optimisation, where Rust declines and JS runs. The fix for that is the tome
+port (see `PORT_PLAN.md`), not B8.
 
 ## C. Integration gaps
 

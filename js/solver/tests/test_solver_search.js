@@ -1051,6 +1051,41 @@ async function runSolverTest(snapName) {
         none_idx_map: NONE_IDX,
     };
 
+    // Tome optimisation must be prepared BEFORE the fixture exports below.
+    // It used to sit after them, so an exported tome fixture carried
+    // tome_opt=0 and no candidates or bundles — the Rust engine could never
+    // have been validated against a tome scenario, because the fixture did
+    // not describe one.
+    if (snap.tome_opt) {
+        ctx.__tome_mode = snap.tome_opt;
+        ctx.__tome_level = solverSnap.level;
+        ctx.__dom_stats_tome = domStats;
+        // tome_roll / tome_inventory come from the snapshot so a fixture can
+        // pin the assumed roll quality and restrict the pool to owned tomes.
+        // Absent means the production defaults (80%, owns everything).
+        ctx.__tome_roll = snap.tome_roll ?? null;
+        ctx.__tome_inv = snap.tome_inventory ?? null;
+        const prep = vm.runInContext(`(function(){
+            const s = {
+                tome_opt: __tome_mode, level: __tome_level,
+                tome_roll: __tome_roll ?? TOME_ROLL_DEFAULT,
+                tome_inventory: __tome_inv ? new Set(__tome_inv) : null,
+            };
+            _prepare_tome_optimisation(s, {}, __dom_stats_tome ?? { higher: new Set(), lower: new Set() });
+            return s;
+        })()`, ctx);
+        initMsgBase.tome_opt = snap.tome_opt;
+        // tome_guild_locked simulates a real tome equipped in the guildTome1
+        // slot: the guild choice stays fixed and only bundles are optimised.
+        initMsgBase.guild_tome_candidates = snap.tome_guild_locked
+            ? null : (prep.guild_tome_candidates ?? null);
+        initMsgBase.tome_wa_bundles = prep.tome_wa_bundles ?? null;
+        initMsgBase.tome_bound = prep.tome_bound ?? null;
+        console.log(`  [${snapName}] tome opt mode ${snap.tome_opt}: `
+            + `${prep.guild_tome_candidates?.length ?? 0} guild candidates, `
+            + `${prep.tome_wa_bundles?.length ?? 0} bundles`);
+    }
+
     // Optional: dump this scenario as a Rust enumeration-kernel fixture.
     // Both exports can run in one invocation (the Rust scoring integration
     // joins them by item name, so they must come from the same scenario run).
@@ -1086,35 +1121,6 @@ async function runSolverTest(snapName) {
     // both the production run and the tome oracle below see the same inputs,
     // so the comparison stays internally consistent even if the URL carried
     // equipped tomes.
-    if (snap.tome_opt) {
-        ctx.__tome_mode = snap.tome_opt;
-        ctx.__tome_level = solverSnap.level;
-        ctx.__dom_stats_tome = domStats;
-        // tome_roll / tome_inventory come from the snapshot so a fixture can
-        // pin the assumed roll quality and restrict the pool to owned tomes.
-        // Absent means the production defaults (80%, owns everything).
-        ctx.__tome_roll = snap.tome_roll ?? null;
-        ctx.__tome_inv = snap.tome_inventory ?? null;
-        const prep = vm.runInContext(`(function(){
-            const s = {
-                tome_opt: __tome_mode, level: __tome_level,
-                tome_roll: __tome_roll ?? TOME_ROLL_DEFAULT,
-                tome_inventory: __tome_inv ? new Set(__tome_inv) : null,
-            };
-            _prepare_tome_optimisation(s, {}, __dom_stats_tome ?? { higher: new Set(), lower: new Set() });
-            return s;
-        })()`, ctx);
-        initMsgBase.tome_opt = snap.tome_opt;
-        // tome_guild_locked simulates a real tome equipped in the guildTome1
-        // slot: the guild choice stays fixed and only bundles are optimised.
-        initMsgBase.guild_tome_candidates = snap.tome_guild_locked
-            ? null : (prep.guild_tome_candidates ?? null);
-        initMsgBase.tome_wa_bundles = prep.tome_wa_bundles ?? null;
-        initMsgBase.tome_bound = prep.tome_bound ?? null;
-        console.log(`  [${snapName}] tome opt mode ${snap.tome_opt}: `
-            + `${prep.guild_tome_candidates?.length ?? 0} guild candidates, `
-            + `${prep.tome_wa_bundles?.length ?? 0} bundles`);
-    }
 
     const timeLimitSeconds = snap.benchmark_family
         ? Math.min(requestedTimeLimitSeconds, snap.time_limit_seconds || 30)

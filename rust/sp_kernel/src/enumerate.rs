@@ -341,7 +341,7 @@ pub struct Search<'a> {
     /// current top-N, so a long solve shows movement instead of looking
     /// hung. Keyed on leaves rather than wall time because wasm32 has no
     /// usable clock — which also makes emission points deterministic.
-    progress: Option<&'a mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&'a mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     progress_every: f64,
     next_progress: f64,
 
@@ -709,7 +709,19 @@ impl<'a> Search<'a> {
             bound_pruned: self.bound_pruned,
             top_n: self.top_n.clone(),
         };
-        if let Some(f) = self.progress.as_mut() { f(snap); }
+        // The sink may hand back the best score any OTHER partition has
+        // reached (browser workers share it through a SharedArrayBuffer).
+        // Folding it into this partition's cutoff is exactly what the native
+        // threaded path does with `shared_cutoff`, and it is admissible for
+        // the same reason: a score another partition has already achieved is
+        // a valid lower bound on the global top-N threshold, so a leaf whose
+        // ceiling cannot reach it cannot enter the merged top-N either.
+        let feedback = match self.progress.as_mut() { Some(f) => f(snap), None => None };
+        if let (Some(v), Some(shared)) = (feedback, self.shared_cutoff) {
+            if v.is_finite() && v > 0.0 {
+                shared.fetch_max(v.floor() as u64, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Final flush of the local `checked` delta into the shared counter.
@@ -897,13 +909,14 @@ impl<'a> Search<'a> {
                 }
             }
             use crate::scoring::LeafOutcome;
-            match crate::scoring::leaf_pipeline_gated(
+            let (outcome, tome_choice) = crate::scoring::leaf_pipeline_tome(
                 &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(),
                 &mut self.kernel, &sc.rows, &sc.registry, &sc.hit_refs,
                 &sc.tables, &sc.consts, &sc.objective, Some(&sc.compiled_rows), cutoff,
                 sc.dense.as_ref().map(|d| (d, &mut self.dense_work)),
                 &sc.thresholds, &sc.spell_base_costs,
-            ).expect("scoring pipeline error") {
+            ).expect("scoring pipeline error");
+            match outcome {
                 LeafOutcome::SpInfeasible => {}
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
@@ -919,6 +932,7 @@ impl<'a> Search<'a> {
                             score: r.score, items: names_owned,
                             base_sp: r.base_sp, total_sp: r.total_sp,
                             assigned_sp: r.assigned_sp,
+                            tome: tome_choice,
                         });
                         self.top_n.truncate(15);
                         if self.top_n.len() == 15 {
@@ -1318,6 +1332,28 @@ pub struct TopEntry {
     pub base_sp: [i32; 5],
     pub total_sp: [i32; 5],
     pub assigned_sp: i32,
+    /// Which tome the leaf loop chose, when tome optimisation is on. `None`
+    /// leaves the UI's existing fixed-tome display untouched.
+    pub tome: Option<crate::scoring::TomeChoice>,
+}
+
+
+/// `"tome":{...}` for a result, or empty when tome optimisation is off.
+/// Emitted only when a choice exists so the UI's fixed-tome display is
+/// untouched on every pre-tome scenario.
+fn tome_json(t: &Option<crate::scoring::TomeChoice>) -> String {
+    let Some(c) = t else { return String::new() };
+    let names = |v: &Vec<String>| -> String {
+        let mut out = String::from("[");
+        for (i, n) in v.iter().enumerate() {
+            if i > 0 { out.push(','); }
+            out.push_str(&serde_json::to_string(n).unwrap_or_else(|_| "\"\"".into()));
+        }
+        out.push(']');
+        out
+    };
+    format!(",\"tome\":{{\"guild_idx\":{},\"weaponTome\":{},\"armorTome\":{}}}",
+            c.guild_idx, names(&c.weapon_names), names(&c.armor_names))
 }
 
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
@@ -1348,7 +1384,7 @@ pub fn run_single_with_progress(
     fx: &Fixture,
     scoring: Option<&crate::scoring::ScoringCtx>,
     leaf_budget: Option<f64>,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     // `part`: inclusive first-slot offset range, or None for all of it.
     // Ranges partition the space exactly — the same split the native
     // threaded path work-steals over — so several single-threaded runs can
@@ -1474,8 +1510,9 @@ pub fn progress_json(p: &ProgressSnapshot) -> String {
         // Interim rows carry the SP assignment too, so a result shown mid-run
         // is not a zeroed placeholder that only becomes real when it finishes.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
-                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
+                              tome_json(&e.tome)));
     }
     top.push(']');
     format!(
@@ -1491,7 +1528,7 @@ pub fn progress_json(p: &ProgressSnapshot) -> String {
 /// `run_single_with_progress`).
 pub fn solve_json_with_progress(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
 ) -> String {
     solve_json_full(enum_fixture, score_fixture, max_leaves, progress, 0, 1)
 }
@@ -1505,7 +1542,7 @@ pub fn solve_json_with_progress(
 /// percentage.
 pub fn solve_json_full(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     part_index: usize, part_count: usize,
 ) -> String {
     let fx = parse_fixture(enum_fixture);
@@ -1540,8 +1577,9 @@ pub fn solve_json_full(
         // the build's skill points; without it the UI would show a zeroed
         // allocation whose stats contradict the score.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}}}",
-                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp));
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+                              sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
+                              tome_json(&e.tome)));
     }
     top.push(']');
     format!(

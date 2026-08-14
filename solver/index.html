@@ -2,6 +2,21 @@
 <html lang="en">
 
 <head>
+    <!-- FIRST, deliberately. Cross-origin isolation lets the engine use
+         SharedArrayBuffer to share a score cutoff between its workers.
+         GitHub Pages serves static files and cannot set COOP/COEP, so a
+         service worker adds them - and taking control requires one reload,
+         which has to happen before the page does its expensive setup rather
+         than after it. Isolation is optional: without it the engine simply
+         runs without a shared cutoff. Load any page with ?nocoi=1 to
+         unregister the worker.
+
+         It lives in THIS directory on purpose. A service worker's scope is
+         the directory it is served from, so registering it from the site root
+         would have cross-origin isolated every other page too (builder, items,
+         atlas) and applied COEP to their subresources for no benefit. Only the
+         solver needs isolation. -->
+    <script src="coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="HandheldFriendly" content="true">
     <meta name="MobileOptimized" content="320">
@@ -1199,6 +1214,7 @@
                                 title="What the solver optimizes for" onchange="solver_target_changed()">
                                 <option value="combo_damage">Combo Damage</option>
                                 <option value="ehp">Effective HP</option>
+                                <option value="total_hp">Total HP</option>
                                 <option value="ehpr">Effective HPR</option>
                                 <option value="total_healing">Total Healing</option>
                                 <option value="spd">Walk Speed</option>
@@ -1213,6 +1229,17 @@
                             <div id="custom-weight-rows" class="d-flex flex-column gap-1 mt-1"></div>
                             <button id="custom-weight-add-btn" class="btn btn-sm btn-outline-secondary mt-1"
                                 onclick="custom_weight_add_row()">+ Add Target Weight</button>
+                        </div>
+                        <!-- Live search-space estimate: how much work the current
+                             filters imply, updated as slots and filters change, so
+                             the size is visible BEFORE committing to a solve. -->
+                        <div id="solver-space-row" class="d-flex align-items-center gap-1 mt-2 small"
+                             style="white-space:nowrap">
+                            <span class="text-secondary">Search space:</span>
+                            <span id="solver-space-count" class="fw-bold">&mdash;</span>
+                            <span id="solver-space-note" class="text-secondary"></span>
+                            <span id="solver-space-detail" class="text-secondary ms-auto"
+                                  style="cursor:help"></span>
                         </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap mb-1 mt-2">
                             <div class="d-flex align-items-center gap-1 w-100">

@@ -331,6 +331,17 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                     health_config: _jser(initMsgBase.health_config),
                     tome_sms: _jser(initMsgBase.tome_sms),
                     guild_tome_sm: _jser(initMsgBase.guild_tome_sm),
+                    // Tome optimisation. Null/0 when off, in which case the
+                    // engine runs the exact pre-tome pipeline against the
+                    // FIXED tome_sms / guild_tome_sm above. When on, the tome
+                    // is a searched dimension: the engine must try each guild
+                    // candidate (each needs its own SP solve — a guild tome
+                    // carries requirements and skill points) crossed with each
+                    // weapon/armour bundle, and keep the best per leaf.
+                    tome_opt: initMsgBase.tome_opt ?? 0,
+                    guild_tome_candidates: _jser(initMsgBase.guild_tome_candidates ?? null),
+                    tome_wa_bundles: _jser(initMsgBase.tome_wa_bundles ?? null),
+                    tome_bound: _jser(initMsgBase.tome_bound ?? null),
                     none_item_sms: _jser(initMsgBase.none_item_sms),
                     none_idx_map: initMsgBase.none_idx_map,
                     sets_data: _jser(new Map(initMsgBase.sets_data)),

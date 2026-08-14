@@ -5,6 +5,9 @@ const _TOP_N_DISPLAY = 5;
 
 const _solver_state = {
     running: false,
+    engine_used: 'javascript',  // 'rust' | 'javascript' — which engine actually ran
+    partitions: 1,         // how many Rust partitions the last run used
+    engine_fallback_reason: '',  // why Rust declined, when it did
     top5: [],              // [{score, items:[Item×8], base_sp, total_sp, assigned_sp}] (up to _TOP_N entries)
     seed_build: null,      // seeded from current UI build (survives worker merges)
     checked: 0,
@@ -737,6 +740,15 @@ function _update_solver_progress_ui() {
             } else if (_solver_state.engine_phase) {
                 el_status.textContent = `Rust/WASM: ${_solver_state.engine_phase}`;
                 el_status.className = 'text-info';
+            } else if (_solver_state.engine_fallback_reason) {
+                // The Rust engine was selected but declined this scenario. The
+                // JS workers give the same answer, so nothing looks wrong —
+                // they are just far slower (measured ~120x on a combo_damage
+                // search through the page), and a user watching a long solve
+                // deserves to know why it is long.
+                el_status.textContent =
+                    `JavaScript engine — ${_solver_state.engine_fallback_reason}`;
+                el_status.className = 'text-warning';
             } else {
                 el_status.textContent = '';
                 el_status.className = '';
@@ -1382,6 +1394,7 @@ function _reconstruct_result_items(item_names) {
 
 function _stop_solver() {
     _solver_state.running = false;
+    schedule_search_space_update?.();
     _solver_state.verification_phase = false;
     const _status_el = document.getElementById('solver-status-msg');
     if (_status_el) _status_el.textContent = '';
@@ -1625,18 +1638,12 @@ function solver_engine_changed() {
 function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
                                      on_unsupported) {
     if (!_rust_engine_available()) return false;
-    // Tome optimisation makes the tome a *searched* dimension: the JS workers
-    // pick a guild tome from `snap.guild_tome_candidates` and a weapon/armour
-    // bundle from `snap.tome_wa_bundles` per leaf. The Rust fixture serialises
-    // only the currently fixed tome maps and the engine has no concept of the
-    // candidate lists, so it would rank gear against one arbitrary tome set —
-    // silently returning a non-optimal build rather than refusing. Until the
-    // dimension is ported, this scenario belongs to the JS engine.
-    if ((snap.tome_opt ?? 0) >= 1) {
-        console.info('[solver] tome optimisation is on — using the JS engine '
-            + '(the Rust engine does not search tome combinations yet)');
-        return false;
-    }
+    // Tome optimisation is a SEARCHED dimension, and the Rust engine now
+    // searches it: the fixture carries the guild candidates and the
+    // weapon/armour bundles, and `leaf_pipeline_tome` tries each combination
+    // per leaf. Parity against the JS engine is checked by
+    // `rust/sp_kernel/check_tome_parity.sh` on both modes (guild-only and
+    // guild+bundles): same top-1 score, same build, same leaves checked.
     try {
         const bridge = window.__solver_rust_bridge;
         if (!bridge) return false;
@@ -1663,6 +1670,8 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
             score_fixture.then(start).catch((err) => {
                 console.warn('[solver] Rust fixture build failed, using JS workers:',
                              err && err.message, err && err.stack);
+                _solver_state.engine_used = 'javascript';
+                _solver_state.engine_fallback_reason = 'the Rust engine could not prepare this scenario';
                 if (on_unsupported) on_unsupported();
             });
             return true;
@@ -1671,6 +1680,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         return true;
     } catch (e) {
         console.warn('[solver] Rust engine unavailable, using JS workers:', e && e.message, e && e.stack);
+        _solver_state.engine_fallback_reason = 'the Rust engine could not start';
         return false;
     }
 }
@@ -1711,11 +1721,28 @@ function _rust_search_space_estimate(enum_fixture) {
 /// ~10M leaves/s the engine sustains. Below that, one worker wins; the
 /// threshold keeps a 2x margin.
 const _RUST_PARTITION_MIN_SPACE = 8e6;
+
+/// Tests may lower the threshold via `window.__SOLVER_TEST_PARTITION_MIN_SPACE`.
+///
+/// This guard is a PERFORMANCE cut-off, not a correctness one: partitioning is
+/// exact at any size (verified natively by `partition_check` at 2..8 partitions
+/// on three fixtures), and the threshold exists only so worker startup does not
+/// dominate a short solve. But it also means no scenario small enough to finish
+/// in a browser test ever partitions, while every scenario that does partition
+/// is far too large to run to completion — so without an override there is no
+/// way to check the part that is genuinely browser-specific: that N workers get
+/// disjoint ranges, all report, and merge back to the single-worker answer.
+function _rust_partition_min_space() {
+    const override = (typeof window !== 'undefined')
+        ? window.__SOLVER_TEST_PARTITION_MIN_SPACE : undefined;
+    return (Number.isFinite(override) && override > 0) ? override : _RUST_PARTITION_MIN_SPACE;
+}
+
 function _rust_partition_count(enum_fixture) {
     const selected = Math.max(1, solver_selected_worker_count());
     if (selected <= 1) return 1;
     const space = _rust_search_space_estimate(enum_fixture);
-    if (!Number.isFinite(space) || space < _RUST_PARTITION_MIN_SPACE) return 1;
+    if (!Number.isFinite(space) || space < _rust_partition_min_space()) return 1;
     return selected;
 }
 
@@ -1757,6 +1784,18 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     let finished = 0;
     let failed = false;
 
+    // Which engine actually ran. Every fallback below is silent by design —
+    // it produces correct results through the JS workers — so without this
+    // the page gives no way to tell a Rust run from a JS one after the fact.
+    // That is precisely how the Rust engine stayed unreachable unnoticed:
+    // results looked right because they were right, just not Rust's.
+    _solver_state.engine_used = 'rust';
+    // How many partitions this run used. Recorded rather than inferred: the
+    // worker array is emptied when the search ends, and sampling it while the
+    // search runs misses short solves entirely, because the main thread is
+    // blocked spawning workers and cloning the fixture into them.
+    _solver_state.partitions = part_count;
+
     const finish_one = () => {
         if (failed) return;
         finished += 1;
@@ -1772,6 +1811,8 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         failed = true;
         console.warn(`[solver] Rust engine (${code}): ${message} — using the JS workers`);
         _solver_state.engine_phase = '';
+        _solver_state.engine_used = 'javascript';
+        _solver_state.engine_fallback_reason = `the Rust engine stopped (${code})`;
         for (const st of states) {
             try { st.worker.terminate(); } catch (e) { }
         }
@@ -1781,6 +1822,24 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     };
 
     const module_ready = _rust_compiled_module();
+
+    // Shared score cutoff across partitions, when the browser allows it.
+    //
+    // Each partition otherwise rediscovers its own cutoff, so the ceiling gate
+    // prunes less the more partitions there are — the one thing partitioning
+    // loses against native threads. One shared i32 fixes that: every worker
+    // publishes its 15th-best score and reads back the maximum.
+    //
+    // `SharedArrayBuffer` requires cross-origin isolation, which the COI
+    // service worker provides (GitHub Pages cannot set COOP/COEP itself). When
+    // it is unavailable this stays null and every worker runs exactly as
+    // before — isolation is an optimisation, never a requirement.
+    let cutoff_sab = null;
+    if (part_count > 1 && typeof SharedArrayBuffer !== 'undefined'
+        && !(typeof window !== 'undefined' && window.__SOLVER_NO_SAB)   // test escape hatch
+        && (typeof crossOriginIsolated === 'undefined' || crossOriginIsolated)) {
+        try { cutoff_sab = new SharedArrayBuffer(4); } catch (e) { cutoff_sab = null; }
+    }
 
     for (let i = 0; i < part_count; i++) {
         let worker;
@@ -1839,13 +1898,26 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
             // here fed `_fill_build_into_ui` a bogus allocation, which it
             // installs into `_solver_sp_override` — the loaded build would
             // then display stats that contradict the score it was ranked by.
-            state.top5 = (m.top_n || []).map((t) => ({
-                score: t.score,
-                item_names: t.item_names ?? t.items,
-                base_sp: t.base_sp,
-                total_sp: t.total_sp,
-                assigned_sp: t.assigned_sp,
-            }));
+            state.top5 = (m.top_n || []).map((t) => {
+                const e = {
+                    score: t.score,
+                    item_names: t.item_names ?? t.items,
+                    base_sp: t.base_sp,
+                    total_sp: t.total_sp,
+                    assigned_sp: t.assigned_sp,
+                };
+                // Tome optimisation: translate the engine's shape into the one
+                // the JS workers already emit, so _merge_worker_top5 and
+                // _fill_build_into_ui need no engine-specific branch.
+                if (t.tome) {
+                    e.guild_tome_idx = t.tome.guild_idx;
+                    const w = t.tome.weaponTome ?? [], a = t.tome.armorTome ?? [];
+                    if (w.length || a.length) {
+                        e.tome_names = { weaponTome: w, armorTome: a };
+                    }
+                }
+                return e;
+            });
             finish_one();
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
@@ -1859,6 +1931,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                 max_leaves: 0,   // run to completion; the workers keep the UI free
                 part_index, part_count,
                 compiled_module,
+                cutoff_sab,
             });
         });
     }
@@ -2193,6 +2266,159 @@ function toggle_solver() {
     start_solver_search();
 }
 
+
+// ── Live search-space estimate ───────────────────────────────────────────────
+//
+// How many gear combinations the current filters imply, shown before a solve
+// starts so the size of the job is visible while there is still time to narrow
+// it. Deliberately the RAW product of the free slots' pools — the count the
+// search starts from, not what it ends up visiting:
+//
+//   * dominance pruning, the SP prechecks and the score-ceiling gate all cut
+//     it further, often by orders of magnitude, but each costs real work to
+//     compute and none of them can run before a search does;
+//   * that makes this an upper bound, which is the useful direction. A number
+//     that flattered the filters would be worse than none.
+//
+// Rings share one pool across two slots and are enumerated canonically —
+// (A,B) and (B,A) are the same build — so two free ring slots contribute
+// n(n+1)/2, not n^2. Getting that wrong would overstate the space by ~2x on
+// the most common configuration.
+
+const _SPACE_SLOTS = ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace'];
+
+function _estimate_search_space() {
+    // Reuses the search's own pool builder, so the estimate cannot drift from
+    // what the solver actually enumerates.
+    const restrictions = get_restrictions();
+    const illegal_at_2 = new Set();
+    for (const [setName, setData] of sets) {
+        if (setData.bonuses?.length >= 2 && setData.bonuses[1]?.illegal) illegal_at_2.add(setName);
+    }
+    const blacklist = get_blacklist();
+    const locked = _collect_locked_items(illegal_at_2);
+    const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
+
+    const per_slot = [];
+    let total = 1;
+    for (const slot of _SPACE_SLOTS) {
+        if (locked[slot]) continue;                 // user pinned it
+        const n = pools[slot]?.length ?? 0;
+        per_slot.push([slot, n]);
+        total *= n;
+    }
+    const ring_free = (locked.ring1 ? 0 : 1) + (locked.ring2 ? 0 : 1);
+    if (ring_free > 0) {
+        const n = pools.ring?.length ?? 0;
+        // Two free rings: unordered pairs with repetition, matching the
+        // enumerator's canonicalisation.
+        const combos = ring_free === 2 ? (n * (n + 1)) / 2 : n;
+        per_slot.push([ring_free === 2 ? 'rings (canonical pairs)' : 'ring', combos]);
+        total *= combos;
+    }
+    // Count SLOTS, not entries: the canonical ring pair is one entry covering
+    // two slots, so `per_slot.length` would under-report it.
+    const free_count = per_slot.length + (ring_free === 2 ? 1 : 0);
+    return { total, per_slot, free_count };
+}
+
+/** Human-readable magnitude: exact when small, 3 significant figures above. */
+function _format_space(n) {
+    if (!Number.isFinite(n)) return '\u2014';
+    if (n < 1e4) return n.toLocaleString();
+    const units = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']];
+    for (const [mag, name] of units) {
+        // Trim only trailing zeros AFTER a decimal point. A blanket
+        // /\.?0+$/ also eats them from whole numbers, which turned 210
+        // thousand into "21 thousand" — understating the work by 10x.
+        if (n >= mag) {
+            const v = (n / mag).toPrecision(3)
+                .replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+            return `${v} ${name}`;
+        }
+    }
+    return n.toLocaleString();
+}
+
+/**
+ * Rough guidance on what a given space costs. Grounded in measurements from
+ * this repo rather than invented: the Rust engine sustains roughly 10M
+ * leaves/s in the browser on a 4-core machine, and the JS engine is ~120x
+ * slower on the same scenario. Both numbers move with the scenario, so this
+ * is banded, not a predicted time.
+ */
+function _space_guidance(total, engine_is_rust) {
+    if (!Number.isFinite(total) || total <= 0) return ['', ''];
+    const rate = engine_is_rust ? 1e7 : 1e5;
+    const secs = total / rate;
+    if (secs < 1) return ['instant', 'text-success'];
+    if (secs < 30) return ['seconds', 'text-success'];
+    if (secs < 600) return ['minutes', 'text-warning'];
+    if (secs < 7200) return ['very slow \u2014 consider narrowing', 'text-danger'];
+    return ['impractical \u2014 narrow the filters', 'text-danger'];
+}
+
+let _space_timer = 0;
+function _update_search_space_display() {
+    const el = document.getElementById('solver-space-count');
+    if (!el) return;
+    const note = document.getElementById('solver-space-note');
+    const detail = document.getElementById('solver-space-detail');
+    // Recomputing mid-search would compete with the workers for the main
+    // thread, and the number cannot change while a search is running anyway.
+    if (_solver_state.running) return;
+    try {
+        const { total, per_slot, free_count } = _estimate_search_space();
+        if (free_count === 0) {
+            el.textContent = 'nothing to search';
+            el.className = 'fw-bold text-secondary';
+            if (note) note.textContent = '(every slot is locked)';
+            if (detail) detail.textContent = '';
+            return;
+        }
+        const engine_is_rust = document.getElementById('solver-engine')?.value !== 'javascript';
+        const [word, cls] = _space_guidance(total, engine_is_rust);
+        el.textContent = _format_space(total);
+        el.className = `fw-bold ${cls}`;
+        if (note) note.textContent = word ? `\u2014 ${word}` : '';
+        if (detail) {
+            detail.textContent = `${free_count} free`;
+            detail.title = per_slot.map(([s, n]) => `${s}: ${n.toLocaleString()}`).join('\n')
+                + '\n\nUpper bound before pruning. Dominance, SP and score bounds'
+                + '\ncut this further once the search starts.';
+        }
+    } catch (e) {
+        // The estimate must never break the page it is decorating.
+        el.textContent = '\u2014';
+        el.className = 'fw-bold text-secondary';
+        if (note) note.textContent = '';
+        if (detail) { detail.textContent = ''; detail.title = ''; }
+    }
+}
+
+/** Debounced: filter edits fire a burst of events, and the pool build is O(items). */
+function schedule_search_space_update() {
+    clearTimeout(_space_timer);
+    _space_timer = setTimeout(_update_search_space_display, 250);
+}
+
+// Feature-detect the METHOD, not the object. The Node test harness loads this
+// file into a vm sandbox with a `document` stub that has no addEventListener,
+// so `typeof document !== 'undefined'` passes there and then throws at load,
+// taking the whole suite down with it.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    // Every control that can change the space — slot choices, level ranges,
+    // the direction toggles, blacklist, filters — funnels through change/input
+    // events, so listening broadly is more robust than enumerating them and
+    // silently missing one when a control is added later.
+    document.addEventListener('change', schedule_search_space_update, true);
+    document.addEventListener('input', schedule_search_space_update, true);
+    document.addEventListener('click', schedule_search_space_update, true);
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('load', () => setTimeout(_update_search_space_display, 1500));
+    }
+}
+
 function start_solver_search() {
     const restrictions = get_restrictions();
     const snap = _build_solver_snapshot(restrictions);
@@ -2303,6 +2529,11 @@ function start_solver_search() {
     }
 
     _solver_state.running = true;
+    // Default to the JS workers; the Rust path sets this to 'rust' only once it
+    // actually starts, and every fallback resets it. See _rust_solve_in_worker.
+    _solver_state.engine_used = 'javascript';
+    _solver_state.partitions = 1;
+    _solver_state.engine_fallback_reason = '';
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
     _solver_state.checked = 0;

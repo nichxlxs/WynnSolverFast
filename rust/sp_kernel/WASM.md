@@ -182,6 +182,107 @@ Against ~300 ms of actual search on `armor4`, 4-way spends 261 ms of
 overhead to save ~167 ms. It is a **net loss**, and the measurement says so:
 384 ms at 1 worker versus 666 ms at 4.
 
+Re-measured on a **real search** rather than empty partitions — `armor4` at
+`combo_damage`, 511,758 leaves, run to completion through the page, two
+repetitions per configuration:
+
+| partitions | 1 | 2 | 4 |
+|---|---:|---:|---:|
+| wall | 1481 / 1465 ms | 1467 / 1381 ms | 1394 / 1447 ms |
+
+Flat. At roughly 1.4 s of work, four partitions are still no better than
+one: the startup cost has grown in step with the search. So partitioning
+does not currently pay on any scenario small enough to finish quickly, and
+the scenarios where it should pay are the ones too large to finish at all.
+
+**Do not measure this on an unfinished run.** Comparing leaves-checked per
+second at a fixed time budget on a space that never completes looks like a
+clean scaling experiment and is not one: partitions are split by first-slot
+offset, so each explores a different region, and regions differ enormously
+in how cheaply they prune. A configuration whose partitions happen to land
+in easily-pruned regions racks up a huge `checked` count without doing more
+useful work. Done that way the numbers come out wildly non-monotonic
+(1.8M/s at 1 partition, 18M/s at 2, 4-7M/s at 3, 10.6M/s at 4) and mean
+nothing. Only a run that covers the whole space is comparable.
+
+### wasm threads
+
+Still not implemented, and the blocker is not the Rust side. Checked here:
+a nightly toolchain with `rust-src` installs fine, so an atomics-enabled
+`-Z build-std` wasm build is available in principle.
+
+What actually blocks it is the browser contract. `SharedArrayBuffer`
+requires cross-origin isolation (`COOP: same-origin` + `COEP: require-corp`),
+which a statically-hosted app cannot set without either server headers or
+shipping a service worker to synthesize them — a product decision about the
+app, not a kernel change.
+
+Worth separating two things that get conflated:
+
+- **Threaded wasm** (many threads inside one module) needs nightly, an
+  atomics std rebuild, a second build artifact, *and* isolation.
+- **A shared cutoff across the existing ordinary workers** — which is the
+  only thing `solve_partition` documents as lost versus native threads —
+  needs isolation alone. The engine already has the mechanism
+  (`shared_cutoff: Option<&AtomicU64>`, used by the native threaded path);
+  a `SharedArrayBuffer` holding one value, read via `Atomics` at each
+  progress emission, would feed it without any threaded build.
+
+The second is much the smaller change and captures the pruning benefit. It
+is still gated on cross-origin isolation, because `solve_partition` is one
+blocking call: the worker cannot receive a `postMessage` mid-run, so the
+cutoff cannot be delivered by messaging without first making the engine
+resumable across chunks.
+
+### What was implemented
+
+The **shared cutoff** — the smaller of the two, and the only thing
+`solve_partition` documents as lost against native threads. No threaded wasm
+build, no nightly, no second artifact.
+
+- `coi-serviceworker.js` supplies `COOP: same-origin` +
+  `COEP: credentialless`, so a statically-hosted site (GitHub Pages) becomes
+  cross-origin isolated and can allocate a `SharedArrayBuffer`.
+  `credentialless` rather than `require-corp` deliberately: the page's fonts
+  are cross-origin and carry no CORP header, and `require-corp` would block
+  them. Registered first in `<head>`, because taking control costs one reload
+  and that must happen before the page's expensive setup, not after it.
+  `?nocoi=1` unregisters it — a service worker on a live site needs an escape
+  hatch.
+- The wasm progress callback became **bidirectional**: its return value, when
+  a finite positive number, is folded into the engine's existing
+  `shared_cutoff: AtomicU64`. Each browser partition publishes its 15th-best
+  score into one shared `i32` and reads back the maximum, so it prunes
+  against what the others have already found. Admissible for the same reason
+  the native shared cutoff is: a score one partition has already reached is a
+  lower bound on the global top-N threshold, so nothing that could place is
+  skipped.
+- Without isolation the buffer is absent, the callback returns `undefined`,
+  and every partition behaves exactly as before. Isolation is an
+  optimisation, never a requirement.
+
+`test_browser_coi.js` serves the site with **no** COOP/COEP — the Pages
+situation — and asserts the worker takes control, the page ends up isolated,
+a `SharedArrayBuffer` actually allocates, cross-origin stylesheets load no
+worse than on a non-isolated page (measured relatively, since a sandboxed box
+may not reach the CDN at all), the page still finishes loading, and `?nocoi=1`
+unregisters.
+
+One bug this shook out, worth keeping in mind for any future callback work:
+the cutoff read/write was written *before* the `post()` that publishes
+progress. `Atomics` throwing there swallowed every progress message — and the
+engine deliberately ignores a throwing callback, so the search ran perfectly
+while the UI showed a frozen `checked: 0`. Progress is now posted first and
+the cutoff work is wrapped; a failure disables sharing for that worker and
+nothing else.
+
+Still not implemented: **threaded wasm** (many threads in one module). It
+needs nightly, an atomics `-Z build-std` rebuild and a second artifact, and
+the table above says startup — not cutoff quality — dominates every workload
+that completes. Its real attraction is that shared memory would remove the
+per-worker fixture clone that *is* that startup cost, which makes it the next
+thing to try if partitioning is ever worth pushing further.
+
 Two fixes followed from that:
 
 - **The module is compiled once** on the main thread and structured-cloned
