@@ -1224,6 +1224,17 @@
                             <button id="custom-weight-add-btn" class="btn btn-sm btn-outline-secondary mt-1"
                                 onclick="custom_weight_add_row()">+ Add Target Weight</button>
                         </div>
+                        <!-- Live search-space estimate: how much work the current
+                             filters imply, updated as slots and filters change, so
+                             the size is visible BEFORE committing to a solve. -->
+                        <div id="solver-space-row" class="d-flex align-items-center gap-1 mt-2 small"
+                             style="white-space:nowrap">
+                            <span class="text-secondary">Search space:</span>
+                            <span id="solver-space-count" class="fw-bold">&mdash;</span>
+                            <span id="solver-space-note" class="text-secondary"></span>
+                            <span id="solver-space-detail" class="text-secondary ms-auto"
+                                  style="cursor:help"></span>
+                        </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap mb-1 mt-2">
                             <div class="d-flex align-items-center gap-1 w-100">
                                 <button id="solver-run-btn" class="btn btn-sm btn-outline-success flex-grow-1"

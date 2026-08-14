@@ -1394,6 +1394,7 @@ function _reconstruct_result_items(item_names) {
 
 function _stop_solver() {
     _solver_state.running = false;
+    schedule_search_space_update?.();
     _solver_state.verification_phase = false;
     const _status_el = document.getElementById('solver-status-msg');
     if (_status_el) _status_el.textContent = '';
@@ -2263,6 +2264,159 @@ function toggle_solver() {
         return;
     }
     start_solver_search();
+}
+
+
+// ── Live search-space estimate ───────────────────────────────────────────────
+//
+// How many gear combinations the current filters imply, shown before a solve
+// starts so the size of the job is visible while there is still time to narrow
+// it. Deliberately the RAW product of the free slots' pools — the count the
+// search starts from, not what it ends up visiting:
+//
+//   * dominance pruning, the SP prechecks and the score-ceiling gate all cut
+//     it further, often by orders of magnitude, but each costs real work to
+//     compute and none of them can run before a search does;
+//   * that makes this an upper bound, which is the useful direction. A number
+//     that flattered the filters would be worse than none.
+//
+// Rings share one pool across two slots and are enumerated canonically —
+// (A,B) and (B,A) are the same build — so two free ring slots contribute
+// n(n+1)/2, not n^2. Getting that wrong would overstate the space by ~2x on
+// the most common configuration.
+
+const _SPACE_SLOTS = ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace'];
+
+function _estimate_search_space() {
+    // Reuses the search's own pool builder, so the estimate cannot drift from
+    // what the solver actually enumerates.
+    const restrictions = get_restrictions();
+    const illegal_at_2 = new Set();
+    for (const [setName, setData] of sets) {
+        if (setData.bonuses?.length >= 2 && setData.bonuses[1]?.illegal) illegal_at_2.add(setName);
+    }
+    const blacklist = get_blacklist();
+    const locked = _collect_locked_items(illegal_at_2);
+    const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
+
+    const per_slot = [];
+    let total = 1;
+    for (const slot of _SPACE_SLOTS) {
+        if (locked[slot]) continue;                 // user pinned it
+        const n = pools[slot]?.length ?? 0;
+        per_slot.push([slot, n]);
+        total *= n;
+    }
+    const ring_free = (locked.ring1 ? 0 : 1) + (locked.ring2 ? 0 : 1);
+    if (ring_free > 0) {
+        const n = pools.ring?.length ?? 0;
+        // Two free rings: unordered pairs with repetition, matching the
+        // enumerator's canonicalisation.
+        const combos = ring_free === 2 ? (n * (n + 1)) / 2 : n;
+        per_slot.push([ring_free === 2 ? 'rings (canonical pairs)' : 'ring', combos]);
+        total *= combos;
+    }
+    // Count SLOTS, not entries: the canonical ring pair is one entry covering
+    // two slots, so `per_slot.length` would under-report it.
+    const free_count = per_slot.length + (ring_free === 2 ? 1 : 0);
+    return { total, per_slot, free_count };
+}
+
+/** Human-readable magnitude: exact when small, 3 significant figures above. */
+function _format_space(n) {
+    if (!Number.isFinite(n)) return '\u2014';
+    if (n < 1e4) return n.toLocaleString();
+    const units = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']];
+    for (const [mag, name] of units) {
+        // Trim only trailing zeros AFTER a decimal point. A blanket
+        // /\.?0+$/ also eats them from whole numbers, which turned 210
+        // thousand into "21 thousand" — understating the work by 10x.
+        if (n >= mag) {
+            const v = (n / mag).toPrecision(3)
+                .replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+            return `${v} ${name}`;
+        }
+    }
+    return n.toLocaleString();
+}
+
+/**
+ * Rough guidance on what a given space costs. Grounded in measurements from
+ * this repo rather than invented: the Rust engine sustains roughly 10M
+ * leaves/s in the browser on a 4-core machine, and the JS engine is ~120x
+ * slower on the same scenario. Both numbers move with the scenario, so this
+ * is banded, not a predicted time.
+ */
+function _space_guidance(total, engine_is_rust) {
+    if (!Number.isFinite(total) || total <= 0) return ['', ''];
+    const rate = engine_is_rust ? 1e7 : 1e5;
+    const secs = total / rate;
+    if (secs < 1) return ['instant', 'text-success'];
+    if (secs < 30) return ['seconds', 'text-success'];
+    if (secs < 600) return ['minutes', 'text-warning'];
+    if (secs < 7200) return ['very slow \u2014 consider narrowing', 'text-danger'];
+    return ['impractical \u2014 narrow the filters', 'text-danger'];
+}
+
+let _space_timer = 0;
+function _update_search_space_display() {
+    const el = document.getElementById('solver-space-count');
+    if (!el) return;
+    const note = document.getElementById('solver-space-note');
+    const detail = document.getElementById('solver-space-detail');
+    // Recomputing mid-search would compete with the workers for the main
+    // thread, and the number cannot change while a search is running anyway.
+    if (_solver_state.running) return;
+    try {
+        const { total, per_slot, free_count } = _estimate_search_space();
+        if (free_count === 0) {
+            el.textContent = 'nothing to search';
+            el.className = 'fw-bold text-secondary';
+            if (note) note.textContent = '(every slot is locked)';
+            if (detail) detail.textContent = '';
+            return;
+        }
+        const engine_is_rust = document.getElementById('solver-engine')?.value !== 'javascript';
+        const [word, cls] = _space_guidance(total, engine_is_rust);
+        el.textContent = _format_space(total);
+        el.className = `fw-bold ${cls}`;
+        if (note) note.textContent = word ? `\u2014 ${word}` : '';
+        if (detail) {
+            detail.textContent = `${free_count} free`;
+            detail.title = per_slot.map(([s, n]) => `${s}: ${n.toLocaleString()}`).join('\n')
+                + '\n\nUpper bound before pruning. Dominance, SP and score bounds'
+                + '\ncut this further once the search starts.';
+        }
+    } catch (e) {
+        // The estimate must never break the page it is decorating.
+        el.textContent = '\u2014';
+        el.className = 'fw-bold text-secondary';
+        if (note) note.textContent = '';
+        if (detail) { detail.textContent = ''; detail.title = ''; }
+    }
+}
+
+/** Debounced: filter edits fire a burst of events, and the pool build is O(items). */
+function schedule_search_space_update() {
+    clearTimeout(_space_timer);
+    _space_timer = setTimeout(_update_search_space_display, 250);
+}
+
+// Feature-detect the METHOD, not the object. The Node test harness loads this
+// file into a vm sandbox with a `document` stub that has no addEventListener,
+// so `typeof document !== 'undefined'` passes there and then throws at load,
+// taking the whole suite down with it.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    // Every control that can change the space — slot choices, level ranges,
+    // the direction toggles, blacklist, filters — funnels through change/input
+    // events, so listening broadly is more robust than enumerating them and
+    // silently missing one when a control is added later.
+    document.addEventListener('change', schedule_search_space_update, true);
+    document.addEventListener('input', schedule_search_space_update, true);
+    document.addEventListener('click', schedule_search_space_update, true);
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('load', () => setTimeout(_update_search_space_display, 1500));
+    }
 }
 
 function start_solver_search() {
