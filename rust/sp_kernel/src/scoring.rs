@@ -2346,7 +2346,19 @@ pub mod trace {
     pub const FD_COPY: usize = 21;
     pub const FD_ITEMS: usize = 22;
     pub const FD_TAIL: usize = 23;
-    pub const N: usize = 24;
+    /// Memoization feasibility probe: how many of the eight item slots
+    /// actually change from one leaf to the next.
+    pub const FD_DIFF_SLOTS: usize = 24;
+    pub const FD_SAME_ALL: usize = 25;
+    /// Feasibility probe for memoizing the SP solve, whose result depends
+    /// only on the eight units, the weapon unit, the budget and the set pool.
+    pub const SPK_HIT: usize = 26;
+    pub const SPK_MISS: usize = 27;
+    pub const SPK_SAME_PREV: usize = 28;
+    /// The existing subtree/cluster ceiling memo in the enumerator.
+    pub const BM_HIT: usize = 29;
+    pub const BM_MISS: usize = 30;
+    pub const N: usize = 31;
 
     pub static ENABLED: AtomicBool = AtomicBool::new(false);
     /// SCORE_TRACE=2: also time the per-trial sub-phases.
@@ -2427,6 +2439,22 @@ pub mod trace {
                   f(PRE), f(RESET));
         eprintln!("score_trace: whole leaf pipeline {:.2}s (the rest of the wall \
                    time x threads is the enumeration walk)", f(PIPE));
+        if c(BM_HIT) + c(BM_MISS) > 0 {
+            let (h, m) = (c(BM_HIT), c(BM_MISS));
+            eprintln!("score_trace: bound memo — {} hit / {} miss = {:.1}%",
+                      h, m, h as f64 / (h + m) as f64 * 100.0);
+        }
+        if c(SPK_HIT) + c(SPK_MISS) > 0 {
+            let (h, m, p) = (c(SPK_HIT), c(SPK_MISS), c(SPK_SAME_PREV));
+            eprintln!("score_trace: SP-solve key repeats — {:.1}% would hit a 4096-slot memo, \
+                       {:.1}% identical to the previous leaf",
+                      h as f64 / (h + m) as f64 * 100.0, p as f64 / (h + m) as f64 * 100.0);
+        }
+        if c(FD_CALLS) > 0 {
+            eprintln!("score_trace: fill_direct slot churn — {:.2} of 8 item slots change \
+                       per leaf ({} calls, {} identical to previous)",
+                      c(FD_DIFF_SLOTS) as f64 / c(FD_CALLS) as f64, c(FD_CALLS), c(FD_SAME_ALL));
+        }
         if fine() && c(FD_CALLS) > 0 {
             eprintln!("score_trace: fill_direct {} calls — template copy {:.2}s | \
                        item loop {:.2}s | tail {:.2}s",
@@ -2788,6 +2816,29 @@ pub fn leaf_pipeline_gated(
         set_free,
         expected: None,
     };
+    if trace::fine() {
+        // Would a memo on the SP solve hit? Key = everything the solve reads.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |x: u64| { h ^= x; h = h.wrapping_mul(0x100_0000_01b3); };
+        for u in &case.equipment {
+            mix(u.crafted as u64);
+            for j in 0..5 { mix(u.reqs[j] as i64 as u64); mix(u.skp[j] as i64 as u64); }
+        }
+        for j in 0..5 { mix(case.set_free[j] as i64 as u64); }
+        mix(case.budget as i64 as u64);
+        thread_local! {
+            static SPK: std::cell::RefCell<(Vec<u64>, u64)> =
+                std::cell::RefCell::new((vec![0u64; 4096], 0));
+        }
+        SPK.with(|c| {
+            let mut c = c.borrow_mut();
+            if c.1 == h { trace::add(trace::SPK_SAME_PREV, 1); }
+            c.1 = h;
+            let slot = (h >> 20) as usize % 4096;
+            if c.0[slot] == h { trace::add(trace::SPK_HIT, 1); }
+            else { c.0[slot] = h; trace::add(trace::SPK_MISS, 1); }
+        });
+    }
     let Some((assign, total, assigned)) = phase!(SP, kernel.calculate_with_extra(&case, guild)) else {
         return Ok(LeafOutcome::SpInfeasible);
     };
@@ -4645,6 +4696,8 @@ pub struct DenseLeaf {
     pub def_vals: Vec<f64>,
     pub atk_spd_idx: i64,
     pub has_arcanes: bool,
+    /// Trace-only: previous call's item-name identities.
+    pub probe_prev: [(usize, usize); 8],
 }
 
 /// Mutable trial state; dam/def lists are journaled per row and end each
@@ -5317,6 +5370,7 @@ impl DenseLeaf {
         Some(DenseLeaf {
             lc_vals, present, var_out_absent, const_term_vals,
             dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx, has_arcanes,
+            probe_prev: Default::default(),
         })
     }
 }
@@ -6193,6 +6247,17 @@ impl DenseLeaf {
                     }
                 }
             };
+        }
+        if trace::fine() {
+            // How much of this call is redundant with the previous one?
+            let mut diff = 0u64;
+            for i in 0..8 {
+                let cur = item_names.get(i).map(|n| (n.as_ptr() as usize, n.len()))
+                    .unwrap_or((0, 0));
+                if self.probe_prev[i] != cur { diff += 1; self.probe_prev[i] = cur; }
+            }
+            trace::add(trace::FD_DIFF_SLOTS, diff);
+            if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
         let mut set_counts: Vec<(&str, i64)> = Vec::new();
         self.has_arcanes = dd.base_arcanes;

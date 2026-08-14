@@ -608,8 +608,9 @@ impl<'a> Search<'a> {
         }
         key |= (offset as u64) << (11 + depth * 7);
         let ceiling = match self.bound_memo.get(&key) {
-            Some(&c) => c,
+            Some(&c) => { if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); } c }
             None => {
+                if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_MISS, 1); }
                 let slot = &self.fx.slots[depth];
                 let mut names = self.equip_names;
                 names[slot.pos] = &slot.item_names[offset];
@@ -1129,9 +1130,14 @@ impl<'a> Search<'a> {
                                 key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
                             }
                             let ceiling = match self.bound_memo.get(&key) {
-                                Some(&v) => { self.cluster_memo_hits += 1; v }
+                                Some(&v) => {
+                                    self.cluster_memo_hits += 1;
+                                    if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); }
+                                    v
+                                }
                                 None => {
                                     self.cluster_evals += 1;
+                                    if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_MISS, 1); }
                                     if prefix_state == 0 {
                                         prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                             Some((d, dd)) => {
