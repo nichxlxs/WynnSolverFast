@@ -2450,7 +2450,7 @@ pub mod trace {
                        {:.1}% identical to the previous leaf",
                       h as f64 / (h + m) as f64 * 100.0, p as f64 / (h + m) as f64 * 100.0);
         }
-        if c(FD_CALLS) > 0 {
+        if fine() && c(FD_CALLS) > 0 {
             eprintln!("score_trace: fill_direct slot churn — {:.2} of 8 item slots change \
                        per leaf ({} calls, {} identical to previous)",
                       c(FD_DIFF_SLOTS) as f64 / c(FD_CALLS) as f64, c(FD_CALLS), c(FD_SAME_ALL));
