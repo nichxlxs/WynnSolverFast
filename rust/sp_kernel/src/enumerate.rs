@@ -779,7 +779,8 @@ impl<'a> Search<'a> {
         let it = &self.fx.slots[depth].pool[offset];
         let mut total_deficit = 0i32;
         for j in 0..5 {
-            let m = it.reqs[j].max(self.sp_max_req[j]);
+            let own = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
+            let m = (it.reqs[j] + own).max(self.sp_max_req[j]);
             if m == 0 { continue; }
             let item_prov = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
             let sfx = if is_leaf { 0 } else { self.sp_suffix_max_prov[depth + 1][j] };
@@ -976,7 +977,20 @@ impl<'a> Search<'a> {
         }
         self.sp_max_save[depth] = self.sp_max_req;
         for j in 0..5 {
-            if it.reqs[j] > self.sp_max_req[j] { self.sp_max_req[j] = it.reqs[j]; }
+            // Own-exclusion: an item can never use its own skill points to
+            // meet its own requirements — in ANY equip order, the points it
+            // grants arrive only after its requirement check. Tracking
+            // req + own_skp⁺ (instead of raw req) keeps every deficit test
+            // below exact for the best case (this item equipped last, using
+            // everyone else's points but not its own) and therefore
+            // admissible, while strictly tighter for skill-point sticks.
+            // On spellsteal-family pools this is the difference between the
+            // ~40ns bound and a ~3.5µs exact-kernel call for millions of
+            // leaves whose requirements only look meetable because the item
+            // was counting its own points.
+            let own = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
+            let v = it.reqs[j] + own;
+            if v > self.sp_max_req[j] { self.sp_max_req[j] = v; }
         }
         self.equips[slot.pos] = Unit { crafted: it.crafted, reqs: it.reqs, skp: it.skp };
         self.equip_set[slot.pos] = it.set_id;

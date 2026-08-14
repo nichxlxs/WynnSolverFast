@@ -2621,14 +2621,21 @@ pub fn leaf_pipeline_gated(
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
             doom_sp[2] = doom_int;
             if let Some((d, w)) = dwork.as_mut() {
-                let DenseWork { leaf, scratch, .. } = &mut **w;
+                let DenseWork { leaf, scratch, mana_memo, .. } = &mut **w;
                 if l2.mana_doom_ok {
                     dense_assemble(d, leaf, scratch, &doom_sp);
                 } else {
                     dense_assemble_doom(d, leaf, scratch, &doom_sp, &sp_lo);
                 }
                 let mini = dense_mana_obj(d, leaf, scratch);
-                let doomed = !mana_check_passes(rows, &mini, registry, tables, consts, compiled);
+                // Memoized when the rows are leaf-invariant: the key is the
+                // assembled mana tuple, which is the sim's entire input.
+                let doomed = if dynamic.is_none() {
+                    !mana_check_passes_memo(rows, d, leaf, scratch, mana_memo,
+                                            &mini, registry, tables, consts, compiled)
+                } else {
+                    !mana_check_passes(rows, &mini, registry, tables, consts, compiled)
+                };
                 if dense_check && l2.mana_doom_ok {
                     let cb_doom = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &doom_sp);
                     let od = !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled);
@@ -2662,7 +2669,7 @@ pub fn leaf_pipeline_gated(
         if trace::on() { trace::GREEDY_TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         for i in 0..5 { trial_sp_f[i] = sp[i] as f64; }
         if let Some((d, w)) = dwork.as_mut() {
-            let DenseWork { leaf, scratch, sim_memo } = &mut **w;
+            let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
             phase!(ASM_NS, dense_assemble(d, leaf, scratch, &trial_sp_f));
             let v = phase!(DMG_NS, match dynamic {
                 Some(dy) => dense_dynamic_score(
@@ -2706,9 +2713,14 @@ pub fn leaf_pipeline_gated(
             }
         }
         let mana_ok = phase!(MANA_NS, {
-            let DenseWork { leaf, scratch, .. } = &mut **w;
+            let DenseWork { leaf, scratch, mana_memo, .. } = &mut **w;
             let mini = dense_mana_obj(d, leaf, scratch);
-            let ok = mana_check_passes(rows, &mini, registry, tables, consts, compiled);
+            let ok = if dynamic.is_none() {
+                mana_check_passes_memo(rows, d, leaf, scratch, mana_memo,
+                                       &mini, registry, tables, consts, compiled)
+            } else {
+                mana_check_passes(rows, &mini, registry, tables, consts, compiled)
+            };
             if dense_check {
                 let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let oo = mana_check_passes(rows, &cb, registry, tables, consts, compiled);
@@ -2722,7 +2734,7 @@ pub fn leaf_pipeline_gated(
         if mana_ok {
             assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf");
             let score = phase!(FINAL_NS, {
-                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
+                let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
                 let v = match dynamic {
                     Some(dy) => dense_dynamic_score(
                         d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
@@ -2770,7 +2782,7 @@ pub fn leaf_pipeline_gated(
             }
             let score = phase!(FINAL_NS, {
                 let (d, w) = dwork.as_mut().unwrap();
-                let DenseWork { leaf, scratch, sim_memo } = &mut **w;
+                let DenseWork { leaf, scratch, sim_memo, .. } = &mut **w;
                 match dynamic {
                     Some(dy) => dense_dynamic_score(
                         d, leaf, scratch, sim_memo, rows, compiled_rows, tables, registry, consts,
@@ -4954,6 +4966,8 @@ pub struct DenseWork {
     /// Reused across leaves: its key covers every simulation input, so an
     /// entry stays valid whichever leaf produced it.
     pub sim_memo: SimMemo,
+    /// Same reuse argument, for the doom precheck / final mana check sims.
+    pub mana_memo: ManaMemo,
 }
 
 /// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
@@ -5505,6 +5519,88 @@ impl SimMemo {
         }
         (h >> 32) as usize % SIM_MEMO_SLOTS
     }
+}
+
+/// Memo for `mana_check_passes` on the dense path.
+///
+/// The doom precheck and the final mana check both simulate the combo from a
+/// stat tuple that `dense_mana_obj` materializes off `d.mana_keys` — and the
+/// input inventory of `simulate_mana_fast_ff` is exactly that set (mr, ms,
+/// maxMana, int, hp, hpBonus, atkTier, the per-spell cost keys) plus the
+/// scenario-constant atkSpd/rows/registry/consts and the leaf's ARCANES bit.
+/// Gear differing only in non-mana stats therefore repeats sim inputs
+/// constantly, and the memo hit rate on the ehp benchmark is high — but the
+/// measured wall-clock win there is roughly nil, because the fail-fast sim
+/// this skips is already cheap; the doom phase's real cost is the full
+/// dense_assemble feeding it, which a post-assemble key cannot avoid. Kept
+/// because it is proven exact, costs ~nothing, and shields the configurations
+/// whose sims are NOT cheap (allow_downtime / long combos), where the same
+/// hit rate does buy time.
+///
+/// Keyed on the POST-assemble values, so it stays sound when atree var
+/// effects couple into the mana stats — the coupling is already baked into
+/// the assembled tuple. The memoized value is the sim's full result tuple;
+/// each call replays the verdict logic on it, so allow_downtime / oom / BP
+/// flavors all recompute exactly. Only usable when the rows are not
+/// per-leaf dynamic (`consts.dynamic.is_none()`), which every caller gates.
+pub struct ManaMemo {
+    key: Vec<u64>,
+    slots: Vec<Option<(Vec<u64>, (f64, f64, bool, bool))>>,
+}
+
+impl Default for ManaMemo {
+    fn default() -> Self {
+        ManaMemo { key: Vec::new(), slots: (0..SIM_MEMO_SLOTS).map(|_| None).collect() }
+    }
+}
+
+impl ManaMemo {
+    fn probe(&mut self, d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> usize {
+        const ABSENT: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+        self.key.clear();
+        let mut read = |i: u32| {
+            if bit_get(&s.present, i) { s.vals[i as usize].to_bits() } else { ABSENT }
+        };
+        for (_, i) in &d.mana_keys { let v = read(*i); self.key.push(v); }
+        self.key.push(leaf.has_arcanes as u64);
+        let mut h: u64 = 0;
+        for w in &self.key {
+            h = (h.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+        (h >> 32) as usize % SIM_MEMO_SLOTS
+    }
+}
+
+/// `mana_check_passes` with the simulation memoized (dense path only).
+/// The verdict logic is REPLAYED per call on the memoized tuple, so it is
+/// byte-for-byte the logic of `mana_check_passes`.
+pub fn mana_check_passes_memo(
+    rows: &[Row], d: &DenseCtx, leaf: &DenseLeaf, scratch: &DScratch, memo: &mut ManaMemo,
+    mini: &Obj, registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
+) -> bool {
+    if consts.combo_time == 0.0 && !consts.hp_casting {
+        return true;
+    }
+    let slot = memo.probe(d, leaf, scratch);
+    let tuple = match &memo.slots[slot] {
+        Some((k, v)) if *k == memo.key => *v,
+        _ => {
+            let has_transcendence = leaf.has_arcanes;
+            let oom = consts.has_oom_loop;
+            let v = simulate_mana_fast_ff(
+                rows, mini, has_transcendence, registry, tables, consts, compiled, !oom);
+            memo.slots[slot] = Some((memo.key.clone(), v));
+            v
+        }
+    };
+    let (start_mana, end_mana, hp_warn, mana_warn) = tuple;
+    if hp_warn { return false; }
+    let oom = consts.has_oom_loop;
+    if !oom && mana_warn { return false; }
+    if oom { return true; }
+    if consts.allow_downtime { return end_mana > 0.0; }
+    (start_mana - end_mana) <= 5.0
 }
 
 /// One leaf-trial's dynamic score on the dense path.
