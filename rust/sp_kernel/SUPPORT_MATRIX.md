@@ -23,7 +23,7 @@ ordered roughly by expected user impact within each section.
 
 | # | Feature | Notes |
 |---|---------|-------|
-| A9 | Tome slot search | Tomes are fixed inputs; the solver never searches tome combinations. |
+| A9 | Tome slot search | **DONE.** Both engines search tome combinations. The Rust engine's `leaf_pipeline_tome` runs the same nested loop as the JS worker — each guild candidate (each needs its own SP solve) x each weapon/armour bundle, best per leaf — and `check_tome_parity.sh` holds it to the JS answer on both modes: same top-1 score, same build, same leaves checked. Bundles merge at the end of assembly (Obj path) exactly as the JS does; the dense path is off while a bundle applies, which is a speed follow-up, not a correctness gap. |
 | A10 | Weapon slot search | The weapon is fixed; solving across weapons means separate runs per weapon. |
 | A11 | Powder optimization | Powders are taken as-is on the fixed weapon/armor inputs; no search over powder sets. |
 | A12 | Crafted-item ingredient search | Crafted items participate as fixed statmaps; the solver does not search ingredient/recipe space. |
