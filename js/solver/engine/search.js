@@ -2326,7 +2326,13 @@ function _estimate_search_space() {
 function _format_space(n) {
     if (!Number.isFinite(n)) return '\u2014';
     if (n < 1e4) return n.toLocaleString();
-    const units = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']];
+    // Must reach beyond 'trillion': eight free slots on unfiltered pools is
+    // ~10^20, and stopping at 1e12 made toPrecision fall back to exponential
+    // INSIDE the unit, printing the nonsense "3.81e+8 trillion".
+    const units = [[1e18, 'quintillion'], [1e15, 'quadrillion'], [1e12, 'trillion'],
+                   [1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']];
+    // Past that, no word helps — say it in plain exponent form.
+    if (n >= 1e21) return n.toExponential(2).replace('e+', ' \u00d7 10^');
     for (const [mag, name] of units) {
         // Trim only trailing zeros AFTER a decimal point. A blanket
         // /\.?0+$/ also eats them from whole numbers, which turned 210

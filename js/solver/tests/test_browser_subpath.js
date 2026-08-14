@@ -127,6 +127,18 @@ function chromiumPath() {
             `no request escapes the subdirectory (${off_prefix.length} did`
             + `${off_prefix.length ? ': ' + off_prefix.slice(0, 3).join(', ') : ''})`);
 
+        // The default page must register NO service worker. Isolation buys
+        // almost nothing (partitioning is flat on completable workloads, see
+        // WASM.md) and a misbehaving worker persists across visits, so it is
+        // opt-in via ?coi=1. Two deploys were broken by having it on by
+        // default; this keeps it off.
+        const swCount = await page.evaluate(
+            () => navigator.serviceWorker
+                ? navigator.serviceWorker.getRegistrations().then((r) => r.length) : 0);
+        t.assert(swCount === 0,
+            `the default page registers no service worker (${swCount} found) — `
+            + `isolation is opt-in via ?coi=1`);
+
         const real404 = failed.filter((u) => !/fonts|gstatic|favicon/i.test(u));
         t.assert(real404.length === 0,
             `no 404s under the subdirectory (${real404.slice(0, 3).join(', ') || 'none'})`);

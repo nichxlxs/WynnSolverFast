@@ -28,6 +28,12 @@
 
 'use strict';
 
+// Captured at parse time: document.currentScript is only non-null while the
+// script is executing synchronously, and the page-side code below reads it
+// after an await.
+const _COI_SRC = (typeof document !== 'undefined' && document.currentScript)
+    ? document.currentScript.src : '';
+
 if (typeof window === 'undefined') {
     // ── Service worker context ──────────────────────────────────────────────
     self.addEventListener('install', () => self.skipWaiting());
@@ -71,23 +77,58 @@ if (typeof window === 'undefined') {
     });
 } else {
     // ── Page context ────────────────────────────────────────────────────────
+    //
+    // OFF BY DEFAULT. Opt in with ?coi=1.
+    //
+    // Isolation only buys a score cutoff shared between the engine's workers,
+    // and the measurements in WASM.md say partitioning is flat on every
+    // workload that actually completes — so the benefit is close to zero,
+    // while a service worker that misbehaves takes the whole site down and
+    // keeps doing it on every later visit. That trade is not worth making by
+    // default. It cost two outages to learn: once when the worker's scope did
+    // not cover the engine's worker script, and once when a stale registration
+    // from an earlier deploy kept controlling the page.
+    //
+    // The default path therefore does the opposite of registering: it removes
+    // any worker a previous version of this file left behind. That cleanup is
+    // the important part — simply deleting the <script> tag would strand every
+    // visitor who already had one registered, with no way to recover short of
+    // clearing site data by hand.
     (() => {
+        if (!navigator.serviceWorker) return;
         const params = new URLSearchParams(window.location.search);
+        const wanted = params.get('coi') === '1' && params.get('nocoi') !== '1';
 
-        if (params.get('nocoi') === '1') {
-            navigator.serviceWorker?.controller?.postMessage({ type: 'deregister' });
+        if (!wanted) {
+            // Unregister EVERY registration in scope, not just this script's.
+            // An earlier build served this file from /solver/, which registers
+            // separately and — being the more specific scope — wins for solver
+            // pages. Both have to go.
+            navigator.serviceWorker.getRegistrations().then((regs) => {
+                if (!regs.length) return;
+                let removed = 0;
+                Promise.all(regs.map((r) => r.unregister().then((ok) => { if (ok) removed++; })))
+                    .then(() => {
+                        if (!removed) return;
+                        console.info(`[coi] removed ${removed} stale service worker(s)`);
+                        // A page loaded UNDER the old worker is still controlled
+                        // by it until navigation; reload once so this visit is
+                        // clean rather than half-controlled.
+                        if (navigator.serviceWorker.controller
+                            && sessionStorage.getItem('coi-cleaned') !== '1') {
+                            sessionStorage.setItem('coi-cleaned', '1');
+                            window.location.reload();
+                        }
+                    });
+            }).catch(() => {});
             return;
         }
+
         if (window.crossOriginIsolated) return;          // already isolated
         if (!window.isSecureContext) return;             // SW needs https/localhost
-        if (!navigator.serviceWorker) return;
 
-        navigator.serviceWorker.register(window.document.currentScript.src)
+        navigator.serviceWorker.register(_COI_SRC || 'coi-serviceworker.js')
             .then((registration) => {
-                // Reload exactly once, and only once the worker is in control —
-                // reloading before that just produces a non-isolated page again.
-                // sessionStorage keeps a failure from becoming a reload loop.
-                registration.addEventListener('updatefound', () => {});
                 if (registration.active && !navigator.serviceWorker.controller) {
                     if (sessionStorage.getItem('coi-reloaded') === '1') return;
                     sessionStorage.setItem('coi-reloaded', '1');

@@ -81,8 +81,9 @@ function chromiumPath() {
         const errors = [];
         page.on('pageerror', (e) => errors.push(String(e.message || e)));
 
-        // First load registers the worker; it takes control and reloads.
-        await page.goto(base, { waitUntil: 'load', timeout: 60000 });
+        // Isolation is OPT-IN now (?coi=1). The default page must not register
+        // anything — that is covered separately below.
+        await page.goto(`${base}?coi=1`, { waitUntil: 'load', timeout: 60000 });
         await page.waitForFunction(() => window.crossOriginIsolated === true,
                                    null, { timeout: 30000 }).catch(() => {});
 
@@ -132,7 +133,7 @@ function chromiumPath() {
 
         const plainCtx = await browser.newContext();
         const plain = await plainCtx.newPage();
-        await plain.goto(`${base}?nocoi=1`, { waitUntil: 'load', timeout: 60000 });
+        await plain.goto(base, { waitUntil: 'load', timeout: 60000 });
         const plainFont = await probeFont(plain);
         const plainIsolated = await plain.evaluate(() => window.crossOriginIsolated === true);
         await plainCtx.close();
@@ -199,13 +200,15 @@ function chromiumPath() {
 
         // A bad worker on a live site must be recoverable.
         const p2 = await browser.newPage();
-        await p2.goto(`${base}?nocoi=1`, { waitUntil: 'load', timeout: 60000 });
+        await p2.goto(base, { waitUntil: 'load', timeout: 60000 });
         await p2.waitForTimeout(2000);
         const regs = await p2.evaluate(
             () => navigator.serviceWorker.getRegistrations().then((r) => r.length));
         t.assert(regs === 0,
-            `?nocoi=1 unregisters the worker (${regs} left) — without an escape `
-            + `hatch a misbehaving service worker is unrecoverable for users`);
+            `loading the page WITHOUT ?coi=1 removes the worker (${regs} left) — `
+            + `this is the recovery path: a visitor left holding a bad worker by an `
+            + `earlier deploy gets it cleaned up on their next visit, which simply `
+            + `deleting the script tag would never do`);
 
         const fatal = errors.filter((e) => !/fonts|net::ERR|favicon|Google/i.test(e));
         t.assert(fatal.length === 0, `no page errors: ${fatal.slice(0, 2).join(' | ') || 'none'}`);
