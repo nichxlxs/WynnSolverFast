@@ -845,6 +845,19 @@ pub fn compute_melee_time_hits(
             1.0 / tables.base_damage_multiplier[adj as usize]
         }
     };
+    melee_time_hits_from_period(qty_seconds, melee_period, delay)
+}
+
+/// The tail of `compute_melee_time_hits`, once the period is known.
+///
+/// A caller that has already derived the unmodified melee period from the
+/// same atkSpd/atkTier pair can pass it straight in — the `None` branch
+/// above recomputes exactly that expression, so feeding it here is the same
+/// arithmetic without re-reading the two stats.
+#[inline]
+pub fn melee_time_hits_from_period(
+    qty_seconds: f64, melee_period: f64, delay: Option<f64>,
+) -> f64 {
     qty_seconds / melee_period.max(delay.unwrap_or(SPELL_CAST_DELAY))
 }
 
@@ -1527,27 +1540,93 @@ pub fn simulate_mana_fast_ff(
     registry: &[Value], tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>, fail_fast: bool,
 ) -> (f64, f64, bool, bool) {
+    simulate_mana_fast_src(ManaSrc::Obj(combo_base), rows, has_transcendence,
+                           registry, tables, consts, compiled, fail_fast)
+}
+
+/// Where the fast mana sim reads its stats from.
+///
+/// The simulation touches a small, fixed set of numbers: seven scalars up
+/// front (mr, ms, maxMana, int, hp, hpBonus, atkTier) plus the weapon's
+/// attack speed, and then three cost stats per spell row. `Obj` fetches
+/// those by string key out of a map; `Dense` reads them straight out of the
+/// assembled dense vector by precomputed slot.
+///
+/// This exists purely to delete work. Materializing the map cost a fresh
+/// allocation and a String clone per key per leaf, and every read back out
+/// of it hashed a string — on the ehp benchmark, whose combo is 33 rows,
+/// that came to roughly 140 hashed lookups per simulation, several million
+/// times over. The `Dense` arm does none of it. Both arms feed the *same*
+/// simulation body below, so there is one implementation of the physics and
+/// no way for the two to drift.
+pub enum ManaSrc<'a> {
+    Obj(&'a Obj),
+    Dense(&'a ManaIdx, &'a DScratch),
+}
+
+/// The fast mana sim's stat reads, resolved to dense slots once per
+/// scenario. `ok` is false when any read could not be lowered, in which
+/// case callers must keep using the map.
+#[derive(Default, Clone)]
+pub struct ManaIdx {
+    pub ok: bool,
+    pub mr: u32, pub ms: u32, pub max_mana: u32, pub int: u32,
+    pub hp: u32, pub hp_bonus: u32, pub atk_tier: u32,
+    /// The weapon's attack-speed index — scenario-constant.
+    pub atk_spd: i64,
+    /// Per row: the (spRaw, spPct, spPctFinal) slots and the spell's base
+    /// cost, or None for a row the sim never charges.
+    pub row_cost: Vec<Option<([u32; 3], f64)>>,
+}
+
+impl<'a> ManaSrc<'a> {
+    /// `StatsView::num_or0` semantics over a dense slot: a slot the leaf
+    /// never wrote is absent (the map would not contain the key), and a NaN
+    /// is what the map stores as Null. Both read as 0.
+    #[inline]
+    fn dense_num(s: &DScratch, i: u32) -> f64 {
+        if !s.has(i) { return 0.0; }
+        let v = s.vals[i as usize];
+        if v.is_nan() { 0.0 } else { v }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_mana_fast_src(
+    src: ManaSrc, rows: &[Row], has_transcendence: bool,
+    registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>, fail_fast: bool,
+) -> (f64, f64, bool, bool) {
     use crate::mana_sim::{compute_drain_override, loop_condition_met};
 
     let hc = &consts.health;
-    let stats = StatsView::Borrowed(combo_base);
-    let mr = stats.num_or0("mr");
-    let ms = stats.num_or0("ms");
-    let item_mana = stats.num_or0("maxMana");
-    let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
+    // Eight scalars, fetched once. The dense arm resolves them by slot; the
+    // map arm by string key. Identical values, identical order.
+    let (mr, ms, item_mana, int_v, base_hp, hp_bonus, spd_idx, atk_tier) = match &src {
+        ManaSrc::Obj(o) => {
+            let stats = StatsView::Borrowed(o);
+            (stats.num_or0("mr"), stats.num_or0("ms"), stats.num_or0("maxMana"),
+             stats.num_or0("int"), stats.num_or0("hp"), stats.num_or0("hpBonus"),
+             tables.atk_spd_index(stats.str_of("atkSpd")), stats.num_or0("atkTier"))
+        }
+        ManaSrc::Dense(m, s) => {
+            let n = |i: u32| ManaSrc::dense_num(s, i);
+            (n(m.mr), n(m.ms), n(m.max_mana), n(m.int), n(m.hp), n(m.hp_bonus),
+             m.atk_spd, n(m.atk_tier))
+        }
+    };
+    let int_mana = (tables.sp_to_pct(int_v) * 100.0).floor();
     let start_mana = 100.0 + item_mana + int_mana;
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
     let mut total_mana_drain = 0.0;
 
     let health_cost_pct = hc.health_cost;
-    let base_hp = stats.num_or0("hp");
-    let hp_bonus = stats.num_or0("hpBonus");
     let max_hp = js_max(5.0, base_hp + hp_bonus);
 
     let mr_per_sec = (mr + consts.base_mana_regen) / consts.mana_tick_seconds;
 
-    let mut adj = tables.atk_spd_index(stats.str_of("atkSpd")) as f64 + stats.num_or0("atkTier");
+    let mut adj = spd_idx as f64 + atk_tier;
     if adj < 0.0 { adj = 0.0; }
     if adj > 6.0 { adj = 6.0; }
     let ms_per_hit = if ms != 0.0 { ms / 3.0 / tables.base_damage_multiplier[adj as usize] } else { 0.0 };
@@ -1669,10 +1748,25 @@ pub fn simulate_mana_fast_ff(
 
         let is_spell = row.sim_cost_present;
         let unclamped_cost = if is_spell {
-            match compiled {
-                Some(c) => row_cost_compiled(combo_base, spell, &c[ri as usize], tables, consts),
-                None => row_unclamped_spell_cost(combo_base, spell, &row.tokens, registry, tables,
-                                                 consts.skillpoint_final_mult_2),
+            match (&src, compiled) {
+                // The dense arm is only ever built when every row's cost
+                // lowered, so a missing entry here would be a construction
+                // bug rather than a shape to tolerate.
+                (ManaSrc::Dense(m, s), Some(c)) => {
+                    let (slots, spell_cost) = m.row_cost[ri as usize]
+                        .expect("dense mana row cost");
+                    let v = [int_v,
+                             ManaSrc::dense_num(s, slots[0]),
+                             ManaSrc::dense_num(s, slots[1]),
+                             ManaSrc::dense_num(s, slots[2])];
+                    row_cost_from_inputs(v, &c[ri as usize], spell_cost, tables, consts)
+                }
+                (ManaSrc::Obj(o), Some(c)) =>
+                    row_cost_compiled(o, spell, &c[ri as usize], tables, consts),
+                (ManaSrc::Obj(o), None) =>
+                    row_unclamped_spell_cost(o, spell, &row.tokens, registry, tables,
+                                             consts.skillpoint_final_mult_2),
+                (ManaSrc::Dense(..), None) => unreachable!("dense mana without compiled rows"),
             }
         } else { 0.0 };
         let is_melee_scaling = row.sim_melee_scaling;
@@ -1681,8 +1775,10 @@ pub fn simulate_mana_fast_ff(
         let eff_cast_time = if is_melee { 0.0 } else { row.cast_time.unwrap_or(consts.spell_cast_time) };
         let eff_delay = row.delay.unwrap_or(consts.spell_cast_delay);
         let sim_qty = if row.is_melee_time {
-            js_round(compute_melee_time_hits(row.qty, &stats, row.melee_cd_override, tables,
-                                             Some(eff_delay)))
+            // `melee_period` above is exactly what compute_melee_time_hits
+            // derives for a row with no override, off the same atkSpd/atkTier.
+            js_round(melee_time_hits_from_period(
+                row.qty, row.melee_cd_override.unwrap_or(melee_period), Some(eff_delay)))
         } else {
             js_round(row.qty)
         } as i64;
@@ -2143,6 +2239,12 @@ pub mod trace {
     pub static DYN_NS: AtomicU64 = AtomicU64::new(0);
     pub static ASM_NS: AtomicU64 = AtomicU64::new(0);
     pub static DMG_NS: AtomicU64 = AtomicU64::new(0);
+    /// Split of the doom + final-mana phases into the three things they do:
+    /// assemble the dense vector, materialize the mini stat map for the sim,
+    /// and run (or memo-hit) the sim itself.
+    pub static MASM_NS: AtomicU64 = AtomicU64::new(0);
+    pub static MOBJ_NS: AtomicU64 = AtomicU64::new(0);
+    pub static MSIM_NS: AtomicU64 = AtomicU64::new(0);
     /// Mid-tree/cluster bound ceiling evaluations — the batch-shaped work a
     /// GPU offload would target. Counted in enum_kernel.
     pub static BOUND_NS: AtomicU64 = AtomicU64::new(0);
@@ -2166,9 +2268,53 @@ pub mod trace {
         );
         eprintln!("score_trace: trial split — assemble {:.2}s | damage {:.2}s | dynamic rows {:.2}s",
                   f(&ASM_NS), f(&DMG_NS), f(&DYN_NS));
+        eprintln!("score_trace: mana split — assemble {:.2}s | mini-obj {:.2}s | sim {:.2}s",
+                  f(&MASM_NS), f(&MOBJ_NS), f(&MSIM_NS));
         eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
                   BOUND_EVALS.load(Ordering::Relaxed), f(&BOUND_NS));
     }
+}
+
+/// Read an env kill switch once, not on every visit.
+///
+/// `std::env::var` is not a cheap read: it takes a lock on the process
+/// environment, scans it, and allocates a String for the answer. Several of
+/// these sat in the per-leaf pipeline and one in the enumerator's innermost
+/// cluster loop, where they ran millions of times per second to re-answer a
+/// question whose answer cannot change while the process is alive.
+///
+/// Each expansion gets its own static, so the value is resolved on first use
+/// and read as a plain bool thereafter.
+macro_rules! env_once {
+    ($name:literal == $val:literal) => {{
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var($name).as_deref() == Ok($val))
+    }};
+    ($name:literal != $val:literal) => {{
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var($name).as_deref() != Ok($val))
+    }};
+}
+pub(crate) use env_once;
+
+/// Set when a caller wants the dense/Obj cross-check on regardless of the
+/// environment. `score_kernel` used to ask for it by setting
+/// SCORE_DENSE_CHECK part-way through its own run, which a once-only read of
+/// the environment would never see — it would have latched "off" from the
+/// earlier pipeline calls and silently disarmed the tripwire. Asking through
+/// this flag says the same thing without depending on when it is read.
+static DENSE_CHECK_FORCED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Turn the dense/Obj cross-check on for the rest of the process.
+pub fn force_dense_check() {
+    DENSE_CHECK_FORCED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[inline]
+pub fn dense_check_on() -> bool {
+    DENSE_CHECK_FORCED.load(std::sync::atomic::Ordering::Relaxed)
+        || env_once!("SCORE_DENSE_CHECK" == "1")
 }
 
 macro_rules! phase {
@@ -2460,7 +2606,7 @@ pub fn leaf_pipeline_gated(
     // can't hold bit-exactly falls back to lowering from the Obj base, or to
     // the Obj path outright. SCORE_DENSE_CHECK=1 runs both paths per
     // evaluation and panics on any bit difference.
-    let dense_check = std::env::var("SCORE_DENSE_CHECK").as_deref() == Ok("1");
+    let dense_check = dense_check_on();
     let compiled_rows = compiled.unwrap_or(&[]);
     let mut base_opt: Option<Obj> = None;
     let mut dwork: Option<(&DenseCtx, &mut DenseWork)> = None;
@@ -2503,7 +2649,7 @@ pub fn leaf_pipeline_gated(
         // of every allocation the greedy can reach, which is all the gate
         // needs. Disabling the rescue in particular shrinks the reachable
         // set, and a ceiling over a superset is still a ceiling.
-        let gate_env_off = std::env::var("SCORE_HPCAST_GATE").as_deref() == Ok("0")
+        let gate_env_off = env_once!("SCORE_HPCAST_GATE" == "0")
             && consts.hp_casting;
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
             && !gate_env_off {
@@ -2587,7 +2733,7 @@ pub fn leaf_pipeline_gated(
     // `SCORE_DOOM_INT=150` restores the old ceiling, which is what the
     // equivalence check compares against: tightening an admissible bound must
     // not change which leaves get *scored*, only how early the rest are cut.
-    let doom_int = if std::env::var("SCORE_DOOM_INT").as_deref() == Ok("150") { 150.0 } else {
+    let doom_int = if env_once!("SCORE_DOOM_INT" == "150") { 150.0 } else {
         let rem = (consts.sp_budget - assigned_sp).max(0);
         let room = rem.min(100 - base_sp[2]).min(150 - total_sp[2]).max(0);
         (total_sp[2] + room) as f64
@@ -2600,7 +2746,7 @@ pub fn leaf_pipeline_gated(
     let bounded_doom_ok = match dwork.as_ref() {
         Some((dctx, _)) if !l2.mana_doom_ok =>
             !dctx.doom_couples_tier && (consts.allow_downtime || !dctx.doom_couples_start)
-            && std::env::var("SCORE_BOUNDED_DOOM").as_deref() != Ok("0"),
+            && env_once!("SCORE_BOUNDED_DOOM" != "0"),
         _ => false,
     };
     // Buff-state drain is a percentage of max_mana, and max_mana rises with
@@ -2621,21 +2767,20 @@ pub fn leaf_pipeline_gated(
             for i in 0..5 { doom_sp[i] = total_sp[i] as f64; sp_lo[i] = total_sp[i] as f64; }
             doom_sp[2] = doom_int;
             if let Some((d, w)) = dwork.as_mut() {
-                let DenseWork { leaf, scratch, mana_memo, .. } = &mut **w;
-                if l2.mana_doom_ok {
+                let DenseWork { leaf, scratch, .. } = &mut **w;
+                phase!(MASM_NS, if l2.mana_doom_ok {
                     dense_assemble(d, leaf, scratch, &doom_sp);
                 } else {
                     dense_assemble_doom(d, leaf, scratch, &doom_sp, &sp_lo);
-                }
-                let mini = dense_mana_obj(d, leaf, scratch);
-                // Memoized when the rows are leaf-invariant: the key is the
-                // assembled mana tuple, which is the sim's entire input.
-                let doomed = if dynamic.is_none() {
-                    !mana_check_passes_memo(rows, d, leaf, scratch, mana_memo,
-                                            &mini, registry, tables, consts, compiled)
-                } else {
-                    !mana_check_passes(rows, &mini, registry, tables, consts, compiled)
-                };
+                });
+                let doomed = phase!(MSIM_NS, match mana_check_passes_dense(
+                        rows, d, leaf, scratch, registry, tables, consts, compiled) {
+                    Some(v) => !v,
+                    None => {
+                        let mini = phase!(MOBJ_NS, dense_mana_obj(d, leaf, scratch));
+                        !mana_check_passes(rows, &mini, registry, tables, consts, compiled)
+                    }
+                });
                 if dense_check && l2.mana_doom_ok {
                     let cb_doom = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &doom_sp);
                     let od = !mana_check_passes(rows, &cb_doom, registry, tables, consts, compiled);
@@ -2713,14 +2858,15 @@ pub fn leaf_pipeline_gated(
             }
         }
         let mana_ok = phase!(MANA_NS, {
-            let DenseWork { leaf, scratch, mana_memo, .. } = &mut **w;
-            let mini = dense_mana_obj(d, leaf, scratch);
-            let ok = if dynamic.is_none() {
-                mana_check_passes_memo(rows, d, leaf, scratch, mana_memo,
-                                       &mini, registry, tables, consts, compiled)
-            } else {
-                mana_check_passes(rows, &mini, registry, tables, consts, compiled)
-            };
+            let DenseWork { leaf, scratch, .. } = &mut **w;
+            let ok = phase!(MSIM_NS, match mana_check_passes_dense(
+                    rows, d, leaf, scratch, registry, tables, consts, compiled) {
+                Some(v) => v,
+                None => {
+                    let mini = phase!(MOBJ_NS, dense_mana_obj(d, leaf, scratch));
+                    mana_check_passes(rows, &mini, registry, tables, consts, compiled)
+                }
+            });
             if dense_check {
                 let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let oo = mana_check_passes(rows, &cb, registry, tables, consts, compiled);
@@ -3733,18 +3879,32 @@ pub fn row_cost_compiled(
 ) -> f64 {
     let sv = StatsView::Borrowed(base_stats);
     let (k_raw, k_pct, k_final) = comp.cost_keys.as_ref().expect("cost keys");
-    let mut v = [
+    let v = [
         sv.num_or0("int"),
         sv.num_or0(k_raw),
         sv.num_or0(k_pct),
         sv.num_or0(k_final),
     ];
+    let spell_cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN);
+    row_cost_from_inputs(v, comp, spell_cost, tables, consts)
+}
+
+/// The cost arithmetic itself, over already-fetched inputs
+/// `v = [int, spRaw, spPct, spPctFinal]` and the spell's base cost.
+///
+/// Split out so the map-reading and the dense-slot-reading callers run the
+/// *same* float sequence — the two differ only in how the four numbers and
+/// the base cost are obtained, never in what is done with them.
+#[inline]
+fn row_cost_from_inputs(
+    mut v: [f64; 4], comp: &CompiledRow, spell_cost: f64, tables: &Tables, consts: &L2Consts,
+) -> f64 {
     for (which, contrib, use_max) in &comp.cost_bonuses {
         let i = *which as usize;
         v[i] = if *use_max { js_max(v[i], *contrib) } else { v[i] + *contrib };
     }
     let int_reduction = tables.sp_to_pct(v[0]) * consts.skillpoint_final_mult_2;
-    let mut cost = spell.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN) * (1.0 - int_reduction);
+    let mut cost = spell_cost * (1.0 - int_reduction);
     cost += v[1];
     cost *= 1.0 + v[2] / 100.0;
     cost * (1.0 + v[3] / 100.0)
@@ -4240,6 +4400,9 @@ pub struct DenseCtx {
     /// Every stat key the fast mana sim / cost path reads, for the mini
     /// stat map materialized from the dense assembled state.
     pub mana_keys: Vec<(String, u32)>,
+    /// The same reads resolved to dense slots, so the sim can take its
+    /// inputs off the assembled vector instead of a String-keyed map.
+    pub mana_idx: ManaIdx,
     pub atk_spd_str: Option<String>,
     /// Per var slot: mana direction for the bounded doom precheck.
     /// +1 = favorable-if-higher (credit t_max), -1 = favorable-if-lower
@@ -4431,6 +4594,41 @@ impl DenseCtx {
         let dex_idx = it!("dex");
         let atk_tier_idx = it!("atkTier");
         mana_keys.push(("atkTier".into(), atk_tier_idx));
+
+        // The same mana reads, resolved to slots. Every key here was just
+        // interned into the universe above, so the lookups cannot miss; the
+        // one shape that can decline is a charged row whose cost keys were
+        // never compiled, which leaves that row unable to price itself.
+        let mana_idx = {
+            let slot = |k: &str| idx.get(k).copied();
+            let mut row_cost: Vec<Option<([u32; 3], f64)>> = Vec::with_capacity(rows.len());
+            let mut ok = compiled.len() == rows.len()
+                && std::env::var("SCORE_MANA_DENSE").as_deref() != Ok("0");
+            for (r, comp) in rows.iter().zip(compiled.iter()) {
+                let entry = match (&comp.cost_keys, r.spell.as_ref()) {
+                    (Some((kr, kp, kf)), Some(sp)) => {
+                        match (slot(kr), slot(kp), slot(kf)) {
+                            (Some(a), Some(b), Some(c)) => Some((
+                                [a, b, c],
+                                sp.get("cost").and_then(|c| c.as_f64()).unwrap_or(f64::NAN),
+                            )),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                // A row the sim actually charges must have lowered.
+                if r.sim_cost_present && entry.is_none() { ok = false; }
+                row_cost.push(entry);
+            }
+            ManaIdx {
+                ok,
+                mr: s_mr, ms: s_ms, max_mana: s_max_mana, int: s_int,
+                hp: s_hp, hp_bonus: s_hp_bonus, atk_tier: atk_tier_idx,
+                atk_spd: tables.atk_spd_index(atk_spd_str.as_deref()),
+                row_cost,
+            }
+        };
 
         // Weapon constants (weapon is scenario-constant).
         let wview = StatsView::Borrowed(weapon);
@@ -4845,7 +5043,7 @@ impl DenseCtx {
             s_sd_pct, s_md_pct, s_dam_pct, s_r_sd_pct, s_r_md_pct, s_r_dam_pct,
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
-            s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, atk_spd_str,
+            s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, mana_idx, atk_spd_str,
             var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
@@ -4966,8 +5164,6 @@ pub struct DenseWork {
     /// Reused across leaves: its key covers every simulation input, so an
     /// entry stays valid whichever leaf produced it.
     pub sim_memo: SimMemo,
-    /// Same reuse argument, for the doom precheck / final mana check sims.
-    pub mana_memo: ManaMemo,
 }
 
 /// Per-trial assemble: memcpy + skp chains + var effects + indexed writes.
@@ -5519,88 +5715,6 @@ impl SimMemo {
         }
         (h >> 32) as usize % SIM_MEMO_SLOTS
     }
-}
-
-/// Memo for `mana_check_passes` on the dense path.
-///
-/// The doom precheck and the final mana check both simulate the combo from a
-/// stat tuple that `dense_mana_obj` materializes off `d.mana_keys` — and the
-/// input inventory of `simulate_mana_fast_ff` is exactly that set (mr, ms,
-/// maxMana, int, hp, hpBonus, atkTier, the per-spell cost keys) plus the
-/// scenario-constant atkSpd/rows/registry/consts and the leaf's ARCANES bit.
-/// Gear differing only in non-mana stats therefore repeats sim inputs
-/// constantly, and the memo hit rate on the ehp benchmark is high — but the
-/// measured wall-clock win there is roughly nil, because the fail-fast sim
-/// this skips is already cheap; the doom phase's real cost is the full
-/// dense_assemble feeding it, which a post-assemble key cannot avoid. Kept
-/// because it is proven exact, costs ~nothing, and shields the configurations
-/// whose sims are NOT cheap (allow_downtime / long combos), where the same
-/// hit rate does buy time.
-///
-/// Keyed on the POST-assemble values, so it stays sound when atree var
-/// effects couple into the mana stats — the coupling is already baked into
-/// the assembled tuple. The memoized value is the sim's full result tuple;
-/// each call replays the verdict logic on it, so allow_downtime / oom / BP
-/// flavors all recompute exactly. Only usable when the rows are not
-/// per-leaf dynamic (`consts.dynamic.is_none()`), which every caller gates.
-pub struct ManaMemo {
-    key: Vec<u64>,
-    slots: Vec<Option<(Vec<u64>, (f64, f64, bool, bool))>>,
-}
-
-impl Default for ManaMemo {
-    fn default() -> Self {
-        ManaMemo { key: Vec::new(), slots: (0..SIM_MEMO_SLOTS).map(|_| None).collect() }
-    }
-}
-
-impl ManaMemo {
-    fn probe(&mut self, d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> usize {
-        const ABSENT: u64 = 0xFFFF_FFFF_FFFF_FFFF;
-        self.key.clear();
-        let mut read = |i: u32| {
-            if bit_get(&s.present, i) { s.vals[i as usize].to_bits() } else { ABSENT }
-        };
-        for (_, i) in &d.mana_keys { let v = read(*i); self.key.push(v); }
-        self.key.push(leaf.has_arcanes as u64);
-        let mut h: u64 = 0;
-        for w in &self.key {
-            h = (h.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
-        }
-        (h >> 32) as usize % SIM_MEMO_SLOTS
-    }
-}
-
-/// `mana_check_passes` with the simulation memoized (dense path only).
-/// The verdict logic is REPLAYED per call on the memoized tuple, so it is
-/// byte-for-byte the logic of `mana_check_passes`.
-pub fn mana_check_passes_memo(
-    rows: &[Row], d: &DenseCtx, leaf: &DenseLeaf, scratch: &DScratch, memo: &mut ManaMemo,
-    mini: &Obj, registry: &[Value], tables: &Tables, consts: &L2Consts,
-    compiled: Option<&[CompiledRow]>,
-) -> bool {
-    if consts.combo_time == 0.0 && !consts.hp_casting {
-        return true;
-    }
-    let slot = memo.probe(d, leaf, scratch);
-    let tuple = match &memo.slots[slot] {
-        Some((k, v)) if *k == memo.key => *v,
-        _ => {
-            let has_transcendence = leaf.has_arcanes;
-            let oom = consts.has_oom_loop;
-            let v = simulate_mana_fast_ff(
-                rows, mini, has_transcendence, registry, tables, consts, compiled, !oom);
-            memo.slots[slot] = Some((memo.key.clone(), v));
-            v
-        }
-    };
-    let (start_mana, end_mana, hp_warn, mana_warn) = tuple;
-    if hp_warn { return false; }
-    let oom = consts.has_oom_loop;
-    if !oom && mana_warn { return false; }
-    if oom { return true; }
-    if consts.allow_downtime { return end_mana > 0.0; }
-    (start_mana - end_mana) <= 5.0
 }
 
 /// One leaf-trial's dynamic score on the dense path.
@@ -6214,10 +6328,18 @@ pub fn dense_mana_rescue(
         for i in 0..5 { sp_f[i] = total_sp[i] as f64; }
         let DenseWork { leaf, scratch, .. } = work;
         dense_assemble(d, leaf, scratch, &sp_f);
-        let mini = dense_mana_obj(d, leaf, scratch);
-        if mana_check_passes(rows, &mini, registry, tables, consts, compiled) {
-            return true;
-        }
+        // Up to four fractions x five attributes of re-simulation per
+        // rescued leaf, so this is the same map-building cost as the main
+        // check paid many times over.
+        let ok = match mana_check_passes_dense(
+            rows, d, leaf, scratch, registry, tables, consts, compiled) {
+            Some(v) => v,
+            None => {
+                let mini = dense_mana_obj(d, leaf, scratch);
+                mana_check_passes(rows, &mini, registry, tables, consts, compiled)
+            }
+        };
+        if ok { return true; }
     }
 
     *base_sp = saved_base;
@@ -6308,6 +6430,41 @@ pub fn dense_sim_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
         }
     }
     o
+}
+
+/// `mana_check_passes` without materializing the mini stat map.
+///
+/// Same verdict logic, same simulation; the stats come off the assembled
+/// dense vector by slot instead of a String-keyed map built per call.
+/// Returns `None` when the scenario did not lower (no compiled rows, or a
+/// charged row whose cost keys are missing from the universe), and the
+/// caller falls back to the map. `SCORE_MANA_DENSE=0` forces that fallback.
+pub fn mana_check_passes_dense(
+    rows: &[Row], d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch,
+    registry: &[Value], tables: &Tables, consts: &L2Consts,
+    compiled: Option<&[CompiledRow]>,
+) -> Option<bool> {
+    // `ok` already folds in the SCORE_MANA_DENSE kill switch, which is read
+    // once when the context is built — this function runs several times per
+    // leaf, and an env lookup here costs more than the sim it guards on
+    // enumeration-bound scenarios.
+    if !d.mana_idx.ok || compiled.is_none() { return None; }
+    if d.mana_idx.row_cost.len() != rows.len() { return None; }
+    if consts.combo_time == 0.0 && !consts.hp_casting {
+        return Some(true);
+    }
+    // The map arm reads this back out of `activeMajorIDs`, which
+    // `dense_mana_obj` writes from exactly this bit.
+    let has_transcendence = leaf.has_arcanes;
+    let oom = consts.has_oom_loop;
+    let (start_mana, end_mana, hp_warn, mana_warn) = simulate_mana_fast_src(
+        ManaSrc::Dense(&d.mana_idx, s), rows, has_transcendence,
+        registry, tables, consts, compiled, !oom);
+    if hp_warn { return Some(false); }
+    if !oom && mana_warn { return Some(false); }
+    if oom { return Some(true); }
+    if consts.allow_downtime { return Some(end_mana > 0.0); }
+    Some((start_mana - end_mana) <= 5.0)
 }
 
 /// Mini stat map for the fast mana sim, materialized from the dense

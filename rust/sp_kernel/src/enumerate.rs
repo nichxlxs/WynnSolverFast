@@ -1069,7 +1069,7 @@ impl<'a> Search<'a> {
                             // clusters; only surviving regions descend.
                             if db.super_size > 0
                                 && self.adapt_super.armed(self.checked)
-                                && env::var("SUPER_CLUSTER").as_deref() != Ok("0") {
+                                && crate::scoring::env_once!("SUPER_CLUSTER" != "0") {
                                 let sci = o / db.super_size;
                                 let mut skey = 0xEu64 << 60;
                                 skey |= (sci as u64) << 49;

@@ -307,7 +307,7 @@ fn main() {
                 // run on the dense representation with the check tripwire on
                 // (every dense score asserted bit-equal to the Obj path).
                 if let Some(dense) = dense_ctx.as_ref() {
-                    std::env::set_var("SCORE_DENSE_CHECK", "1");
+                    sp_kernel::scoring::force_dense_check();
                     match leaf_pipeline(&names, l2, &weapon, guild_unit.as_ref(),
                                         &mut kernel, &rows, &registry, &hit_refs, &tables, consts,
                                         &objective, Some(&compiled_rows), Some((dense, &mut dense_work)), &[], &Default::default()) {
