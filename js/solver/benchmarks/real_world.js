@@ -55,7 +55,8 @@ function run(scenario, variant) {
 function aggregate(runs) {
     const timingMs = summarize(runs.map(run => run.elapsedMs));
     const checkedPerSecond = summarize(runs.map(run => run.checkedPerSecond));
-    const bestScore = summarize(runs.map(run => run.bestScore));
+    const scoreSamples = runs.map(run => run.bestScore).filter(Number.isFinite);
+    const bestScore = scoreSamples.length ? summarize(scoreSamples) : null;
     const checked = summarize(runs.map(run => run.checked));
     const feasible = summarize(runs.map(run => run.feasible));
     return {
@@ -64,6 +65,9 @@ function aggregate(runs) {
         poolSizes: runs[0].poolSizes,
         combinations: runs[0].combinations,
         inputCombinations: runs[0].inputCombinations,
+        dominanceMode: runs[0].dominanceMode,
+        dominanceInputItems: runs[0].dominanceInputItems,
+        dominanceOutputItems: runs[0].dominanceOutputItems,
         runs,
     };
 }
@@ -89,12 +93,12 @@ for (const scenario of scenarios) {
         currentWithoutTopCutoff,
         current,
         comparison: compareVariants(
-            { checked: original.checked.median, elapsedMs: original.timingMs.median, bestScore: original.bestScore.median, combinations: original.combinations },
-            { checked: current.checked.median, elapsedMs: current.timingMs.median, bestScore: current.bestScore.median, combinations: current.combinations },
+            { checked: original.checked.median, elapsedMs: original.timingMs.median, bestScore: original.bestScore?.median ?? null, combinations: original.combinations },
+            { checked: current.checked.median, elapsedMs: current.timingMs.median, bestScore: current.bestScore?.median ?? null, combinations: current.combinations },
         ),
         topCutoffComparison: includeIsolation ? compareVariants(
-            { checked: currentWithoutTopCutoff.checked.median, elapsedMs: currentWithoutTopCutoff.timingMs.median, bestScore: currentWithoutTopCutoff.bestScore.median, combinations: currentWithoutTopCutoff.combinations },
-            { checked: current.checked.median, elapsedMs: current.timingMs.median, bestScore: current.bestScore.median, combinations: current.combinations },
+            { checked: currentWithoutTopCutoff.checked.median, elapsedMs: currentWithoutTopCutoff.timingMs.median, bestScore: currentWithoutTopCutoff.bestScore?.median ?? null, combinations: currentWithoutTopCutoff.combinations },
+            { checked: current.checked.median, elapsedMs: current.timingMs.median, bestScore: current.bestScore?.median ?? null, combinations: current.combinations },
         ) : null,
     });
 }
@@ -108,9 +112,9 @@ process.stdout.write(JSON.stringify({
     generatedAt: new Date().toISOString(),
     commit,
     definition: {
-        original: 'pre-project top-N allocation/sort and original set dominance behavior',
-        currentWithoutTopCutoff: 'set-safe dominance with pre-project top-N allocation/sort, isolating the top-N optimization',
-        current: 'cutoff-aware top-N and set-safe dominance behavior',
+        original: 'historical legacy gear-dominance heuristic and pre-project top-N behavior',
+        currentWithoutTopCutoff: 'exact raw gear pools with pre-project top-N behavior, isolating the top-N optimization',
+        current: 'exact raw gear pools and cutoff-aware top-N behavior',
     },
     runtime: { node: process.version, v8: process.versions.v8, platform: process.platform, arch: process.arch },
     machine: { cpu: os.cpus()[0]?.model ?? 'unknown', logicalCpus: os.cpus().length, memoryBytes: os.totalmem() },

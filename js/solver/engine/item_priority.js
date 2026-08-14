@@ -42,11 +42,14 @@ const _INDIRECT_CONSTRAINT_STATS = INDIRECT_CONSTRAINT_STATS;
 
 // Mapping from indirect constraint stats to the direct item stats that contribute to them.
 const _INDIRECT_CONTRIBUTORS = {
-    ehp: ['hpBonus'],
-    ehp_no_agi: ['hpBonus'],
-    total_hp: ['hpBonus'],
+    // `hp` is the armour piece's static health.  It lives directly on the
+    // item statMap (not in maxRolls), so omitting it here made the sensitivity
+    // classifier treat two very different defensive items as interchangeable.
+    ehp: ['hp', 'hpBonus'],
+    ehp_no_agi: ['hp', 'hpBonus'],
+    total_hp: ['hp', 'hpBonus'],
     hpr: ['hprRaw', 'hprPct'],
-    ehpr: ['hpBonus', 'hprRaw', 'hprPct'],
+    ehpr: ['hp', 'hpBonus', 'hprRaw', 'hprPct'],
     total_mana: ['maxMana'],
 };
 
@@ -105,7 +108,7 @@ const _PERTURBABLE_STATS = [
     // Attack
     'atkTier',
     // Defense
-    'hpBonus', 'eDef', 'tDef', 'wDef', 'fDef', 'aDef', 'hprRaw', 'hprPct',
+    'hp', 'hpBonus', 'eDef', 'tDef', 'wDef', 'fDef', 'aDef', 'hprRaw', 'hprPct',
     // Mana
     'mr', 'ms', 'maxMana',
     // Spell costs
@@ -130,7 +133,7 @@ const _DEFAULT_DELTAS = {
     eMdRaw: 100, tMdRaw: 100, wMdRaw: 100, fMdRaw: 100, aMdRaw: 100,
     rSdPct: 15, rSdRaw: 80, rMdPct: 15, rMdRaw: 80,
     rDamPct: 15, rDamRaw: 80,
-    hpBonus: 1000, hprRaw: 50, hprPct: 20,
+    hp: 1000, hpBonus: 1000, hprRaw: 50, hprPct: 20,
     eDef: 50, tDef: 50, wDef: 50, fDef: 50, aDef: 50,
     mr: 15, ms: 10, maxMana: 5,
     spPct1: 20, spPct2: 20, spPct3: 20, spPct4: 20,
@@ -198,6 +201,12 @@ function _build_baseline_statmap(snap, locked) {
         if (!item || item.statMap.has('NONE')) continue;
         const setName = item.statMap.get('set');
         if (setName) activeSetCounts.set(setName, (activeSetCounts.get(setName) ?? 0) + 1);
+    }
+    if (!snap.weapon_sm.has('NONE') && !snap.weapon_sm.get('crafted')) {
+        const weaponSet = snap.weapon_sm.get('set');
+        if (weaponSet) {
+            activeSetCounts.set(weaponSet, (activeSetCounts.get(weaponSet) ?? 0) + 1);
+        }
     }
 
     // all_equip_sms = fixed_item_sms (weapon + tomes + locked items) — used for majorID extraction
@@ -979,7 +988,8 @@ function _estimate_mana_balance(snap, combo_base) {
         ? Math.floor(skillPointsToPercentage(combo_base.get('int') ?? 0) * 100)
         : 0;
     const item_mana = combo_base ? (combo_base.get('maxMana') ?? 0) : 0;
-    const start_mana = 100 + int_mana + item_mana;
+    const mana_cap = typeof MAX_MANA !== 'undefined' ? MAX_MANA : 400;
+    const start_mana = Math.min(mana_cap, 100 + int_mana + item_mana);
     const max_mana = start_mana;
 
     // MR regen (matching worker pure/simulate.js)
@@ -1072,13 +1082,14 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
         else if (op === 'le') lower.add(stat);
     }
 
-    // Indirect EHP/HP constraints: add hpBonus to higher set.
-    // hpBonus is always positive for EHP and is a clear dominant-direction stat.
+    // Indirect EHP/HP constraints: static armour HP and hpBonus are both
+    // monotone contributors to total HP.
     // We skip individual def stats — they interact non-monotonically with EHP
     // and adding all 5 would make dominance proofs nearly impossible.
     for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
         if (op !== 'ge') continue;
         if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') {
+            higher.add('hp');
             higher.add('hpBonus');
             break;
         }
@@ -1148,8 +1159,142 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
 
 // ── Dominance pruning ─────────────────────────────────────────────────────────
 
+// Gear dominance is deliberately opt-in.  The historical heuristic compared
+// only the handful of stats selected by the sensitivity pass.  That is useful
+// as an experiment, but it is not a proof: an omitted static stat, Major ID,
+// powder, set, crafted flag, or future item effect can change the result.
+//
+//   off / exact: enumerate the complete candidate pools (production default)
+//   safe:        deduplicate only identical complete gameplay signatures
+//   legacy:      reproduce the historical partial-signature heuristic
+const _DOMINANCE_MODES = new Set(['off', 'safe', 'legacy']);
+const _DOMINANCE_DEFAULT_MODE = 'off';
+
+// These fields affect presentation or the already-completed pool filter, not
+// evaluation of a selected item.  Everything else is retained in the safe
+// signature, including unknown keys, so new mechanics fail closed.
+const _DOMINANCE_IDENTITY_KEYS = new Set([
+    'name', 'displayName', 'id', 'lore', 'drop', 'quest', 'material', 'icon',
+    'lvl', 'tier', 'category', 'type', 'fixID',
+]);
+const _DOMINANCE_OPAQUE_OBJECT_IDS = new WeakMap();
+const _DOMINANCE_OPAQUE_SYMBOL_IDS = new Map();
+let _dominance_next_opaque_id = 1;
+
+function _dominance_opaque_id(value) {
+    const ids = typeof value === 'symbol'
+        ? _DOMINANCE_OPAQUE_SYMBOL_IDS : _DOMINANCE_OPAQUE_OBJECT_IDS;
+    if (!ids.has(value)) ids.set(value, _dominance_next_opaque_id++);
+    return ids.get(value);
+}
+
+function _normalize_dominance_mode(raw) {
+    const mode = String(raw ?? '').trim().toLowerCase();
+    if (mode === 'exact' || mode === 'none') return 'off';
+    return _DOMINANCE_MODES.has(mode) ? mode : _DOMINANCE_DEFAULT_MODE;
+}
+
+function _resolve_dominance_mode(options = {}) {
+    if (options.mode != null) return _normalize_dominance_mode(options.mode);
+    if (typeof globalThis !== 'undefined' && globalThis.SOLVER_DOMINANCE_MODE != null) {
+        return _normalize_dominance_mode(globalThis.SOLVER_DOMINANCE_MODE);
+    }
+    if (typeof process !== 'undefined' && process?.env?.SOLVER_DOMINANCE_MODE != null) {
+        return _normalize_dominance_mode(process.env.SOLVER_DOMINANCE_MODE);
+    }
+    return _DOMINANCE_DEFAULT_MODE;
+}
+
+/** Deterministic structural encoding for Map/Set/array/plain-object values. */
+function _dominance_stable_value(value, seen = new Set()) {
+    if (value === undefined) return ['undefined'];
+    if (typeof value === 'number') {
+        if (Number.isNaN(value)) return ['number', 'NaN'];
+        if (Object.is(value, -0)) return ['number', '-0'];
+        return ['number', value];
+    }
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+        return [typeof value, value];
+    }
+    if (typeof value === 'bigint') return ['bigint', String(value)];
+    if (typeof value === 'function' || typeof value === 'symbol') {
+        // An opaque effect is not safe to compare structurally.  Give it an
+        // identity token so it cannot accidentally match another item.
+        return ['opaque', typeof value, _dominance_opaque_id(value)];
+    }
+    if (seen.has(value)) return ['cycle', _dominance_opaque_id(value)];
+    seen.add(value);
+    let encoded;
+    if (value instanceof Map) {
+        encoded = ['map', [...value.entries()]
+            .map(([k, v]) => [_dominance_stable_value(k, seen), _dominance_stable_value(v, seen)])
+            .sort((a, b) => JSON.stringify(a[0]).localeCompare(JSON.stringify(b[0])))];
+    } else if (value instanceof Set) {
+        encoded = ['set', [...value].map(v => _dominance_stable_value(v, seen))
+            .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))];
+    } else if (Array.isArray(value)) {
+        encoded = ['array', value.map(v => _dominance_stable_value(v, seen))];
+    } else {
+        const prototype = Object.getPrototypeOf(value);
+        // Object literals created in another realm (the Node VM harness, a
+        // worker, or an iframe) do not share this realm's Object.prototype.
+        // A genuine Object.prototype is itself rooted at null and identifies
+        // its constructor as Object; custom-class prototypes are not.
+        const plain_object = prototype === null
+            || (Object.getPrototypeOf(prototype) === null
+                && Object.prototype.hasOwnProperty.call(prototype, 'constructor')
+                && prototype.constructor?.name === 'Object');
+        const own_keys = Reflect.ownKeys(value);
+        const simple_data_object = plain_object && own_keys.every(key => {
+            if (typeof key !== 'string') return false;
+            const descriptor = Object.getOwnPropertyDescriptor(value, key);
+            return descriptor?.enumerable && Object.prototype.hasOwnProperty.call(descriptor, 'value');
+        });
+        if (!simple_data_object) {
+            // Date, RegExp, typed arrays and custom classes can carry gameplay
+            // semantics in internal slots, symbols, accessors, non-enumerable
+            // fields or methods. The same is true of an unusual "plain"
+            // object with hidden own properties.
+            // Treat unknown prototypes as opaque identity instead of letting
+            // Object.keys collapse them to the same (often empty) signature.
+            encoded = ['opaque-object', Object.prototype.toString.call(value),
+                _dominance_opaque_id(value)];
+        } else {
+            encoded = ['object', own_keys.sort()
+                .map(k => [k, _dominance_stable_value(value[k], seen)])];
+        }
+    }
+    seen.delete(value);
+    return encoded;
+}
+
 /**
- * Remove dominated items from each pool before search.
+ * Encode every value consumed after pool construction. Unknown statMap keys
+ * are included automatically. `minRolls` is provenance only: the selected
+ * roll has already been materialized into maxRolls by _apply_roll_mode_to_item.
+ * Requirements, provisions, static HP, sets, Major IDs, powders, crafted and
+ * custom flags all remain in the signature.
+ */
+function _dominance_complete_signature(item, dominance_stats) {
+    const residual = new Map();
+    for (const [key, value] of item.statMap) {
+        if (_DOMINANCE_IDENTITY_KEYS.has(key) || key === 'minRolls') continue;
+        residual.set(key, value);
+    }
+
+    // Item wrappers currently contain only statMap, but retaining any future
+    // enumerable fields (notably the exclusive-set marker) makes this robust
+    // to new mechanics.  The display-only illegal-set name is redundant.
+    const wrapper = {};
+    for (const key of Object.keys(item).sort()) {
+        if (key === 'statMap' || key === '_illegalSetName') continue;
+        wrapper[key] = item[key];
+    }
+    return JSON.stringify(_dominance_stable_value([residual, wrapper]));
+}
+
+/**
+ * Optionally remove dominated items from each pool before search.
  *
  * Item B is dominated by item A when A is a strictly-at-least-as-good
  * drop-in replacement in any build:
@@ -1161,19 +1306,36 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
  * Set items are excluded because standalone stats cannot model bonuses enabled
  * by equipment in other slots.
  *
- * Complexity: O(n² × |check_stats|) per pool — fine for typical pool sizes.
+ * Safe mode first groups by a complete gameplay signature; the directional
+ * checks are therefore equality checks in that mode. Complexity remains
+ * O(n² × |check_stats|) in the worst case.
  *
  * @returns {number} Total items pruned across all pools.
  */
 function _prune_dominated_items(pools, dominance_stats, options = {}) {
+    const mode = _resolve_dominance_mode(options);
     const preserve_set_items = options.preserve_set_items !== false;
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
     const equal_stats = [...(dominance_stats.equal ?? [])];
+    const metrics = options.metrics ?? null;
+
+    const input_items = Object.values(pools)
+        .reduce((sum, pool) => sum + pool.filter(item => !item.statMap.has('NONE')).length, 0);
+    if (metrics) {
+        metrics.mode = mode;
+        metrics.input_items = input_items;
+        metrics.output_items = input_items;
+        metrics.pruned_items = 0;
+        metrics.pair_checks = 0;
+        metrics.signature_rejects = 0;
+        metrics.by_slot = {};
+    }
+    if (mode === 'off') return 0;
 
     const _dbg = SOLVER_DEBUG_DOMINANCE;
     if (_dbg) {
-        console.groupCollapsed('[solver][dominance] check stats');
+        console.groupCollapsed(`[solver][dominance:${mode}] check stats`);
         console.log('higher-is-better:', higher_stats);
         console.log('lower-is-better:', lower_stats);
         console.log('must-be-equal:', equal_stats);
@@ -1192,6 +1354,9 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
         if (real.length < 2) continue;
 
         const dominated = new Array(real.length).fill(false);
+        const signatures = mode === 'safe'
+            ? real.map(item => _dominance_complete_signature(item, dominance_stats))
+            : null;
         // Debug: record which item dominated each pruned item
         const dominated_by = _dbg ? new Array(real.length).fill(-1) : null;
 
@@ -1206,12 +1371,22 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
             // Standalone stats cannot prove dominance for an ordinary set item:
             // either side may enable a bonus with an item in another slot.
-            if (preserve_set_items && a_sm.get('set')) continue;
+            if (mode === 'legacy' && preserve_set_items && a_sm.get('set')) continue;
 
             for (let j = 0; j < real.length; j++) {
                 if (i === j || dominated[j]) continue;
                 const b_sm = real[j].statMap;
-                if (preserve_set_items && b_sm.get('set')) continue;
+                if (mode === 'legacy' && preserve_set_items && b_sm.get('set')) continue;
+                if (metrics) metrics.pair_checks++;
+
+                // Safe mode only deduplicates complete gameplay signatures.
+                // It does not use the directional heuristic at all: any stat,
+                // requirement, provision, or future effect difference keeps
+                // both candidates.
+                if (signatures && signatures[i] !== signatures[j]) {
+                    if (metrics) metrics.signature_rejects++;
+                    continue;
+                }
 
                 // Exclusive set guard: an item from an exclusive set must not
                 // dominate items outside that set (or from a different exclusive
@@ -1267,6 +1442,13 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
         const pruned_count = dominated.filter(Boolean).length;
         total_pruned += pruned_count;
+        if (metrics) {
+            metrics.by_slot[slot] = {
+                input_items: real.length,
+                output_items: real.length - pruned_count,
+                pruned_items: pruned_count,
+            };
+        }
 
         if (_dbg) {
             const sp_names = ['str', 'dex', 'int', 'def', 'agi'];
@@ -1327,7 +1509,11 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
     }
 
     if (total_pruned > 0) {
-        console.log('[solver] dominance pruning removed', total_pruned, 'items across all pools');
+        console.log(`[solver] dominance (${mode}) removed`, total_pruned, 'items across all pools');
+    }
+    if (metrics) {
+        metrics.pruned_items = total_pruned;
+        metrics.output_items = input_items - total_pruned;
     }
     return total_pruned;
 }
@@ -1336,6 +1522,8 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         _item_stat_val, _build_dominance_stats, _prune_dominated_items,
+        _normalize_dominance_mode, _resolve_dominance_mode,
+        _dominance_complete_signature,
         _INDIRECT_CONSTRAINT_STATS,
     };
 }

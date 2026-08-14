@@ -11,7 +11,7 @@
     "healing": 50,
     "misc": 50
   },
-  "scale_semantics": "Each family has small, medium, and large variants created only by changing how many equipment pieces from the ideal build remain locked. Search space means the post-dominance Cartesian space.",
+  "scale_semantics": "Each family has small, medium, and large variants created only by changing how many equipment pieces from the ideal build remain locked. Exact mode is the default, so calibrated search space is the raw post-filter Cartesian space before admissible search-time bounds.",
   "families": [
     {
       "family": "cancelstack",
@@ -73,12 +73,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 198563904,
-          "calibrated_search_combinations": 76976100,
+          "calibrated_search_combinations": 198563904,
           "combination_budget": {
             "input_min": 148922928,
             "input_max": 248204880,
-            "search_min": 57732075,
-            "search_max": 96220125
+            "search_min": 148922928,
+            "search_max": 248204880
           }
         },
         {
@@ -101,12 +101,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 15289420608,
-          "calibrated_search_combinations": 4079733300,
+          "calibrated_search_combinations": 15289420608,
           "combination_budget": {
             "input_min": 11467065456,
             "input_max": 19111775760,
-            "search_min": 3059799975,
-            "search_max": 5099666625
+            "search_min": 11467065456,
+            "search_max": 19111775760
           }
         },
         {
@@ -129,12 +129,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 1024391180736,
-          "calibrated_search_combinations": 195827198400,
+          "calibrated_search_combinations": 1024391180736,
           "combination_budget": {
             "input_min": 768293385552,
             "input_max": 1280488975920,
-            "search_min": 146870398800,
-            "search_max": 244783998000
+            "search_min": 768293385552,
+            "search_max": 1280488975920
           }
         }
       ],
@@ -195,12 +195,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 57758022,
-          "calibrated_search_combinations": 18216000,
+          "calibrated_search_combinations": 57758022,
           "combination_budget": {
             "input_min": 43318516,
             "input_max": 72197528,
-            "search_min": 13662000,
-            "search_max": 22770000
+            "search_min": 43318516,
+            "search_max": 72197528
           }
         },
         {
@@ -223,12 +223,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 5371496046,
-          "calibrated_search_combinations": 1256904000,
+          "calibrated_search_combinations": 5371496046,
           "combination_budget": {
             "input_min": 4028622034,
             "input_max": 6714370058,
-            "search_min": 942678000,
-            "search_max": 1571130000
+            "search_min": 4028622034,
+            "search_max": 6714370058
           }
         },
         {
@@ -251,12 +251,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 290060786484,
-          "calibrated_search_combinations": 50276160000,
+          "calibrated_search_combinations": 290060786484,
           "combination_budget": {
             "input_min": 217545589863,
             "input_max": 362575983105,
-            "search_min": 37707120000,
-            "search_max": 62845200000
+            "search_min": 217545589863,
+            "search_max": 362575983105
           }
         }
       ],
@@ -317,12 +317,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 54521040,
-          "calibrated_search_combinations": 6854400,
+          "calibrated_search_combinations": 54521040,
           "combination_budget": {
             "input_min": 40890780,
             "input_max": 68151300,
-            "search_min": 5140800,
-            "search_max": 8568000
+            "search_min": 40890780,
+            "search_max": 68151300
           }
         },
         {
@@ -345,12 +345,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 2562488880,
-          "calibrated_search_combinations": 171360000,
+          "calibrated_search_combinations": 2562488880,
           "combination_budget": {
             "input_min": 1921866660,
             "input_max": 3203111100,
-            "search_min": 128520000,
-            "search_max": 214200000
+            "search_min": 1921866660,
+            "search_max": 3203111100
           }
         },
         {
@@ -373,12 +373,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 61499733120,
-          "calibrated_search_combinations": 2227680000,
+          "calibrated_search_combinations": 61499733120,
           "combination_budget": {
             "input_min": 46124799840,
             "input_max": 76874666400,
-            "search_min": 1670760000,
-            "search_max": 2784600000
+            "search_min": 46124799840,
+            "search_max": 76874666400
           }
         }
       ],
@@ -439,12 +439,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 54521040,
-          "calibrated_search_combinations": 34424208,
+          "calibrated_search_combinations": 54521040,
           "combination_budget": {
             "input_min": 40890780,
             "input_max": 68151300,
-            "search_min": 25818156,
-            "search_max": 43030260
+            "search_min": 40890780,
+            "search_max": 68151300
           }
         },
         {
@@ -467,12 +467,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 2562488880,
-          "calibrated_search_combinations": 1411392528,
+          "calibrated_search_combinations": 2562488880,
           "combination_budget": {
             "input_min": 1921866660,
             "input_max": 3203111100,
-            "search_min": 1058544396,
-            "search_max": 1764240660
+            "search_min": 1921866660,
+            "search_max": 3203111100
           }
         },
         {
@@ -495,12 +495,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 61499733120,
-          "calibrated_search_combinations": 29639243088,
+          "calibrated_search_combinations": 61499733120,
           "combination_budget": {
             "input_min": 46124799840,
             "input_max": 76874666400,
-            "search_min": 22229432316,
-            "search_max": 37049053860
+            "search_min": 46124799840,
+            "search_max": 76874666400
           }
         }
       ],
@@ -561,12 +561,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 198563904,
-          "calibrated_search_combinations": 99810090,
+          "calibrated_search_combinations": 198563904,
           "combination_budget": {
             "input_min": 148922928,
             "input_max": 248204880,
-            "search_min": 74857567,
-            "search_max": 124762613
+            "search_min": 148922928,
+            "search_max": 248204880
           }
         },
         {
@@ -589,12 +589,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 13303781568,
-          "calibrated_search_combinations": 5788985220,
+          "calibrated_search_combinations": 13303781568,
           "combination_budget": {
             "input_min": 9977836176,
             "input_max": 16629726960,
-            "search_min": 4341738915,
-            "search_max": 7236231525
+            "search_min": 9977836176,
+            "search_max": 16629726960
           }
         },
         {
@@ -617,12 +617,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 452328573312,
-          "calibrated_search_combinations": 170775063990,
+          "calibrated_search_combinations": 452328573312,
           "combination_budget": {
             "input_min": 339246429984,
             "input_max": 565410716640,
-            "search_min": 128081297992,
-            "search_max": 213468829988
+            "search_min": 339246429984,
+            "search_max": 565410716640
           }
         }
       ],
@@ -683,12 +683,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 71280000,
-          "calibrated_search_combinations": 34765200,
+          "calibrated_search_combinations": 71280000,
           "combination_budget": {
             "input_min": 53460000,
             "input_max": 89100000,
-            "search_min": 26073900,
-            "search_max": 43456500
+            "search_min": 53460000,
+            "search_max": 89100000
           }
         },
         {
@@ -711,12 +711,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 3706560000,
-          "calibrated_search_combinations": 1599199200,
+          "calibrated_search_combinations": 3706560000,
           "combination_budget": {
             "input_min": 2779920000,
             "input_max": 4633200000,
-            "search_min": 1199399400,
-            "search_max": 1998999000
+            "search_min": 2779920000,
+            "search_max": 4633200000
           }
         },
         {
@@ -739,12 +739,12 @@
           ],
           "time_cap_seconds": 30,
           "calibrated_input_combinations": 98223840000,
-          "calibrated_search_combinations": 37581181200,
+          "calibrated_search_combinations": 98223840000,
           "combination_budget": {
             "input_min": 73667880000,
             "input_max": 122779800000,
-            "search_min": 28185885900,
-            "search_max": 46976476500
+            "search_min": 73667880000,
+            "search_max": 122779800000
           }
         }
       ],
@@ -772,12 +772,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 198563904,
-      "calibrated_search_combinations": 76976100,
+      "calibrated_search_combinations": 198563904,
       "combination_budget": {
         "input_min": 148922928,
         "input_max": 248204880,
-        "search_min": 57732075,
-        "search_max": 96220125
+        "search_min": 148922928,
+        "search_max": 248204880
       }
     },
     {
@@ -800,12 +800,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 15289420608,
-      "calibrated_search_combinations": 4079733300,
+      "calibrated_search_combinations": 15289420608,
       "combination_budget": {
         "input_min": 11467065456,
         "input_max": 19111775760,
-        "search_min": 3059799975,
-        "search_max": 5099666625
+        "search_min": 11467065456,
+        "search_max": 19111775760
       }
     },
     {
@@ -828,12 +828,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 1024391180736,
-      "calibrated_search_combinations": 195827198400,
+      "calibrated_search_combinations": 1024391180736,
       "combination_budget": {
         "input_min": 768293385552,
         "input_max": 1280488975920,
-        "search_min": 146870398800,
-        "search_max": 244783998000
+        "search_min": 768293385552,
+        "search_max": 1280488975920
       }
     },
     {
@@ -856,12 +856,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 57758022,
-      "calibrated_search_combinations": 18216000,
+      "calibrated_search_combinations": 57758022,
       "combination_budget": {
         "input_min": 43318516,
         "input_max": 72197528,
-        "search_min": 13662000,
-        "search_max": 22770000
+        "search_min": 43318516,
+        "search_max": 72197528
       }
     },
     {
@@ -884,12 +884,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 5371496046,
-      "calibrated_search_combinations": 1256904000,
+      "calibrated_search_combinations": 5371496046,
       "combination_budget": {
         "input_min": 4028622034,
         "input_max": 6714370058,
-        "search_min": 942678000,
-        "search_max": 1571130000
+        "search_min": 4028622034,
+        "search_max": 6714370058
       }
     },
     {
@@ -912,12 +912,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 290060786484,
-      "calibrated_search_combinations": 50276160000,
+      "calibrated_search_combinations": 290060786484,
       "combination_budget": {
         "input_min": 217545589863,
         "input_max": 362575983105,
-        "search_min": 37707120000,
-        "search_max": 62845200000
+        "search_min": 217545589863,
+        "search_max": 362575983105
       }
     },
     {
@@ -940,12 +940,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 54521040,
-      "calibrated_search_combinations": 6854400,
+      "calibrated_search_combinations": 54521040,
       "combination_budget": {
         "input_min": 40890780,
         "input_max": 68151300,
-        "search_min": 5140800,
-        "search_max": 8568000
+        "search_min": 40890780,
+        "search_max": 68151300
       }
     },
     {
@@ -968,12 +968,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 2562488880,
-      "calibrated_search_combinations": 171360000,
+      "calibrated_search_combinations": 2562488880,
       "combination_budget": {
         "input_min": 1921866660,
         "input_max": 3203111100,
-        "search_min": 128520000,
-        "search_max": 214200000
+        "search_min": 1921866660,
+        "search_max": 3203111100
       }
     },
     {
@@ -996,12 +996,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 61499733120,
-      "calibrated_search_combinations": 2227680000,
+      "calibrated_search_combinations": 61499733120,
       "combination_budget": {
         "input_min": 46124799840,
         "input_max": 76874666400,
-        "search_min": 1670760000,
-        "search_max": 2784600000
+        "search_min": 46124799840,
+        "search_max": 76874666400
       }
     },
     {
@@ -1024,12 +1024,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 54521040,
-      "calibrated_search_combinations": 34424208,
+      "calibrated_search_combinations": 54521040,
       "combination_budget": {
         "input_min": 40890780,
         "input_max": 68151300,
-        "search_min": 25818156,
-        "search_max": 43030260
+        "search_min": 40890780,
+        "search_max": 68151300
       }
     },
     {
@@ -1052,12 +1052,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 2562488880,
-      "calibrated_search_combinations": 1411392528,
+      "calibrated_search_combinations": 2562488880,
       "combination_budget": {
         "input_min": 1921866660,
         "input_max": 3203111100,
-        "search_min": 1058544396,
-        "search_max": 1764240660
+        "search_min": 1921866660,
+        "search_max": 3203111100
       }
     },
     {
@@ -1080,12 +1080,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 61499733120,
-      "calibrated_search_combinations": 29639243088,
+      "calibrated_search_combinations": 61499733120,
       "combination_budget": {
         "input_min": 46124799840,
         "input_max": 76874666400,
-        "search_min": 22229432316,
-        "search_max": 37049053860
+        "search_min": 46124799840,
+        "search_max": 76874666400
       }
     },
     {
@@ -1108,12 +1108,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 198563904,
-      "calibrated_search_combinations": 99810090,
+      "calibrated_search_combinations": 198563904,
       "combination_budget": {
         "input_min": 148922928,
         "input_max": 248204880,
-        "search_min": 74857567,
-        "search_max": 124762613
+        "search_min": 148922928,
+        "search_max": 248204880
       }
     },
     {
@@ -1136,12 +1136,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 13303781568,
-      "calibrated_search_combinations": 5788985220,
+      "calibrated_search_combinations": 13303781568,
       "combination_budget": {
         "input_min": 9977836176,
         "input_max": 16629726960,
-        "search_min": 4341738915,
-        "search_max": 7236231525
+        "search_min": 9977836176,
+        "search_max": 16629726960
       }
     },
     {
@@ -1164,12 +1164,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 452328573312,
-      "calibrated_search_combinations": 170775063990,
+      "calibrated_search_combinations": 452328573312,
       "combination_budget": {
         "input_min": 339246429984,
         "input_max": 565410716640,
-        "search_min": 128081297992,
-        "search_max": 213468829988
+        "search_min": 339246429984,
+        "search_max": 565410716640
       }
     },
     {
@@ -1192,12 +1192,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 71280000,
-      "calibrated_search_combinations": 34765200,
+      "calibrated_search_combinations": 71280000,
       "combination_budget": {
         "input_min": 53460000,
         "input_max": 89100000,
-        "search_min": 26073900,
-        "search_max": 43456500
+        "search_min": 53460000,
+        "search_max": 89100000
       }
     },
     {
@@ -1220,12 +1220,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 3706560000,
-      "calibrated_search_combinations": 1599199200,
+      "calibrated_search_combinations": 3706560000,
       "combination_budget": {
         "input_min": 2779920000,
         "input_max": 4633200000,
-        "search_min": 1199399400,
-        "search_max": 1998999000
+        "search_min": 2779920000,
+        "search_max": 4633200000
       }
     },
     {
@@ -1248,12 +1248,12 @@
       ],
       "time_cap_seconds": 30,
       "calibrated_input_combinations": 98223840000,
-      "calibrated_search_combinations": 37581181200,
+      "calibrated_search_combinations": 98223840000,
       "combination_budget": {
         "input_min": 73667880000,
         "input_max": 122779800000,
-        "search_min": 28185885900,
-        "search_max": 46976476500
+        "search_min": 73667880000,
+        "search_max": 122779800000
       }
     }
   ]

@@ -44,8 +44,10 @@ function serve(root) {
     return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
 }
 
-const CHROMIUM = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+const CHROMIUM = [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+                  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
                   '/opt/pw-browsers/chromium/chrome-linux/chrome']
+    .filter(Boolean)
     .find((p) => fs.existsSync(p));
 
 // A small, fast, fully-enumerable scenario. Same build the README uses.
@@ -362,14 +364,21 @@ async function cancelPhase(page, url, engine, cfg) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-    if (!CHROMIUM) { console.log('SKIP: no chromium'); process.exit(0); }
     const { chromium } = require('playwright-core');
+    const executablePath = CHROMIUM || chromium.executablePath();
+    if (!executablePath || !fs.existsSync(executablePath)) {
+        if (process.env.CI) {
+            throw new Error('Chromium is required in CI; run `npx playwright-core install chromium`');
+        }
+        console.log('SKIP: no chromium');
+        process.exit(0);
+    }
     const server = await serve(REPO_ROOT);
     const port = server.address().port;
     const url = `http://127.0.0.1:${port}/solver/index.html${BUILD_HASH}`;
     console.log(`url: ${url}\n`);
 
-    const browser = await chromium.launch({ executablePath: CHROMIUM, args: ['--no-sandbox'] });
+    const browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
     try {
         const page = await browser.newPage();
         const errs = [];

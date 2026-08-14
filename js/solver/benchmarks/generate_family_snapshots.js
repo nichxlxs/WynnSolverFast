@@ -28,9 +28,9 @@ const families = [
         seedItemNames: ['Shawl of Gaea', 'Lithosphere', 'Writhing Growth', 'Boulderstorm', 'Vivisected', 'Vivisected', 'Ironleaf Bangle', 'Recalcitrance'],
         levelMin: 100,
         variations: [
-            { size: 'small', freeMask: 15, calibratedInput: 198563904, calibratedSearch: 76976100 },
-            { size: 'medium', freeMask: 79, calibratedInput: 15289420608, calibratedSearch: 4079733300 },
-            { size: 'large', freeMask: 95, calibratedInput: 1024391180736, calibratedSearch: 195827198400 },
+            { size: 'small', freeMask: 15, calibratedInput: 198563904, calibratedSearch: 198563904 },
+            { size: 'medium', freeMask: 79, calibratedInput: 15289420608, calibratedSearch: 15289420608 },
+            { size: 'large', freeMask: 95, calibratedInput: 1024391180736, calibratedSearch: 1024391180736 },
         ],
         comboRows: [{ spell_node_id: 118, qty: 3, mana_excl: true, dmg_excl: false }],
         manaDisabled: true,
@@ -50,9 +50,9 @@ const families = [
         seedItemNames: ['Obsidian-Framed Helmet', 'Taurus', 'Babel', 'Blind Thrust', 'Ad Terram', 'Ad Terram', 'Silent Grove', 'Auxetic Capacitor'],
         levelMin: 104,
         variations: [
-            { size: 'small', freeMask: 77, calibratedInput: 57758022, calibratedSearch: 18216000 },
-            { size: 'medium', freeMask: 79, calibratedInput: 5371496046, calibratedSearch: 1256904000 },
-            { size: 'large', freeMask: 95, calibratedInput: 290060786484, calibratedSearch: 50276160000 },
+            { size: 'small', freeMask: 77, calibratedInput: 57758022, calibratedSearch: 57758022 },
+            { size: 'medium', freeMask: 79, calibratedInput: 5371496046, calibratedSearch: 5371496046 },
+            { size: 'large', freeMask: 95, calibratedInput: 290060786484, calibratedSearch: 290060786484 },
         ],
         comboRows: [{ spell_node_id: 118, qty: 3, mana_excl: true, dmg_excl: false }],
         manaDisabled: true,
@@ -71,9 +71,9 @@ const families = [
         seedItemNames: ['Timeskip', 'Calidade Mail', 'Runebound Chains', "Nether's Scar", 'Breezehands', 'Vivisected', 'Prowess', 'Recalcitrance'],
         levelMin: 106,
         variations: [
-            { size: 'small', freeMask: 15, calibratedInput: 54521040, calibratedSearch: 6854400 },
-            { size: 'medium', freeMask: 47, calibratedInput: 2562488880, calibratedSearch: 171360000 },
-            { size: 'large', freeMask: 63, calibratedInput: 61499733120, calibratedSearch: 2227680000 },
+            { size: 'small', freeMask: 15, calibratedInput: 54521040, calibratedSearch: 54521040 },
+            { size: 'medium', freeMask: 47, calibratedInput: 2562488880, calibratedSearch: 2562488880 },
+            { size: 'large', freeMask: 63, calibratedInput: 61499733120, calibratedSearch: 61499733120 },
         ],
         comboRows: [{ spell_node_id: 118, qty: 3, mana_excl: true, dmg_excl: false }],
         manaDisabled: true,
@@ -92,9 +92,9 @@ const families = [
         seedItemNames: ['Prosencephalon', 'Umbral Mail', 'Chaos-Woven Greaves', 'Stardew', 'Yang', 'Photon', 'Misalignment', 'Metamorphosis'],
         levelMin: 106,
         variations: [
-            { size: 'small', freeMask: 15, calibratedInput: 54521040, calibratedSearch: 34424208 },
-            { size: 'medium', freeMask: 47, calibratedInput: 2562488880, calibratedSearch: 1411392528 },
-            { size: 'large', freeMask: 63, calibratedInput: 61499733120, calibratedSearch: 29639243088 },
+            { size: 'small', freeMask: 15, calibratedInput: 54521040, calibratedSearch: 54521040 },
+            { size: 'medium', freeMask: 47, calibratedInput: 2562488880, calibratedSearch: 2562488880 },
+            { size: 'large', freeMask: 63, calibratedInput: 61499733120, calibratedSearch: 61499733120 },
         ],
         comboRows: [
             { spell_node_id: 118, qty: 2, mana_excl: true, dmg_excl: false },
@@ -118,9 +118,9 @@ const families = [
         seedItemNames: ['Jailbroken', 'Bete Noire', 'Chaos-Woven Greaves', 'Static Cling', 'Lodestone', 'Lodestone', 'Diamond Static Bracelet', 'Stormleader'],
         levelMin: 100,
         variations: [
-            { size: 'small', freeMask: 15, calibratedInput: 198563904, calibratedSearch: 99810090 },
-            { size: 'medium', freeMask: 47, calibratedInput: 13303781568, calibratedSearch: 5788985220 },
-            { size: 'large', freeMask: 63, calibratedInput: 452328573312, calibratedSearch: 170775063990 },
+            { size: 'small', freeMask: 15, calibratedInput: 198563904, calibratedSearch: 198563904 },
+            { size: 'medium', freeMask: 47, calibratedInput: 13303781568, calibratedSearch: 13303781568 },
+            { size: 'large', freeMask: 63, calibratedInput: 452328573312, calibratedSearch: 452328573312 },
         ],
         comboRows: [
             { spell_node_id: 1, qty: 2, mana_excl: false, dmg_excl: false },
@@ -144,9 +144,9 @@ const families = [
         seedItemNames: ['Nighthawk', 'Ornate Shadow Cloak', 'Asphyxia', 'Warchief', 'Vivisected', 'Vivisected', 'Diamond Static Bracelet', 'Achromatic Gloom'],
         levelMin: 105,
         variations: [
-            { size: 'small', freeMask: 15, calibratedInput: 71280000, calibratedSearch: 34765200 },
-            { size: 'medium', freeMask: 31, calibratedInput: 3706560000, calibratedSearch: 1599199200 },
-            { size: 'large', freeMask: 63, calibratedInput: 98223840000, calibratedSearch: 37581181200 },
+            { size: 'small', freeMask: 15, calibratedInput: 71280000, calibratedSearch: 71280000 },
+            { size: 'medium', freeMask: 31, calibratedInput: 3706560000, calibratedSearch: 3706560000 },
+            { size: 'large', freeMask: 63, calibratedInput: 98223840000, calibratedSearch: 98223840000 },
         ],
         comboRows: [
             { spell_node_id: 118, qty: 2, mana_excl: true, dmg_excl: false },
@@ -293,7 +293,7 @@ function main() {
         maximum_large_input_combinations: maximumLargeInput,
         maximum_large_search_combinations: maximumLargeSearch,
         roll_profile: uniformMedianRolls,
-        scale_semantics: 'Each family has small, medium, and large variants created only by changing how many equipment pieces from the ideal build remain locked. Search space means the post-dominance Cartesian space.',
+        scale_semantics: 'Each family has small, medium, and large variants created only by changing how many equipment pieces from the ideal build remain locked. Exact mode is the default, so calibrated search space is the raw post-filter Cartesian space before admissible search-time bounds.',
         families: [],
         scenarios: [],
     };

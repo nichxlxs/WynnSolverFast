@@ -51,7 +51,12 @@ Custom item creator
 
 ## Documentation
 
-ahhhhhhhhhhh
+Solver engineering:
+
+- [Exact-search optimization plan](WYNNSOLVER_OPTIMIZATION_PLAN.md)
+- [Correctness and benchmark validation](rust/sp_kernel/OPTIMIZATION_VALIDATION.md)
+- [Class-build search capacity](rust/sp_kernel/CLASS_BUILD_CAPACITY.md)
+- [Rust/WASM benchmark harness](rust/sp_kernel/BENCHMARKING.md)
 
 ### Running Locally
 

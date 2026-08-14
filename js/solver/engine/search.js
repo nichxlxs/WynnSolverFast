@@ -26,6 +26,7 @@ const _solver_state = {
     top15_expanded: false,        // UI expand state
     progress_expanded: false,     // progress details expand state
     engine_phase: '',             // Rust/WASM startup/search phase label
+    dominance: null,              // last pool-reduction measurement
 };
 
 // Bitmask tracking which equipment slots were last filled by the solver.
@@ -50,6 +51,17 @@ function _apply_roll_mode_to_item(item) {
 
 // ── Item pool building ────────────────────────────────────────────────────────
 
+/** Attach the identity used by the illegal-at-two (exclusive) set tracker. */
+function _tag_illegal_set_item(item, illegal_at_2) {
+    if (!item?.statMap) return item;
+    const sm = item.statMap;
+    const set_name = !sm.get('crafted') ? (sm.get('set') ?? null) : null;
+    item._illegalSet = set_name && illegal_at_2.has(set_name) ? set_name : null;
+    item._illegalSetName = item._illegalSet
+        ? (sm.get('displayName') ?? sm.get('name') ?? '') : null;
+    return item;
+}
+
 function _collect_locked_items(illegal_at_2) {
     const locked = {};
     for (let i = 0; i < 8; i++) {
@@ -64,12 +76,8 @@ function _collect_locked_items(illegal_at_2) {
             locked[slot] = item;
             continue;
         }
-        // Attach illegal set info so the worker can track it
-        const sn = item.statMap.get('set') ?? null;
-        item._illegalSet = (sn && illegal_at_2.has(sn)) ? sn : null;
-        item._illegalSetName = item._illegalSet
-            ? (item.statMap.get('displayName') ?? item.statMap.get('name') ?? '') : null;
-        locked[slot] = item;
+        // Attach illegal set info so the worker can track it.
+        locked[slot] = _tag_illegal_set_item(item, illegal_at_2);
     }
     return locked;
 }
@@ -108,13 +116,15 @@ function _build_item_pools(restrictions, illegal_at_2 = new Set(), blacklist = n
             }
             if (skip) continue;
             const item = _apply_roll_mode_to_item(new Item(item_obj));
-            const sn = item_obj.set ?? null;
-            item._illegalSet = (sn && illegal_at_2.has(sn)) ? sn : null;
-            item._illegalSetName = item._illegalSet ? (item_obj.displayName ?? item_obj.name ?? '') : null;
-            pool.push(item);
+            pool.push(_tag_illegal_set_item(item, illegal_at_2));
         }
         const none_idx = _NONE_ITEM_IDX[slot === 'ring' ? 'ring1' : slot];
-        pool.unshift(new Item(none_items[none_idx]));
+        const none_item = new Item(none_items[none_idx]);
+        // `expandItem` intentionally ignores the synthetic NONE marker. Add
+        // it back on the wrapper used by the solver so priority and dominance
+        // logic can keep the empty-slot candidate in its protected bucket.
+        none_item.statMap.set('NONE', true);
+        pool.unshift(none_item);
         pools[slot] = pool;
     }
     return pools;
@@ -402,6 +412,30 @@ function _insert_top5(candidate) {
 // This lets us preserve the user's manually entered build as the initial
 // baseline so it isn't cleared when the solver starts.
 
+/** True when non-crafted fixed equipment already violates an illegal-at-two set. */
+function _has_illegal_set_conflict(equip_sms, weapon_sm, illegal_at_2 = null) {
+    if (!illegal_at_2) {
+        illegal_at_2 = new Set();
+        for (const [set_name, set_data] of sets) {
+            if (set_data.bonuses?.length >= 2 && set_data.bonuses[1]?.illegal) {
+                illegal_at_2.add(set_name);
+            }
+        }
+    }
+    const occupied = new Set();
+    const add = (sm) => {
+        if (!sm || sm.has('NONE') || sm.get('crafted')) return false;
+        const set_name = sm.get('set');
+        if (!set_name || !illegal_at_2.has(set_name)) return false;
+        if (occupied.has(set_name)) return true;
+        occupied.add(set_name);
+        return false;
+    };
+    if (add(weapon_sm)) return true;
+    for (const sm of equip_sms) if (add(sm)) return true;
+    return false;
+}
+
 function _eval_current_build(snap, restrictions, blacklist) {
     // Collect all 8 item statMaps from the UI
     const items = [];
@@ -417,6 +451,14 @@ function _eval_current_build(snap, restrictions, blacklist) {
     // Check that at least one non-NONE armor/accessory exists
     const has_any = equip_sms.some(sm => !sm.has('NONE'));
     if (!has_any) { console.warn('[seed] rejected: no non-NONE items'); return null; }
+
+    // A seed is an incumbent: if an invalid exclusive-set build entered top-N,
+    // its score could raise the shared cutoff and prune valid search leaves.
+    // Reject it before any score is computed or published.
+    if (_has_illegal_set_conflict(equip_sms, snap.weapon_sm)) {
+        console.warn('[seed] rejected: illegal-at-two set conflict');
+        return null;
+    }
 
     // Reject if any unlocked item is in the blacklist
     if (blacklist && blacklist.size > 0) {
@@ -449,6 +491,16 @@ function _eval_current_build(snap, restrictions, blacklist) {
         if (sm.has('NONE')) continue;
         const setName = sm.get('set');
         if (setName) activeSetCounts.set(setName, (activeSetCounts.get(setName) ?? 0) + 1);
+    }
+    // The weapon is passed separately from the eight equipment slots. A real
+    // non-crafted weapon still contributes to set activation; keeping the seed
+    // counter aligned with calculate_skillpoints prevents the incumbent from
+    // being evaluated with different bonuses than enumerated leaves.
+    if (!snap.weapon_sm.has('NONE') && !snap.weapon_sm.get('crafted')) {
+        const weaponSet = snap.weapon_sm.get('set');
+        if (weaponSet) {
+            activeSetCounts.set(weaponSet, (activeSetCounts.get(weaponSet) ?? 0) + 1);
+        }
     }
 
     const all_equip_sms = [...equip_sms, ...snap.tomes.map(t => t?.statMap).filter(Boolean), snap.weapon_sm];
@@ -1318,6 +1370,11 @@ function _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, part
         pools: pools_ser,
         locked: locked_ser,
         weapon_sm: snap.weapon.statMap,
+        // The weapon is fixed but is not one of the eight `locked` gear
+        // wrappers. Carry its exclusive-set identity separately so JS and
+        // Rust seed the same illegal-at-two tracker before enumeration.
+        weapon_illegal_set: snap.weapon._illegalSet ?? null,
+        weapon_illegal_set_name: snap.weapon._illegalSetName ?? null,
         level: snap.level,
         tome_sms: snap.tomes.map(t => t.statMap),
         guild_tome_sm: snap.guild_tome_item.statMap,
@@ -2463,6 +2520,7 @@ function start_solver_search() {
     }
 
     const blacklist = get_blacklist();
+    _tag_illegal_set_item(snap.weapon, illegal_at_2);
     const locked = _collect_locked_items(illegal_at_2);
     const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
 
@@ -2475,6 +2533,7 @@ function start_solver_search() {
     // If any locked item belongs to an exclusive set, remove all other items
     // from that set from the remaining pools (they can never be used).
     const locked_exclusive_sets = new Set();
+    if (snap.weapon._illegalSet) locked_exclusive_sets.add(snap.weapon._illegalSet);
     for (const item of Object.values(locked)) {
         const is = item?._illegalSet;
         if (is) locked_exclusive_sets.add(is);
@@ -2502,9 +2561,14 @@ function start_solver_search() {
     _solver_state.dmg_weights = dmg_weights;
     _display_priority_weights();
 
-    // Remove dominated items before sorting; smaller pools benefit search and sort.
+    // Exact mode is the default: no heuristic gear removal.  `safe` and
+    // `legacy` remain explicit measurement modes (SOLVER_DOMINANCE_MODE) so
+    // benchmark runs can quantify their reduction without silently changing
+    // the production search space.
     const dominance_stats = _build_dominance_stats(snap, dmg_weights, restrictions);
-    _prune_dominated_items(pools, dominance_stats);
+    const dominance_metrics = {};
+    _prune_dominated_items(pools, dominance_stats, { metrics: dominance_metrics });
+    _solver_state.dominance = dominance_metrics;
 
     // Tome optimisation inputs (guild candidates, scoped bundle front,
     // precheck bound) — computed once per search, before serialization.

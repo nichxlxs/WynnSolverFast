@@ -219,7 +219,7 @@ function check_thresholds(stats, thresholds, spell_base_costs) {
         } else if (stat === 'total_mana') {
             const mm = stats.get('maxMana') ?? 0;
             const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-            v = 100 + mm + int_mana;
+            v = Math.min(MAX_MANA, 100 + mm + int_mana);
         } else {
             v = stats.get(stat) ?? 0;
         }
@@ -551,7 +551,7 @@ function eval_indirect_stat(stats, stat) {
     if (stat === 'total_mana') {
         const mm = stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-        return 100 + mm + int_mana;
+        return Math.min(MAX_MANA, 100 + mm + int_mana);
     }
     return stats.get(stat) ?? 0;
 }

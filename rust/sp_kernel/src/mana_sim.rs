@@ -405,7 +405,7 @@ pub fn simulate_combo_mana_hp(
     let ms = stats.num_or0("ms");
     let item_mana = stats.num_or0("maxMana");
     let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-    let start_mana = 100.0 + item_mana + int_mana;
+    let start_mana = js_min(crate::MAX_MANA, 100.0 + item_mana + int_mana);
     let max_mana = start_mana;
     let mut mana_wasted = 0.0f64;
 

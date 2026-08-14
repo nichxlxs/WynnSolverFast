@@ -1,0 +1,70 @@
+name: Solver correctness
+
+on:
+  pull_request:
+    paths:
+      - 'js/game/**'
+      - 'js/solver/**'
+      - 'rust/sp_kernel/**'
+      - '.github/workflows/solver-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solver-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - run: node js/solver/tests/run_all.js
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+      - name: Browser end-to-end
+        run: CI=1 node js/solver/tests/browser_e2e.js
+      - name: Benchmark report scripts
+        run: |
+          python3 -m py_compile \
+            rust/sp_kernel/benchmark_family_ab.py \
+            rust/sp_kernel/benchmark_family_capacity.py
+
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: rust/sp_kernel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add wasm32-unknown-unknown
+      - run: cargo test --release --locked
+      - run: cargo check --release --locked --target wasm32-unknown-unknown
+      - name: Build browser WASM
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.127 --locked
+          npm install --prefix /tmp/wynn-binaryen --no-package-lock \
+            --no-audit --no-fund binaryen@132.0.0
+          PATH=/tmp/wynn-binaryen/node_modules/.bin:$PATH bash build-wasm.sh
+          git diff --exit-code -- ../../js/solver/wasm
+      - name: Upload browser WASM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sp-kernel-wasm
+          path: |
+            js/solver/wasm/sp_kernel.js
+            js/solver/wasm/sp_kernel.d.ts
+            js/solver/wasm/sp_kernel_bg.wasm
+            js/solver/wasm/sp_kernel_bg.wasm.d.ts

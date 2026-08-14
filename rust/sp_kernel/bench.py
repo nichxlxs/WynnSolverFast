@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parent
 BIN = ROOT / "target" / "release" / "enum_kernel"
 FIX = ROOT / "fixtures"
 
-# scenario -> (enum fixture, score fixture or None)
+# Exact benchmark scenarios always carry their matching score fixture.
+# The former scoreless `melee_colossal` row was removed: its serialized
+# restrictions are intentionally not approximated by the enum-only kernel.
 SCENARIOS = {
     "spell2":      ("enum_spell2.txt",         "score_spell2.json"),
     "spell_wide":  ("enum_spell_wide.txt",     "score_spell_wide.json"),
@@ -34,7 +36,6 @@ SCENARIOS = {
     "xpb":         ("enum_spell_xpb.txt",      "score_spell_xpb.json"),
     "hp2":         ("enum_hp2.txt",            "score_hp2.json"),
     "melee_restr": ("enum_gaia2m.txt",         "score_gaia2m.json"),
-    "melee_colossal": ("enum_gaia_colossal.txt", None),
 }
 
 # Build-family benchmarks (PR #8). Six families, each supplied 5/4/3 items from
@@ -67,7 +68,7 @@ RE_ENUM = re.compile(
     r"enum_kernel: checked (\d+) \| precheck_reject (\d+) \| precheck_pass (\d+) \| "
     r"sp_leaf_reject (\d+) \| sp_kernel_reject (\d+) \| feasible (\d+) \| threads (\d+) \| elapsed ([\d.]+)s \| (\d+) checked/s")
 RE_SCORING = re.compile(r"scoring: scored (\d+) \| gated (\d+) \| mana_reject (\d+) \| "
-                        r"thresh_reject (\d+) \| bound_pruned (\d+)")
+                        r"thresh_reject (\d+) \| bound_pruned (\d+) \| top15_count (\d+)")
 RE_PHASE = re.compile(r"score_trace: sp ([\d.]+)s \| base ([\d.]+)s \| gate ([\d.]+)s \| "
                       r"doom ([\d.]+)s \| greedy ([\d.]+)s \(\d+ trials\) \| mana ([\d.]+)s \| final ([\d.]+)s")
 RE_BOUND = re.compile(r"score_trace: bound evals (\d+) in ([\d.]+)s")
@@ -122,7 +123,8 @@ def run_one(scenario, threads, env_extra, time_cap, trace=True):
     m = RE_SCORING.search(out)
     if m:
         res.update(scored=int(m.group(1)), gated=int(m.group(2)),
-                   bound_pruned=int(m.group(5)))
+                   mana_reject=int(m.group(3)), thresh_reject=int(m.group(4)),
+                   bound_pruned=int(m.group(5)), top15_count=int(m.group(6)))
     m = RE_PHASE.search(out)
     if m:
         keys = ["sp", "base", "gate", "doom", "greedy", "mana", "final"]

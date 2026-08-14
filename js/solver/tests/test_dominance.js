@@ -42,7 +42,7 @@ function makeNoneItem() {
     const C = makeItem({ damPct: 10, sdPct: 15 });   // not dominated (sdPct > A)
     const pools = { helmet: [A, B, C] };
     const ds = { higher: new Set(['damPct', 'sdPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 2, 'Test 1: pool should have 2 items');
     t.assert(pools.helmet.includes(A), 'Test 1: A should remain');
     t.assert(!pools.helmet.includes(B), 'Test 1: B should be pruned');
@@ -55,7 +55,7 @@ function makeNoneItem() {
     const B = makeItem({ spRaw1: -10 });
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(), lower: new Set(['spRaw1']) };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 1, 'Test 2: pool should have 1 item');
     t.assert(pools.helmet.includes(A), 'Test 2: A should remain');
 }
@@ -66,7 +66,7 @@ function makeNoneItem() {
     const B = makeItem({ damPct: 15, spRaw1: -10 });
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(['damPct']), lower: new Set(['spRaw1']) };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 1, 'Test 3: B should be pruned');
     t.assert(pools.helmet.includes(A), 'Test 3: A should remain');
 }
@@ -77,7 +77,7 @@ function makeNoneItem() {
     const B = makeItem({ damPct: 15, spRaw1: -10 });  // worse damage, better cost
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(['damPct']), lower: new Set(['spRaw1']) };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 2, 'Test 4: neither should be pruned');
 }
 
@@ -87,7 +87,7 @@ function makeNoneItem() {
     const B = makeItem({ damPct: 15 }, [10,0,0,0,0]);
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(['damPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 2, 'Test 5: B not pruned due to lower reqs');
 }
 
@@ -97,7 +97,7 @@ function makeNoneItem() {
     const B = makeItem({ damPct: 15 }, [0,0,0,0,0], [5,0,0,0,0]);  // gives str
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(['damPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 2, 'Test 6: B not pruned due to SP provisions');
 }
 
@@ -107,7 +107,7 @@ function makeNoneItem() {
     const N = makeNoneItem();
     const pools = { helmet: [A, N] };
     const ds = { higher: new Set(['damPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 2, 'Test 7: NONE item not pruned');
     t.assert(pools.helmet.includes(N), 'Test 7: NONE item still in pool');
 }
@@ -118,7 +118,7 @@ function makeNoneItem() {
     const B = makeItem({ damPct: 15, sdPct: 5 });
     const pools = { helmet: [A, B] };
     const ds = { higher: new Set(['damPct', 'sdPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.length === 1, 'Test 8: B pruned with empty lower set');
 }
 
@@ -258,12 +258,12 @@ function makeNoneItem() {
     setPiece.statMap.set('set', 'Test Set');
     const pools = { helmet: [standalone, setPiece] };
     const ds = { higher: new Set(['damPct']), lower: new Set() };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.helmet.includes(setPiece),
         'Test 18: set piece survives standalone-stat dominance pruning');
 
     const legacyPools = { helmet: [standalone, setPiece] };
-    _prune_dominated_items(legacyPools, ds, { preserve_set_items: false });
+    _prune_dominated_items(legacyPools, ds, { mode: 'legacy', preserve_set_items: false });
     t.assert(!legacyPools.helmet.includes(setPiece),
         'Test 18: benchmark-only legacy mode reproduces original set pruning');
 }
@@ -291,16 +291,174 @@ function makeNoneItem() {
     const strong = makeItem({ damPct: 20 });
     const tierItem = makeItem({ damPct: 5, atkTier: 1 });
     const pools = { necklace: [strong, tierItem] };
-    _prune_dominated_items(pools, ds);
+    _prune_dominated_items(pools, ds, { mode: 'legacy' });
     t.assert(pools.necklace.includes(tierItem),
         'Test 19: unique atkTier item survives dominance pruning');
 
     // Equal atkTier values still allow normal dominance.
     const weakSameTier = makeItem({ damPct: 1, atkTier: 1 });
     const pools2 = { necklace: [tierItem, weakSameTier] };
-    _prune_dominated_items(pools2, { higher: new Set(['damPct']), lower: new Set(), equal: new Set(['atkTier']) });
+    _prune_dominated_items(pools2,
+        { higher: new Set(['damPct']), lower: new Set(), equal: new Set(['atkTier']) },
+        { mode: 'legacy' });
     t.assert(!pools2.necklace.includes(weakSameTier),
         'Test 19: equal-stat items still prune on monotonic stats');
+}
+
+// Test 20: exact/off is the default and never changes a gear pool.
+{
+    const A = makeItem({ damPct: 20 });
+    const B = makeItem({ damPct: 10 });
+    const pools = { helmet: [A, B] };
+    const metrics = {};
+    const pruned = _prune_dominated_items(
+        pools, { higher: new Set(['damPct']), lower: new Set() }, { metrics });
+    t.assert(pruned === 0 && pools.helmet.length === 2,
+        'Test 20: default exact mode preserves the raw pool');
+    t.assert(metrics.mode === 'off' && metrics.input_items === 2 && metrics.pruned_items === 0,
+        'Test 20: off-mode measurements are explicit');
+}
+
+// Test 21: safe mode only deduplicates a complete gameplay signature; display
+// identity is deliberately irrelevant to evaluation.
+{
+    const A = makeItem({ damPct: 20, mr: 5 });
+    const B = makeItem({ damPct: 20, mr: 5 });
+    A.statMap.set('name', 'Cosmetic Variant A');
+    B.statMap.set('name', 'Cosmetic Variant B');
+    const pools = { helmet: [A, B] };
+    const metrics = {};
+    _prune_dominated_items(pools,
+        { higher: new Set(['damPct']), lower: new Set() },
+        { mode: 'safe', metrics });
+    t.assert(pools.helmet.length === 1 && pools.helmet[0] === A,
+        'Test 21: safe mode removes a complete-signature duplicate');
+    t.assert(metrics.mode === 'safe' && metrics.pruned_items === 1
+        && metrics.by_slot.helmet.output_items === 1,
+    'Test 21: safe-mode reduction counters reconcile');
+}
+
+// Test 22: static armour HP is part of both sensitivity and the complete
+// residual signature. This is the Water Mask / Last Stand regression shape.
+{
+    const damageItem = makeItem({ damPct: 20 });
+    damageItem.statMap.set('hp', -40);
+    const healthItem = makeItem({ damPct: 10 });
+    healthItem.statMap.set('hp', 6550);
+    const pools = { helmet: [damageItem, healthItem] };
+    _prune_dominated_items(pools,
+        { higher: new Set(['damPct']), lower: new Set() }, { mode: 'safe' });
+    t.assert(pools.helmet.length === 2,
+        'Test 22: safe dominance preserves a different static-HP signature');
+
+    const snap = { combo_time: 0, parsed_combo: [] };
+    const ds = _build_dominance_stats(snap, new Map(), {
+        stat_thresholds: [{ stat: 'ehp', op: 'ge', value: 10000 }],
+    });
+    t.assert(ds.higher.has('hp') && ds.higher.has('hpBonus'),
+        'Test 22: EHP constraints classify static hp and hpBonus');
+}
+
+// Test 23: every known nonlocal effect, plus unknown future keys, participates
+// in safe signatures. Each weaker item must survive because its effect differs.
+{
+    const effectCases = [
+        ['set', 'Test Set'],
+        ['majorIds', ['TEST_MAJOR_ID']],
+        ['powders', [1, 2]],
+        ['crafted', true],
+        ['custom', true],
+        ['slots', 3],
+        ['classReq', 'Mage'],
+        ['restrict', 'untradable'],
+        ['futureUnknownEffect', { amount: 7 }],
+    ];
+    let allPreserved = true;
+    for (const [key, value] of effectCases) {
+        const A = makeItem({ damPct: 20 });
+        const B = makeItem({ damPct: 10 });
+        B.statMap.set(key, value);
+        const pools = { helmet: [A, B] };
+        _prune_dominated_items(pools,
+            { higher: new Set(['damPct']), lower: new Set() }, { mode: 'safe' });
+        allPreserved = allPreserved && pools.helmet.length === 2;
+    }
+    const exclusiveA = makeItem({ damPct: 20 });
+    const exclusiveB = makeItem({ damPct: 10 });
+    exclusiveB._illegalSet = 'Master Hive';
+    const exclusivePools = { helmet: [exclusiveA, exclusiveB] };
+    _prune_dominated_items(exclusivePools,
+        { higher: new Set(['damPct']), lower: new Set() }, { mode: 'safe' });
+    allPreserved = allPreserved && exclusivePools.helmet.length === 2;
+    t.assert(allPreserved,
+        'Test 23: set/MajorID/powder/crafted/custom/slot/class/exclusive/unknown effects survive');
+}
+
+// Test 24: `exact` is a documented alias for `off`; legacy stays available
+// only when a benchmark explicitly asks for the historical heuristic.
+{
+    const ds = { higher: new Set(['damPct']), lower: new Set() };
+    const exact = { helmet: [makeItem({ damPct: 20 }), makeItem({ damPct: 10 })] };
+    const legacy = { helmet: [makeItem({ damPct: 20 }), makeItem({ damPct: 10 })] };
+    _prune_dominated_items(exact, ds, { mode: 'exact' });
+    _prune_dominated_items(legacy, ds, { mode: 'legacy' });
+    t.assert(exact.helmet.length === 2 && legacy.helmet.length === 1,
+        'Test 24: exact/off and legacy policies are behaviorally distinct');
+}
+
+// Test 25: safe is signature deduplication, not sensitivity-based dominance.
+{
+    const A = makeItem({ damPct: 20 });
+    const B = makeItem({ damPct: 10 });
+    const pools = { helmet: [A, B] };
+    _prune_dominated_items(pools,
+        { higher: new Set(['damPct']), lower: new Set() }, { mode: 'safe' });
+    t.assert(pools.helmet.length === 2,
+        'Test 25: safe mode preserves any gameplay-stat difference');
+}
+
+// Test 26: objects with semantics outside simple enumerable data properties
+// fail closed. Internal slots, typed storage, non-enumerable fields, accessors,
+// symbols, and prototype methods cannot be inferred from Object.keys safely.
+{
+    class HiddenEffect {
+        constructor(amount) {
+            Object.defineProperty(this, 'amount', { value: amount, enumerable: false });
+        }
+        apply() { return this.amount; }
+    }
+    const hiddenPlain = () => {
+        const value = {};
+        Object.defineProperty(value, 'amount', { value: 7, enumerable: false });
+        return value;
+    };
+    const accessorPlain = () => Object.defineProperty({}, 'amount', {
+        enumerable: true,
+        get() { return 7; },
+    });
+    const symbolPlain = () => ({ [Symbol('amount')]: 7 });
+    const opaquePairs = [
+        [new Date(0), new Date(0)],
+        [/effect/gi, /effect/gi],
+        [new Uint8Array([1, 2]), new Uint8Array([1, 2])],
+        [new HiddenEffect(7), new HiddenEffect(7)],
+        [hiddenPlain(), hiddenPlain()],
+        [accessorPlain(), accessorPlain()],
+        [symbolPlain(), symbolPlain()],
+    ];
+    let allPreserved = true;
+    for (const [leftEffect, rightEffect] of opaquePairs) {
+        const A = makeItem({ damPct: 20 });
+        const B = makeItem({ damPct: 20 });
+        A.statMap.set('futureOpaqueEffect', leftEffect);
+        B.statMap.set('futureOpaqueEffect', rightEffect);
+        const pools = { helmet: [A, B] };
+        _prune_dominated_items(pools,
+            { higher: new Set(['damPct']), lower: new Set() }, { mode: 'safe' });
+        allPreserved = allPreserved && pools.helmet.length === 2;
+    }
+    t.assert(allPreserved,
+        'Test 26: internal-slot/prototype/hidden/accessor/symbol effects cannot deduplicate');
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────

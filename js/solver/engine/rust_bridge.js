@@ -526,7 +526,11 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
     L.push(`THP ${thp ? 1 : 0} ${f(thp?.threshold)} ${f(thp?.fixed_hp)}`);
     L.push(`HPSTART ${f((running0.get('hp') ?? 0) + (running0.get('hpBonus') ?? 0))}`);
     const wep = initMsgBase.weapon_sm;
-    L.push(`WEAPON ${wep.get('reqs').join(' ')} ${wep.get('skillpoints').join(' ')}`);
+    const wepSet = wep.get('crafted') ? null : wep.get('set');
+    const wepIllegal = initMsgBase.weapon_illegal_set
+        ?? (wepSet && env.ctx.sets.get(wepSet)?.bonuses?.[1]?.illegal ? wepSet : null);
+    L.push(`WEAPON ${wep.get('reqs').join(' ')} ${wep.get('skillpoints').join(' ')} `
+        + `${setId(wepSet)} ${illegalId(wepIllegal)}`);
     const gt = initMsgBase.guild_tome_sm;
     const gtPresent = gt && !gt.has('NONE');
     L.push(`GUILD ${gtPresent ? 1 : 0} ${gtPresent && gt.get('crafted') ? 1 : 0} `

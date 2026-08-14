@@ -1474,9 +1474,11 @@ impl Layer2 {
         for tome in &self.tome_sms { self.add_item(&mut sm, tome); }
         self.add_item(&mut sm, weapon);
 
-        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names.
+        // Set bonuses (skip SP keys) from non-crafted equips and weapon.
+        // The weapon is passed separately from item_names, but it still
+        // contributes to weapon-inclusive sets in-game.
         let mut set_counts: Vec<(String, i64)> = Vec::new();
-        for item in &equips {
+        for item in equips.iter().copied().chain(std::iter::once(weapon)) {
             if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
             let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
             match set_counts.iter_mut().find(|(n, _)| n == set_name) {
@@ -1711,7 +1713,7 @@ fn simulate_mana_fast_src(
         }
     };
     let int_mana = (tables.sp_to_pct(int_v) * 100.0).floor();
-    let start_mana = 100.0 + item_mana + int_mana;
+    let start_mana = js_min(crate::MAX_MANA, 100.0 + item_mana + int_mana);
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
     let mut total_mana_drain = 0.0;
@@ -2812,12 +2814,25 @@ pub fn leaf_pipeline_gated(
     // Set-bonus SP folded into the free pool (worker leaf behavior).
     let mut set_free = [0i32; 5];
     {
-        // At most eight items, so at most eight distinct sets: a stack array
-        // and integer compares, with no allocation and no hashing.
-        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        // Eight equipment items plus the weapon can contribute distinct sets:
+        // keep the hot path stack-only while including the separately-passed
+        // weapon in the same count used by the JS solver.
+        let weapon_set_name = if weapon.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) {
+            None
+        } else {
+            weapon.get("set").and_then(|v| v.as_str())
+        };
+        let weapon_set_id = weapon_set_name.and_then(|n| l2.set_ids.get(n).copied());
+        let mut set_counts: [(u32, i64); 9] = [(u32::MAX, 0); 9];
         let mut n_sets = 0usize;
         for pre in preludes.iter().flatten() {
             let Some(sid) = pre.set_id else { continue };
+            match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
+                Some((_, c)) => *c += 1,
+                None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
+            }
+        }
+        if let Some(sid) = weapon_set_id {
             match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
                 Some((_, c)) => *c += 1,
                 None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
@@ -2835,6 +2850,7 @@ pub fn leaf_pipeline_gated(
                 preludes.iter().flatten()
                     .find(|p| p.set_id == Some(sid))
                     .and_then(|p| p.set_name.as_deref())
+                    .or_else(|| if weapon_set_id == Some(sid) { weapon_set_name } else { None })
             };
             for &(sid, count) in &set_counts[..n_sets] {
                 let Some(set_name) = name_of(sid) else { continue };
@@ -3812,7 +3828,7 @@ pub fn eval_indirect_stat(stats: &StatsView, stat: &str, tables: &Tables) -> f64
         "total_mana" => {
             let mm = stats.num_or0("maxMana");
             let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-            100.0 + mm + int_mana
+            js_min(crate::MAX_MANA, 100.0 + mm + int_mana)
         }
         other => stats.num_or0(other),
     }
@@ -5234,7 +5250,14 @@ impl DenseCtx {
                 post_item_adds.extend(scratch_arena.iter().copied());
             }
             scratch_arena.clear();
-            DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
+            let weapon_direct = DenseDirect::lower_item(
+                l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
+            let weapon_set_id = if weapon_direct.crafted {
+                None
+            } else {
+                weapon_direct.set_name.as_deref()
+                    .and_then(|n| l2.set_ids.get(n).copied())
+            };
             let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
             post_item_adds.extend(scratch_arena.iter().copied());
 
@@ -5274,7 +5297,7 @@ impl DenseCtx {
             Some(DenseDirect {
                 template_vals: Vec::new(),      // sized after interning settles
                 template_present: Vec::new(),
-                items, add_arena, post_item_adds, sets, sets_by_id,
+                items, add_arena, post_item_adds, weapon_set_id, sets, sets_by_id,
                 atree_prog, const_prog, static_prog,
                 term_capture, dam_mobs_idx, def_mobs_idx,
                 dam_tail: parse_tail(&dam_sim),
@@ -5913,7 +5936,7 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
         DInd::TotalMana => {
             let mm = s.num_or0(d.s_max_mana);
             let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-            100.0 + mm + int_mana
+            js_min(crate::MAX_MANA, 100.0 + mm + int_mana)
         }
         DInd::Plain(i) => s.num_or0(*i),
     }
@@ -6209,6 +6232,9 @@ pub struct DenseDirect {
     pub add_arena: Vec<(u32, f64)>,
     /// tome sums + weapon sums, applied after the per-leaf items (add_item order).
     pub post_item_adds: Vec<(u32, f64)>,
+    /// Fixed non-crafted weapon's set. Its stat adds live in
+    /// `post_item_adds`, but its membership participates in the set count.
+    pub weapon_set_id: Option<u32>,
     /// set name → per-(count-1) bonus adds (skp keys excluded).
     pub sets: HashMap<String, Vec<Option<Vec<(u32, f64)>>>>,
     /// `sets` addressed by the canonical set id.
@@ -6334,8 +6360,12 @@ impl DenseLeaf {
             trace::add(trace::FD_DIFF_SLOTS, diff);
             if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
-        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        let mut set_counts: [(u32, i64); 9] = [(u32::MAX, 0); 9];
         let mut n_sets = 0usize;
+        if let Some(sid) = dd.weapon_set_id {
+            set_counts[0] = (sid, 1);
+            n_sets = 1;
+        }
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
             let Some(item) = dd.items.get(*name) else { return false };
@@ -7003,7 +7033,7 @@ pub fn check_thresholds_obj(
             "total_mana" => {
                 let mm = stats.num_or0("maxMana");
                 let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-                100.0 + mm + int_mana
+                js_min(crate::MAX_MANA, 100.0 + mm + int_mana)
             }
             s if s.starts_with("finalSpellCost") => {
                 let n: i64 = s[s.len() - 1..].parse().unwrap_or(-1);
@@ -7046,7 +7076,7 @@ pub fn dense_check_thresholds(
             DThresh::TotalMana => {
                 let mm = s.num_or0(d.s_max_mana);
                 let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-                100.0 + mm + int_mana
+                js_min(crate::MAX_MANA, 100.0 + mm + int_mana)
             }
             DThresh::SpellCost { raw, pct, fin, base } => spell_cost_capped(
                 s.num_or0(d.s_int), s.num_or0(*raw), s.num_or0(*pct), s.num_or0(*fin),

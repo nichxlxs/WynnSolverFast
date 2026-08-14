@@ -147,10 +147,19 @@ let _trace = null;
 let _trace_started = 0;
 
 const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+const _TRACE_V3_COUNTERS = [
+    'recursion_calls', 'leaf_evaluator_calls',
+    'illegal_rejects', 'sp_bound_rejects', 'restriction_bound_rejects',
+    'precheck_rejects', 'initial_sp_rejects',
+    'sp_exact_calls', 'sp_exact_rejects',
+    'threshold_rejects', 'mana_rejects', 'ceiling_rejects',
+    'scored_leaves',
+];
 function _reset_trace() {
     if (!_cfg?.benchmark_trace) { _trace = null; return; }
-    _trace = { leaf_count: 0 };
+    _trace = { schema_version: 3, leaf_count: 0 };
     _trace_started = performance.now();
+    for (const counter of _TRACE_V3_COUNTERS) _trace[counter] = 0;
     for (const phase of _TRACE_PHASES) {
         _trace[phase + '_calls'] = 0;
         _trace[phase + '_ms'] = 0;
@@ -158,7 +167,11 @@ function _reset_trace() {
 }
 function _trace_snapshot() {
     if (!_trace) return null;
-    return { ..._trace, wall_ms: performance.now() - _trace_started };
+    // `_checked` includes both evaluated leaves and whole subtrees credited by
+    // admissible bounds.  Publishing it here avoids a hot-path increment for
+    // every credited leaf while making the v3 reconciliation explicit.
+    return { ..._trace, credited_leaves: _checked,
+        wall_ms: performance.now() - _trace_started };
 }
 function _trace_start(phase) {
     if (!_trace) return 0;
@@ -292,6 +305,18 @@ function _build_constraint_prechecks() {
 
     const thresholds = _cfg.restrictions?.stat_thresholds ?? [];
     if (thresholds.length === 0) return;
+
+    // These historical prechecks are not admissible for the exact solver:
+    // direct additive stats can be raised by set bonuses and variable atree
+    // scaling, while the EHP shortcut below assumes only 100 Def/Agi even
+    // though the evaluator accepts up to 150.  Keep the implementation for
+    // controlled before/after benchmarks, but make exact/default searches go
+    // through the authoritative threshold evaluator at the leaf.
+    //
+    // Browser callers may opt in explicitly; the Node benchmark harness can
+    // also use UNSAFE_PRECHECKS=1 without growing the production message.
+    const env_legacy = typeof process !== 'undefined' && process?.env?.UNSAFE_PRECHECKS === '1';
+    if (!_cfg.benchmark_legacy_prechecks && !env_legacy) return;
 
     // Compute fixed stat contributions (constant across all candidates).
     // atree_raw and static_boosts are both Maps.
@@ -704,6 +729,27 @@ function _run_level_enum() {
     let _dbg_leaf_time = 0;  // cumulative ms for feasible leaf processing
 
     const tracker = _make_illegal_tracker();
+    let _fixed_illegal_conflict = false;
+
+    // The weapon is fixed outside `partial`, but it still occupies an
+    // illegal-at-two set slot (notably Master Hive). Seed it before trying
+    // any gear candidate so a weapon + Hive piece is rejected exactly like
+    // two locked/elected gear pieces. Explicit metadata comes from search;
+    // the inference keeps older benchmark/init callers correct as well.
+    let weapon_illegal_set = _cfg.weapon_illegal_set ?? null;
+    if (!weapon_illegal_set && weapon_sm && !weapon_sm.has('NONE')
+        && !weapon_sm.get('crafted')) {
+        const set_name = weapon_sm.get('set');
+        if (set_name && sets.get(set_name)?.bonuses?.[1]?.illegal) {
+            weapon_illegal_set = set_name;
+        }
+    }
+    if (weapon_illegal_set && weapon_sm && !weapon_sm.has('NONE')
+        && !weapon_sm.get('crafted')) {
+        const weapon_illegal_name = _cfg.weapon_illegal_set_name
+            || _get_item_name(weapon_sm) || '__fixed_weapon__';
+        tracker.add(weapon_illegal_set, weapon_illegal_name);
+    }
 
     // Wrap NONE statMaps into the same {statMap, _illegalSet, _illegalSetName} format
     const none_items_wrapped = none_item_sms.map(sm => ({ statMap: sm, _illegalSet: null, _illegalSetName: null }));
@@ -747,11 +793,14 @@ function _run_level_enum() {
     };
 
     // Track illegal sets for locked items
-    for (const item of Object.values(partial)) {
+    for (const [slot, item] of Object.entries(partial)) {
         if (!item || !item.statMap || item.statMap.has('NONE')) continue;
-        const name = _get_item_name(item.statMap);
+        const name = _get_item_name(item.statMap) || `__fixed_${slot}__`;
         const is = item._illegalSet;
-        if (is && name) tracker.add(is, name);
+        if (is) {
+            if (tracker.blocks(is, name)) _fixed_illegal_conflict = true;
+            tracker.add(is, name);
+        }
     }
 
     // If this worker has a partition, apply it: restrict one slot's pool to [start, end)
@@ -793,6 +842,122 @@ function _run_level_enum() {
             _sp_suffix_max_prov[d][i] = _sp_suffix_max_prov[d + 1][i]
                 + _sp_max_pool_prov[d][i];
         }
+    }
+
+    // ── Reachable set-bonus SP bound ──────────────────────────────────────
+    //
+    // Set SP is part of calculate_skillpoints' free bonus.  Ignoring it in
+    // the cheap deficit bound can reject a prefix that becomes feasible when
+    // a later item activates a set tier.  The old correctness fallback was
+    // therefore to bypass the entire SP bound whenever a positive-SP set was
+    // present.  `reachable` (the production default) keeps the bound useful:
+    // for each set and depth, count how many remaining *slots* could still
+    // contribute a piece, then independently choose the best reachable tier
+    // in each SP lane.  Treating the sets and lanes independently is looser
+    // than reality (they compete for slots), hence an admissible upper bound.
+    //
+    // SP_SET_BOUND_MODE=bypass retains the old safe fallback for A/B runs.
+    const _sp_set_mode = _cfg.sp_set_bound_mode
+        ?? ((typeof process !== 'undefined' && process?.env?.SP_SET_BOUND_MODE) || 'reachable');
+    const _sp_set_names = [];
+    const _sp_set_rows = [];
+    const _sp_set_ids = new Map();
+    const _sp_scenario_sets = new Set();
+    const remember_set = (sm) => {
+        if (!sm || sm.has('NONE') || sm.get('crafted')) return;
+        const name = sm.get('set');
+        if (name) _sp_scenario_sets.add(name);
+    };
+    for (const item of Object.values(partial)) remember_set(item?.statMap);
+    remember_set(guild_tome_sm);
+    remember_set(weapon_sm);
+    for (let d = 0; d < N_free; d++) {
+        for (const item of (_get_pool(free_slots[d]) ?? [])) remember_set(item.statMap);
+    }
+    for (const [name, data] of sets) {
+        if (!_sp_scenario_sets.has(name)) continue;
+        const bonuses = data?.bonuses ?? [];
+        let has_positive_sp = false;
+        for (const bonus of bonuses) {
+            for (let j = 0; j < 5; j++) {
+                if ((bonus?.[skp_order[j]] ?? 0) > 0) {
+                    has_positive_sp = true;
+                    break;
+                }
+            }
+            if (has_positive_sp) break;
+        }
+        if (!has_positive_sp) continue;
+        const sid = _sp_set_names.length;
+        _sp_set_ids.set(name, sid);
+        _sp_set_names.push(name);
+        // Prefix maxima make each hot-path lookup O(5), independent of the
+        // number of tiers. Including an earlier, no-longer-reachable tier is
+        // deliberately optimistic when bonuses are non-monotone.
+        const best = new Int32Array(5);
+        _sp_set_rows.push(bonuses.map(b => {
+            for (let j = 0; j < 5; j++) {
+                const value = b?.[skp_order[j]] ?? 0;
+                if (value > best[j]) best[j] = value;
+            }
+            return Int32Array.from(best);
+        }));
+    }
+    const _sp_n_sets = _sp_set_names.length;
+    const _sp_set_counts = new Int16Array(_sp_n_sets);
+    // Row d says how many slots in [d, N_free) contain at least one item of
+    // the set.  Counting a slot once is important: a pool can contain many
+    // pieces, but a completion can choose only one of them.
+    const _sp_set_reachable = new Uint8Array((N_free + 1) * _sp_n_sets);
+    for (let d = N_free - 1; d >= 0; d--) {
+        const row = d * _sp_n_sets;
+        const next = (d + 1) * _sp_n_sets;
+        for (let sid = 0; sid < _sp_n_sets; sid++) {
+            _sp_set_reachable[row + sid] = _sp_set_reachable[next + sid];
+        }
+        const seen = new Uint8Array(_sp_n_sets);
+        for (const item of (_get_pool(free_slots[d]) ?? [])) {
+            const sm = item.statMap;
+            if (sm.get('crafted')) continue;
+            const sid = _sp_set_ids.get(sm.get('set'));
+            if (sid !== undefined) seen[sid] = 1;
+        }
+        for (let sid = 0; sid < _sp_n_sets; sid++) {
+            _sp_set_reachable[row + sid] += seen[sid];
+        }
+    }
+    const _sp_set_bound_scratch = new Int32Array(5);
+
+    /**
+     * Componentwise optimistic set SP available after choosing candidate_sid
+     * and then filling slots [next_depth, N_free).  The returned scratch
+     * vector is consumed immediately by the caller.
+     */
+    function _sp_reachable_set_bonus(next_depth, candidate_sid = -1) {
+        _sp_set_bound_scratch.fill(0);
+        if (_sp_n_sets === 0) return _sp_set_bound_scratch;
+        const row = next_depth * _sp_n_sets;
+        for (let sid = 0; sid < _sp_n_sets; sid++) {
+            const rows = _sp_set_rows[sid];
+            if (rows.length === 0) continue;
+            const current = _sp_set_counts[sid] + (sid === candidate_sid ? 1 : 0);
+            const max_count = Math.min(rows.length,
+                current + _sp_set_reachable[row + sid]);
+            if (max_count > 0) {
+                // The prefix maximum includes zero and all earlier tiers.
+                // That is an upper bound even when current > rows.length
+                // (the exact solver clamps to the last tier) or a selected
+                // piece makes an earlier tier no longer reachable.
+                const bonus = rows[max_count - 1];
+                for (let j = 0; j < 5; j++) {
+                    // Bonuses from distinct sets are additive. Summing each
+                    // set's independent maximum also permits impossible slot
+                    // combinations, which only makes the bound looser.
+                    _sp_set_bound_scratch[j] += bonus[j];
+                }
+            }
+        }
+        return _sp_set_bound_scratch;
     }
 
     // ── Mid-tree restriction suffix bounds (P1.5) ───────────────────────────
@@ -907,6 +1072,7 @@ function _run_level_enum() {
     const _col_hp = new Array(N_free);    // Float64Array [offset] | null
     const _col_req = new Array(N_free);   // Int32Array [offset*5 + j]
     const _col_prov = new Array(N_free);  // Int32Array [offset*5 + j], non-crafted positive skp
+    const _col_set = new Array(N_free);   // Int16Array [offset], relevant set id or -1
     for (let d = 0; d < N_free; d++) {
         const pool = _get_pool(free_slots[d]) ?? [];
         const n = pool.length;
@@ -914,6 +1080,8 @@ function _run_level_enum() {
         const hps = _hp_prechecks_active ? new Float64Array(n) : null;
         const reqs = new Int32Array(n * 5);
         const provs = new Int32Array(n * 5);
+        const setids = new Int16Array(n);
+        setids.fill(-1);
         for (let o = 0; o < n; o++) {
             const sm = pool[o].statMap;
             if (pcs) {
@@ -927,6 +1095,10 @@ function _run_level_enum() {
             const req = sm.get('reqs');
             const skp = sm.get('skillpoints');
             const crafted = sm.get('crafted');
+            if (!crafted) {
+                const sid = _sp_set_ids.get(sm.get('set'));
+                if (sid !== undefined) setids[o] = sid;
+            }
             for (let j = 0; j < 5; j++) {
                 reqs[o * 5 + j] = req[j];
                 provs[o * 5 + j] = (!crafted && skp[j] > 0) ? skp[j] : 0;
@@ -936,6 +1108,7 @@ function _run_level_enum() {
         _col_hp[d] = hps;
         _col_req[d] = reqs;
         _col_prov[d] = provs;
+        _col_set[d] = setids;
     }
 
     // Per-depth hoist buffers (recursion-safe: one set per depth).
@@ -951,16 +1124,21 @@ function _run_level_enum() {
 
     /** SP bound for placing pool[offset] at slot_idx (bases pre-hoisted). */
     function _sp_bound_ok(slot_idx, offset) {
+        // Safe comparison mode used to quantify what the reachable-set bound
+        // buys over the old global bypass.
+        if (_sp_set_mode === 'bypass' && _sp_n_sets > 0) return true;
         const req_col = _col_req[slot_idx];
         const prov_col = _col_prov[slot_idx];
         const prov_sfx = _hoist_prov_sfx[slot_idx];
+        const set_bonus = _sp_reachable_set_bonus(
+            slot_idx + 1, _col_set[slot_idx][offset]);
         const ro = offset * 5;
         let total_deficit = 0;
         for (let j = 0; j < 5; j++) {
             const r = req_col[ro + j];
             const m = r > _sp_running_max_eff_req[j] ? r : _sp_running_max_eff_req[j];
             if (m === 0) continue;
-            const prov = prov_sfx[j] + prov_col[ro + j];
+            const prov = prov_sfx[j] + prov_col[ro + j] + set_bonus[j];
             if (m <= prov) continue;
             const deficit = m - prov;
             if (deficit > SP_PER_ATTR_CAP) return false;
@@ -1341,6 +1519,7 @@ function _run_level_enum() {
         if (restrictions.stat_thresholds.length > 0) {
             if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
                 _trace_end('threshold', threshold_t0);
+                if (_trace) _trace.threshold_rejects++;
                 _dbg_threshold_reject++;
                 return null;
             }
@@ -1358,6 +1537,7 @@ function _run_level_enum() {
                     const ts2 = _assemble_threshold_stats(combo_base);
                     if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
                         _trace_end('mana', mana_t0);
+                        if (_trace) _trace.threshold_rejects++;
                         _dbg_threshold_reject++;
                         return null;
                     }
@@ -1371,6 +1551,7 @@ function _run_level_enum() {
             }
             if (!mana_hp_result) {
                 _trace_end('mana', mana_t0);
+                if (_trace) _trace.mana_rejects++;
                 if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
                 return null;
             }
@@ -1386,7 +1567,10 @@ function _run_level_enum() {
 
     function _evaluate_leaf() {
         _checked++;
-        if (_trace) _trace.leaf_count++;
+        if (_trace) {
+            _trace.leaf_count++;
+            _trace.leaf_evaluator_calls++;
+        }
         const precheck_t0 = _trace_start('precheck');
 
         // Fast constraint precheck: reject builds that can't meet simple
@@ -1397,6 +1581,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1404,6 +1589,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1433,9 +1619,14 @@ function _run_level_enum() {
 
         // Combined SP feasibility check + full calculation (single pass).
         const sp_t0 = _trace_start('sp');
+        if (_trace) _trace.sp_exact_calls++;
         const sp_result = calculate_skillpoints(_scratch_sp_input, weapon_sm, sp_budget, _scratch_sp_set_counts, _scratch_sp);
         _trace_end('sp', sp_t0);
         if (!sp_result) {
+            if (_trace) {
+                _trace.sp_exact_rejects++;
+                _trace.initial_sp_rejects++;
+            }
             _dbg_sp_reject++;
             _maybe_progress();
             return;
@@ -1480,6 +1671,7 @@ function _run_level_enum() {
             // Strict margin: a float-ulp monotonicity wobble must never gate
             // a genuine top-N candidate.
             if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
+                if (_trace) _trace.ceiling_rejects++;
                 _dbg_ceiling_skip++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
@@ -1493,6 +1685,7 @@ function _run_level_enum() {
             const res = _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
             if (_dbg) _dbg_leaf_time += performance.now() - t0;
             if (!res) { _maybe_progress(); return; }
+            if (_trace) _trace.scored_leaves++;
             _dbg_scored++;
             _met_req++;
             const topn_t0 = _trace_start('topn');
@@ -1534,6 +1727,7 @@ function _run_level_enum() {
             }
             bundles = _tome_bundle_pass;
             if (bundles.length === 0) {
+                if (_trace) _trace.ceiling_rejects++;
                 _dbg_ceiling_skip++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
@@ -1548,9 +1742,13 @@ function _run_level_enum() {
             const cand = guild_cands[gi];
             _scratch_sp_input[8] = cand.sm;
             const csp_t0 = _trace_start('sp');
+            if (_trace) _trace.sp_exact_calls++;
             const cr = calculate_skillpoints(_scratch_sp_input, weapon_sm, sp_budget, _scratch_sp_set_counts, _scratch_sp);
             _trace_end('sp', csp_t0);
-            if (!cr) continue;
+            if (!cr) {
+                if (_trace) _trace.sp_exact_rejects++;
+                continue;
+            }
             const cand_base = cr[0], cand_total = cr[1], cand_assigned = cr[2];
             // Snapshot the solve result: greedy and rescue mutate the arrays,
             // so each bundle run starts from the solved state, not the
@@ -1575,6 +1773,7 @@ function _run_level_enum() {
         _leaf_extra_stats = null;
         if (_dbg) _dbg_leaf_time += performance.now() - t0;
         if (!best) { _maybe_progress(); return; }
+        if (_trace) _trace.scored_leaves++;
         _dbg_scored++;
         _met_req++;
         const topn_t0 = _trace_start('topn');
@@ -1748,6 +1947,26 @@ function _run_level_enum() {
         return p[hi_c + 1] - p[lo_c];
     }
 
+    /**
+     * Exact canonical leaves in a root band for THIS worker partition.
+     * Ring partitions are bounds on the outer ring offset rather than sliced
+     * pools, so spell them out here instead of relying on the normal
+     * enumerate() loop. Rebuilding the ring2 row preserves j >= i symmetry.
+     */
+    function _root_band_credit(lo, hi) {
+        if (N_free === 0) return lo <= 0 && hi >= 0 ? 1 : 0;
+        const lb = _slot_lb[0], ub = _slot_ub[0];
+        if (lb > ub) return 0;
+        let total = 0;
+        for (let offset = lb; offset <= ub; offset++) {
+            if (ring1_depth === 0 && both_rings_free && rings_contiguous) {
+                _rebuild_ring2_subtree_leaf_count(offset);
+            }
+            total += _band_credit(1, lo - offset, hi - offset);
+        }
+        return total;
+    }
+
     // Max achievable rank sum from depth d onward (band reachability).
     const _suffix_max_rank = new Int32Array(N_free + 1);
     for (let d = N_free - 1; d >= 0; d--) {
@@ -1805,6 +2024,13 @@ function _run_level_enum() {
     function _sp_compute_fixed_baseline() {
         _sp_fixed_max_eff_req.fill(0);
         _sp_fixed_sum_prov.fill(0);
+        _sp_set_counts.fill(0);
+
+        const count_set = (sm) => {
+            if (!sm || sm.has('NONE') || sm.get('crafted')) return;
+            const sid = _sp_set_ids.get(sm.get('set'));
+            if (sid !== undefined) _sp_set_counts[sid]++;
+        };
 
         const free_set = new Set(free_slots);
         for (const [slot, item] of Object.entries(partial)) {
@@ -1814,6 +2040,7 @@ function _run_level_enum() {
             const skp = sm.get('skillpoints');
             const req = sm.get('reqs');
             const is_crafted = sm.get('crafted');
+            count_set(sm);
 
             if (!is_crafted) {
                 for (let i = 0; i < 5; i++) {
@@ -1848,6 +2075,7 @@ function _run_level_enum() {
                 if (eff > _sp_fixed_max_eff_req[i])
                     _sp_fixed_max_eff_req[i] = eff;
             }
+            count_set(guild_baseline_sm);
         }
 
         // Weapon: raw requirements only, excluded from prov
@@ -1856,6 +2084,9 @@ function _run_level_enum() {
             if (wep_req[i] > _sp_fixed_max_eff_req[i])
                 _sp_fixed_max_eff_req[i] = wep_req[i];
         }
+        // A fixed, non-crafted weapon participates in set activation even
+        // though its own item SP remains excluded from provision.
+        count_set(weapon_sm);
     }
 
     /**
@@ -1881,6 +2112,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] += skp[i];
             }
+            const sid = _sp_set_ids.get(sm.get('set'));
+            if (sid !== undefined) _sp_set_counts[sid]++;
         }
 
         // Snapshot the running max, then fold in this item's raw requirements
@@ -1903,6 +2136,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] -= skp[i];
             }
+            const sid = _sp_set_ids.get(sm.get('set'));
+            if (sid !== undefined) _sp_set_counts[sid]--;
         }
 
         const save = _sp_max_save[depth];
@@ -1915,13 +2150,16 @@ function _run_level_enum() {
      */
     function _sp_mid_tree_feasible(next_depth) {
         if (next_depth >= N_free) return true;
+        if (_sp_set_mode === 'bypass' && _sp_n_sets > 0) return true;
 
+        const set_bonus = _sp_reachable_set_bonus(next_depth);
         let total_deficit = 0;
         for (let i = 0; i < 5; i++) {
             if (_sp_running_max_eff_req[i] === 0) continue;
             const optimistic_prov = _sp_fixed_sum_prov[i]
                 + _sp_running_free_prov[i]
-                + _sp_suffix_max_prov[next_depth][i];
+                + _sp_suffix_max_prov[next_depth][i]
+                + set_bonus[i];
             if (_sp_running_max_eff_req[i] <= optimistic_prov) continue;
             const deficit = _sp_running_max_eff_req[i] - optimistic_prov;
             if (deficit > SP_PER_ATTR_CAP) return false;
@@ -1938,10 +2176,12 @@ function _run_level_enum() {
      * ~20 int ops, zero allocation — cheapest possible rejection at the leaf.
      */
     function _sp_leaf_feasible() {
+        if (_sp_set_mode === 'bypass' && _sp_n_sets > 0) return true;
+        const set_bonus = _sp_reachable_set_bonus(N_free);
         let total_deficit = 0;
         for (let i = 0; i < 5; i++) {
             if (_sp_running_max_eff_req[i] === 0) continue;
-            const prov = _sp_fixed_sum_prov[i] + _sp_running_free_prov[i];
+            const prov = _sp_fixed_sum_prov[i] + _sp_running_free_prov[i] + set_bonus[i];
             if (_sp_running_max_eff_req[i] <= prov) continue;
             const deficit = _sp_running_max_eff_req[i] - prov;
             if (deficit > SP_PER_ATTR_CAP) return false;
@@ -1959,6 +2199,7 @@ function _run_level_enum() {
     // lo_rem may go <= 0 (no lower bound left); hi_rem is the budget.
     function enumerate(slot_idx, lo_rem, hi_rem) {
         if (_cancelled) return;
+        if (_trace) _trace.recursion_calls++;
 
         if (slot_idx === N_free) {
             _evaluate_leaf();
@@ -2040,15 +2281,18 @@ function _run_level_enum() {
                     // Illegal-set blocked — the single leaf for this tuple is still
                     // counted toward total, so credit it to _checked.
                     _checked++;
+                    if (_trace) _trace.illegal_rejects++;
                     _maybe_progress();
                 } else if (!_sp_bound_ok(slot_idx, offset)) {
                     // Same outcome _sp_leaf_feasible would produce after placing.
                     _checked++;
+                    if (_trace) _trace.sp_bound_rejects++;
                     _dbg_sp_leaf_reject++;
                     _maybe_progress();
                 } else if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
                     // Same outcome the leaf prechecks would produce after placing.
                     _checked++;
+                    if (_trace) _trace.restriction_bound_rejects++;
                     _precheck_reject++;
                     _dbg_precheck_reject++;
                     _maybe_progress();
@@ -2090,6 +2334,7 @@ function _run_level_enum() {
                 }
                 const skipped = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += skipped;
+                if (_trace) _trace.illegal_rejects += skipped;
                 _maybe_progress();
                 continue;
             }
@@ -2100,6 +2345,7 @@ function _run_level_enum() {
                 }
                 const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += pruned;
+                if (_trace) _trace.sp_bound_rejects += pruned;
                 _dbg_sp_prune_count += pruned;
                 _maybe_progress();
                 continue;
@@ -2113,6 +2359,7 @@ function _run_level_enum() {
                 }
                 const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += pruned;
+                if (_trace) _trace.restriction_bound_rejects += pruned;
                 _precheck_reject += pruned;
                 _dbg_restr_prune_count += pruned;
                 _maybe_progress();
@@ -2142,7 +2389,13 @@ function _run_level_enum() {
 
     _sp_reset();
     if (N_free === 0) {
-        _evaluate_leaf();
+        if (_fixed_illegal_conflict) {
+            _checked++;
+            if (_trace) _trace.illegal_rejects++;
+            _maybe_progress();
+        } else {
+            _evaluate_leaf();
+        }
     } else {
         // Geometric level bands: strict per-level ordering for the first,
         // narrow bands (the quality-critical head of the search) and
@@ -2153,7 +2406,17 @@ function _run_level_enum() {
         while (band_lo <= L_max && !_cancelled) {
             const band_hi = Math.min(L_max, band_lo + band_width - 1);
             _current_L = band_hi;
-            enumerate(0, band_lo, band_hi);
+            if (_fixed_illegal_conflict) {
+                // Every completion inherits the invalid fixed base. Credit
+                // this band's exact canonical/partitioned leaf count without
+                // descending or double-counting evaluator calls.
+                const skipped = _root_band_credit(band_lo, band_hi);
+                _checked += skipped;
+                if (_trace) _trace.illegal_rejects += skipped;
+                _maybe_progress();
+            } else {
+                enumerate(0, band_lo, band_hi);
+            }
             band_lo = band_hi + 1;
             band_width *= 2;
         }

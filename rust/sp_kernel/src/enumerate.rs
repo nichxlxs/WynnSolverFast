@@ -3,13 +3,14 @@
 //! Replays a solver scenario exported by test_solver_search.js
 //! (SOLVER_EXPORT_RUST=<path>): level-based enumeration over free slots with
 //! ring canonicalization, illegal-set blocking, mid-tree SP feasibility
-//! pruning, restriction/EHP suffix-bound pruning, leaf prechecks, and the
-//! exact SP kernel at surviving leaves. Reports the same funnel counters as
+//! pruning, optional legacy restriction/EHP prechecks, and the exact SP
+//! kernel at surviving leaves. Reports the same funnel counters as
 //! the JS worker (checked / precheck_reject / feasible) and wall time.
 //!
-//! Scoring (greedy SP, mana sim, damage) is intentionally absent: feasible
-//! leaves are counted, not scored, so compare against the JS run's funnel
-//! and treat the time as the enumeration+SP engine cost.
+//! With a score fixture this runs the authoritative leaf pipeline. Without
+//! one it is an enumeration+SP throughput replay only: constraint-bearing
+//! fixtures fail closed unless `ALLOW_RELAXED_CONSTRAINTS=1` explicitly
+//! accepts non-game-accurate feasible/result counts.
 //!
 //! Usage: enum_kernel <fixture.txt> [threads]
 //!
@@ -64,12 +65,167 @@ struct AdaptiveBound {
 ///
 /// Was four million, which let the map grow far past any cache: every probe
 /// then paid a miss to the table itself, and on a low-hit scenario the memo
-/// cost more than recomputing the ceiling it was caching. A ceiling eval is
-/// microseconds against nanoseconds for a probe, so the memo is worth having
-/// at almost any hit rate -- what it is not worth is being large. Capped
-/// here at a size that stays cache-resident; on overflow the map is cleared
-/// and refills against the current part of the search.
+/// cost more than recomputing the ceiling it was caching. When the adaptive
+/// policy keeps it enabled, cap it at a cache-friendlier size; on overflow the
+/// map is cleared and refills against the current part of the search.
 const BOUND_MEMO_CAP: usize = 1 << 18;
+
+const BOUND_MEMO_SAMPLE: u64 = 65_536;
+const BOUND_MEMO_RETRY: u64 = 2_000_000;
+const BOUND_MEMO_OFFSET_BITS: usize = 7;
+const BOUND_MEMO_MAX_POOL_LEN: usize = 1 << BOUND_MEMO_OFFSET_BITS;
+const BOUND_MEMO_MAX_RESIDUAL: usize = (1 << 11) - 1;
+
+/// Whether every subtree, fine-cluster, and super-cluster key fits the
+/// packed `u64` layout used by the shared objective memo.
+///
+/// Pool offsets occupy seven bits. Letting an offset exceed 127 does not
+/// merely truncate it: the high bit spills into the adjacent offset field,
+/// so two different prefixes can have the same key. The subtree key also
+/// reserves eleven bits for the remaining rank sum. Disable the *whole*
+/// shared memo unless both constraints hold; `BOUND_MEMO_MODE=on` must not
+/// be able to override an exactness guard.
+fn packed_bound_memo_keys_safe(fx: &Fixture) -> bool {
+    fx.slots.len() <= 8
+        && fx.slots.iter().all(|s| s.pool.len() <= BOUND_MEMO_MAX_POOL_LEN)
+        && fx.slots.iter()
+            .map(|s| s.pool.len().saturating_sub(1))
+            .sum::<usize>() <= BOUND_MEMO_MAX_RESIDUAL
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoundMemoMode { On, Off, Auto }
+
+/// Adaptive policy for the objective-ceiling memo.
+///
+/// A memo lookup is only cheaper than recomputing when prefixes recur often
+/// enough.  In auto mode we sample a deterministic 65,536 probes, disable
+/// below a 75% hit rate, clear the now-dead table, and retry after two million
+/// would-be probes because later level bands can have very different reuse.
+struct BoundMemoPolicy {
+    mode: BoundMemoMode,
+    /// False when a fixture cannot be represented by every packed key
+    /// family. This is an exactness guard, not an adaptive decision.
+    key_safe: bool,
+    enabled: bool,
+    sample_probes: u64,
+    sample_hits: u64,
+    retry_remaining: u64,
+    total_probes: u64,
+    total_hits: u64,
+    disables: u64,
+}
+
+impl BoundMemoPolicy {
+    fn new(key_safe: bool) -> Self {
+        let mode = match env::var("BOUND_MEMO_MODE").ok().as_deref() {
+            Some("on") => BoundMemoMode::On,
+            Some("off") => BoundMemoMode::Off,
+            Some("auto") | None => BoundMemoMode::Auto,
+            Some(other) => {
+                eprintln!("bound memo: unknown BOUND_MEMO_MODE={other:?}; using auto");
+                BoundMemoMode::Auto
+            }
+        };
+        let mut policy = Self::for_mode(mode);
+        policy.key_safe = key_safe;
+        if !key_safe { policy.enabled = false; }
+        policy
+    }
+
+    fn for_mode(mode: BoundMemoMode) -> Self {
+        BoundMemoPolicy {
+            mode,
+            key_safe: true,
+            enabled: mode != BoundMemoMode::Off,
+            sample_probes: 0,
+            sample_hits: 0,
+            retry_remaining: 0,
+            total_probes: 0,
+            total_hits: 0,
+            disables: 0,
+        }
+    }
+
+    /// Whether this opportunity should probe the table.
+    #[inline]
+    fn begin_probe(&mut self) -> bool {
+        if !self.key_safe { return false; }
+        match self.mode {
+            BoundMemoMode::On => true,
+            BoundMemoMode::Off => false,
+            BoundMemoMode::Auto if self.enabled => true,
+            BoundMemoMode::Auto => {
+                if self.retry_remaining > 1 {
+                    self.retry_remaining -= 1;
+                    return false;
+                }
+                self.enabled = true;
+                self.sample_probes = 0;
+                self.sample_hits = 0;
+                self.retry_remaining = 0;
+                true
+            }
+        }
+    }
+
+    /// Records an actual table probe. Returns true when the table should be
+    /// cleared because auto mode just disabled it.
+    #[inline]
+    fn record_probe(&mut self, hit: bool) -> bool {
+        self.total_probes += 1;
+        if hit { self.total_hits += 1; }
+        if self.mode != BoundMemoMode::Auto { return false; }
+        self.sample_probes += 1;
+        if hit { self.sample_hits += 1; }
+        if self.sample_probes < BOUND_MEMO_SAMPLE { return false; }
+        // Integer comparison avoids float noise at exactly 75%.
+        if self.sample_hits * 4 < self.sample_probes * 3 {
+            self.enabled = false;
+            self.retry_remaining = BOUND_MEMO_RETRY;
+            self.disables += 1;
+            self.sample_probes = 0;
+            self.sample_hits = 0;
+            return true;
+        }
+        // A profitable memo stays on; resample the next window so it can
+        // still turn itself off if the search enters a low-reuse region.
+        self.sample_probes = 0;
+        self.sample_hits = 0;
+        false
+    }
+
+    #[inline]
+    fn stores(&self) -> bool {
+        self.key_safe && (self.mode == BoundMemoMode::On
+            || (self.mode == BoundMemoMode::Auto && self.enabled)
+        )
+    }
+
+    fn mode_name(&self) -> &'static str {
+        match self.mode {
+            BoundMemoMode::On => "on",
+            BoundMemoMode::Off => "off",
+            BoundMemoMode::Auto => "auto",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpSetBoundMode { Bypass, Reachable }
+
+impl SpSetBoundMode {
+    fn from_env() -> Self {
+        match env::var("SP_SET_BOUND_MODE").ok().as_deref() {
+            Some("bypass") => SpSetBoundMode::Bypass,
+            Some("reachable") | None => SpSetBoundMode::Reachable,
+            Some(other) => {
+                eprintln!("SP bound: unknown SP_SET_BOUND_MODE={other:?}; using reachable");
+                SpSetBoundMode::Reachable
+            }
+        }
+    }
+}
 
 const ADAPT_WINDOW: u64 = 8192;
 const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
@@ -135,12 +291,46 @@ pub struct Fixture {
     thp: Option<(f64, f64)>,        // threshold, fixed_hp
     hp_start: f64,
     weapon: Unit,
+    weapon_set_id: i32,
+    weapon_illegal_id: i32,
     guild: Option<(Unit, i32)>,     // unit, set_id
     fixed: Vec<(usize, Unit, i32, i32)>, // pos, unit, set_id, illegal_id
     slots: Vec<Slot>,
     set_table: Vec<Vec<[i32; 5]>>,  // set_id -> bonuses per count (count-1 indexed)
     fixed_names: Vec<(usize, String)>,   // pos, display name (NAMES section)
     none_names: Vec<String>,             // 8 none-item names by slot position
+}
+
+/// Names the serialized gameplay constraints which enum/SP-only execution
+/// cannot enforce authoritatively. The historical raw-additive and
+/// all-100-SP checks are deliberately not used as exact substitutes.
+fn relaxed_constraint_names(fx: &Fixture) -> Vec<&'static str> {
+    let mut names = Vec::with_capacity(4);
+    if !fx.pc_thresholds.is_empty() { names.push("PRECHECKS"); }
+    if fx.ehp.is_some() { names.push("EHP"); }
+    if fx.ehpna.is_some() { names.push("EHPNA"); }
+    if fx.thp.is_some() { names.push("THP"); }
+    names
+}
+
+/// Fail closed when a constraint-bearing fixture is launched without the
+/// authoritative scoring pipeline. `allow_relaxed` is intentionally a
+/// separate, explicit throughput-only opt-in; enabling the legacy unsafe
+/// prechecks does not make an enum-only result exact.
+fn validate_constraint_mode(
+    fx: &Fixture,
+    has_scoring: bool,
+    allow_relaxed: bool,
+) -> Result<(), String> {
+    let names = relaxed_constraint_names(fx);
+    if has_scoring || names.is_empty() || allow_relaxed { return Ok(()); }
+    Err(format!(
+        "refusing constrained enum-only run: fixture contains {}. \
+         Provide the matching score fixture for authoritative checks, or set \
+         ALLOW_RELAXED_CONSTRAINTS=1 only for throughput experiments whose \
+         feasible/result counts are not treated as game-accurate",
+        names.join(", "),
+    ))
 }
 
 pub fn parse_fixture(text: &str) -> Fixture {
@@ -176,6 +366,12 @@ pub fn parse_fixture(text: &str) -> Fixture {
 
     let wt = toks(next());
     let weapon = unit_from(&wt, 1);
+    // Current fixtures append the weapon's set id.  Keep old checked-in
+    // fixtures readable; -1 means no (or unknown) weapon set.
+    let weapon_set_id: i32 = wt.get(11).and_then(|v| v.parse().ok()).unwrap_or(-1);
+    // Likewise, the following optional field carries an illegal/exclusive
+    // set id so a fixed Hive weapon blocks a second Hive piece.
+    let weapon_illegal_id: i32 = wt.get(12).and_then(|v| v.parse().ok()).unwrap_or(-1);
 
     let gt = toks(next());
     let guild = if gt[1] == "1" {
@@ -278,7 +474,8 @@ pub fn parse_fixture(text: &str) -> Fixture {
     }
 
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, guild, fixed, slots, set_table, fixed_names, none_names }
+              weapon, weapon_set_id, weapon_illegal_id, guild, fixed, slots, set_table,
+              fixed_names, none_names }
 }
 
 pub struct Search<'a> {
@@ -291,6 +488,20 @@ pub struct Search<'a> {
 
     // Suffix bounds
     sp_suffix_max_prov: Vec<[i32; 5]>,   // [n_free+1][5]
+    /// Per-depth count of remaining slots that can contribute each set.
+    /// Flattened as [(n_free+1) * n_sets].
+    sp_set_reachable: Vec<u8>,
+    /// Set ids with at least one positive SP tier. Negative/zero-only sets
+    /// cannot improve an optimistic provision bound and are skipped.
+    sp_positive_sets: Vec<usize>,
+    /// Componentwise prefix maxima of each set's SP tiers. This turns a
+    /// hot-path reachability query into one O(5) lookup per positive set.
+    sp_set_best: Vec<Vec<[i32; 5]>>,
+    sp_set_has_positive: bool,
+    sp_set_bound_mode: SpSetBoundMode,
+    /// Legacy raw-additive/EHP(100) gates are benchmark-only; they are not
+    /// admissible for exact searches with sets, atree scaling, or 150 SP.
+    unsafe_prechecks: bool,
     pc_suffix: Vec<f64>,                 // [(n_free+1) * n_pc]
     hp_suffix: Vec<f64>,                 // [n_free+1]
 
@@ -310,6 +521,7 @@ pub struct Search<'a> {
     sp_max_save: Vec<[i32; 5]>,
     set_counts: Vec<i32>,
     illegal_counts: Vec<i32>,
+    fixed_illegal_conflict: bool,
     equips: [Unit; 8],
     equip_set: [i32; 8],
     ring1_placed_offset: usize,
@@ -388,8 +600,10 @@ pub struct Search<'a> {
     /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
     /// the prefix, not the band, and prefixes recur across band sweeps).
     bound_memo: std::collections::HashMap<u64, f64>,
-    /// Current prefix offsets (by depth) for memo keys.
-    prefix_offsets: [u8; 8],
+    bound_memo_policy: BoundMemoPolicy,
+    /// Current prefix offsets (by depth) for memo keys. Keep the untruncated
+    /// value even when the packed memo is safety-disabled for a wide pool.
+    prefix_offsets: [usize; 8],
 }
 
 impl<'a> Search<'a> {
@@ -421,6 +635,47 @@ impl<'a> Search<'a> {
             }
             for j in 0..5 {
                 sp_suffix_max_prov[d][j] = sp_suffix_max_prov[d + 1][j] + maxp[j];
+            }
+        }
+
+        // For every set, count the remaining slots that contain at least one
+        // non-crafted piece.  A pool may contain many pieces of one set, but a
+        // completion can select only one item from that slot, hence the
+        // per-slot `seen` bitmap.  The SP bound combines this reachability
+        // with the best tier per lane; ignoring competition between sets is
+        // deliberately optimistic and therefore admissible.
+        let n_sets = fx.set_table.len();
+        let mut sp_positive_sets = Vec::new();
+        let mut sp_set_best = Vec::with_capacity(n_sets);
+        for (sid, rows) in fx.set_table.iter().enumerate() {
+            let mut best = [0i32; 5];
+            let mut best_rows = Vec::with_capacity(rows.len());
+            for tier in rows {
+                for j in 0..5 {
+                    if tier[j] > best[j] { best[j] = tier[j]; }
+                }
+                best_rows.push(best);
+            }
+            if best.iter().any(|&v| v > 0) { sp_positive_sets.push(sid); }
+            sp_set_best.push(best_rows);
+        }
+        let sp_set_has_positive = !sp_positive_sets.is_empty();
+        let mut sp_set_reachable = vec![0u8; (n_free + 1) * n_sets];
+        for d in (0..n_free).rev() {
+            let row = d * n_sets;
+            let next = (d + 1) * n_sets;
+            for sid in 0..n_sets {
+                sp_set_reachable[row + sid] = sp_set_reachable[next + sid];
+            }
+            let mut seen = vec![false; n_sets];
+            for it in &fx.slots[d].pool {
+                if !it.crafted && it.set_id >= 0 {
+                    let sid = it.set_id as usize;
+                    if sid < n_sets { seen[sid] = true; }
+                }
+            }
+            for sid in 0..n_sets {
+                sp_set_reachable[row + sid] += u8::from(seen[sid]);
             }
         }
 
@@ -506,6 +761,7 @@ impl<'a> Search<'a> {
         let mut sp_fixed_prov = [0i32; 5];
         let mut set_counts = vec![0i32; fx.set_table.len()];
         let mut illegal_counts = vec![0i32; 64];
+        let mut fixed_illegal_conflict = false;
         let mut equips: [Unit; 8] = Default::default();
         let mut equip_set = [-1i32; 8];
         for (pos, u, set_id, illegal_id) in &fx.fixed {
@@ -520,7 +776,13 @@ impl<'a> Search<'a> {
                 if u.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = u.reqs[j]; }
             }
             if *set_id >= 0 && !u.crafted { set_counts[*set_id as usize] += 1; }
-            if *illegal_id >= 0 { illegal_counts[*illegal_id as usize] += 1; }
+            if *illegal_id >= 0 {
+                let iid = *illegal_id as usize;
+                if iid < illegal_counts.len() {
+                    if illegal_counts[iid] > 0 { fixed_illegal_conflict = true; }
+                    illegal_counts[iid] += 1;
+                }
+            }
         }
         if let Some((g, gset)) = &fx.guild {
             for j in 0..5 {
@@ -531,13 +793,28 @@ impl<'a> Search<'a> {
             }
             if *gset >= 0 && !g.crafted { set_counts[*gset as usize] += 1; }
         }
+        if fx.weapon_set_id >= 0 && !fx.weapon.crafted {
+            let sid = fx.weapon_set_id as usize;
+            if sid < set_counts.len() { set_counts[sid] += 1; }
+        }
+        if fx.weapon_illegal_id >= 0 && !fx.weapon.crafted {
+            let iid = fx.weapon_illegal_id as usize;
+            if iid < illegal_counts.len() {
+                if illegal_counts[iid] > 0 { fixed_illegal_conflict = true; }
+                illegal_counts[iid] += 1;
+            }
+        }
         for j in 0..5 {
             if fx.weapon.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = fx.weapon.reqs[j]; }
         }
 
         Search {
             fx, n_free, l_max, ring1_depth, ring2_depth, rings_contiguous,
-            sp_suffix_max_prov, pc_suffix, hp_suffix, subtree, subtree_prefix,
+            sp_suffix_max_prov, sp_set_reachable, sp_positive_sets,
+            sp_set_best, sp_set_has_positive,
+            sp_set_bound_mode: SpSetBoundMode::from_env(),
+            unsafe_prechecks: env::var("UNSAFE_PRECHECKS").as_deref() == Ok("1"),
+            pc_suffix, hp_suffix, subtree, subtree_prefix,
             suffix_max_rank, ring_pair_count,
             pc_running: fx.pc_start.clone(),
             hp_running: fx.hp_start,
@@ -548,6 +825,7 @@ impl<'a> Search<'a> {
             sp_max_save: vec![[0i32; 5]; n_free],
             set_counts,
             illegal_counts,
+            fixed_illegal_conflict,
             equips,
             equip_set,
             ring1_placed_offset: 0,
@@ -590,6 +868,7 @@ impl<'a> Search<'a> {
             dense_bound: None,
             bound_pruned: 0.0,
             bound_memo: std::collections::HashMap::new(),
+            bound_memo_policy: BoundMemoPolicy::new(packed_bound_memo_keys_safe(fx)),
             prefix_offsets: [0; 8],
         }
     }
@@ -610,21 +889,59 @@ impl<'a> Search<'a> {
         cutoff
     }
 
+    #[inline]
+    fn bound_memo_get(&mut self, key: u64) -> Option<f64> {
+        // A Search starts with an empty memo, but clear defensively as well:
+        // future fixture/pool reuse must never expose stale packed keys.
+        if !self.bound_memo_policy.key_safe {
+            self.bound_memo.clear();
+            return None;
+        }
+        if !self.bound_memo_policy.begin_probe() { return None; }
+        let value = self.bound_memo.get(&key).copied();
+        if crate::scoring::trace::fine() {
+            crate::scoring::trace::add(
+                if value.is_some() { crate::scoring::trace::BM_HIT }
+                else { crate::scoring::trace::BM_MISS }, 1);
+        }
+        if self.bound_memo_policy.record_probe(value.is_some()) {
+            self.bound_memo.clear();
+        }
+        value
+    }
+
+    #[inline]
+    fn bound_memo_insert(&mut self, key: u64, value: f64) {
+        if !self.bound_memo_policy.key_safe {
+            self.bound_memo.clear();
+            return;
+        }
+        if !self.bound_memo_policy.stores() { return; }
+        if self.bound_memo.len() >= BOUND_MEMO_CAP {
+            self.bound_memo.clear();
+        }
+        self.bound_memo.insert(key, value);
+    }
+
     /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
     /// the packed prefix. Returns true when the subtree CANNOT beat `cutoff`.
     fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
         let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
         let h_child = hi_rem - offset as i64;
+        debug_assert!(!self.bound_memo_policy.key_safe
+            || (depth < 7 && offset < BOUND_MEMO_MAX_POOL_LEN
+                && (0..=BOUND_MEMO_MAX_RESIDUAL as i64).contains(&h_child)
+                && self.prefix_offsets[..depth].iter()
+                    .all(|&p| p < BOUND_MEMO_MAX_POOL_LEN)));
         let mut key = (depth as u64) << 60;
         key |= (h_child.clamp(0, 2047) as u64) & 0x7FF;
         for d in 0..depth {
             key |= (self.prefix_offsets[d] as u64) << (11 + d * 7);
         }
         key |= (offset as u64) << (11 + depth * 7);
-        let ceiling = match self.bound_memo.get(&key) {
-            Some(&c) => { if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); } c }
+        let ceiling = match self.bound_memo_get(key) {
+            Some(c) => c,
             None => {
-                if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_MISS, 1); }
                 let slot = &self.fx.slots[depth];
                 let mut names = self.equip_names;
                 names[slot.pos] = &slot.item_names[offset];
@@ -641,7 +958,7 @@ impl<'a> Search<'a> {
                         &sc.hit_refs, &sc.tables, &sc.objective, Some(&sc.compiled_rows),
                     ).expect("bound eval error"),
                 };
-                self.bound_memo.insert(key, c);
+                self.bound_memo_insert(key, c);
                 c
             }
         };
@@ -792,7 +1109,12 @@ impl<'a> Search<'a> {
     /// SP bound for placing pool[offset] at `depth` — identical outcome to
     /// placing and running sp_mid_tree_feasible / sp_leaf_feasible.
     fn sp_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+        if self.sp_set_bound_mode == SpSetBoundMode::Bypass
+            && self.sp_set_has_positive { return true; }
         let it = &self.fx.slots[depth].pool[offset];
+        let next_depth = if is_leaf { self.n_free } else { depth + 1 };
+        let candidate_set = if !it.crafted { it.set_id } else { -1 };
+        let set_bonus = self.reachable_set_bonus(next_depth, candidate_set);
         let mut total_deficit = 0i32;
         for j in 0..5 {
             let own = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
@@ -800,7 +1122,8 @@ impl<'a> Search<'a> {
             if m == 0 { continue; }
             let item_prov = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
             let sfx = if is_leaf { 0 } else { self.sp_suffix_max_prov[depth + 1][j] };
-            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j] + item_prov + sfx;
+            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j]
+                + item_prov + sfx + set_bonus[j];
             if m <= prov { continue; }
             let deficit = m - prov;
             if deficit > SP_PER_ATTR_CAP { return false; }
@@ -810,8 +1133,42 @@ impl<'a> Search<'a> {
         true
     }
 
+    /// Componentwise upper bound on set SP after optionally choosing one
+    /// candidate and filling the remaining slots. Each set/lane independently
+    /// takes its best reachable tier; impossible combinations are allowed by
+    /// the bound, which can only make it looser (never reject a feasible leaf).
+    fn reachable_set_bonus(&self, next_depth: usize, candidate_set: i32) -> [i32; 5] {
+        let n_sets = self.fx.set_table.len();
+        let mut out = [0i32; 5];
+        if n_sets == 0 { return out; }
+        let row = next_depth * n_sets;
+        for &sid in &self.sp_positive_sets {
+            let rows = &self.fx.set_table[sid];
+            if rows.is_empty() { continue; }
+            let current = self.set_counts[sid]
+                + i32::from(candidate_set == sid as i32);
+            let max_count = (current + self.sp_set_reachable[row + sid] as i32)
+                .min(rows.len() as i32);
+            if max_count > 0 {
+                // Prefix maxima include zero and earlier tiers. This remains
+                // an upper bound when bonuses are non-monotone, or current
+                // exceeds rows.len() and the exact solver clamps to the last
+                // tier (possible with duplicate wearable pieces).
+                let bonus = self.sp_set_best[sid][max_count as usize - 1];
+                for j in 0..5 {
+                    // Distinct sets stack. Summing their independent maxima
+                    // allows impossible slot combinations and is therefore
+                    // optimistic, never an underestimate.
+                    out[j] += bonus[j];
+                }
+            }
+        }
+        out
+    }
+
     /// Restriction/EHP bound for placing pool[offset] at `depth`.
     fn restr_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+        if !self.unsafe_prechecks { return true; }
         let it = &self.fx.slots[depth].pool[offset];
         let n_pc = self.fx.pc_thresholds.len();
         for i in 0..n_pc {
@@ -827,11 +1184,14 @@ impl<'a> Search<'a> {
 
     fn sp_mid_tree_feasible(&self, next_depth: usize) -> bool {
         if next_depth >= self.n_free { return true; }
+        if self.sp_set_bound_mode == SpSetBoundMode::Bypass
+            && self.sp_set_has_positive { return true; }
+        let set_bonus = self.reachable_set_bonus(next_depth, -1);
         let mut total_deficit = 0i32;
         for j in 0..5 {
             if self.sp_max_req[j] == 0 { continue; }
             let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j]
-                + self.sp_suffix_max_prov[next_depth][j];
+                + self.sp_suffix_max_prov[next_depth][j] + set_bonus[j];
             if self.sp_max_req[j] <= prov { continue; }
             let deficit = self.sp_max_req[j] - prov;
             if deficit > SP_PER_ATTR_CAP { return false; }
@@ -842,10 +1202,13 @@ impl<'a> Search<'a> {
     }
 
     fn sp_leaf_feasible(&self) -> bool {
+        if self.sp_set_bound_mode == SpSetBoundMode::Bypass
+            && self.sp_set_has_positive { return true; }
+        let set_bonus = self.reachable_set_bonus(self.n_free, -1);
         let mut total_deficit = 0i32;
         for j in 0..5 {
             if self.sp_max_req[j] == 0 { continue; }
-            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j];
+            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j] + set_bonus[j];
             if self.sp_max_req[j] <= prov { continue; }
             let deficit = self.sp_max_req[j] - prov;
             if deficit > SP_PER_ATTR_CAP { return false; }
@@ -875,6 +1238,7 @@ impl<'a> Search<'a> {
     }
 
     fn restr_mid_tree_feasible(&self, next_depth: usize) -> bool {
+        if !self.unsafe_prechecks { return true; }
         let n_pc = self.fx.pc_thresholds.len();
         for i in 0..n_pc {
             if self.pc_running[i] + self.pc_suffix[next_depth * n_pc + i]
@@ -886,17 +1250,21 @@ impl<'a> Search<'a> {
     fn evaluate_leaf(&mut self) {
         self.checked += 1.0;
         self.maybe_report();
-        // Leaf prechecks (constraint + EHP family)
-        let n_pc = self.fx.pc_thresholds.len();
-        for i in 0..n_pc {
-            if self.pc_running[i] < self.fx.pc_thresholds[i] {
+        // The legacy raw-additive and EHP-at-100 gates are opt-in benchmark
+        // baselines only. Exact/default scoring applies restrictions after
+        // set bonuses, atree scaling, and the real (up to 150) SP allocation.
+        if self.unsafe_prechecks {
+            let n_pc = self.fx.pc_thresholds.len();
+            for i in 0..n_pc {
+                if self.pc_running[i] < self.fx.pc_thresholds[i] {
+                    self.precheck_reject += 1.0;
+                    return;
+                }
+            }
+            if !self.hp_gates_ok(self.hp_running) {
                 self.precheck_reject += 1.0;
                 return;
             }
-        }
-        if !self.hp_gates_ok(self.hp_running) {
-            self.precheck_reject += 1.0;
-            return;
         }
         self.precheck_pass += 1;
 
@@ -1047,9 +1415,38 @@ impl<'a> Search<'a> {
         illegal_id >= 0 && self.illegal_counts[illegal_id as usize] > 0
     }
 
+    /// Exact number of canonical leaves in a root band after applying this
+    /// Search's optional first-slot partition. Used to credit an invalid
+    /// fixed base without descending through every tuple.
+    fn root_band_credit(&mut self, lo_rem: i64, hi_rem: i64) -> f64 {
+        if self.n_free == 0 {
+            return f64::from(lo_rem <= 0 && hi_rem >= 0);
+        }
+        let pool_len = self.fx.slots[0].pool.len();
+        if pool_len == 0 { return self.band_credit(1, lo_rem, hi_rem); }
+        let from = self.part_lo.max(0);
+        let to = self.part_hi.min(pool_len as i64 - 1);
+        if from > to { return 0.0; }
+        let mut total = 0.0;
+        for offset in from..=to {
+            let o = offset as usize;
+            if self.ring1_depth == 0 && self.rings_contiguous {
+                self.rebuild_ring2_subtree(o);
+            }
+            total += self.band_credit(1, lo_rem - offset, hi_rem - offset);
+        }
+        total
+    }
+
     // Visit every completion whose remaining rank sum lies in [lo_rem, hi_rem].
     fn enumerate(&mut self, depth: usize, lo_rem: i64, hi_rem: i64) {
         if self.stop { return; }
+        if depth == 0 && self.fixed_illegal_conflict {
+            let skipped = self.root_band_credit(lo_rem, hi_rem);
+            self.checked += skipped;
+            self.maybe_report();
+            return;
+        }
         if depth == self.n_free {
             self.evaluate_leaf();
             return;
@@ -1093,13 +1490,17 @@ impl<'a> Search<'a> {
                                 && self.adapt_super.armed(self.checked)
                                 && crate::scoring::env_once!("SUPER_CLUSTER" != "0") {
                                 let sci = o / db.super_size;
+                                debug_assert!(!self.bound_memo_policy.key_safe
+                                    || (depth <= 7 && sci < BOUND_MEMO_MAX_POOL_LEN
+                                        && self.prefix_offsets[..depth].iter()
+                                            .all(|&p| p < BOUND_MEMO_MAX_POOL_LEN)));
                                 let mut skey = 0xEu64 << 60;
                                 skey |= (sci as u64) << 49;
                                 for dd in 0..depth {
                                     skey |= (self.prefix_offsets[dd] as u64) << (dd * 7);
                                 }
-                                let sceiling = match self.bound_memo.get(&skey) {
-                                    Some(&v) => { self.cluster_memo_hits += 1; v }
+                                let sceiling = match self.bound_memo_get(skey) {
+                                    Some(v) => { self.cluster_memo_hits += 1; v }
                                     None => {
                                         self.cluster_evals += 1;
                                         if prefix_state == 0 {
@@ -1119,10 +1520,7 @@ impl<'a> Search<'a> {
                                                 &sc.rows, &sc.compiled_rows, &sc.tables)
                                         } else { f64::INFINITY };
                                         bound_timer_end(bt0);
-                                        if self.bound_memo.len() >= BOUND_MEMO_CAP {
-                                            self.bound_memo.clear();
-                                        }
-                                        self.bound_memo.insert(skey, v);
+                                        self.bound_memo_insert(skey, v);
                                         v
                                     }
                                 };
@@ -1139,20 +1537,22 @@ impl<'a> Search<'a> {
                                 self.adapt_super.record(0.0, self.checked);
                             }
                             let c = o / db.cluster_size;
+                            debug_assert!(!self.bound_memo_policy.key_safe
+                                || (depth <= 7 && c < BOUND_MEMO_MAX_POOL_LEN
+                                    && self.prefix_offsets[..depth].iter()
+                                        .all(|&p| p < BOUND_MEMO_MAX_POOL_LEN)));
                             let mut key = 0xFu64 << 60;
                             key |= (c as u64) << 49;
                             for dd in 0..depth {
                                 key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
                             }
-                            let ceiling = match self.bound_memo.get(&key) {
-                                Some(&v) => {
+                            let ceiling = match self.bound_memo_get(key) {
+                                Some(v) => {
                                     self.cluster_memo_hits += 1;
-                                    if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); }
                                     v
                                 }
                                 None => {
                                     self.cluster_evals += 1;
-                                    if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_MISS, 1); }
                                     if prefix_state == 0 {
                                         prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                             Some((d, dd)) => {
@@ -1170,13 +1570,7 @@ impl<'a> Search<'a> {
                                             &sc.rows, &sc.compiled_rows, &sc.tables)
                                     } else { f64::INFINITY };
                                     bound_timer_end(bt0);
-                                    // Bound the memo's memory: recent
-                                    // prefixes dominate hits, so a periodic
-                                    // clear costs little and caps growth.
-                                    if self.bound_memo.len() >= BOUND_MEMO_CAP {
-                                        self.bound_memo.clear();
-                                    }
-                                    self.bound_memo.insert(key, v);
+                                    self.bound_memo_insert(key, v);
                                     v
                                 }
                             };
@@ -1280,7 +1674,7 @@ impl<'a> Search<'a> {
                 }
             }
             self.place(depth, o);
-            self.prefix_offsets[depth] = o as u8;
+            self.prefix_offsets[depth] = o;
             if slot_is_ring1 {
                 self.ring1_placed_offset = o;
                 if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
@@ -1308,7 +1702,12 @@ impl<'a> Search<'a> {
         self.next_report = 5.0;
 
         if self.n_free == 0 {
-            self.evaluate_leaf();
+            if self.fixed_illegal_conflict {
+                self.checked += 1.0;
+                self.maybe_report();
+            } else {
+                self.evaluate_leaf();
+            }
             return;
         }
         // Geometric level bands (see the JS worker): fine-grained ordering
@@ -1447,7 +1846,7 @@ pub fn run_single_with_progress(
             || sc.objective.needs_two_sided_ceiling() {
             return None;
         }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) { return None; }
+        if !packed_bound_memo_keys_safe(fx) { return None; }
         let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         sc.layer2.build_bound_tables(&pools).ok()
     });
@@ -1601,6 +2000,13 @@ pub fn solve_json_full(
             Err(e) => return format!("{{\"error\":{}}}", json_str(&e)),
         }
     };
+    let allow_relaxed_constraints =
+        env::var("ALLOW_RELAXED_CONSTRAINTS").as_deref() == Ok("1");
+    if let Err(message) = validate_constraint_mode(
+        &fx, ctx.is_some(), allow_relaxed_constraints,
+    ) {
+        return format!("{{\"error\":{}}}", json_str(&message));
+    }
     let part = if part_count > 1 {
         let pool_len = fx.slots.first().map(|s| s.pool.len()).unwrap_or(0);
         Some(partition_bounds(pool_len, part_index, part_count))
@@ -1715,6 +2121,8 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         thp: fx.thp,
         hp_start: fx.hp_start,
         weapon: fx.weapon,
+        weapon_set_id: fx.weapon_set_id,
+        weapon_illegal_id: fx.weapon_illegal_id,
         guild: fx.guild,
         fixed: fx.fixed.clone(),
         slots: fx.slots.iter().zip(&warm_sel).map(|(sl, sel)| Slot {
@@ -1765,6 +2173,25 @@ pub fn cli_main() {
     let n_threads: usize = args.get(2)
         .map(|s| s.parse().expect("threads must be a number"))
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
+    let cli_leaf_budget: Option<f64> = match env::var("ENUM_LEAF_BUDGET") {
+        Ok(raw) => match raw.parse::<f64>() {
+            Ok(value) if value.is_finite() && value > 0.0 => Some(value),
+            _ => {
+                eprintln!(
+                    "enum_kernel: error: ENUM_LEAF_BUDGET must be a finite number greater than zero",
+                );
+                std::process::exit(2);
+            }
+        },
+        Err(_) => None,
+    };
+    if cli_leaf_budget.is_some() && n_threads > 1 {
+        eprintln!(
+            "enum_kernel: error: ENUM_LEAF_BUDGET currently requires one thread; \
+             a per-worker budget is not an equivalent aggregate-work cap",
+        );
+        std::process::exit(2);
+    }
 
     // Optional scoring context (P2.4 layer 3): full leaf pipeline + top-N.
     let scoring_ctx: Option<crate::scoring::ScoringCtx> = args.get(3).map(|p| {
@@ -1777,6 +2204,21 @@ pub fn cli_main() {
         ctx
     });
     let scoring = scoring_ctx.as_ref();
+    let allow_relaxed_constraints =
+        env::var("ALLOW_RELAXED_CONSTRAINTS").as_deref() == Ok("1");
+    if let Err(message) = validate_constraint_mode(
+        &fx, scoring.is_some(), allow_relaxed_constraints,
+    ) {
+        eprintln!("enum_kernel: error: {message}");
+        std::process::exit(2);
+    }
+    if scoring.is_none() && !relaxed_constraint_names(&fx).is_empty() {
+        eprintln!(
+            "enum_kernel: warning: ALLOW_RELAXED_CONSTRAINTS=1; serialized \
+             constraints are not enforced authoritatively and feasible/result \
+             counts are throughput-only",
+        );
+    }
     crate::scoring::trace::init_from_env();
     let shared_cutoff = AtomicU64::new(0);
 
@@ -1790,8 +2232,8 @@ pub fn cli_main() {
         let bound_cluster_on: bool = env::var("BOUND_CLUSTER").ok()
             .and_then(|s| s.parse::<usize>().ok()).unwrap_or(4) > 0;
         if bound_max_depth == 0 && bound_tail == 0 && !bound_cluster_on { return None; }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) {
-            eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
+        if !packed_bound_memo_keys_safe(&fx) {
+            eprintln!("bound: fixture exceeds packed memo key limits — skipping bound");
             return None;
         }
         // Same gate as `run_single_with_progress`: dynamic rows make the
@@ -1839,9 +2281,17 @@ pub fn cli_main() {
         search.bound_max_depth = bound_max_depth;
         search.bound_tail = bound_tail;
         search.dense_bound = dense_bound;
+        search.leaf_budget = cli_leaf_budget;
         search.init_equip_names();
         search.run();
         let elapsed = start.elapsed();
+        if std::env::var("CLUSTER_STATS").as_deref() == Ok("1") {
+            let mp = &search.bound_memo_policy;
+            eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {} | memo_mode {} | memo_key_safe {} | memo_enabled {} | memo_probes {} | memo_total_hits {} | memo_disables {}",
+                      search.cluster_evals, search.cluster_memo_hits,
+                      search.bound_memo.len(), mp.mode_name(), mp.key_safe, mp.enabled,
+                      mp.total_probes, mp.total_hits, mp.disables);
+        }
         (Totals {
             checked: search.checked,
             precheck_reject: search.precheck_reject,
@@ -1912,8 +2362,11 @@ pub fn cli_main() {
                     }
                     search.flush_checked();
                     if std::env::var("CLUSTER_STATS").as_deref() == Ok("1") {
-                        eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {}",
-                                  search.cluster_evals, search.cluster_memo_hits, search.bound_memo.len());
+                        let mp = &search.bound_memo_policy;
+                        eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {} | memo_mode {} | memo_key_safe {} | memo_enabled {} | memo_probes {} | memo_total_hits {} | memo_disables {}",
+                                  search.cluster_evals, search.cluster_memo_hits,
+                                  search.bound_memo.len(), mp.mode_name(), mp.key_safe, mp.enabled,
+                                  mp.total_probes, mp.total_hits, mp.disables);
                     }
                     Totals {
                         checked: search.checked,
@@ -1992,8 +2445,9 @@ pub fn cli_main() {
     crate::scoring::trace::report();
     if scoring.is_some() {
         println!(
-            "scoring: scored {} | gated {} | mana_reject {} | thresh_reject {} | bound_pruned {}",
-            totals.scored, totals.gated, totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
+            "scoring: scored {} | gated {} | mana_reject {} | thresh_reject {} | bound_pruned {} | top15_count {}",
+            totals.scored, totals.gated, totals.mana_reject, totals.thresh_reject,
+            totals.bound_pruned, totals.top_n.len(),
         );
         for e in &totals.top_n {
             let (score, names) = (&e.score, &e.items);
@@ -2001,5 +2455,246 @@ pub fn cli_main() {
                 names.iter().filter(|n| !n.starts_with("No ")).cloned()
                     .collect::<Vec<_>>().join(", "));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bound_memo_auto_uses_exact_sample_cutoff_and_retries() {
+        let mut profitable = BoundMemoPolicy::for_mode(BoundMemoMode::Auto);
+        let threshold_hits = BOUND_MEMO_SAMPLE * 3 / 4;
+        for probe in 0..BOUND_MEMO_SAMPLE {
+            assert!(profitable.begin_probe());
+            assert!(!profitable.record_probe(probe < threshold_hits));
+        }
+        assert!(profitable.enabled, "exactly 75% hits must remain enabled");
+
+        let mut cold = BoundMemoPolicy::for_mode(BoundMemoMode::Auto);
+        for probe in 0..BOUND_MEMO_SAMPLE {
+            assert!(cold.begin_probe());
+            let clear = cold.record_probe(false);
+            assert_eq!(clear, probe + 1 == BOUND_MEMO_SAMPLE);
+        }
+        assert!(!cold.enabled);
+        assert_eq!(cold.retry_remaining, BOUND_MEMO_RETRY);
+        assert_eq!(cold.disables, 1);
+        assert!(!cold.begin_probe());
+        assert_eq!(cold.retry_remaining, BOUND_MEMO_RETRY - 1);
+        cold.retry_remaining = 1;
+        assert!(cold.begin_probe(), "the retry opportunity must re-arm sampling");
+        assert!(cold.enabled);
+
+        let mut off = BoundMemoPolicy::for_mode(BoundMemoMode::Off);
+        assert!(!off.begin_probe());
+        assert!(!off.stores());
+    }
+
+    #[test]
+    fn constrained_enum_only_mode_fails_closed_unless_explicitly_relaxed() {
+        let fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 1\n\
+             PC raw 1 0\n\
+             EHP 1 1000 100 1\n\
+             EHPNA 0 0 0 0\n\
+             THP 1 500 0\n\
+             HPSTART 0\n\
+             WEAPON 0 0 0 0 0 0 0 0 0 0 -1 -1\n\
+             GUILD 0\n\
+             NFIXED 0\n\
+             NSLOTS 0\n\
+             NSETS 0\n"
+        );
+        assert_eq!(relaxed_constraint_names(&fixture), vec!["PRECHECKS", "EHP", "THP"]);
+        let error = validate_constraint_mode(&fixture, false, false).unwrap_err();
+        assert!(error.contains("refusing constrained enum-only run"));
+        assert!(error.contains("score fixture"));
+        assert!(validate_constraint_mode(&fixture, true, false).is_ok(),
+            "the scoring pipeline performs authoritative checks");
+        assert!(validate_constraint_mode(&fixture, false, true).is_ok(),
+            "relaxed enum-only execution must be an explicit opt-in");
+    }
+
+    #[test]
+    fn wide_pool_disables_every_shared_packed_memo_key() {
+        let mut fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 0\n\
+             EHP 0 0 0 0\n\
+             EHPNA 0 0 0 0\n\
+             THP 0 0 0\n\
+             HPSTART 0\n\
+             WEAPON 0 0 0 0 0 0 0 0 0 0 -1 -1\n\
+             GUILD 0\n\
+             NFIXED 0\n\
+             NSLOTS 2\n\
+             SLOT helmet 0 0 0 1\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0\n\
+             SLOT chestplate 1 0 0 2\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0\n\
+             NSETS 0\n"
+        );
+        let prototype = fixture.slots[0].pool[0].clone();
+        fixture.slots[0].pool.resize(BOUND_MEMO_MAX_POOL_LEN + 1, prototype);
+
+        // This is the concrete old-layout collision: at depth one, prefix
+        // offset 128 spills into the candidate-offset field and aliases
+        // prefix 0 + candidate offset 1 (with the same residual).
+        let old_key = |prefix: u8, candidate: usize| {
+            (1u64 << 60)
+                | 7u64
+                | ((prefix as u64) << 11)
+                | ((candidate as u64) << 18)
+        };
+        assert_eq!(old_key(128, 0), old_key(0, 1));
+        assert!(!packed_bound_memo_keys_safe(&fixture));
+
+        let mut search = Search::new(&fixture);
+        // Even a forced-on mode cannot override the fixture exactness gate.
+        search.bound_memo_policy.mode = BoundMemoMode::On;
+        search.bound_memo_policy.enabled = true;
+        assert!(!search.bound_memo_policy.key_safe);
+        assert!(!search.bound_memo_policy.begin_probe());
+        assert!(!search.bound_memo_policy.stores());
+
+        // Simulate a stale colliding entry to verify the common get path
+        // rejects and clears it. The same common path serves subtree, fine
+        // cluster, and super-cluster lookups.
+        let collision = old_key(128, 0);
+        search.bound_memo.insert(collision, -1.0);
+        assert_eq!(search.bound_memo_get(collision), None);
+        assert!(search.bound_memo.is_empty());
+        search.bound_memo_insert(collision, -1.0);
+        assert!(search.bound_memo.is_empty());
+
+        fixture.slots[0].pool.pop();
+        assert!(packed_bound_memo_keys_safe(&fixture),
+            "offset 127 is the inclusive seven-bit boundary");
+    }
+
+    #[test]
+    fn reachable_set_bonus_counts_weapon_sums_sets_and_clamps() {
+        let fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 0\n\
+             EHP 0 0 0 0\n\
+             EHPNA 0 0 0 0\n\
+             THP 0 0 0\n\
+             HPSTART 0\n\
+             WEAPON 15 0 0 0 0 0 0 0 0 0 0\n\
+             GUILD 0\n\
+             NFIXED 1\n\
+             FIXED 0 0 0 0 0 0 0 0 0 0 0 0 1 -1\n\
+             NSLOTS 0\n\
+             NSETS 2\n\
+             SET 0 1 8 0 0 0 0\n\
+             SET 1 1 7 0 0 0 0\n"
+        );
+        assert_eq!(fixture.weapon_illegal_id, -1,
+            "older fixtures without the illegal-set field stay readable");
+        let mut search = Search::new(&fixture);
+        assert_eq!(search.set_counts, vec![1, 1]);
+        assert_eq!(search.reachable_set_bonus(0, -1), [15, 0, 0, 0, 0]);
+
+        // Duplicate wearable pieces can exceed the serialized row count.
+        // The exact Rust solver clamps to the final tier; the bound must not
+        // silently drop that tier and underestimate provision.
+        search.set_counts[0] = 2;
+        assert_eq!(search.reachable_set_bonus(0, -1), [15, 0, 0, 0, 0]);
+
+        // With both set bonuses, a zero-budget build meets the weapon's
+        // 15-point requirement. This exercises weapon-inclusive set_free.
+        search.evaluate_leaf();
+        assert_eq!(search.feasible, 1);
+    }
+
+    #[test]
+    fn fixed_weapon_blocks_second_illegal_set_piece() {
+        let fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 0\n\
+             EHP 0 0 0 0\n\
+             EHPNA 0 0 0 0\n\
+             THP 0 0 0\n\
+             HPSTART 0\n\
+             WEAPON 0 0 0 0 0 0 0 0 0 0 -1 0\n\
+             GUILD 0\n\
+             NFIXED 0\n\
+             NSLOTS 1\n\
+             SLOT helmet 0 0 0 1\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 0 0\n\
+             NSETS 0\n"
+        );
+        let mut search = Search::new(&fixture);
+        assert!(search.blocks(0));
+        search.run();
+        assert_eq!(search.checked, 1.0);
+        assert_eq!(search.feasible, 0,
+            "the only gear tuple conflicts with the fixed weapon");
+    }
+
+    #[test]
+    fn invalid_weapon_and_locked_base_rejects_zero_free_slot_build() {
+        let fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 0\n\
+             EHP 0 0 0 0\n\
+             EHPNA 0 0 0 0\n\
+             THP 0 0 0\n\
+             HPSTART 0\n\
+             WEAPON 0 0 0 0 0 0 0 0 0 0 -1 0\n\
+             GUILD 0\n\
+             NFIXED 1\n\
+             FIXED 0 0 0 0 0 0 0 0 0 0 0 0 -1 0\n\
+             NSLOTS 0\n\
+             NSETS 0\n"
+        );
+        let mut search = Search::new(&fixture);
+        assert!(search.fixed_illegal_conflict);
+        search.run();
+        assert_eq!(search.checked, 1.0);
+        assert_eq!(search.precheck_pass, 0);
+        assert_eq!(search.feasible, 0);
+    }
+
+    #[test]
+    fn invalid_fixed_base_credits_unrelated_partitioned_free_space() {
+        let fixture = parse_fixture(
+            "BUDGET 0\n\
+             PRECHECKS 0\n\
+             EHP 0 0 0 0\n\
+             EHPNA 0 0 0 0\n\
+             THP 0 0 0\n\
+             HPSTART 0\n\
+             WEAPON 0 0 0 0 0 0 0 0 0 0 -1 0\n\
+             GUILD 0\n\
+             NFIXED 1\n\
+             FIXED 0 0 0 0 0 0 0 0 0 0 0 0 -1 0\n\
+             NSLOTS 1\n\
+             SLOT helmet 0 0 0 2\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0\n\
+             ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0\n\
+             NSETS 0\n"
+        );
+        let mut whole = Search::new(&fixture);
+        whole.run();
+        assert_eq!(whole.checked, 2.0);
+        assert_eq!(whole.feasible, 0);
+
+        let mut left = Search::new(&fixture);
+        left.part_lo = 0;
+        left.part_hi = 0;
+        left.run();
+        let mut right = Search::new(&fixture);
+        right.part_lo = 1;
+        right.part_hi = 1;
+        right.run();
+        assert_eq!(left.checked, 1.0);
+        assert_eq!(right.checked, 1.0);
+        assert_eq!(left.checked + right.checked, whole.checked);
     }
 }

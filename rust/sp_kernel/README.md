@@ -42,18 +42,27 @@ parity methodology and the expected order of magnitude.
 
 `src/bin/enum_kernel.rs` replays a full solver scenario: level-based
 enumeration with ring canonicalization, illegal-set blocking, mid-tree SP
-pruning, restriction/EHP suffix bounds, leaf prechecks, and the exact SP
-kernel at surviving leaves. Scoring (greedy SP / mana sim / damage) is
-intentionally absent — feasible leaves are counted, not scored.
+pruning, and the exact SP kernel at surviving leaves. A score fixture adds
+the authoritative assembled-stat, EHP/THP, mana, and objective pipeline.
+
+Constraint-bearing enum fixtures now fail closed if no score fixture is
+provided. The historical raw-additive and all-100-SP gates are not admissible
+for exact builds, so the default does not silently report their survivors as
+"feasible." For an enum/SP throughput experiment only, explicitly set
+`ALLOW_RELAXED_CONSTRAINTS=1`; its feasible/result counts are not game-accurate.
 
 ```bash
 # Export a scenario fixture from the JS pipeline:
 SOLVER_EXPORT_RUST=rust/sp_kernel/fixtures/enum_gaia_135m.txt \
+SOLVER_EXPORT_SCORE=rust/sp_kernel/fixtures/score_gaia_135m.json \
   node js/solver/tests/test_solver_search.js gaia_armor4_ring_135m_input
 
 cargo build --release
-./target/release/enum_kernel fixtures/enum_gaia_135m.txt            # all cores
-./target/release/enum_kernel fixtures/enum_gaia_135m.txt 1          # single thread
+./target/release/enum_kernel fixtures/enum_gaia_135m.txt 4 fixtures/score_gaia_135m.json
+
+# Explicitly relaxed enumeration/SP throughput only (not correctness data):
+ALLOW_RELAXED_CONSTRAINTS=1 \
+  ./target/release/enum_kernel fixtures/enum_gaia_135m.txt 1
 ```
 
 The binary prints a progress/rate/ETA line to stderr every ~5 seconds on
@@ -63,9 +72,10 @@ from an atomic queue and run the full band sweep restricted to each offset
 and all funnel counters are integral, so the per-thread sums are exactly
 the single-thread counters, verified bit-identical on every fixture.
 
-Measured (2026-08-12, this container, fixtures regenerated after the
-dominance equality-set fix) — funnel parity is exact wherever both engines
-completed (identical checked and feasible):
+Historical throughput measurements (2026-08-12, this container, fixtures
+regenerated after the dominance equality-set fix) follow. The scoreless Gaia
+rows predate the fail-closed constraint policy and must not be cited as
+game-accurate feasible counts:
 
 | Scenario | JS (2 workers, full leaf pipeline) | Rust 1 thread | Rust 4 threads |
 |---|---:|---:|---:|
@@ -152,6 +162,6 @@ Measured (2026-08-12, this container, 4 threads vs JS 2 workers):
 | Dense combo_damage (readme armor2 pools, 3,712 search, no restrictions) | 10.2s | **2.9s**, top-15 bit-identical |
 | `readme_spell_wide` coverage @ 180s (20.07B search) | 430K checked | **1.38M checked (3.2x)**, rate still climbing at cap |
 
-Caveat: scenarios with stat restrictions need a `check_thresholds` port
-(the exact assembled-stat check that runs after the additive prechecks)
-before their scored top-N matches JS.
+Scored mode uses the authoritative assembled-stat threshold checks. Scoreless
+constraint-bearing runs are rejected unless the throughput-only relaxed flag
+above is present.

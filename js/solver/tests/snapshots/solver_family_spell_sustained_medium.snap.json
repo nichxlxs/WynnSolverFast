@@ -58,12 +58,12 @@
   "roll_profile_note": "All roll groups use the midpoint of the displayed min-to-max interval. This is a deterministic median-ID proxy, not a claim that the resulting whole item or build is a joint 50th-percentile roll.",
   "benchmark_only": true,
   "calibrated_input_combinations": 13303781568,
-  "calibrated_search_combinations": 5788985220,
+  "calibrated_search_combinations": 13303781568,
   "combination_budget": {
     "input_min": 9977836176,
     "input_max": 16629726960,
-    "search_min": 4341738915,
-    "search_max": 7236231525
+    "search_min": 9977836176,
+    "search_max": 16629726960
   },
   "locked_items": {
     "ring1": {
