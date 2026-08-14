@@ -65,7 +65,7 @@ LAYERS = {
 
 RE_ENUM = re.compile(
     r"enum_kernel: checked (\d+) \| precheck_reject (\d+) \| precheck_pass (\d+) \| "
-    r"sp_leaf_reject (\d+) \| feasible (\d+) \| threads (\d+) \| elapsed ([\d.]+)s \| (\d+) checked/s")
+    r"sp_leaf_reject (\d+) \| sp_kernel_reject (\d+) \| feasible (\d+) \| threads (\d+) \| elapsed ([\d.]+)s \| (\d+) checked/s")
 RE_SCORING = re.compile(r"scoring: scored (\d+) \| gated (\d+) \| mana_reject (\d+) \| "
                         r"thresh_reject (\d+) \| bound_pruned (\d+)")
 RE_PHASE = re.compile(r"score_trace: sp ([\d.]+)s \| base ([\d.]+)s \| gate ([\d.]+)s \| "
@@ -117,8 +117,8 @@ def run_one(scenario, threads, env_extra, time_cap, trace=True):
            "wall": round(wall, 2), "exit": proc.returncode}
     m = RE_ENUM.search(out)
     if m:
-        res.update(checked=int(m.group(1)), feasible=int(m.group(5)),
-                   elapsed=float(m.group(7)), rate=int(m.group(8)))
+        res.update(checked=int(m.group(1)), feasible=int(m.group(6)),
+                   elapsed=float(m.group(8)), rate=int(m.group(9)))
     m = RE_SCORING.search(out)
     if m:
         res.update(scored=int(m.group(1)), gated=int(m.group(2)),

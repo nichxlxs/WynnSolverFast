@@ -309,6 +309,9 @@ pub struct Search<'a> {
     precheck_pass: u64,
     feasible: u64,
     sp_leaf_reject: u64,
+    /// Leaves the cheap SP bound let through that the exact SP kernel then
+    /// rejected — the headroom a stronger admissible SP bound could claim.
+    sp_kernel_reject: u64,
     kernel: Kernel,
 
     // Progress reporting
@@ -538,7 +541,7 @@ impl<'a> Search<'a> {
             equip_set,
             ring1_placed_offset: 0,
             checked: 0.0, precheck_reject: 0.0, precheck_pass: 0,
-            feasible: 0, sp_leaf_reject: 0,
+            feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
             kernel: Kernel::new(),
             total_space: 0.0,
             started: Instant::now(),
@@ -702,6 +705,7 @@ impl<'a> Search<'a> {
             precheck_reject: self.precheck_reject,
             precheck_pass: self.precheck_pass,
             sp_leaf_reject: self.sp_leaf_reject,
+            sp_kernel_reject: self.sp_kernel_reject,
             feasible: self.feasible,
             scored: self.scored,
             gated: self.gated,
@@ -925,7 +929,7 @@ impl<'a> Search<'a> {
                     crate::scoring::trace::PIPE, t0.elapsed().as_nanos() as u64);
             }
             match outcome {
-                LeafOutcome::SpInfeasible => {}
+                LeafOutcome::SpInfeasible => { self.sp_kernel_reject += 1; }
                 LeafOutcome::Gated => { self.feasible += 1; self.gated += 1; }
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
                 LeafOutcome::ThresholdReject => { self.feasible += 1; self.thresh_reject += 1; }
@@ -1318,6 +1322,7 @@ pub struct ProgressSnapshot {
     pub precheck_reject: f64,
     pub precheck_pass: u64,
     pub sp_leaf_reject: u64,
+    pub sp_kernel_reject: u64,
     pub feasible: u64,
     pub scored: u64,
     pub gated: u64,
@@ -1333,6 +1338,7 @@ pub struct Totals {
     pub precheck_reject: f64,
     pub precheck_pass: u64,
     pub sp_leaf_reject: u64,
+    pub sp_kernel_reject: u64,
     pub feasible: u64,
     pub scored: u64,
     pub gated: u64,
@@ -1479,7 +1485,7 @@ pub fn run_single_with_progress(
         checked: search.checked,
         precheck_reject: search.precheck_reject,
         precheck_pass: search.precheck_pass,
-        sp_leaf_reject: search.sp_leaf_reject,
+        sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
         feasible: search.feasible,
         scored: search.scored,
         gated: search.gated,
@@ -1829,7 +1835,7 @@ pub fn cli_main() {
             checked: search.checked,
             precheck_reject: search.precheck_reject,
             precheck_pass: search.precheck_pass,
-            sp_leaf_reject: search.sp_leaf_reject,
+            sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
             feasible: search.feasible,
             scored: search.scored,
             gated: search.gated,
@@ -1902,7 +1908,7 @@ pub fn cli_main() {
                         checked: search.checked,
                         precheck_reject: search.precheck_reject,
                         precheck_pass: search.precheck_pass,
-                        sp_leaf_reject: search.sp_leaf_reject,
+                        sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
                         feasible: search.feasible,
                         scored: search.scored,
                         gated: search.gated,
@@ -1948,6 +1954,7 @@ pub fn cli_main() {
                 totals.precheck_reject += t.precheck_reject;
                 totals.precheck_pass += t.precheck_pass;
                 totals.sp_leaf_reject += t.sp_leaf_reject;
+                totals.sp_kernel_reject += t.sp_kernel_reject;
                 totals.feasible += t.feasible;
                 totals.scored += t.scored;
                 totals.gated += t.gated;
@@ -1964,9 +1971,9 @@ pub fn cli_main() {
     };
 
     println!(
-        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | feasible {} | threads {} | elapsed {:.3}s | {:.0} checked/s",
+        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | sp_kernel_reject {} | feasible {} | threads {} | elapsed {:.3}s | {:.0} checked/s",
         totals.checked, totals.precheck_reject, totals.precheck_pass,
-        totals.sp_leaf_reject, totals.feasible,
+        totals.sp_leaf_reject, totals.sp_kernel_reject, totals.feasible,
         if fx.slots.is_empty() { 1 } else { n_threads.min(fx.slots[0].pool.len()).max(1) },
         elapsed.as_secs_f64(),
         totals.checked / elapsed.as_secs_f64(),
