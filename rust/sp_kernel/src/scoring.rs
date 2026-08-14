@@ -1208,6 +1208,11 @@ pub fn merge_into(target: &mut Obj, source: Option<&Obj>) {
 #[derive(Clone, Default)]
 pub struct ItemPrelude {
     pub unit: crate::Unit,
+    /// The set as a dense index into `set_bonus_by_id`. The name is kept
+    /// beside it only for the cross-check; the hot path never touches it,
+    /// because counting sets by name meant a heap-allocated vector, string
+    /// comparisons and a hashed lookup on every leaf.
+    pub set_id: Option<u32>,
     /// The set this item counts toward, or None when it is crafted or
     /// belongs to no set -- the two cases the prologue skips.
     pub set_name: Option<String>,
@@ -1241,6 +1246,8 @@ pub struct Layer2 {
     /// leaf (a lookup for the set, one for its bonus list, one per index,
     /// then five for the attributes) to read numbers fixed at load time.
     pub set_bonus_sp: HashMap<String, Vec<[i32; 5]>>,
+    /// `set_bonus_sp` addressed by `ItemPrelude::set_id`.
+    pub set_bonus_by_id: Vec<Vec<[i32; 5]>>,
     pub sets_data: Obj,
     pub tome_sms: Vec<Obj>,
     /// Tome optimisation (0 = off, 1 = guild, 2 = guild + weapon/armour).
@@ -1314,11 +1321,13 @@ impl Layer2 {
                 out
             };
             let crafted = sm.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
+            let set_name = if crafted { None } else {
+                sm.get("set").and_then(|v| v.as_str()).map(String::from)
+            };
             item_prelude.insert(name.clone(), ItemPrelude {
                 unit: crate::Unit { crafted, reqs: arr5("reqs"), skp: arr5("skillpoints") },
-                set_name: if crafted { None } else {
-                    sm.get("set").and_then(|v| v.as_str()).map(String::from)
-                },
+                set_id: None,          // filled once the set table exists
+                set_name,
             });
         }
         // Set skill-point bonuses, resolved once. Mirrors the prologue's walk
@@ -1339,6 +1348,18 @@ impl Layer2 {
                 out
             }).collect();
             set_bonus_sp.insert(set_name.clone(), per_count);
+        }
+
+        // Dense set ids, so the leaf prologue counts sets in a small array of
+        // integers rather than a vector of borrowed names.
+        let mut set_id_of: HashMap<String, u32> = HashMap::new();
+        let mut set_bonus_by_id: Vec<Vec<[i32; 5]>> = Vec::new();
+        for (name, per_count) in &set_bonus_sp {
+            set_id_of.insert(name.clone(), set_bonus_by_id.len() as u32);
+            set_bonus_by_id.push(per_count.clone());
+        }
+        for pre in item_prelude.values_mut() {
+            pre.set_id = pre.set_name.as_deref().and_then(|n| set_id_of.get(n).copied());
         }
         let plan = l2.get("scaling_plan")?;
         let strvec = |v: &Value| -> Vec<String> {
@@ -1371,7 +1392,7 @@ impl Layer2 {
         Some(Layer2 {
             mana_doom_ok,
             ceiling_vars_ok,
-            item_registry, item_prelude, set_bonus_sp,
+            item_registry, item_prelude, set_bonus_sp, set_bonus_by_id,
             sets_data: l2.get("sets_data").and_then(as_map).cloned().unwrap_or_default(),
             tome_sms: l2.get("tome_sms").and_then(|x| x.as_array())
                 .map(|a| a.iter().filter_map(|t| as_map(t).cloned()).collect()).unwrap_or_default(),
@@ -2342,6 +2363,9 @@ pub mod trace {
     pub const PRE: usize = 19;
     /// Copying the lowered leaf into the per-trial scratch.
     pub const RESET: usize = 20;
+    /// Prologue split (SCORE_TRACE=2): item lookups vs the set-bonus pool.
+    pub const PRE_LOOK: usize = 21;
+    pub const PRE_SETS: usize = 22;
     /// fill_direct internals (SCORE_TRACE=2 only).
     pub const FD_COPY: usize = 21;
     pub const FD_ITEMS: usize = 22;
@@ -2435,8 +2459,10 @@ pub mod trace {
                   f(MASM), f(MOBJ), f(MSIM));
         eprintln!("score_trace: bound evals {} in {:.2}s (offloadable batch work)",
                   c(BOUND_EVALS), f(BOUND));
-        eprintln!("score_trace: prologue (equip units + set pool) {:.2}s | scratch reset {:.2}s",
-                  f(PRE), f(RESET));
+        eprintln!("score_trace: prologue (equip units + set pool) {:.2}s | scratch reset {:.2}s{}",
+                  f(PRE), f(RESET),
+                  if fine() { format!(" — item lookups {:.2}s | set pool {:.2}s",
+                                      f(PRE_LOOK), f(PRE_SETS)) } else { String::new() });
         eprintln!("score_trace: whole leaf pipeline {:.2}s (the rest of the wall \
                    time x threads is the enumeration walk)", f(PIPE));
         if c(BM_HIT) + c(BM_MISS) > 0 {
@@ -2753,6 +2779,7 @@ pub fn leaf_pipeline_gated(
     let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_extra(base, sp, weapon, tome_extra);
 
     let _pre_t0 = if trace::on() { Some(std::time::Instant::now()) } else { None };
+    let _pl0 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
     let mut equipment: [crate::Unit; 8] = Default::default();
     let mut preludes: [Option<&ItemPrelude>; 8] = [None; 8];
     for (i, name) in item_names.iter().enumerate().take(8) {
@@ -2774,29 +2801,40 @@ pub fn leaf_pipeline_gated(
         }
     }
 
+    if let Some(t) = _pl0 { trace::add(trace::PRE_LOOK, t.elapsed().as_nanos() as u64); }
+    let _pl1 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
     // Set-bonus SP folded into the free pool (worker leaf behavior).
     let mut set_free = [0i32; 5];
     {
-        let mut set_counts: Vec<(&str, i64)> = Vec::new();
+        // At most eight items, so at most eight distinct sets: a stack array
+        // and integer compares, with no allocation and no hashing.
+        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        let mut n_sets = 0usize;
         for pre in preludes.iter().flatten() {
-            let Some(set_name) = pre.set_name.as_deref() else { continue };
-            match set_counts.iter_mut().find(|(n, _)| *n == set_name) {
+            let Some(sid) = pre.set_id else { continue };
+            match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
                 Some((_, c)) => *c += 1,
-                None => set_counts.push((set_name, 1)),
+                None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
             }
         }
-        for (set_name, count) in &set_counts {
-            if let Some(b) = l2.set_bonus_sp.get(*set_name)
-                .and_then(|per| per.get((*count - 1) as usize)) {
+        for &(sid, count) in &set_counts[..n_sets] {
+            if let Some(b) = l2.set_bonus_by_id.get(sid as usize)
+                .and_then(|per| per.get((count - 1) as usize)) {
                 for i in 0..5 { set_free[i] += b[i]; }
             }
         }
         if dense_check_on() {
             let mut want = [0i32; 5];
-            for (set_name, count) in &set_counts {
-                let Some(set_data) = l2.sets_data.get(*set_name) else { continue };
+            let name_of = |sid: u32| -> Option<&str> {
+                preludes.iter().flatten()
+                    .find(|p| p.set_id == Some(sid))
+                    .and_then(|p| p.set_name.as_deref())
+            };
+            for &(sid, count) in &set_counts[..n_sets] {
+                let Some(set_name) = name_of(sid) else { continue };
+                let Some(set_data) = l2.sets_data.get(set_name) else { continue };
                 let Some(bonus) = set_data.get("bonuses").and_then(|b| b.as_array())
-                    .and_then(|b| b.get((*count - 1) as usize)).and_then(|b| b.as_object())
+                    .and_then(|b| b.get((count - 1) as usize)).and_then(|b| b.as_object())
                     else { continue };
                 for (i, skp) in l2.skp_order.iter().enumerate() {
                     if let Some(v) = bonus.get(skp).and_then(|x| x.as_f64()) { want[i] += v as i32; }
@@ -2806,6 +2844,7 @@ pub fn leaf_pipeline_gated(
         }
     }
 
+    if let Some(t) = _pl1 { trace::add(trace::PRE_SETS, t.elapsed().as_nanos() as u64); }
     if let Some(t0) = _pre_t0 {
         trace::add(trace::PRE, t0.elapsed().as_nanos() as u64);
     }
