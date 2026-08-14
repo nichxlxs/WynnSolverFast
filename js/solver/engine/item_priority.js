@@ -929,29 +929,31 @@ function _prioritize_pools(pools, dmg_weights) {
             (item.statMap.has('NONE') ? none_bucket : real_bucket).push(item);
         }
 
-        real_bucket.sort((a, b) =>
-            _score_item_priority(b.statMap, dmg_weights) -
-            _score_item_priority(a.statMap, dmg_weights)
-        );
+        // Score once per item, then sort on the stored numbers. The
+        // comparator used to call the scorer on BOTH operands, so a pool of n
+        // items paid 2n*log2(n) scoring passes instead of n — on the
+        // unfiltered catalog that is ~50k passes where ~3.3k suffice, and it
+        // lands on time-to-first-result, before the search starts.
+        const scored = real_bucket.map(
+            (it) => ({ it, score: _score_item_priority(it.statMap, dmg_weights) }));
+        scored.sort((a, b) => b.score - a.score);
 
         if (SOLVER_DEBUG_PRIORITY) {
-            console.log(`[solver] priority order for ${slot} (${real_bucket.length} items):`);
-            for (let i = 0; i < Math.min(real_bucket.length, 20); i++) {
-                const it = real_bucket[i];
+            console.log(`[solver] priority order for ${slot} (${scored.length} items):`);
+            for (let i = 0; i < Math.min(scored.length, 20); i++) {
+                const { it, score } = scored[i];
                 const name = it.statMap.get('displayName') ?? it.statMap.get('name') ?? '?';
-                const score = _score_item_priority(it.statMap, dmg_weights);
                 console.log(`  #${i + 1}: ${name} (score: ${score.toFixed(1)})`);
             }
-            if (real_bucket.length > 20) {
-                const last = real_bucket[real_bucket.length - 1];
+            if (scored.length > 20) {
+                const { it: last, score: last_score } = scored[scored.length - 1];
                 const last_name = last.statMap.get('displayName') ?? last.statMap.get('name') ?? '?';
-                const last_score = _score_item_priority(last.statMap, dmg_weights);
-                console.log(`  ... ${real_bucket.length - 20} more ... last: ${last_name} (score: ${last_score.toFixed(1)})`);
+                console.log(`  ... ${scored.length - 20} more ... last: ${last_name} (score: ${last_score.toFixed(1)})`);
             }
         }
 
         pool.length = 0;
-        for (const it of real_bucket) pool.push(it);
+        for (const { it } of scored) pool.push(it);
         for (const it of none_bucket) pool.push(it);
     }
 }
