@@ -4033,7 +4033,18 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
     let dps_display_idx = comp_dps.as_ref().and_then(|(name, _, _)| idx_of(name));
 
     // flat_idxs: displayed, unreferenced damage parts minus the chain root.
+    // An explicit per-row DPS name arrives as (name, 0.0, "") — the empty
+    // string is a SENTINEL for "no chain root", not a root. Taking it at face
+    // value made this Some("") and short-circuited the .or(), so the flat sum
+    // excluded a part named "" (nothing) and the real root's own damage was
+    // counted as flat on top of the per-hit total. The eval path models the
+    // same case as chain_root = None and falls through to the fallback root,
+    // so any combo row with dps_per_hit_name set (e.g. Guardian Angels,
+    // "Single Shot" x90) was silently over-scored by the root's contribution
+    // on the compiled and dense paths — +3.85% on the spell_sustained family,
+    // where the uncompiled path matches the JS engine exactly.
     let exclude_root: Option<&str> = comp_dps.as_ref().map(|(_, _, r)| r.as_str())
+        .filter(|r| !r.is_empty())
         .or(fallback_root.as_deref());
     let referenced = collect_referenced_part_names(spell);
     let flat_idxs = if exclude_root.is_some() {
@@ -4311,15 +4322,44 @@ impl DenseCtx {
         raw_thresholds: &[Threshold], base_costs: &HashMap<i64, f64>,
         extra_keys: &[String],
     ) -> Option<DenseCtx> {
+        // Under SCORE_TRACE=1, name WHY dense is declined. A declined dense
+        // path silently multiplies per-leaf cost several-fold (base build +
+        // Obj assembles), and until this existed the only symptom was a slow
+        // benchmark with no visible cause.
+        macro_rules! decline {
+            ($reason:expr) => {{
+                if std::env::var("SCORE_TRACE").as_deref() == Ok("1") {
+                    eprintln!("dense declined: {}", $reason);
+                }
+                return None;
+            }};
+        }
+
         // Radiance applies a nonlinear scale-and-floor between the atree_raw
         // merge and the scaling stage; the dense fold has no equivalent, so
         // those scenarios use the validated Obj path.
-        if l2.radiance_boost != 1.0 { return None; }
+        if l2.radiance_boost != 1.0 { decline!("radiance boost active"); }
 
         // Guard: every row the compiled eval would score must have a plan.
+        //
+        // Exception: a spell with NO parts (e.g. Escape — cast for movement or
+        // mana cycling, `"parts": []`). `compile_spell_plan` cannot plan it,
+        // but it cannot deal damage either: the Obj path's
+        // `compute_spell_display_avg` finds no display part and returns 0.0,
+        // and there is no flat-damage root. The dense scorer reproduces that
+        // 0.0 explicitly (see the plan-None arm in the row loop), so the row
+        // is harmless — declining for it used to switch the whole scenario to
+        // the Obj path and roughly triple per-leaf cost. That was the entire
+        // reason fam_spell_sustained ran ~3M/s while its siblings ran ~15M/s.
         for (row, comp) in rows.iter().zip(compiled) {
             if comp.mod_spell.is_none() || row.qty <= 0.0 || row.pseudo { continue; }
-            comp.plan.as_ref()?;
+            if comp.plan.is_none() {
+                let empty_parts = comp.mod_spell.as_ref()
+                    .map(|sp| spell_parts(sp).is_empty())
+                    .unwrap_or(false);
+                if empty_parts { continue; }
+                decline!("a row without a compiled plan");
+            }
         }
 
         let mut idx: HashMap<String, u32> = HashMap::new();
@@ -4402,7 +4442,7 @@ impl DenseCtx {
             .map(|wt| l2.class_def.get(wt).copied().unwrap_or(1.0)).unwrap_or(1.0);
         // assemble_from_base only inserts classDef when weapon.type is a
         // string; scenarios always have it — otherwise fall back.
-        weapon.get("type").and_then(|v| v.as_str())?;
+        if weapon.get("type").and_then(|v| v.as_str()).is_none() { decline!("weapon has no type"); }
 
         // skp add chains from the constant merge stages, in merge order.
         let nested_prefix = |k: &str| -> bool {
@@ -4454,9 +4494,9 @@ impl DenseCtx {
             let mut out_slots = Vec::new();
             for output in eff.get("outputs").and_then(|o| o.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
                 let name = output.as_str()?;
-                if nested_prefix(name) || name == "atkSpd" { return None; }
+                if nested_prefix(name) || name == "atkSpd" { decline!(format!("var output '{}' (multiplier map / atkSpd)", name)); }
                 if l2.static_boosts.as_ref().map(|s| s.contains_key(name)).unwrap_or(false) {
-                    return None; // fold-order guard
+                    decline!(format!("fold-order guard on '{}'", name)); // fold-order guard
                 }
                 let ki = intern(name, &mut idx, &mut keys);
                 let slot = match var_slots.iter().position(|&s| s == ki) {
@@ -4529,7 +4569,7 @@ impl DenseCtx {
             for b in &comp.bonuses {
                 match b.kind {
                     CompiledBonusKind::Stat => {
-                        if b.key == "atkSpd" || nested_prefix(&b.key) { return None; }
+                        if b.key == "atkSpd" || nested_prefix(&b.key) { decline!(format!("boost key '{}'", b.key)); }
                         stat_ops.push((intern(&b.key, &mut idx, &mut keys), b.contrib, b.use_max));
                     }
                     CompiledBonusKind::DamMult =>
@@ -4567,18 +4607,18 @@ impl DenseCtx {
         let obj = match objective {
             Objective::ComboDamage => DObjective::Damage,
             // Healing has no dense lowering: fall back to the Obj path.
-            Objective::TotalHealing => return None,
+            Objective::TotalHealing => decline!("total_healing objective"),
             Objective::Indirect(stat) => {
-                if nested_prefix(stat) { return None; }
+                if nested_prefix(stat) { decline!(format!("indirect stat '{}' has a multiplier-map prefix", stat)); }
                 DObjective::Indirect(lower_ind(stat, &mut idx, &mut keys))
             }
             Objective::Custom(weights) => {
                 let mut out = Vec::new();
                 for (target, w) in weights {
-                    if target == "total_healing" { return None; }
+                    if target == "total_healing" { decline!("custom blend contains total_healing"); }
                     if target == "combo_damage" { out.push((None, *w)); }
                     else {
-                        if nested_prefix(target) { return None; }
+                        if nested_prefix(target) { decline!(format!("custom blend target '{}'", target)); }
                         out.push((Some(lower_ind(target, &mut idx, &mut keys)), *w));
                     }
                 }
@@ -4640,7 +4680,7 @@ impl DenseCtx {
                 for (name, v) in flat {
                     let start = name.split('.').next().unwrap_or(&name);
                     match start {
-                        "atkSpd" => return None,
+                        "atkSpd" => decline!("atkSpd in a lowered add chain"),
                         "damMult" | "defMult" => {
                             let rest = &name[name.find('.').map(|i| i + 1).unwrap_or(name.len())..];
                             let f = v.as_f64().unwrap_or(f64::NAN);
@@ -5280,19 +5320,29 @@ pub fn dense_combo_damage_extra(
                     }
                 }
                 let final_root: Option<&str> = chain_root.or(comp.fallback_root.as_deref());
-                let plan = comp.plan.as_ref().expect("dense requires plans");
-
-                static NO_EXTRA: std::sync::OnceLock<DenseRowExtra> = std::sync::OnceLock::new();
-                let extra_row = extra.get(ri)
-                    .unwrap_or_else(|| NO_EXTRA.get_or_init(DenseRowExtra::default));
-                dense_apply_row(s, drow, extra_row, &mut journal);
-                let (mut per_cast, flat) = dense_spell_plan(
-                    d, s, plan, drow, crit, tables, eff_dps_name.is_some());
-                dense_undo_row(s, &mut journal);
-                if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
-                let flat_per_cast = if final_root.is_some() { flat } else { 0.0 };
-                row_cache[canon] = Some((per_cast, flat_per_cast));
-                (per_cast, flat_per_cast)
+                // Plan-less row: only reachable for an empty-parts spell (the
+                // build gate declines every other cause). The Obj path scores
+                // it per_cast 0.0 with no flat root; yield the same pair and
+                // fall through to the SHARED eff_qty/row_damage tail below, so
+                // the result is bit-identical by construction, not merely
+                // equal.
+                let pair = match comp.plan.as_ref() {
+                    None => (0.0, 0.0),
+                    Some(plan) => {
+                        static NO_EXTRA: std::sync::OnceLock<DenseRowExtra> = std::sync::OnceLock::new();
+                        let extra_row = extra.get(ri)
+                            .unwrap_or_else(|| NO_EXTRA.get_or_init(DenseRowExtra::default));
+                        dense_apply_row(s, drow, extra_row, &mut journal);
+                        let (mut per_cast, flat) = dense_spell_plan(
+                            d, s, plan, drow, crit, tables, eff_dps_name.is_some());
+                        dense_undo_row(s, &mut journal);
+                        if eff_dps_name.is_some() { per_cast *= eff_dps_hits; }
+                        let flat_per_cast = if final_root.is_some() { flat } else { 0.0 };
+                        (per_cast, flat_per_cast)
+                    }
+                };
+                row_cache[canon] = Some(pair);
+                pair
             }
         };
 
