@@ -2388,10 +2388,14 @@ function _update_search_space_display() {
         el.className = `fw-bold ${cls}`;
         if (note) note.textContent = word ? `\u2014 ${word}` : '';
         if (detail) {
-            detail.textContent = `${free_count} free`;
+            detail.textContent = `${free_count} free slot${free_count === 1 ? '' : 's'}`;
             detail.title = per_slot.map(([s, n]) => `${s}: ${n.toLocaleString()}`).join('\n')
-                + '\n\nUpper bound before pruning. Dominance, SP and score bounds'
-                + '\ncut this further once the search starts.';
+                + '\n\nThis is the size of the space BEFORE pruning, so it is'
+                + '\ndeliberately larger than the "checked" count a run reports.'
+                + '\nDominance pruning, the skill-point prechecks and the score'
+                + '\nbounds each remove work that can be proven not to matter,'
+                + '\noften by orders of magnitude. Use this to judge how hard a'
+                + '\nsearch will be, not to predict how many leaves it visits.';
         }
     } catch (e) {
         // The estimate must never break the page it is decorating.
