@@ -2,6 +2,15 @@
 <html lang="en">
 
 <head>
+    <!-- FIRST, deliberately. Cross-origin isolation lets the engine use
+         SharedArrayBuffer to share a score cutoff between its workers.
+         GitHub Pages serves static files and cannot set COOP/COEP, so a
+         service worker adds them - and taking control requires one reload,
+         which has to happen before the page does its expensive setup rather
+         than after it. Isolation is optional: without it the engine simply
+         runs without a shared cutoff. Load any page with ?nocoi=1 to
+         unregister the worker. -->
+    <script src="../coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="HandheldFriendly" content="true">
     <meta name="MobileOptimized" content="320">

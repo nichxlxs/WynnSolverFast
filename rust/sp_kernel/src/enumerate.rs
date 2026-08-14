@@ -341,7 +341,7 @@ pub struct Search<'a> {
     /// current top-N, so a long solve shows movement instead of looking
     /// hung. Keyed on leaves rather than wall time because wasm32 has no
     /// usable clock — which also makes emission points deterministic.
-    progress: Option<&'a mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&'a mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     progress_every: f64,
     next_progress: f64,
 
@@ -709,7 +709,19 @@ impl<'a> Search<'a> {
             bound_pruned: self.bound_pruned,
             top_n: self.top_n.clone(),
         };
-        if let Some(f) = self.progress.as_mut() { f(snap); }
+        // The sink may hand back the best score any OTHER partition has
+        // reached (browser workers share it through a SharedArrayBuffer).
+        // Folding it into this partition's cutoff is exactly what the native
+        // threaded path does with `shared_cutoff`, and it is admissible for
+        // the same reason: a score another partition has already achieved is
+        // a valid lower bound on the global top-N threshold, so a leaf whose
+        // ceiling cannot reach it cannot enter the merged top-N either.
+        let feedback = match self.progress.as_mut() { Some(f) => f(snap), None => None };
+        if let (Some(v), Some(shared)) = (feedback, self.shared_cutoff) {
+            if v.is_finite() && v > 0.0 {
+                shared.fetch_max(v.floor() as u64, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Final flush of the local `checked` delta into the shared counter.
@@ -1372,7 +1384,7 @@ pub fn run_single_with_progress(
     fx: &Fixture,
     scoring: Option<&crate::scoring::ScoringCtx>,
     leaf_budget: Option<f64>,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     // `part`: inclusive first-slot offset range, or None for all of it.
     // Ranges partition the space exactly — the same split the native
     // threaded path work-steals over — so several single-threaded runs can
@@ -1516,7 +1528,7 @@ pub fn progress_json(p: &ProgressSnapshot) -> String {
 /// `run_single_with_progress`).
 pub fn solve_json_with_progress(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
 ) -> String {
     solve_json_full(enum_fixture, score_fixture, max_leaves, progress, 0, 1)
 }
@@ -1530,7 +1542,7 @@ pub fn solve_json_with_progress(
 /// percentage.
 pub fn solve_json_full(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
-    progress: Option<&mut dyn FnMut(ProgressSnapshot)>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     part_index: usize, part_count: usize,
 ) -> String {
     let fx = parse_fixture(enum_fixture);

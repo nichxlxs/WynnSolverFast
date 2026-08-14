@@ -1822,6 +1822,24 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
 
     const module_ready = _rust_compiled_module();
 
+    // Shared score cutoff across partitions, when the browser allows it.
+    //
+    // Each partition otherwise rediscovers its own cutoff, so the ceiling gate
+    // prunes less the more partitions there are — the one thing partitioning
+    // loses against native threads. One shared i32 fixes that: every worker
+    // publishes its 15th-best score and reads back the maximum.
+    //
+    // `SharedArrayBuffer` requires cross-origin isolation, which the COI
+    // service worker provides (GitHub Pages cannot set COOP/COEP itself). When
+    // it is unavailable this stays null and every worker runs exactly as
+    // before — isolation is an optimisation, never a requirement.
+    let cutoff_sab = null;
+    if (part_count > 1 && typeof SharedArrayBuffer !== 'undefined'
+        && !(typeof window !== 'undefined' && window.__SOLVER_NO_SAB)   // test escape hatch
+        && (typeof crossOriginIsolated === 'undefined' || crossOriginIsolated)) {
+        try { cutoff_sab = new SharedArrayBuffer(4); } catch (e) { cutoff_sab = null; }
+    }
+
     for (let i = 0; i < part_count; i++) {
         let worker;
         try {
@@ -1912,6 +1930,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                 max_leaves: 0,   // run to completion; the workers keep the UI free
                 part_index, part_count,
                 compiled_module,
+                cutoff_sab,
             });
         });
     }

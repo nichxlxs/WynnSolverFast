@@ -74,6 +74,14 @@ async function loadPage(page, url) {
     const fresh = `${base}${base.includes('?') ? '&' : '?'}e2e=${++_loadSeq}`
         + (hash ? `#${hash}` : '');
     await page.goto(fresh, { waitUntil: 'load', timeout: 90000 });
+    // The COI service worker reloads the page once, when it takes control, to
+    // get cross-origin isolation. Let that settle before touching anything:
+    // interacting first means the reload wipes the state mid-test.
+    await page.waitForFunction(
+        () => window.crossOriginIsolated === true
+            || sessionStorage.getItem('coi-reloaded') === '1'
+            || !navigator.serviceWorker,
+        null, { timeout: 30000 }).catch(() => {});
     // The page enables the run button once the item DB is populated; that is
     // the readiness signal the UI itself uses.
     await page.waitForFunction(

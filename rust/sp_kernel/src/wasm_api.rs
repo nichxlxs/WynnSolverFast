@@ -71,10 +71,21 @@ pub fn solve_partition(
     part_index: usize, part_count: usize, on_progress: &js_sys::Function,
 ) -> String {
     let this = JsValue::NULL;
-    let mut sink = |p: crate::enumerate::ProgressSnapshot| {
+    let mut sink = |p: crate::enumerate::ProgressSnapshot| -> Option<f64> {
         let payload = crate::enumerate::progress_json(&p);
         // A throwing callback must not abort the solve.
-        let _ = on_progress.call1(&this, &JsValue::from_str(&payload));
+        //
+        // Its RETURN value, when it is a finite positive number, is the best
+        // score any sibling partition has reached — the host keeps that in a
+        // SharedArrayBuffer when the page is cross-origin isolated. Feeding it
+        // back gives browser partitions the shared cutoff that native threads
+        // get, which is the one thing `solve_partition` loses to them. It is a
+        // pruning floor only: a score already achieved elsewhere bounds the
+        // global top-N threshold from below, so nothing reachable is skipped.
+        match on_progress.call1(&this, &JsValue::from_str(&payload)) {
+            Ok(v) => v.as_f64().filter(|x| x.is_finite() && *x > 0.0),
+            Err(_) => None,
+        }
     };
     crate::enumerate::solve_json_full(
         enum_fixture, score_fixture, max_leaves, Some(&mut sink), part_index, part_count,

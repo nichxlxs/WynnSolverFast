@@ -36,6 +36,10 @@ self.onmessage = async (event) => {
     if (msg?.type !== 'solve') return;
     const worker_id = msg.worker_id ?? 0;
     const post = (body) => self.postMessage({ worker_id, ...body });
+    // Int32Array over the host's SharedArrayBuffer, or null when the page is
+    // not cross-origin isolated. Atomics need a shared buffer; a plain one
+    // would silently give each worker a private copy.
+    let cutoff = msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null;
 
     try {
         post({ type: 'progress', phase: 'loading engine', checked: 0, total: 0 });
@@ -51,6 +55,12 @@ self.onmessage = async (event) => {
             msg.part_index ?? 0, msg.part_count ?? 1,
             (payload) => {
                 const p = JSON.parse(payload);
+                // Progress FIRST, unconditionally. The shared-cutoff work below
+                // is an optimisation; if it throws, the host must still get its
+                // funnel counters and interim results. Doing it the other way
+                // round cost the UI every progress message the moment Atomics
+                // misbehaved, and the engine swallows a throwing callback, so
+                // the search looked frozen while running perfectly.
                 post({
                     type: 'progress',
                     phase: 'searching',
@@ -65,6 +75,35 @@ self.onmessage = async (event) => {
                     bound_pruned: p.bound_pruned,
                     top_n: p.top_n,
                 });
+
+                // Shared cutoff. When the page is cross-origin isolated the
+                // host passes a SharedArrayBuffer; every partition publishes
+                // its 15th-best score into it and reads back the maximum, so
+                // each prunes against what the others have already found
+                // rather than rediscovering a cutoff from scratch. A score one
+                // partition has already reached is a valid lower bound on the
+                // global top-N threshold, so this only ever skips leaves that
+                // could not have placed anyway.
+                //
+                // Returning undefined means "no floor", which is exactly the
+                // behaviour before any of this existed.
+                if (!cutoff) return undefined;
+                try {
+                    if (p.top_n && p.top_n.length >= 15) {
+                        const mine = Math.floor(p.top_n[14].score);
+                        if (Number.isFinite(mine) && mine > 0) {
+                            // i32 saturation: a score above 2^31-1 would wrap,
+                            // and a wrapped-negative floor is nonsense.
+                            Atomics.max(cutoff, 0, Math.min(mine, 0x7fffffff));
+                        }
+                    }
+                    const g = Atomics.load(cutoff, 0);
+                    return g > 0 ? g : undefined;
+                } catch (e) {
+                    // One failure disables sharing for this worker, nothing more.
+                    cutoff = null;
+                    return undefined;
+                }
             },
         );
         const result = JSON.parse(raw);
