@@ -2,10 +2,29 @@ let getUrl, url_base, SITE_BASE;
 if (typeof window !== 'undefined') {
     getUrl = window.location;
     url_base = getUrl.protocol + "//" + getUrl.host + "/" + getUrl.pathname.split('/')[1];
-    // Base path prefix for GitHub Pages project sites (e.g. username.github.io/repo-name/).
-    // On localhost or user sites (no prefix), this is empty.
-    const pathPrefix = window.location.pathname.match(/^\/(wynnbuilder(?:-beta)?\.github\.io)\//);
-    SITE_BASE = pathPrefix ? '/' + pathPrefix[1] : '';
+    // Base path prefix for a site served from a subdirectory — a GitHub Pages
+    // PROJECT site is `username.github.io/<repo>/`, so every absolute data URL
+    // needs that `/<repo>` in front of it.
+    //
+    // Derived from THIS script's own URL rather than matched against a list of
+    // known hosts. utils.js always lives at `<site root>/js/core/utils.js`, so
+    // stripping that suffix yields the site root exactly — for a domain root,
+    // any repo name, any nesting depth, and localhost — with nothing to keep
+    // in sync when the site moves.
+    //
+    // It used to test the pathname against a hardcoded
+    // /^\/(wynnbuilder(-beta)?\.github\.io)\// and fall back to ''. Under any
+    // other repo name that fallback silently dropped the prefix, so every
+    // fetch of the item database 404'd and the page came up with no items:
+    // nothing to search, nothing to put in a slot.
+    SITE_BASE = '';
+    const _self_src = (typeof document !== 'undefined' && document.currentScript)
+        ? document.currentScript.src : '';
+    if (_self_src) {
+        const _p = new URL(_self_src, window.location.href).pathname;
+        const _i = _p.indexOf('/js/core/utils.js');
+        if (_i > 0) SITE_BASE = _p.slice(0, _i);
+    }
 } else {
     getUrl = null;
     url_base = '';

@@ -149,6 +149,46 @@ function chromiumPath() {
                 + `(${plainFont}); the check above still holds because it is relative`);
         }
 
+        // Isolation must not stop the engine's WORKERS from loading. This is
+        // the failure that a document-only check misses entirely: under COEP a
+        // dedicated worker's script must itself be served with a compatible
+        // header, so a service worker whose scope does not cover the worker's
+        // path leaves the document isolated and every worker dead on spawn.
+        // The page then falls back to the JS engine and looks merely slow.
+        const workerOk = await page.evaluate(async () => {
+            try {
+                const src = 'self.onmessage = () => self.postMessage("pong");';
+                const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+                const w = new Worker(url);
+                const got = await new Promise((res) => {
+                    const timer = setTimeout(() => res('timeout'), 8000);
+                    w.onmessage = (e) => { clearTimeout(timer); res(e.data); };
+                    w.onerror = (e) => { clearTimeout(timer); res('error: ' + (e.message || 'spawn failed')); };
+                    w.postMessage('ping');
+                });
+                w.terminate(); URL.revokeObjectURL(url);
+                return got;
+            } catch (e) { return 'threw: ' + e.message; }
+        });
+        t.assert(workerOk === 'pong',
+            `a dedicated worker still spawns and replies under isolation `
+            + `(got ${JSON.stringify(workerOk)}) — if workers cannot load, the `
+            + `Rust engine dies on spawn and the page quietly uses the JS one`);
+
+        // And the engine's REAL worker script, at its real path, must be
+        // fetchable with the headers isolation requires — a same-origin script
+        // outside the service worker's scope is exactly what broke this.
+        const engineWorker = await page.evaluate(async () => {
+            try {
+                const r = await fetch(new URL('../js/solver/wasm/worker.js', location.href));
+                return `${r.status} coep=${r.headers.get('cross-origin-embedder-policy') || 'none'}`;
+            } catch (e) { return 'fetch failed: ' + e.message; }
+        });
+        t.assert(engineWorker.startsWith('200') && !engineWorker.endsWith('coep=none'),
+            `the engine's worker script is served with a COEP header `
+            + `(${engineWorker}) — without one Chromium refuses to start it from `
+            + `an isolated document`);
+
         // The page must still come up. If isolation broke the app, the run
         // button would never enable.
         const ready = await page.waitForFunction(
