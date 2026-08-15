@@ -291,6 +291,15 @@ pub struct Search<'a> {
 
     // Suffix bounds
     sp_suffix_max_prov: Vec<[i32; 5]>,   // [n_free+1][5]
+    /// Set ids granting skill points at some piece count.
+    sp_set_ids: Vec<u32>,
+    /// [sp_set_ids index][depth] -> additional pieces the slots from
+    /// `depth` onward could still supply. Flat, row length n_free + 1.
+    sp_set_reach: Vec<u8>,
+    /// Per-node hoist: every term of the `sp_bound_ok` provision estimate
+    /// that is constant across one slot's offsets. Refreshed once per
+    /// node, so the inner loop adds only the candidate item's own skp.
+    sp_bound_base: [i32; 5],
     pc_suffix: Vec<f64>,                 // [(n_free+1) * n_pc]
     hp_suffix: Vec<f64>,                 // [n_free+1]
 
@@ -416,7 +425,48 @@ impl<'a> Search<'a> {
             .filter(|&ub| ub > 0)
             .sum();
 
-        // SP max provisions per slot + suffix
+        // Set-granted skill points, for the bound in `sp_bound_ok`.
+        //
+        // Items provide skill points through `skp`, but sets also grant them
+        // once enough pieces are worn -- one set in the shipped corpus grants
+        // +85 to a single attribute at three pieces. Omitting that understates
+        // provision, which OVERSTATES the deficit and prunes branches that are
+        // genuinely buildable: 818 lost builds across the six small family
+        // fixtures.
+        //
+        // A static cap (each set's best row, summed) is admissible but useless:
+        // measured, it prunes so little that it runs slower than deleting the
+        // bound outright. The bound has to know what is still REACHABLE, which
+        // depends on how many pieces of each set are already worn and how many
+        // free slots remain -- see `refresh_sp_bound_base`.
+        // Sets that grant skill points at some piece count. Sets with only
+        // stat bonuses cannot affect the skill point bound, and skipping them
+        // keeps the per-node walk proportional to the sets that matter.
+        let sp_set_ids: Vec<u32> = fx.set_table.iter().enumerate()
+            .filter(|(_, rows)| rows.iter().any(|r| r.iter().any(|&v| v > 0)))
+            .map(|(sid, _)| sid as u32)
+            .collect();
+
+        // How many MORE pieces of each set the remaining slots could supply.
+        //
+        // Counting free slots is not the same question: a slot can only add a
+        // piece if its pool actually holds one, and each slot adds at most one.
+        // Where a set is simply not stocked by the slots that are still open,
+        // this is zero and the set contributes no slack at all -- so scenarios
+        // that never had a set-skill-point build to lose pay nothing for the
+        // bound being correct.
+        let mut sp_set_reach = vec![0u8; sp_set_ids.len() * (n_free + 1)];
+        for (si, &sid) in sp_set_ids.iter().enumerate() {
+            for d in (0..n_free).rev() {
+                // `place` counts any item with a set id, crafted included, so
+                // match it here. Over-counting only loosens the bound.
+                let stocked = fx.slots[d].pool.iter()
+                    .any(|it| it.set_id == sid as i32);
+                sp_set_reach[si * (n_free + 1) + d] =
+                    sp_set_reach[si * (n_free + 1) + d + 1] + u8::from(stocked);
+            }
+        }
+
         let mut sp_suffix_max_prov = vec![[0i32; 5]; n_free + 1];
         for d in (0..n_free).rev() {
             let mut maxp = [0i32; 5];
@@ -543,7 +593,8 @@ impl<'a> Search<'a> {
 
         Search {
             fx, n_free, l_max, ring1_depth, ring2_depth, rings_contiguous,
-            sp_suffix_max_prov, pc_suffix, hp_suffix, subtree, subtree_prefix,
+            sp_suffix_max_prov, sp_set_ids, sp_set_reach, sp_bound_base: [0; 5],
+            pc_suffix, hp_suffix, subtree, subtree_prefix,
             suffix_max_rank, ring_pair_count,
             pc_running: fx.pc_start.clone(),
             hp_running: fx.hp_start,
@@ -799,7 +850,53 @@ impl<'a> Search<'a> {
 
     /// SP bound for placing pool[offset] at `depth` — identical outcome to
     /// placing and running sp_mid_tree_feasible / sp_leaf_feasible.
-    fn sp_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+    /// `is_leaf` is retained for call-site symmetry with `restr_bound_ok`;
+    /// the suffix row for the last slot already encodes the empty suffix.
+    /// Recompute the per-node constant part of the provision estimate.
+    ///
+    /// Called once on entering slot `depth`, before its offsets are scanned.
+    /// Everything gathered here is fixed across those offsets: the fixed and
+    /// already-placed provisions, the item suffix, and the set-granted skill
+    /// points still reachable.
+    ///
+    /// Reachability is what makes the set term worth having. A set can only
+    /// contribute at piece counts it can still attain: at least what is already
+    /// worn, at most that plus the free slots left to fill. Deep in the tree,
+    /// where most nodes are, a three-piece bonus the prefix never started is
+    /// out of reach and contributes nothing -- which is the difference between
+    /// a bound that pays for itself and one that does not.
+    fn refresh_sp_bound_base(&mut self, depth: usize) {
+        let sfx = self.sp_suffix_max_prov[depth + 1];
+        let mut base = [0i32; 5];
+        for j in 0..5 {
+            base[j] = self.sp_fixed_prov[j] + self.sp_free_prov[j] + sfx[j];
+        }
+        let stride = self.n_free + 1;
+        for (si, &sid) in self.sp_set_ids.iter().enumerate() {
+            let rows = &self.fx.set_table[sid as usize];
+            if rows.is_empty() { continue; }
+            let worn = self.set_counts[sid as usize].max(0) as usize;
+            let reach = self.sp_set_reach[si * stride + depth] as usize;
+            // Wearing more pieces than the table has rows keeps the top row
+            // (`evaluate_leaf` clamps the same way), so clamp both ends rather
+            // than letting the range invert and contribute nothing -- that
+            // silently made the bound inadmissible again, two builds short on
+            // fam_hybrid_small.
+            let lo = worn.max(1).min(rows.len());
+            let hi = rows.len().min(worn + reach).max(lo);
+            let mut best = [0i32; 5];
+            for t in lo..=hi {
+                let row = rows[t - 1];
+                for j in 0..5 {
+                    if row[j] > best[j] { best[j] = row[j]; }
+                }
+            }
+            for j in 0..5 { base[j] += best[j]; }
+        }
+        self.sp_bound_base = base;
+    }
+
+    fn sp_bound_ok(&self, depth: usize, offset: usize, _is_leaf: bool) -> bool {
         // Measurement oracle. Skipping the bound entirely is trivially
         // admissible, so `feasible` under SP_BOUND_OFF=1 is the true count and
         // the gap against the default run is what the bound currently loses.
@@ -810,9 +907,7 @@ impl<'a> Search<'a> {
             let own = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
             let m = (it.reqs[j] + own).max(self.sp_max_req[j]);
             if m == 0 { continue; }
-            let item_prov = if !it.crafted && it.skp[j] > 0 { it.skp[j] } else { 0 };
-            let sfx = if is_leaf { 0 } else { self.sp_suffix_max_prov[depth + 1][j] };
-            let prov = self.sp_fixed_prov[j] + self.sp_free_prov[j] + item_prov + sfx;
+            let prov = self.sp_bound_base[j] + own;
             if m <= prov { continue; }
             let deficit = m - prov;
             if deficit > SP_PER_ATTR_CAP { return false; }
@@ -1079,6 +1174,11 @@ impl<'a> Search<'a> {
             self.ring1_placed_offset as i64
         } else { 0 };
 
+        // Hoist everything `sp_bound_ok` needs that does not vary with the
+        // offset. Recursion restores `sp_free_prov` and `set_counts` on the way
+        // back up, so this stays valid for the whole offset scan below.
+        self.refresh_sp_bound_base(depth);
+
         if depth == self.n_free - 1 {
             // Last slot: the leaf's remaining rank equals its offset, so the
             // in-band offsets are exactly [lo_rem, hi_rem].
@@ -1298,7 +1398,11 @@ impl<'a> Search<'a> {
                 self.ring1_placed_offset = o;
                 if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
             }
+            // The child refreshes the hoist for its own depth; restore ours
+            // before the next offset is tested against it.
+            let saved_base = self.sp_bound_base;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
+            self.sp_bound_base = saved_base;
             self.unplace(depth, o);
             offset += 1;
         }
