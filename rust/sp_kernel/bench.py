@@ -65,7 +65,11 @@ LAYERS = {
 
 RE_ENUM = re.compile(
     r"enum_kernel: checked (\d+) \| precheck_reject (\d+) \| precheck_pass (\d+) \| "
-    r"sp_leaf_reject (\d+) \| sp_kernel_reject (\d+) \| feasible (\d+) \| threads (\d+) \| elapsed ([\d.]+)s \| (\d+) checked/s")
+    r"sp_leaf_reject (\d+) \| sp_kernel_reject (\d+) \| feasible (\d+) \| threads (\d+) \| elapsed ([\d.]+)s \| (\d+) checked/s"
+    # `checked` credits whole pruned subtrees; `leaf_calls` counts builds the
+    # evaluator actually ran. The two differ by ~40x on pruned scenarios, so a
+    # cost-per-leaf derived from `checked` is not a cost per evaluation.
+    r"(?: \| leaf_calls (\d+) \| (\d+) leaf_calls/s)?")
 RE_SCORING = re.compile(r"scoring: scored (\d+) \| gated (\d+) \| mana_reject (\d+) \| "
                         r"thresh_reject (\d+) \| bound_pruned (\d+)")
 RE_PHASE = re.compile(r"score_trace: sp ([\d.]+)s \| base ([\d.]+)s \| gate ([\d.]+)s \| "
@@ -119,6 +123,8 @@ def run_one(scenario, threads, env_extra, time_cap, trace=True):
     if m:
         res.update(checked=int(m.group(1)), feasible=int(m.group(6)),
                    elapsed=float(m.group(8)), rate=int(m.group(9)))
+        if m.group(10) is not None:
+            res.update(leaf_calls=int(m.group(10)), leaf_rate=int(m.group(11)))
     m = RE_SCORING.search(out)
     if m:
         res.update(scored=int(m.group(1)), gated=int(m.group(2)),

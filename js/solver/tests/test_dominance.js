@@ -303,6 +303,98 @@ function makeNoneItem() {
         'Test 19: equal-stat items still prune on monotonic stats');
 }
 
+// ── Dominance modes: off / safe / legacy ─────────────────────────────────────
+
+const _normalize_dominance_mode = ctx._normalize_dominance_mode;
+const _dominance_signature = ctx._dominance_signature;
+
+t.assert(_normalize_dominance_mode('OFF') === 'off'
+    && _normalize_dominance_mode('exact') === 'off'
+    && _normalize_dominance_mode('none') === 'off',
+    'Modes: off has exact/none aliases and is case-insensitive');
+t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
+    && _normalize_dominance_mode(undefined) === 'legacy',
+    'Modes: an unrecognised mode falls back to the shipped default');
+
+// The oracle: `off` must leave every pool exactly as it found it. Without this
+// there is no baseline to measure the heuristic against.
+{
+    const strong = makeItem({ damPct: 30 });
+    const weak = makeItem({ damPct: 10 });
+    const pools = { necklace: [strong, weak] };
+    const pruned = _prune_dominated_items(
+        pools, { higher: new Set(['damPct']), lower: new Set(), equal: new Set() },
+        { mode: 'off' });
+    t.assert(pruned === 0 && pools.necklace.length === 2
+        && pools.necklace.includes(weak),
+        'Modes: off prunes nothing, including a strictly dominated item');
+}
+
+// `safe` removes only indistinguishable items.
+{
+    const a = makeItem({ damPct: 20, sdPct: 5 }, [1, 0, 0, 0, 0], [0, 2, 0, 0, 0]);
+    const twin = makeItem({ damPct: 20, sdPct: 5 }, [1, 0, 0, 0, 0], [0, 2, 0, 0, 0]);
+    const dominated = makeItem({ damPct: 10, sdPct: 5 });
+    const pools = { necklace: [a, twin, dominated] };
+    const pruned = _prune_dominated_items(
+        pools, { higher: new Set(['damPct']), lower: new Set(), equal: new Set() },
+        { mode: 'safe' });
+    t.assert(pruned === 1 && pools.necklace.length === 2,
+        'Modes: safe removes an exact duplicate');
+    t.assert(pools.necklace.includes(dominated),
+        'Modes: safe keeps a merely dominated item -- only identity is proof');
+}
+
+// A difference in any consumed value must defeat the safe signature.
+{
+    const base = makeItem({ damPct: 20 });
+    const differs = makeItem({ damPct: 20 });
+    differs.statMap.set('set', 'Morph');
+    t.assert(_dominance_signature(base) !== _dominance_signature(differs),
+        'Modes: safe signature separates items differing only by set membership');
+
+    const reqDiffers = makeItem({ damPct: 20 }, [0, 0, 1, 0, 0]);
+    t.assert(_dominance_signature(base) !== _dominance_signature(reqDiffers),
+        'Modes: safe signature separates items differing only by SP requirement');
+
+    // Presentation-only fields must NOT split otherwise identical items,
+    // or `safe` would never dedupe anything real.
+    const renamed = makeItem({ damPct: 20 });
+    renamed.statMap.set('displayName', 'Something Else');
+    base.statMap.set('displayName', 'Original');
+    t.assert(_dominance_signature(base) === _dominance_signature(renamed),
+        'Modes: safe signature ignores display name');
+
+    // Fail closed: an unknown key the solver might consume must be compared.
+    const unknownKey = makeItem({ damPct: 20 });
+    unknownKey.statMap.set('displayName', 'Original');
+    unknownKey.statMap.set('someFutureMechanic', 7);
+    t.assert(_dominance_signature(base) !== _dominance_signature(unknownKey),
+        'Modes: safe signature includes unknown keys rather than ignoring them');
+}
+
+// The exclusive-set tag lives on the wrapper, not the statMap.
+{
+    const a = makeItem({ damPct: 20 });
+    const b = makeItem({ damPct: 20 });
+    b._illegalSet = 'Slayer';
+    t.assert(_dominance_signature(a) !== _dominance_signature(b),
+        'Modes: safe signature includes the exclusive-set tag');
+}
+
+// The pool-reduction report is what an A/B against `off` reads.
+{
+    const pools = { necklace: [makeItem({ damPct: 30 }), makeItem({ damPct: 10 })] };
+    _prune_dominated_items(
+        pools, { higher: new Set(['damPct']), lower: new Set(), equal: new Set() },
+        { mode: 'legacy' });
+    const report = ctx._dominance_report();
+    t.assert(report && report.mode === 'legacy' && report.pruned === 1,
+        'Modes: the run reports its mode and prune count');
+    t.assert(report.per_slot.necklace.before === 2 && report.per_slot.necklace.after === 1,
+        'Modes: per-slot pool sizes are recorded for measurement');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 const summary = t.summary();

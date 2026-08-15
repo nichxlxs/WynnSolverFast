@@ -88,6 +88,69 @@ time-capped runs otherwise explore different amounts of space.
 **Thread counts**: omit `--threads` to use every core. Oversubscribing past
 the physical core count measurably *hurts* (~19% on a 4-core box).
 
+## benchmark_ab.py — fixed-work A/B
+
+`bench.py` measures **work per unit time**: run for N seconds, see how far you
+got. That folds every scheduling hiccup during those N seconds into the answer.
+On this container a single 6s sample has a ~15% spread, which is wider than
+most wins worth shipping — so a "+10%" from one pair of runs means nothing.
+
+`benchmark_ab.py` inverts it. `ENUM_LEAF_BUDGET` stops both sides after the
+same number of credited leaves, and the measurement is the time each took.
+Measured noise floor on the same configuration compared against itself:
+**0.25%**, versus ~15% time-capped.
+
+```bash
+# A rebuilt binary against a saved reference binary.
+python3 benchmark_ab.py --a-bin /tmp/ref/enum_kernel \
+    --scenarios ehp spell_wide --calibrate-seconds 4 --repeat 5
+
+# Two environment configurations of the same binary.
+python3 benchmark_ab.py --b-env WARM_K=0 --scenarios families --repeat 3
+```
+
+Three properties make the number trustworthy:
+
+- **Counterbalanced.** Repeats alternate A,B,B,A so drift over the run cannot
+  systematically favour whichever side went first.
+- **Provenance.** Binary and fixture SHA-256 go into the record, so a result
+  can be tied to exactly what produced it.
+- **It refuses incomparable pairs.** The enumerator is deterministic, so at a
+  fixed budget every funnel counter is reproducible to the leaf. If A and B
+  disagree on `checked`, `leaf_calls`, `feasible`, `scored`, `gated`,
+  `bound_pruned`, or the top-15 scores, they did not search the same space and
+  the row is reported NOT COMPARABLE rather than given a ratio.
+
+That last one is the point. A configuration that "wins" by silently pruning
+real builds looks like a speedup to a timing harness; here it cannot produce a
+number at all. `WARM_K=0` and `SCORE_DENSE=0` both trip it, because both change
+what gets pruned — they are ablations, not equivalent implementations.
+
+`ENUM_LEAF_BUDGET` requires `threads 1`: it is a per-worker counter, so a
+threaded run would cap `n × budget` aggregate work. The kernel rejects the
+combination rather than quietly measuring something else.
+
+### checked vs leaf_calls
+
+The summary line reports both:
+
+```
+enum_kernel: checked 15681725 | ... | 2608621 checked/s | leaf_calls 393144 | 65399 leaf_calls/s
+```
+
+`checked` is a **credited** count: pruning a subtree credits every leaf beneath
+it without visiting any of them. `leaf_calls` counts builds the evaluator
+actually ran. On `fam_spellsteal_small` they differ by **40x** — so the
+headline "2.6M checked/s" is not a rate of evaluations, and a per-leaf cost
+derived from it understates the real one by that same factor. Use `leaf_calls`
+for anything that is meant to be a cost per evaluation.
+
+The JS engine reports the same split under `SOLVER_BENCH_TRACE=1` as trace
+schema 3, where `benchmarks/trace_metrics.js` also reconciles the funnel:
+every credited leaf must leave the search at exactly one place, and every
+evaluator call must end at one leaf-level terminal. A mismatch is reported
+rather than absorbed.
+
 ## gpu_bench — is a GPU offload worth building?
 
 ```bash

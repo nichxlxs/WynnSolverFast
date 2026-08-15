@@ -147,18 +147,49 @@ let _trace = null;
 let _trace_started = 0;
 
 const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+
+// Schema 3 splits the single `checked` number into the three different things
+// it used to mean at once:
+//
+//   recursion_calls      — enumerate() invocations (interior work)
+//   leaf_evaluator_calls — builds actually handed to _evaluate_leaf
+//   credited_leaves      — the tuple-space total, which includes whole
+//                          subtrees credited without ever being visited
+//
+// Those diverge by orders of magnitude once bound pruning is doing its job, so
+// a rate quoted in "checked/s" is not a rate of evaluations, and a per-leaf
+// cost derived from it is not a per-evaluation cost. Every counter below is
+// attributed at exactly one site so the funnel identities in
+// benchmarks/trace_metrics.js can be checked against the production counters.
+const _TRACE_SCHEMA_VERSION = 3;
+const _TRACE_V3_COUNTERS = [
+    'recursion_calls', 'leaf_evaluator_calls', 'credited_leaves',
+    'illegal_rejects', 'sp_bound_rejects', 'restriction_bound_rejects',
+    'precheck_rejects', 'initial_sp_rejects',
+    'ceiling_rejects', 'scored_leaves',
+    // Candidate-level: the tome loop runs these several times per evaluator
+    // call, so they are reported but excluded from the leaf terminal identity.
+    'threshold_rejects', 'mana_rejects', 'scored_candidates',
+];
 function _reset_trace() {
     if (!_cfg?.benchmark_trace) { _trace = null; return; }
-    _trace = { leaf_count: 0 };
+    _trace = { leaf_count: 0, schema_version: _TRACE_SCHEMA_VERSION };
     _trace_started = performance.now();
     for (const phase of _TRACE_PHASES) {
         _trace[phase + '_calls'] = 0;
         _trace[phase + '_ms'] = 0;
     }
+    for (const counter of _TRACE_V3_COUNTERS) _trace[counter] = 0;
 }
 function _trace_snapshot() {
     if (!_trace) return null;
-    return { ..._trace, wall_ms: performance.now() - _trace_started };
+    // `credited_leaves` is read from the production counter rather than
+    // accumulated alongside it. That makes the funnel identity a real check:
+    // if the per-site attributions below ever stop summing to what the solver
+    // actually credited, reconcileTraceMetrics reports the gap instead of
+    // both numbers drifting together. `_checked` is zeroed with the trace.
+    return { ..._trace, credited_leaves: _checked,
+             wall_ms: performance.now() - _trace_started };
 }
 function _trace_start(phase) {
     if (!_trace) return 0;
@@ -795,6 +826,101 @@ function _run_level_enum() {
         }
     }
 
+    // ── Reachable set-granted skill points ──────────────────────────────────
+    //
+    // The suffix table above sums item `skillpoints` only. Sets ALSO grant
+    // skill points once enough pieces are worn — one set in the shipped corpus
+    // grants +85 to a single attribute at three pieces. Leaving that out of the
+    // bound understates provision, which overstates the deficit, which prunes
+    // branches that are genuinely buildable.
+    //
+    // A blanket cap (every set's best row, summed) is admissible and useless:
+    // measured in the Rust engine it prunes so little it runs slower than
+    // having no bound at all. What matters is what is still REACHABLE — a set
+    // only gains a piece from a slot whose pool actually stocks one, and only
+    // up to the piece counts those slots can supply.
+    //
+    // Restricted to sets this search can actually assemble: `sets` is the whole
+    // game's table, and walking all of it once per node would cost far more
+    // than the bound saves. A set matters only if some pool stocks it or some
+    // locked item already wears it.
+    const _sp_reachable_set_names = new Set();
+    for (const slot of free_slots) {
+        const pool = _get_pool(slot);
+        if (!pool) continue;
+        for (const it of pool) {
+            if (it.statMap.get('crafted')) continue;
+            const n = it.statMap.get('set');
+            if (n) _sp_reachable_set_names.add(n);
+        }
+    }
+    for (const item of Object.values(partial)) {
+        const sm = item?.statMap;
+        if (!sm || sm.has('NONE') || sm.get('crafted')) continue;
+        const n = sm.get('set');
+        if (n) _sp_reachable_set_names.add(n);
+    }
+
+    const _sp_set_names = [];
+    for (const set_name of _sp_reachable_set_names) {
+        const bonuses = sets.get(set_name)?.bonuses;
+        if (!Array.isArray(bonuses)) continue;
+        const grants_sp = bonuses.some(
+            (b) => b && skp_order.some((k) => (b[k] || 0) > 0));
+        if (grants_sp) _sp_set_names.push(set_name);
+    }
+
+    // _sp_set_rows[si][count-1][j] — the set's bonus per attribute, flattened
+    // into the same index order as everything else on this path.
+    const _sp_set_rows = _sp_set_names.map((set_name) =>
+        sets.get(set_name).bonuses.map((b) => {
+            const row = [0, 0, 0, 0, 0];
+            for (let j = 0; j < 5; j++) row[j] = (b && b[skp_order[j]]) || 0;
+            return row;
+        }));
+
+    // _sp_set_reach[si][d] — additional pieces slots d..N_free-1 could supply.
+    // A slot contributes at most one, and only if its pool stocks the set.
+    const _sp_set_reach = _sp_set_names.map((set_name) => {
+        const reach = new Int32Array(N_free + 1);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            const stocked = !!pool && pool.some(
+                (it) => !it.statMap.get('crafted')
+                    && it.statMap.get('set') === set_name);
+            reach[d] = reach[d + 1] + (stocked ? 1 : 0);
+        }
+        return reach;
+    });
+
+    // Pieces of each set currently worn: fixed items plus the free items placed
+    // so far. Counted exactly as calculate_skillpoints counts them at the leaf
+    // — non-crafted equipment only — so the bound and the leaf agree.
+    const _sp_set_worn = new Int32Array(_sp_set_names.length);
+    const _sp_set_index = new Map(_sp_set_names.map((n, i) => [n, i]));
+    let _sp_set_worn_fixed = new Int32Array(_sp_set_names.length);
+
+    /** Best set-granted SP still reachable from slot `depth`, per attribute. */
+    function _sp_set_reachable(depth, out) {
+        out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; out[4] = 0;
+        for (let si = 0; si < _sp_set_names.length; si++) {
+            const rows = _sp_set_rows[si];
+            if (rows.length === 0) continue;
+            const worn = _sp_set_worn[si];
+            // Counts below `worn` are unreachable (pieces cannot be removed);
+            // counts above need more stocked slots than remain. Both ends are
+            // clamped into range so a set worn past the end of its table keeps
+            // its top row instead of contributing nothing.
+            const lo = Math.min(Math.max(worn, 1), rows.length);
+            const hi = Math.max(lo, Math.min(rows.length, worn + _sp_set_reach[si][depth]));
+            for (let t = lo; t <= hi; t++) {
+                const row = rows[t - 1];
+                for (let j = 0; j < 5; j++) if (row[j] > out[j]) out[j] = row[j];
+            }
+        }
+    }
+    const _sp_set_scratch = new Int32Array(5);
+
     // ── Mid-tree restriction suffix bounds (P1.5) ───────────────────────────
     //
     // For each direct ge-precheck stat (and the hp+hpBonus base of the
@@ -1342,6 +1468,7 @@ function _run_level_enum() {
             if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
                 _trace_end('threshold', threshold_t0);
                 _dbg_threshold_reject++;
+                if (_trace) _trace.threshold_rejects++;
                 return null;
             }
         }
@@ -1359,6 +1486,7 @@ function _run_level_enum() {
                     if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
                         _trace_end('mana', mana_t0);
                         _dbg_threshold_reject++;
+                        if (_trace) _trace.threshold_rejects++;
                         return null;
                     }
                     thresh_stats = ts2;
@@ -1372,6 +1500,7 @@ function _run_level_enum() {
             if (!mana_hp_result) {
                 _trace_end('mana', mana_t0);
                 if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
+                if (_trace) _trace.mana_rejects++;
                 return null;
             }
         }
@@ -1381,12 +1510,16 @@ function _run_level_enum() {
         const score_t0 = _trace_start('score');
         const score = _eval_score(combo_base, thresh_stats);
         _trace_end('score', score_t0);
+        // Candidate-level, not leaf-level: the tome loop scores several
+        // candidates inside one evaluator call, so this counter is not part of
+        // the leaf terminal identity.
+        if (_trace) _trace.scored_candidates++;
         return { score, final_assigned };
     }
 
     function _evaluate_leaf() {
         _checked++;
-        if (_trace) _trace.leaf_count++;
+        if (_trace) { _trace.leaf_count++; _trace.leaf_evaluator_calls++; }
         const precheck_t0 = _trace_start('precheck');
 
         // Fast constraint precheck: reject builds that can't meet simple
@@ -1397,6 +1530,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1404,6 +1538,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1437,6 +1572,7 @@ function _run_level_enum() {
         _trace_end('sp', sp_t0);
         if (!sp_result) {
             _dbg_sp_reject++;
+            if (_trace) _trace.initial_sp_rejects++;
             _maybe_progress();
             return;
         }
@@ -1481,6 +1617,7 @@ function _run_level_enum() {
             // a genuine top-N candidate.
             if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
                 _dbg_ceiling_skip++;
+                if (_trace) _trace.ceiling_rejects++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
                 return;
@@ -1495,6 +1632,7 @@ function _run_level_enum() {
             if (!res) { _maybe_progress(); return; }
             _dbg_scored++;
             _met_req++;
+            if (_trace) _trace.scored_leaves++;
             const topn_t0 = _trace_start('topn');
             _insert_top5(res.score, () => {
                 const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
@@ -1577,6 +1715,7 @@ function _run_level_enum() {
         if (!best) { _maybe_progress(); return; }
         _dbg_scored++;
         _met_req++;
+        if (_trace) _trace.scored_leaves++;
         const topn_t0 = _trace_start('topn');
         _insert_top5(best.score, () => {
             const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
@@ -1805,6 +1944,7 @@ function _run_level_enum() {
     function _sp_compute_fixed_baseline() {
         _sp_fixed_max_eff_req.fill(0);
         _sp_fixed_sum_prov.fill(0);
+        _sp_set_worn_fixed = new Int32Array(_sp_set_names.length);
 
         const free_set = new Set(free_slots);
         for (const [slot, item] of Object.entries(partial)) {
@@ -1819,6 +1959,11 @@ function _run_level_enum() {
                 for (let i = 0; i < 5; i++) {
                     if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
                 }
+                // Pieces already worn by locked equipment. The weapon is not
+                // counted, matching calculate_skillpoints, which walks the
+                // eight equipment slots and takes the weapon separately.
+                const si = _sp_set_index.get(sm.get('set'));
+                if (si !== undefined) _sp_set_worn_fixed[si]++;
             }
 
             // Raw requirements (cascade: no self-contribution undoing)
@@ -1865,6 +2010,7 @@ function _run_level_enum() {
     function _sp_reset() {
         _sp_compute_fixed_baseline();
         _sp_running_free_prov.fill(0);
+        _sp_set_worn.set(_sp_set_worn_fixed);
         for (let i = 0; i < 5; i++)
             _sp_running_max_eff_req[i] = _sp_fixed_max_eff_req[i];
     }
@@ -1881,6 +2027,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] += skp[i];
             }
+            const si = _sp_set_index.get(sm.get('set'));
+            if (si !== undefined) _sp_set_worn[si]++;
         }
 
         // Snapshot the running max, then fold in this item's raw requirements
@@ -1903,6 +2051,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] -= skp[i];
             }
+            const si = _sp_set_index.get(sm.get('set'));
+            if (si !== undefined) _sp_set_worn[si]--;
         }
 
         const save = _sp_max_save[depth];
@@ -1958,6 +2108,7 @@ function _run_level_enum() {
     // current prefix whose remaining rank sum lies in [lo_rem, hi_rem].
     // lo_rem may go <= 0 (no lower bound left); hi_rem is the budget.
     function enumerate(slot_idx, lo_rem, hi_rem) {
+        if (_trace) _trace.recursion_calls++;
         if (_cancelled) return;
 
         if (slot_idx === N_free) {
@@ -2006,8 +2157,13 @@ function _run_level_enum() {
             // prechecks); interior slots add the child-depth suffix.
             const prov_sfx = _hoist_prov_sfx[slot_idx];
             const sfx = is_leaf_slot ? null : _sp_suffix_max_prov[next_depth];
+            // Set-granted skill points still reachable from this slot. Computed
+            // once per node like everything else here, so the offset scan below
+            // pays nothing for the bound being correct.
+            _sp_set_reachable(slot_idx, _sp_set_scratch);
             for (let j = 0; j < 5; j++) {
-                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j] + (sfx ? sfx[j] : 0);
+                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j]
+                    + (sfx ? sfx[j] : 0) + _sp_set_scratch[j];
             }
             if (pc_col) {
                 const pc_base = _hoist_pc_base[slot_idx];
@@ -2040,17 +2196,20 @@ function _run_level_enum() {
                     // Illegal-set blocked — the single leaf for this tuple is still
                     // counted toward total, so credit it to _checked.
                     _checked++;
+                    if (_trace) _trace.illegal_rejects++;
                     _maybe_progress();
                 } else if (!_sp_bound_ok(slot_idx, offset)) {
                     // Same outcome _sp_leaf_feasible would produce after placing.
                     _checked++;
                     _dbg_sp_leaf_reject++;
+                    if (_trace) _trace.sp_bound_rejects++;
                     _maybe_progress();
                 } else if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
                     // Same outcome the leaf prechecks would produce after placing.
                     _checked++;
                     _precheck_reject++;
                     _dbg_precheck_reject++;
+                    if (_trace) _trace.restriction_bound_rejects++;
                     _maybe_progress();
                 } else {
                     if (is) tracker.add(is, iname);
@@ -2090,6 +2249,7 @@ function _run_level_enum() {
                 }
                 const skipped = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += skipped;
+                if (_trace) _trace.illegal_rejects += skipped;
                 _maybe_progress();
                 continue;
             }
@@ -2101,6 +2261,7 @@ function _run_level_enum() {
                 const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += pruned;
                 _dbg_sp_prune_count += pruned;
+                if (_trace) _trace.sp_bound_rejects += pruned;
                 _maybe_progress();
                 continue;
             }
@@ -2115,6 +2276,7 @@ function _run_level_enum() {
                 _checked += pruned;
                 _precheck_reject += pruned;
                 _dbg_restr_prune_count += pruned;
+                if (_trace) _trace.restriction_bound_rejects += pruned;
                 _maybe_progress();
                 continue;
             }

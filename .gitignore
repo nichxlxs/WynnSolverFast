@@ -23,3 +23,10 @@ pyvenv.cfg
 !rust/**/src/bin/
 
 __pycache__
+
+# binaryen ships a 104MB wasm-opt toolchain; build-wasm.sh finds it in
+# node_modules but it is a build tool, not a checked-in artifact like
+# playwright-core. `npm i` restores it from package.json.
+node_modules/binaryen/
+node_modules/.bin/wasm-*
+node_modules/.bin/wasm2js
