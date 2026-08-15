@@ -147,18 +147,49 @@ let _trace = null;
 let _trace_started = 0;
 
 const _TRACE_PHASES = ['precheck', 'sp', 'finalize', 'ceiling', 'greedy', 'assemble', 'threshold', 'mana', 'score', 'topn'];
+
+// Schema 3 splits the single `checked` number into the three different things
+// it used to mean at once:
+//
+//   recursion_calls      — enumerate() invocations (interior work)
+//   leaf_evaluator_calls — builds actually handed to _evaluate_leaf
+//   credited_leaves      — the tuple-space total, which includes whole
+//                          subtrees credited without ever being visited
+//
+// Those diverge by orders of magnitude once bound pruning is doing its job, so
+// a rate quoted in "checked/s" is not a rate of evaluations, and a per-leaf
+// cost derived from it is not a per-evaluation cost. Every counter below is
+// attributed at exactly one site so the funnel identities in
+// benchmarks/trace_metrics.js can be checked against the production counters.
+const _TRACE_SCHEMA_VERSION = 3;
+const _TRACE_V3_COUNTERS = [
+    'recursion_calls', 'leaf_evaluator_calls', 'credited_leaves',
+    'illegal_rejects', 'sp_bound_rejects', 'restriction_bound_rejects',
+    'precheck_rejects', 'initial_sp_rejects',
+    'ceiling_rejects', 'scored_leaves',
+    // Candidate-level: the tome loop runs these several times per evaluator
+    // call, so they are reported but excluded from the leaf terminal identity.
+    'threshold_rejects', 'mana_rejects', 'scored_candidates',
+];
 function _reset_trace() {
     if (!_cfg?.benchmark_trace) { _trace = null; return; }
-    _trace = { leaf_count: 0 };
+    _trace = { leaf_count: 0, schema_version: _TRACE_SCHEMA_VERSION };
     _trace_started = performance.now();
     for (const phase of _TRACE_PHASES) {
         _trace[phase + '_calls'] = 0;
         _trace[phase + '_ms'] = 0;
     }
+    for (const counter of _TRACE_V3_COUNTERS) _trace[counter] = 0;
 }
 function _trace_snapshot() {
     if (!_trace) return null;
-    return { ..._trace, wall_ms: performance.now() - _trace_started };
+    // `credited_leaves` is read from the production counter rather than
+    // accumulated alongside it. That makes the funnel identity a real check:
+    // if the per-site attributions below ever stop summing to what the solver
+    // actually credited, reconcileTraceMetrics reports the gap instead of
+    // both numbers drifting together. `_checked` is zeroed with the trace.
+    return { ..._trace, credited_leaves: _checked,
+             wall_ms: performance.now() - _trace_started };
 }
 function _trace_start(phase) {
     if (!_trace) return 0;
@@ -1342,6 +1373,7 @@ function _run_level_enum() {
             if (!_check_thresholds(thresh_stats, restrictions.stat_thresholds)) {
                 _trace_end('threshold', threshold_t0);
                 _dbg_threshold_reject++;
+                if (_trace) _trace.threshold_rejects++;
                 return null;
             }
         }
@@ -1359,6 +1391,7 @@ function _run_level_enum() {
                     if (!_check_thresholds(ts2, restrictions.stat_thresholds)) {
                         _trace_end('mana', mana_t0);
                         _dbg_threshold_reject++;
+                        if (_trace) _trace.threshold_rejects++;
                         return null;
                     }
                     thresh_stats = ts2;
@@ -1372,6 +1405,7 @@ function _run_level_enum() {
             if (!mana_hp_result) {
                 _trace_end('mana', mana_t0);
                 if (_cfg.hp_casting) _dbg_hp_reject++; else _dbg_mana_reject++;
+                if (_trace) _trace.mana_rejects++;
                 return null;
             }
         }
@@ -1381,12 +1415,16 @@ function _run_level_enum() {
         const score_t0 = _trace_start('score');
         const score = _eval_score(combo_base, thresh_stats);
         _trace_end('score', score_t0);
+        // Candidate-level, not leaf-level: the tome loop scores several
+        // candidates inside one evaluator call, so this counter is not part of
+        // the leaf terminal identity.
+        if (_trace) _trace.scored_candidates++;
         return { score, final_assigned };
     }
 
     function _evaluate_leaf() {
         _checked++;
-        if (_trace) _trace.leaf_count++;
+        if (_trace) { _trace.leaf_count++; _trace.leaf_evaluator_calls++; }
         const precheck_t0 = _trace_start('precheck');
 
         // Fast constraint precheck: reject builds that can't meet simple
@@ -1397,6 +1435,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1404,6 +1443,7 @@ function _run_level_enum() {
             _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
+            if (_trace) _trace.precheck_rejects++;
             _maybe_progress();
             return;
         }
@@ -1437,6 +1477,7 @@ function _run_level_enum() {
         _trace_end('sp', sp_t0);
         if (!sp_result) {
             _dbg_sp_reject++;
+            if (_trace) _trace.initial_sp_rejects++;
             _maybe_progress();
             return;
         }
@@ -1481,6 +1522,7 @@ function _run_level_enum() {
             // a genuine top-N candidate.
             if (ceiling < cutoff - Math.abs(cutoff) * 1e-9) {
                 _dbg_ceiling_skip++;
+                if (_trace) _trace.ceiling_rejects++;
                 if (_dbg) _dbg_leaf_time += performance.now() - t0;
                 _maybe_progress();
                 return;
@@ -1495,6 +1537,7 @@ function _run_level_enum() {
             if (!res) { _maybe_progress(); return; }
             _dbg_scored++;
             _met_req++;
+            if (_trace) _trace.scored_leaves++;
             const topn_t0 = _trace_start('topn');
             _insert_top5(res.score, () => {
                 const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
@@ -1577,6 +1620,7 @@ function _run_level_enum() {
         if (!best) { _maybe_progress(); return; }
         _dbg_scored++;
         _met_req++;
+        if (_trace) _trace.scored_leaves++;
         const topn_t0 = _trace_start('topn');
         _insert_top5(best.score, () => {
             const item_names = _scratch_equip_8.map(sm => _get_item_name(sm));
@@ -1958,6 +2002,7 @@ function _run_level_enum() {
     // current prefix whose remaining rank sum lies in [lo_rem, hi_rem].
     // lo_rem may go <= 0 (no lower bound left); hi_rem is the budget.
     function enumerate(slot_idx, lo_rem, hi_rem) {
+        if (_trace) _trace.recursion_calls++;
         if (_cancelled) return;
 
         if (slot_idx === N_free) {
@@ -2040,17 +2085,20 @@ function _run_level_enum() {
                     // Illegal-set blocked — the single leaf for this tuple is still
                     // counted toward total, so credit it to _checked.
                     _checked++;
+                    if (_trace) _trace.illegal_rejects++;
                     _maybe_progress();
                 } else if (!_sp_bound_ok(slot_idx, offset)) {
                     // Same outcome _sp_leaf_feasible would produce after placing.
                     _checked++;
                     _dbg_sp_leaf_reject++;
+                    if (_trace) _trace.sp_bound_rejects++;
                     _maybe_progress();
                 } else if (_restr_pruning_active && !_restr_bound_ok(slot_idx, offset)) {
                     // Same outcome the leaf prechecks would produce after placing.
                     _checked++;
                     _precheck_reject++;
                     _dbg_precheck_reject++;
+                    if (_trace) _trace.restriction_bound_rejects++;
                     _maybe_progress();
                 } else {
                     if (is) tracker.add(is, iname);
@@ -2090,6 +2138,7 @@ function _run_level_enum() {
                 }
                 const skipped = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += skipped;
+                if (_trace) _trace.illegal_rejects += skipped;
                 _maybe_progress();
                 continue;
             }
@@ -2101,6 +2150,7 @@ function _run_level_enum() {
                 const pruned = _band_credit(next_depth, lo_rem - offset, hi_rem - offset);
                 _checked += pruned;
                 _dbg_sp_prune_count += pruned;
+                if (_trace) _trace.sp_bound_rejects += pruned;
                 _maybe_progress();
                 continue;
             }
@@ -2115,6 +2165,7 @@ function _run_level_enum() {
                 _checked += pruned;
                 _precheck_reject += pruned;
                 _dbg_restr_prune_count += pruned;
+                if (_trace) _trace.restriction_bound_rejects += pruned;
                 _maybe_progress();
                 continue;
             }

@@ -316,6 +316,10 @@ pub struct Search<'a> {
 
     // Funnel
     checked: f64,
+    /// Builds actually handed to `evaluate_leaf`. `checked` credits whole
+    /// pruned subtrees it never visited, so the two diverge by orders of
+    /// magnitude once the bounds engage -- and only this one counts work done.
+    pub leaf_calls: u64,
     precheck_reject: f64,
     precheck_pass: u64,
     feasible: u64,
@@ -344,6 +348,8 @@ pub struct Search<'a> {
     /// Used where there is no usable wall clock (wasm) and wherever a
     /// reproducible chunk of work is wanted instead of a time slice.
     pub leaf_budget: Option<f64>,
+    /// SP_BOUND_OFF=1: read once at construction, never in the hot path.
+    sp_bound_off: bool,
     dense_work: crate::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -551,7 +557,8 @@ impl<'a> Search<'a> {
             equips,
             equip_set,
             ring1_placed_offset: 0,
-            checked: 0.0, precheck_reject: 0.0, precheck_pass: 0,
+            sp_bound_off: std::env::var("SP_BOUND_OFF").as_deref() == Ok("1"),
+            checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
             kernel: Kernel::new(),
             total_space: 0.0,
@@ -712,6 +719,7 @@ impl<'a> Search<'a> {
     fn emit_progress(&mut self) {
         let snap = ProgressSnapshot {
             checked: self.checked,
+            leaf_calls: self.leaf_calls,
             total: self.total_space,
             precheck_reject: self.precheck_reject,
             precheck_pass: self.precheck_pass,
@@ -792,6 +800,10 @@ impl<'a> Search<'a> {
     /// SP bound for placing pool[offset] at `depth` — identical outcome to
     /// placing and running sp_mid_tree_feasible / sp_leaf_feasible.
     fn sp_bound_ok(&self, depth: usize, offset: usize, is_leaf: bool) -> bool {
+        // Measurement oracle. Skipping the bound entirely is trivially
+        // admissible, so `feasible` under SP_BOUND_OFF=1 is the true count and
+        // the gap against the default run is what the bound currently loses.
+        if self.sp_bound_off { return true; }
         let it = &self.fx.slots[depth].pool[offset];
         let mut total_deficit = 0i32;
         for j in 0..5 {
@@ -885,6 +897,7 @@ impl<'a> Search<'a> {
 
     fn evaluate_leaf(&mut self) {
         self.checked += 1.0;
+        self.leaf_calls += 1;
         self.maybe_report();
         // Leaf prechecks (constraint + EHP family)
         let n_pc = self.fx.pc_thresholds.len();
@@ -1329,6 +1342,11 @@ impl<'a> Search<'a> {
 #[derive(Clone)]
 pub struct ProgressSnapshot {
     pub checked: f64,
+    /// Builds actually handed to `evaluate_leaf`. `checked` credits whole
+    /// pruned subtrees it never visited, so the two diverge by orders of
+    /// magnitude once the bounds engage -- and only this one is a count of
+    /// work done.
+    pub leaf_calls: u64,
     pub total: f64,
     pub precheck_reject: f64,
     pub precheck_pass: u64,
@@ -1346,6 +1364,7 @@ pub struct ProgressSnapshot {
 #[derive(Default)]
 pub struct Totals {
     pub checked: f64,
+    pub leaf_calls: u64,
     pub precheck_reject: f64,
     pub precheck_pass: u64,
     pub sp_leaf_reject: u64,
@@ -1494,6 +1513,7 @@ pub fn run_single_with_progress(
     search.emit_progress();
     Totals {
         checked: search.checked,
+        leaf_calls: search.leaf_calls,
         precheck_reject: search.precheck_reject,
         precheck_pass: search.precheck_pass,
         sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
@@ -1766,6 +1786,29 @@ pub fn cli_main() {
         .map(|s| s.parse().expect("threads must be a number"))
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
 
+    // Fixed-work mode: stop after a set number of credited leaves instead of
+    // after a set wall time. A/B runs then compare time-to-same-work rather
+    // than work-in-same-time, which removes the machine-noise term that a
+    // time-capped comparison folds into the result.
+    let cli_leaf_budget: Option<f64> = match env::var("ENUM_LEAF_BUDGET") {
+        Ok(raw) => match raw.trim().parse::<f64>() {
+            Ok(v) if v.is_finite() && v > 0.0 => Some(v),
+            _ => {
+                eprintln!("enum_kernel: error: ENUM_LEAF_BUDGET must be a finite number > 0");
+                std::process::exit(2);
+            }
+        },
+        Err(_) => None,
+    };
+    // Each worker holds its own `checked`, so a per-worker budget caps
+    // n_threads * budget aggregate work — not the same experiment. Refuse
+    // rather than silently measure something else.
+    if cli_leaf_budget.is_some() && n_threads > 1 {
+        eprintln!("enum_kernel: error: ENUM_LEAF_BUDGET requires one thread \
+                   (pass 1 as the threads argument)");
+        std::process::exit(2);
+    }
+
     // Optional scoring context (P2.4 layer 3): full leaf pipeline + top-N.
     let scoring_ctx: Option<crate::scoring::ScoringCtx> = args.get(3).map(|p| {
         let text = fs::read_to_string(p).expect("cannot read score fixture");
@@ -1839,11 +1882,13 @@ pub fn cli_main() {
         search.bound_max_depth = bound_max_depth;
         search.bound_tail = bound_tail;
         search.dense_bound = dense_bound;
+        search.leaf_budget = cli_leaf_budget;
         search.init_equip_names();
         search.run();
         let elapsed = start.elapsed();
         (Totals {
             checked: search.checked,
+            leaf_calls: search.leaf_calls,
             precheck_reject: search.precheck_reject,
             precheck_pass: search.precheck_pass,
             sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
@@ -1917,6 +1962,7 @@ pub fn cli_main() {
                     }
                     Totals {
                         checked: search.checked,
+                        leaf_calls: search.leaf_calls,
                         precheck_reject: search.precheck_reject,
                         precheck_pass: search.precheck_pass,
                         sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
@@ -1982,12 +2028,14 @@ pub fn cli_main() {
     };
 
     println!(
-        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | sp_kernel_reject {} | feasible {} | threads {} | elapsed {:.3}s | {:.0} checked/s",
+        "enum_kernel: checked {} | precheck_reject {} | precheck_pass {} | sp_leaf_reject {} | sp_kernel_reject {} | feasible {} | threads {} | elapsed {:.3}s | {:.0} checked/s | leaf_calls {} | {:.0} leaf_calls/s",
         totals.checked, totals.precheck_reject, totals.precheck_pass,
         totals.sp_leaf_reject, totals.sp_kernel_reject, totals.feasible,
         if fx.slots.is_empty() { 1 } else { n_threads.min(fx.slots[0].pool.len()).max(1) },
         elapsed.as_secs_f64(),
         totals.checked / elapsed.as_secs_f64(),
+        totals.leaf_calls,
+        totals.leaf_calls as f64 / elapsed.as_secs_f64(),
     );
     crate::scoring::trace::report();
     if scoring.is_some() {

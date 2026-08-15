@@ -1165,7 +1165,188 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
  *
  * @returns {number} Total items pruned across all pools.
  */
+// ── Dominance modes ──────────────────────────────────────────────────────────
+//
+// `legacy` (the shipped default) compares only the stats the sensitivity pass
+// selected, and that selection is thresholded: `_build_dominance_stats` ignores
+// any stat whose weight falls within +-0.5% of the largest weight. A stat below
+// that threshold is in neither the higher nor the lower set, so it is never
+// compared at all -- an item can be pruned by one that is strictly worse on it.
+// That makes `legacy` a heuristic skyline, not a proof, and it is why a
+// dominance measurement taken on already-pruned pools cannot tell you what
+// dominance costs.
+//
+//   off     no pruning. The raw pre-dominance oracle: the only configuration
+//           whose result set is guaranteed to be the complete one.
+//   safe    removes an item only when another item in the same pool is
+//           identical in every value the solver consumes. Always sound.
+//   legacy  the historical sensitivity skyline described above.
+//
+const _DOMINANCE_MODES = new Set(['off', 'safe', 'legacy']);
+const _DOMINANCE_DEFAULT_MODE = 'legacy';
+
+// Presentation and provenance only -- excluded from the safe signature. The
+// list is deliberately short: including a key that does not matter only makes
+// `safe` prune less, while excluding one that does matter makes it unsound.
+const _DOMINANCE_IDENTITY_KEYS = new Set([
+    'name', 'displayName', 'id', 'lore', 'drop', 'quest', 'material', 'icon',
+    'fixID',
+]);
+const _DOMINANCE_OPAQUE_OBJECT_IDS = new WeakMap();
+const _DOMINANCE_OPAQUE_SYMBOL_IDS = new Map();
+let _dominance_next_opaque_id = 1;
+
+function _dominance_opaque_id(value) {
+    const ids = typeof value === 'symbol'
+        ? _DOMINANCE_OPAQUE_SYMBOL_IDS : _DOMINANCE_OPAQUE_OBJECT_IDS;
+    if (!ids.has(value)) ids.set(value, _dominance_next_opaque_id++);
+    return ids.get(value);
+}
+
+function _normalize_dominance_mode(raw) {
+    const mode = String(raw ?? '').trim().toLowerCase();
+    if (mode === 'exact' || mode === 'none') return 'off';
+    return _DOMINANCE_MODES.has(mode) ? mode : _DOMINANCE_DEFAULT_MODE;
+}
+
+function _resolve_dominance_mode(options = {}) {
+    if (options.mode != null) return _normalize_dominance_mode(options.mode);
+    if (typeof globalThis !== 'undefined' && globalThis.SOLVER_DOMINANCE_MODE != null) {
+        return _normalize_dominance_mode(globalThis.SOLVER_DOMINANCE_MODE);
+    }
+    if (typeof process !== 'undefined' && process?.env?.SOLVER_DOMINANCE_MODE != null) {
+        return _normalize_dominance_mode(process.env.SOLVER_DOMINANCE_MODE);
+    }
+    return _DOMINANCE_DEFAULT_MODE;
+}
+
+/**
+ * Deterministic structural encoding of one value.
+ *
+ * Fails closed: anything this cannot compare structurally -- a function, a
+ * symbol, a Date, a class instance, a typed array -- gets an identity token
+ * instead, so it can never accidentally match another item's value.
+ */
+function _dominance_stable_value(value, seen = new Set()) {
+    if (value === undefined) return ['undefined'];
+    if (typeof value === 'number') {
+        if (Number.isNaN(value)) return ['number', 'NaN'];
+        if (Object.is(value, -0)) return ['number', '-0'];
+        return ['number', value];
+    }
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+        return [typeof value, value];
+    }
+    if (typeof value === 'bigint') return ['bigint', String(value)];
+    if (typeof value === 'function' || typeof value === 'symbol') {
+        return ['opaque', typeof value, _dominance_opaque_id(value)];
+    }
+    if (seen.has(value)) return ['cycle', _dominance_opaque_id(value)];
+    seen.add(value);
+    let encoded;
+    if (value instanceof Map) {
+        encoded = ['map', [...value.entries()]
+            .map(([k, v]) => [_dominance_stable_value(k, seen), _dominance_stable_value(v, seen)])
+            .sort((a, b) => JSON.stringify(a[0]).localeCompare(JSON.stringify(b[0])))];
+    } else if (value instanceof Set) {
+        encoded = ['set', [...value].map(v => _dominance_stable_value(v, seen))
+            .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))];
+    } else if (Array.isArray(value)) {
+        encoded = ['array', value.map(v => _dominance_stable_value(v, seen))];
+    } else {
+        const prototype = Object.getPrototypeOf(value);
+        // An object literal built in another realm (a worker, the Node test
+        // harness) does not share this realm's Object.prototype, so identity
+        // comparison against it would wrongly reject a plain object. A genuine
+        // Object.prototype is rooted at null and names its constructor Object.
+        const plain_object = prototype === null
+            || (Object.getPrototypeOf(prototype) === null
+                && Object.prototype.hasOwnProperty.call(prototype, 'constructor')
+                && prototype.constructor?.name === 'Object');
+        const own_keys = Reflect.ownKeys(value);
+        const simple_data_object = plain_object && own_keys.every(key => {
+            if (typeof key !== 'string') return false;
+            const descriptor = Object.getOwnPropertyDescriptor(value, key);
+            return descriptor?.enumerable
+                && Object.prototype.hasOwnProperty.call(descriptor, 'value');
+        });
+        encoded = simple_data_object
+            ? ['object', own_keys.sort()
+                .map(k => [k, _dominance_stable_value(value[k], seen)])]
+            : ['opaque-object', Object.prototype.toString.call(value),
+               _dominance_opaque_id(value)];
+    }
+    seen.delete(value);
+    return encoded;
+}
+
+/** Complete gameplay signature: every statMap entry the solver can consume. */
+function _dominance_signature(item) {
+    const entries = [];
+    for (const [key, value] of item.statMap) {
+        if (_DOMINANCE_IDENTITY_KEYS.has(key)) continue;
+        entries.push([key, _dominance_stable_value(value)]);
+    }
+    entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    // The exclusive-set tag lives on the wrapper, not the statMap, and decides
+    // whether two otherwise identical items can coexist in one build.
+    entries.push(['@illegalSet', _dominance_stable_value(item._illegalSet ?? null)]);
+    return JSON.stringify(entries);
+}
+
+/**
+ * Remove only exact duplicates: items indistinguishable to the solver.
+ * Sound by construction -- a removed item has a surviving twin that produces
+ * the identical build in every position it could have occupied.
+ */
+function _dedupe_identical_items(pools, report) {
+    let total = 0;
+    for (const [slot, pool] of Object.entries(pools)) {
+        const seen = new Map();
+        const keep = [];
+        const none_bucket = [];
+        for (const item of pool) {
+            if (item.statMap.has('NONE')) { none_bucket.push(item); continue; }
+            const signature = _dominance_signature(item);
+            if (seen.has(signature)) { total++; continue; }
+            seen.set(signature, item);
+            keep.push(item);
+        }
+        report.per_slot[slot] = { before: pool.length, after: keep.length + none_bucket.length };
+        pool.length = 0;
+        for (const item of keep) pool.push(item);
+        for (const item of none_bucket) pool.push(item);
+    }
+    return total;
+}
+
+// Pool reduction from the most recent _prune_dominated_items call. An A/B
+// against `off` reads this to report how much search space the heuristic
+// removed -- the number that cannot be recovered from post-prune pools.
+let _last_dominance_report = null;
+function _dominance_report() { return _last_dominance_report; }
+
 function _prune_dominated_items(pools, dominance_stats, options = {}) {
+    const mode = _resolve_dominance_mode(options);
+    const report = { mode, per_slot: {}, pruned: 0 };
+    _last_dominance_report = report;
+    if (typeof globalThis !== 'undefined') globalThis.SOLVER_DOMINANCE_REPORT = report;
+
+    if (mode === 'off') {
+        for (const [slot, pool] of Object.entries(pools)) {
+            report.per_slot[slot] = { before: pool.length, after: pool.length };
+        }
+        return 0;
+    }
+    if (mode === 'safe') {
+        report.pruned = _dedupe_identical_items(pools, report);
+        if (report.pruned > 0) {
+            console.log('[solver] dominance (safe): removed', report.pruned,
+                        'exact duplicate items across all pools');
+        }
+        return report.pruned;
+    }
+
     const preserve_set_items = options.preserve_set_items !== false;
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
@@ -1319,13 +1500,16 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
         }
 
         // Rebuild pool in-place: non-dominated reals first, NONE at end
+        const before = pool.length;
         pool.length = 0;
         for (let i = 0; i < real.length; i++) {
             if (!dominated[i]) pool.push(real[i]);
         }
         for (const ni of none_bucket) pool.push(ni);
+        report.per_slot[slot] = { before, after: pool.length };
     }
 
+    report.pruned = total_pruned;
     if (total_pruned > 0) {
         console.log('[solver] dominance pruning removed', total_pruned, 'items across all pools');
     }
@@ -1337,5 +1521,8 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         _item_stat_val, _build_dominance_stats, _prune_dominated_items,
         _INDIRECT_CONSTRAINT_STATS,
+        _DOMINANCE_MODES, _DOMINANCE_DEFAULT_MODE,
+        _normalize_dominance_mode, _resolve_dominance_mode,
+        _dominance_signature, _dominance_stable_value, _dominance_report,
     };
 }
