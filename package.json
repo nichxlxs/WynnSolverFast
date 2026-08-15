@@ -8,6 +8,7 @@
     "e2e": "node js/solver/tests/browser_e2e.js"
   },
   "devDependencies": {
-    "playwright-core": "^1.49.0"
+    "playwright-core": "^1.49.0",
+    "binaryen": "^132.0.0"
   }
 }

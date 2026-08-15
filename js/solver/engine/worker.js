@@ -826,6 +826,101 @@ function _run_level_enum() {
         }
     }
 
+    // ── Reachable set-granted skill points ──────────────────────────────────
+    //
+    // The suffix table above sums item `skillpoints` only. Sets ALSO grant
+    // skill points once enough pieces are worn — one set in the shipped corpus
+    // grants +85 to a single attribute at three pieces. Leaving that out of the
+    // bound understates provision, which overstates the deficit, which prunes
+    // branches that are genuinely buildable.
+    //
+    // A blanket cap (every set's best row, summed) is admissible and useless:
+    // measured in the Rust engine it prunes so little it runs slower than
+    // having no bound at all. What matters is what is still REACHABLE — a set
+    // only gains a piece from a slot whose pool actually stocks one, and only
+    // up to the piece counts those slots can supply.
+    //
+    // Restricted to sets this search can actually assemble: `sets` is the whole
+    // game's table, and walking all of it once per node would cost far more
+    // than the bound saves. A set matters only if some pool stocks it or some
+    // locked item already wears it.
+    const _sp_reachable_set_names = new Set();
+    for (const slot of free_slots) {
+        const pool = _get_pool(slot);
+        if (!pool) continue;
+        for (const it of pool) {
+            if (it.statMap.get('crafted')) continue;
+            const n = it.statMap.get('set');
+            if (n) _sp_reachable_set_names.add(n);
+        }
+    }
+    for (const item of Object.values(partial)) {
+        const sm = item?.statMap;
+        if (!sm || sm.has('NONE') || sm.get('crafted')) continue;
+        const n = sm.get('set');
+        if (n) _sp_reachable_set_names.add(n);
+    }
+
+    const _sp_set_names = [];
+    for (const set_name of _sp_reachable_set_names) {
+        const bonuses = sets.get(set_name)?.bonuses;
+        if (!Array.isArray(bonuses)) continue;
+        const grants_sp = bonuses.some(
+            (b) => b && skp_order.some((k) => (b[k] || 0) > 0));
+        if (grants_sp) _sp_set_names.push(set_name);
+    }
+
+    // _sp_set_rows[si][count-1][j] — the set's bonus per attribute, flattened
+    // into the same index order as everything else on this path.
+    const _sp_set_rows = _sp_set_names.map((set_name) =>
+        sets.get(set_name).bonuses.map((b) => {
+            const row = [0, 0, 0, 0, 0];
+            for (let j = 0; j < 5; j++) row[j] = (b && b[skp_order[j]]) || 0;
+            return row;
+        }));
+
+    // _sp_set_reach[si][d] — additional pieces slots d..N_free-1 could supply.
+    // A slot contributes at most one, and only if its pool stocks the set.
+    const _sp_set_reach = _sp_set_names.map((set_name) => {
+        const reach = new Int32Array(N_free + 1);
+        for (let d = N_free - 1; d >= 0; d--) {
+            const pool = _get_pool(free_slots[d]);
+            const stocked = !!pool && pool.some(
+                (it) => !it.statMap.get('crafted')
+                    && it.statMap.get('set') === set_name);
+            reach[d] = reach[d + 1] + (stocked ? 1 : 0);
+        }
+        return reach;
+    });
+
+    // Pieces of each set currently worn: fixed items plus the free items placed
+    // so far. Counted exactly as calculate_skillpoints counts them at the leaf
+    // — non-crafted equipment only — so the bound and the leaf agree.
+    const _sp_set_worn = new Int32Array(_sp_set_names.length);
+    const _sp_set_index = new Map(_sp_set_names.map((n, i) => [n, i]));
+    let _sp_set_worn_fixed = new Int32Array(_sp_set_names.length);
+
+    /** Best set-granted SP still reachable from slot `depth`, per attribute. */
+    function _sp_set_reachable(depth, out) {
+        out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; out[4] = 0;
+        for (let si = 0; si < _sp_set_names.length; si++) {
+            const rows = _sp_set_rows[si];
+            if (rows.length === 0) continue;
+            const worn = _sp_set_worn[si];
+            // Counts below `worn` are unreachable (pieces cannot be removed);
+            // counts above need more stocked slots than remain. Both ends are
+            // clamped into range so a set worn past the end of its table keeps
+            // its top row instead of contributing nothing.
+            const lo = Math.min(Math.max(worn, 1), rows.length);
+            const hi = Math.max(lo, Math.min(rows.length, worn + _sp_set_reach[si][depth]));
+            for (let t = lo; t <= hi; t++) {
+                const row = rows[t - 1];
+                for (let j = 0; j < 5; j++) if (row[j] > out[j]) out[j] = row[j];
+            }
+        }
+    }
+    const _sp_set_scratch = new Int32Array(5);
+
     // ── Mid-tree restriction suffix bounds (P1.5) ───────────────────────────
     //
     // For each direct ge-precheck stat (and the hp+hpBonus base of the
@@ -1849,6 +1944,7 @@ function _run_level_enum() {
     function _sp_compute_fixed_baseline() {
         _sp_fixed_max_eff_req.fill(0);
         _sp_fixed_sum_prov.fill(0);
+        _sp_set_worn_fixed = new Int32Array(_sp_set_names.length);
 
         const free_set = new Set(free_slots);
         for (const [slot, item] of Object.entries(partial)) {
@@ -1863,6 +1959,11 @@ function _run_level_enum() {
                 for (let i = 0; i < 5; i++) {
                     if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
                 }
+                // Pieces already worn by locked equipment. The weapon is not
+                // counted, matching calculate_skillpoints, which walks the
+                // eight equipment slots and takes the weapon separately.
+                const si = _sp_set_index.get(sm.get('set'));
+                if (si !== undefined) _sp_set_worn_fixed[si]++;
             }
 
             // Raw requirements (cascade: no self-contribution undoing)
@@ -1909,6 +2010,7 @@ function _run_level_enum() {
     function _sp_reset() {
         _sp_compute_fixed_baseline();
         _sp_running_free_prov.fill(0);
+        _sp_set_worn.set(_sp_set_worn_fixed);
         for (let i = 0; i < 5; i++)
             _sp_running_max_eff_req[i] = _sp_fixed_max_eff_req[i];
     }
@@ -1925,6 +2027,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] += skp[i];
             }
+            const si = _sp_set_index.get(sm.get('set'));
+            if (si !== undefined) _sp_set_worn[si]++;
         }
 
         // Snapshot the running max, then fold in this item's raw requirements
@@ -1947,6 +2051,8 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 if (skp[i] > 0) _sp_running_free_prov[i] -= skp[i];
             }
+            const si = _sp_set_index.get(sm.get('set'));
+            if (si !== undefined) _sp_set_worn[si]--;
         }
 
         const save = _sp_max_save[depth];
@@ -2051,8 +2157,13 @@ function _run_level_enum() {
             // prechecks); interior slots add the child-depth suffix.
             const prov_sfx = _hoist_prov_sfx[slot_idx];
             const sfx = is_leaf_slot ? null : _sp_suffix_max_prov[next_depth];
+            // Set-granted skill points still reachable from this slot. Computed
+            // once per node like everything else here, so the offset scan below
+            // pays nothing for the bound being correct.
+            _sp_set_reachable(slot_idx, _sp_set_scratch);
             for (let j = 0; j < 5; j++) {
-                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j] + (sfx ? sfx[j] : 0);
+                prov_sfx[j] = _sp_fixed_sum_prov[j] + _sp_running_free_prov[j]
+                    + (sfx ? sfx[j] : 0) + _sp_set_scratch[j];
             }
             if (pc_col) {
                 const pc_base = _hoist_pc_base[slot_idx];
