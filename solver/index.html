@@ -1247,6 +1247,20 @@
                         </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap mb-1 mt-2">
                             <div class="d-flex align-items-center gap-1 w-100">
+                                <span class="text-secondary small" style="white-space:nowrap">Item pool:</span>
+                                <select id="solver-pruning-mode"
+                                    class="solver-select form-select form-select-sm"
+                                    style="flex:1"
+                                    title="How aggressively the solver reduces interchangeable item candidates before search">
+                                    <option value="balanced" selected>Balanced guarded pruning (default)</option>
+                                    <option value="fast_verify">Fast result, then verify full pool</option>
+                                    <option value="certified">Certified pruning</option>
+                                    <option value="off">No item pruning</option>
+                                    <option value="current">Legacy heuristic (known unsafe)</option>
+                                    <option value="aggressive">Aggressive experimental (known unsafe)</option>
+                                </select>
+                            </div>
+                            <div class="d-flex align-items-center gap-1 w-100">
                                 <button id="solver-run-btn" class="btn btn-sm btn-outline-success flex-grow-1"
                                     onclick="toggle_solver()">Solve</button>
                                 <select id="solver-engine" class="form-select form-select-sm bg-dark text-light"
@@ -1749,6 +1763,7 @@
     <script src="../js/solver/restrictions.js"></script>
     <script src="../js/solver/engine/worker_shims.js"></script>
     <script src="../js/solver/engine/item_priority.js"></script>
+    <script src="../js/solver/engine/candidate_reducer.js"></script>
     <script src="../js/solver/engine/rust_bridge.js"></script>
     <script src="../js/solver/engine/search.js"></script>
     <script src="../js/solver/solver.js?v=2"></script>

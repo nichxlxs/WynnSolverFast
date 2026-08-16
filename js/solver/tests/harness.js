@@ -63,6 +63,7 @@ const SANDBOX_FILES = [
     'js/solver/engine/worker_shims.js',
     'js/solver/engine/sp_set_bound.js',
     'js/solver/engine/item_priority.js',
+    'js/solver/engine/candidate_reducer.js',
     'js/game/build.js',
     'js/core/build_encode.js',
     'js/core/build_decode.js',
@@ -102,6 +103,17 @@ function createSandbox() {
         structuredClone,
         isNaN, isFinite, parseInt, parseFloat,
         encodeURIComponent, decodeURIComponent,
+        // Expose only solver debug flags to browser-like VM code. This keeps
+        // the sandbox deterministic while allowing headless dominance and
+        // sensitivity diagnostics when a benchmark finds an optimum loss.
+        process: {
+            env: {
+                SOLVER_DEBUG_DOMINANCE: process.env.SOLVER_DEBUG_DOMINANCE,
+                SOLVER_DEBUG_SENSITIVITY: process.env.SOLVER_DEBUG_SENSITIVITY,
+                SOLVER_DEBUG_WORKER: process.env.SOLVER_DEBUG_WORKER,
+                SOLVER_DEBUG_COMBO: process.env.SOLVER_DEBUG_COMBO,
+            },
+        },
 
         // Stubs for browser APIs referenced at parse time.
         window: {
@@ -355,6 +367,7 @@ function loadGameData(ctx) {
     const all_tomes = tomes_raw.concat(none_tomes);
     const tomeMap = new Map();
     const tomeIDMap = new Map();
+    const tomeRedirectMap = new Map();
     const tomeLists = new Map();
     for (const tt of ctx.tome_types) {
         tomeLists.set(tt, []);
@@ -370,6 +383,8 @@ function loadGameData(ctx) {
             } else {
                 tomeIDMap.set(tome.id, tome.displayName);
             }
+        } else {
+            tomeRedirectMap.set(tome.id, tome.remapID);
         }
     }
 
@@ -431,6 +446,7 @@ function loadGameData(ctx) {
     ctx.none_items = none_items;
     ctx.tomeMap = tomeMap;
     ctx.tomeIDMap = tomeIDMap;
+    ctx.tomeRedirectMap = tomeRedirectMap;
     ctx.tomeLists = tomeLists;
     ctx.none_tomes = none_tomes;
     ctx.DEC = enc_data;
@@ -441,7 +457,7 @@ function loadGameData(ctx) {
     ctx.aspect_id_map = aspect_id_map;
     ctx.aspectMap = aspect_map;  // alias used by some code paths
 
-    return { itemMap, sets, tomeMap, none_items, none_tomes, aspect_map, aspect_id_map };
+    return { itemMap, sets, tomeMap, tomeRedirectMap, none_items, none_tomes, aspect_map, aspect_id_map };
 }
 
 // ── URL Hash Decoding ────────────────────────────────────────────────────────

@@ -1,0 +1,228 @@
+{
+  "name": "solver_meta_assassin_acrobat_spellspam_known_good",
+  "description": "assassin/acrobat spellspam: known_good; no equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "spellspam",
+  "benchmark_class": "assassin",
+  "benchmark_archetype": "acrobat",
+  "benchmark_variant": "known_good",
+  "benchmark_tier": "anchor",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "f8bdeccb60d36d80b3c23899c946053cac5e09274d997ed258774aebd3461b47",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0vAAw4Whe37kYEc5BwCbZfSKGXKSyhf87t10ldyNirD+L0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0vAAw4Whe37kYEc5BwCbZfSKGXKSyhf87t10ldyNirD+L0",
+  "designed_version": "2.2.3.0",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Assassin forum; Weathered Acrobat starter with sustain alternatives.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1493348246322544861/1493348246322544861",
+  "core_weapon": "Weathered",
+  "seed_item_names": [
+    "Cumulonimbus",
+    "Phantasmagoria",
+    "Anaerobic",
+    "Willow",
+    "Ingress",
+    "Ingress",
+    "Prowess",
+    "Abrasion"
+  ],
+  "elements": [
+    "earth",
+    "thunder",
+    "water",
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 0,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 1,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 2,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 3,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          34,
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "air"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Lacerate",
+    "proxy_for": "Acrobat spell-spam damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 1,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; MR floor retained",
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 18000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 20
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -500
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 21601.392728088213,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 0,
+    "removal_seed": "assassin_acrobat_spellspam:0:0",
+    "removed_slots": [],
+    "contract_kind": "seed_calibration"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Cumulonimbus",
+    "Phantasmagoria",
+    "Anaerobic",
+    "Willow",
+    "Ingress",
+    "Ingress",
+    "Prowess",
+    "Abrasion",
+    "Weathered"
+  ],
+  "free_equipment_slots": [],
+  "free_mask": 0,
+  "url_hash": "CX0vAAw4Whe37kYEc5BwCbZfSKGXKSyhf87t10ldyNirD+L0_OJ40Poa9hR8W01000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 94,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -500
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 1,
+      "name": "Lacerate",
+      "damage_parts": 2,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ]
+}

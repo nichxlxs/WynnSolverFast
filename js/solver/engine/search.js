@@ -26,6 +26,8 @@ const _solver_state = {
     top15_expanded: false,        // UI expand state
     progress_expanded: false,     // progress details expand state
     engine_phase: '',             // Rust/WASM startup/search phase label
+    search_plan: null,            // staged candidate reduction / verification plan
+    last_search_plan: null,       // completed plan and per-stage metrics for diagnostics
 };
 
 // Bitmask tracking which equipment slots were last filled by the solver.
@@ -721,18 +723,22 @@ function _update_solver_progress_ui() {
             const [L, Lmax] = w._cur_L_progress ?? [0, 1];
             min_L_ratio = Math.min(min_L_ratio, Lmax > 0 ? L / Lmax : 1.0);
         }
-        const should_verify = any_active
+        const staged_verification = (_solver_state.search_plan?.stage_index ?? 0) > 0;
+        const should_verify = staged_verification || (any_active
             && _solver_state.top5.length > 0
             && elapsed_ms > 2000
             && time_since_change > 300_000
-            && min_L_ratio > 0.10;
+            && min_L_ratio > 0.10);
         _solver_state.verification_phase = should_verify;
         const el_status = document.getElementById('solver-status-msg');
         if (el_status) {
             const elapsed_s = elapsed_ms / 1000;
             const rate = elapsed_s > 0 ? _solver_state.checked / elapsed_s : 0;
-            if (should_verify) {
-                el_status.textContent = 'Top results possibly stable \u2014 exhaustive check in progress';
+            if (staged_verification) {
+                el_status.textContent = 'Verifying the guarded result against the full item pool';
+                el_status.className = 'text-info';
+            } else if (should_verify) {
+                el_status.textContent = 'Top results possibly stable; exhaustive check in progress';
                 el_status.className = 'text-info';
             } else if (elapsed_s > 20 && rate > 0 && rate < 1000) {
                 el_status.innerHTML = '\u26A0 Very slow iteration \u2014 results may take a long time on this device';
@@ -1392,7 +1398,7 @@ function _reconstruct_result_items(item_names) {
 
 // ── Worker orchestration ────────────────────────────────────────────────────
 
-function _stop_solver() {
+function _stop_solver(options = {}) {
     _solver_state.running = false;
     schedule_search_space_update?.();
     _solver_state.verification_phase = false;
@@ -1414,6 +1420,15 @@ function _stop_solver() {
     _solver_state.workers = [];
     _solver_state.snap = null;
     _solver_state._last_merged_top5_refs = [];
+    if (!options.preserve_plan) {
+        const plan = _solver_state.search_plan;
+        _solver_state.last_search_plan = plan ? {
+            mode: plan.mode,
+            stages: [...plan.stages],
+            stage_metrics: plan.stage_metrics.map(metric => ({ ...metric })),
+        } : null;
+        _solver_state.search_plan = null;
+    }
     // Clear progress timer
     if (_solver_state.progress_timer) {
         clearInterval(_solver_state.progress_timer);
@@ -1524,7 +1539,8 @@ function _debug_reeval_top1() {
 
 function _on_all_workers_done(workers_snapshot) {
     const search_completed = _solver_state.running;  // true only if finished naturally
-    const elapsed_s = (Date.now() - _solver_state.start) / 1000;
+    const elapsed_s = (Date.now()
+        - (_solver_state.search_plan?.overall_start ?? _solver_state.start)) / 1000;
 
     // Aggregate final stats before stopping (which clears _solver_state.workers)
     _solver_state.checked = 0;
@@ -1541,6 +1557,24 @@ function _on_all_workers_done(workers_snapshot) {
     }
 
     _merge_worker_top5(workers_snapshot, false);
+
+    // In fast-verify mode the guarded pool is only the first stage. Its best
+    // result becomes the incumbent for a second, full-pool pass. The score
+    // bounds can use that incumbent immediately, while the second pass restores
+    // exhaustive coverage of every deferred item.
+    if (search_completed && _advance_candidate_search_stage()) return;
+    if (search_completed && _solver_state.search_plan) {
+        const plan = _solver_state.search_plan;
+        plan.stage_metrics.push({
+            mode: plan.stages[plan.stage_index],
+            checked: _solver_state.checked,
+            feasible: _solver_state.feasible,
+            met_req: _solver_state.met_req,
+            elapsed_ms: Date.now() - _solver_state.start,
+            best_score: _solver_state.top5[0]?.score ?? null,
+            combinations: _solver_state.total,
+        });
+    }
 
     // Debug combo re-evaluation: re-run global top-1 with full logging on main thread
     if (SOLVER_DEBUG_COMBO && _solver_state.top5.length > 0) {
@@ -2297,7 +2331,7 @@ function _estimate_search_space() {
     }
     const blacklist = get_blacklist();
     const locked = _collect_locked_items(illegal_at_2);
-    const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
+    let pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
 
     const per_slot = [];
     let total = 1;
@@ -2429,6 +2463,77 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     }
 }
 
+function _count_candidate_combinations(pools, locked) {
+    let total = 1;
+    for (const slot of ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace']) {
+        if (pools[slot]) total *= pools[slot].length;
+    }
+    if (pools.ring) {
+        const n = pools.ring.length;
+        total *= !locked.ring1 && !locked.ring2 ? n * (n + 1) / 2 : n;
+    }
+    return Math.round(total);
+}
+
+function _prepare_candidate_search_stage(plan) {
+    const stage_mode = plan.stages[plan.stage_index];
+    const reduction = reduce_candidate_pools(plan.original_pools, {
+        snap: plan.snap,
+        dmg_weights: plan.dmg_weights,
+        restrictions: plan.restrictions,
+        mode: stage_mode,
+    });
+    const pools = reduction.active_pools;
+    _solver_state.candidate_reduction = reduction;
+    _solver_state.total = _count_candidate_combinations(pools, plan.locked);
+
+    _prepare_tome_optimisation(plan.snap, plan.restrictions, reduction.dominance_stats);
+    _prioritize_pools(pools, plan.dmg_weights);
+    return pools;
+}
+
+function _advance_candidate_search_stage() {
+    const plan = _solver_state.search_plan;
+    if (!plan || plan.stage_index + 1 >= plan.stages.length) return false;
+
+    plan.stage_metrics.push({
+        mode: plan.stages[plan.stage_index],
+        checked: _solver_state.checked,
+        feasible: _solver_state.feasible,
+        met_req: _solver_state.met_req,
+        elapsed_ms: Date.now() - _solver_state.start,
+        best_score: _solver_state.top5[0]?.score ?? null,
+        combinations: _solver_state.total,
+    });
+    const incumbent = _solver_state.top5[0] ?? _solver_state.seed_build;
+
+    _stop_solver({ preserve_plan: true });
+    plan.stage_index++;
+    _solver_state.search_plan = plan;
+    _solver_state.seed_build = incumbent;
+    _solver_state.top5 = [];
+    if (incumbent) _insert_top5(incumbent);
+    _solver_state.checked = 0;
+    _solver_state.feasible = 0;
+    _solver_state.met_req = 0;
+    _solver_state.start = Date.now();
+    _solver_state.last_ui = Date.now();
+    _solver_state.last_eta = Date.now();
+    _solver_state.last_topN_change = Date.now();
+    _solver_state._prev_topN_fingerprint = '';
+    _solver_state.verification_phase = true;
+    _solver_state.running = true;
+
+    const status = document.getElementById('solver-status-msg');
+    if (status) {
+        status.textContent = 'Verifying the guarded result against the full item pool';
+        status.className = 'text-info';
+    }
+    const pools = _prepare_candidate_search_stage(plan);
+    _run_solver_search_workers(pools, plan.locked, plan.snap);
+    return true;
+}
+
 function start_solver_search() {
     const restrictions = get_restrictions();
     const snap = _build_solver_snapshot(restrictions);
@@ -2464,7 +2569,7 @@ function start_solver_search() {
 
     const blacklist = get_blacklist();
     const locked = _collect_locked_items(illegal_at_2);
-    const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
+    let pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
 
     // Remove pools for locked slots
     if (locked.ring1 && locked.ring2) delete pools.ring;
@@ -2502,34 +2607,24 @@ function start_solver_search() {
     _solver_state.dmg_weights = dmg_weights;
     _display_priority_weights();
 
-    // Remove dominated items before sorting; smaller pools benefit search and sort.
-    const dominance_stats = _build_dominance_stats(snap, dmg_weights, restrictions);
-    _prune_dominated_items(pools, dominance_stats);
-
-    // Tome optimisation inputs (guild candidates, scoped bundle front,
-    // precheck bound) — computed once per search, before serialization.
-    _prepare_tome_optimisation(snap, restrictions, dominance_stats);
-
-    // Sort each pool by damage/constraint relevance so level-0 visits the
-    // best build first. NONE items are moved to the end of each pool.
-    _prioritize_pools(pools, dmg_weights);
-
-    // Compute total candidate count
-    {
-        let total = 1;
-        for (const slot of ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace']) {
-            if (pools[slot]) total *= pools[slot].length;
-        }
-        if (pools.ring) {
-            const n = pools.ring.length;
-            if (!locked.ring1 && !locked.ring2) {
-                total *= n * (n + 1) / 2;
-            } else {
-                total *= n;
-            }
-        }
-        _solver_state.total = Math.round(total);
-    }
+    // Reduce through the shared contract-aware seam. Fast-verify creates two
+    // stages: guarded first, then the full pool with the first result seeded.
+    const candidate_search_mode = document.getElementById('solver-pruning-mode')?.value
+        ?? 'balanced';
+    const search_plan = {
+        mode: candidate_search_mode,
+        stages: get_candidate_search_stages(candidate_search_mode),
+        stage_index: 0,
+        stage_metrics: [],
+        overall_start: Date.now(),
+        original_pools: pools,
+        locked,
+        snap,
+        dmg_weights,
+        restrictions,
+    };
+    _solver_state.search_plan = search_plan;
+    pools = _prepare_candidate_search_stage(search_plan);
 
     // Evaluate the current UI build as a seed — if it passes all constraints
     // it stays as top-1 until workers find something better.
