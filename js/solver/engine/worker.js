@@ -22,7 +22,8 @@ importScripts(
     '../pure/simulate.js',
     '../pure/engine.js',
     './top_results.js',
-    './worker_shims.js'
+    './worker_shims.js',
+    './sp_set_bound.js'
 );
 
 // ── Globals set during init ─────────────────────────────────────────────────
@@ -904,19 +905,8 @@ function _run_level_enum() {
     function _sp_set_reachable(depth, out) {
         out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; out[4] = 0;
         for (let si = 0; si < _sp_set_names.length; si++) {
-            const rows = _sp_set_rows[si];
-            if (rows.length === 0) continue;
-            const worn = _sp_set_worn[si];
-            // Counts below `worn` are unreachable (pieces cannot be removed);
-            // counts above need more stocked slots than remain. Both ends are
-            // clamped into range so a set worn past the end of its table keeps
-            // its top row instead of contributing nothing.
-            const lo = Math.min(Math.max(worn, 1), rows.length);
-            const hi = Math.max(lo, Math.min(rows.length, worn + _sp_set_reach[si][depth]));
-            for (let t = lo; t <= hi; t++) {
-                const row = rows[t - 1];
-                for (let j = 0; j < 5; j++) if (row[j] > out[j]) out[j] = row[j];
-            }
+            accumulate_reachable_set_bonus(
+                _sp_set_rows[si], _sp_set_worn[si], _sp_set_reach[si][depth], out);
         }
     }
     const _sp_set_scratch = new Int32Array(5);
