@@ -27,6 +27,7 @@ const vm = require('vm');
 const os = require('os');
 const _rust_bridge = require('../engine/rust_bridge.js');
 const { mergeTraceMetrics, summarizeTraceMetrics } = require('../benchmarks/trace_metrics');
+const { getPruningStrategy } = require('../benchmarks/pruning_strategies');
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -394,18 +395,87 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
 
 // ── Run solver with worker_threads ───────────────────────────────────────────
 
-function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs, targetScore, seedResult = null) {
+function runSolverWorkers(
+    initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs,
+    targetScore, seedResult = null, recoveryTargetScore = null, checkpointMs = [],
+) {
     return new Promise((resolve) => {
+        const startedAtMs = Date.now();
         const workers = [];
         const allTop = seedResult ? [seedResult] : [];
-        const progressTop = [];
+        const progressTopByItems = new Map();
         const progressCounts = {};
         let totalChecked = 0, totalFeasible = 0;
         let totalTrace = {};
         let partitionIdx = 0;
         let doneCount = 0;
         let timedOut = false;
+        let settled = false;
+        let timer = null;
         let workerError = null;
+        let timeToRecoveryMs = null;
+        let bestObserved = seedResult ? {
+            score: seedResult.score,
+            item_names: seedResult.item_names,
+            observed_at_ms: 0,
+        } : null;
+        const checkpointTargets = [...new Set(checkpointMs)]
+            .filter(value => Number.isFinite(value) && value > 0 && value <= timeLimitMs)
+            .sort((left, right) => left - right);
+        const checkpoints = [];
+        let checkpointIndex = 0;
+
+        function observeRecovery(entries) {
+            if (timeToRecoveryMs != null || recoveryTargetScore == null || !entries) return;
+            if (entries.some(entry => entry?.score >= recoveryTargetScore)) {
+                timeToRecoveryMs = Date.now() - startedAtMs;
+            }
+        }
+
+        function observeEntries(entries) {
+            if (!entries) return;
+            observeRecovery(entries);
+            for (const entry of entries) {
+                if (!entry || typeof entry.score !== 'number') continue;
+                if (!bestObserved || entry.score > bestObserved.score) {
+                    bestObserved = {
+                        score: entry.score,
+                        item_names: entry.item_names,
+                        observed_at_ms: Date.now() - startedAtMs,
+                    };
+                }
+            }
+        }
+
+        function runningCounts() {
+            let checked = totalChecked;
+            let feasible = totalFeasible;
+            for (const progress of Object.values(progressCounts)) {
+                checked += progress.checked || 0;
+                feasible += progress.feasible || 0;
+            }
+            return { checked, feasible };
+        }
+
+        function captureCheckpoints(force = false) {
+            const elapsed = Date.now() - startedAtMs;
+            while (checkpointIndex < checkpointTargets.length
+                && (force || checkpointTargets[checkpointIndex] <= elapsed)) {
+                const target = checkpointTargets[checkpointIndex++];
+                const counts = runningCounts();
+                checkpoints.push({
+                    checkpoint_ms: target,
+                    observed_at_ms: elapsed,
+                    search_completed_before_checkpoint: force && !timedOut && elapsed < target,
+                    checked: counts.checked,
+                    feasible: counts.feasible,
+                    checked_per_second: elapsed > 0 ? counts.checked / (elapsed / 1000) : null,
+                    best_score: bestObserved?.score ?? null,
+                    best_item_names: bestObserved?.item_names ?? null,
+                    best_score_observed_at_ms: bestObserved?.observed_at_ms ?? null,
+                });
+            }
+        }
 
         // ── Shared global top-N cutoff ─────────────────────────────────────
         // The 15th-best distinct score reported by any worker (or the seed) is
@@ -464,6 +534,12 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
         }
 
         function onProgress(msg) {
+            if (settled) return;
+            if (Date.now() - startedAtMs >= timeLimitMs) {
+                timedOut = true;
+                cleanup();
+                return;
+            }
             // Accumulate running checked/feasible counts from progress updates.
             // Track per-worker latest counts to avoid double-counting.
             if (!progressCounts[msg.worker_id]) progressCounts[msg.worker_id] = { checked: 0, feasible: 0 };
@@ -472,8 +548,26 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
             progressCounts[msg.worker_id].trace = msg.trace || null;
             // Collect top5 from progress (when top5 changes, worker sends top5_names).
             if (msg.top5_names) {
+                observeEntries(msg.top5_names);
                 for (const entry of msg.top5_names) {
-                    progressTop.push(entry);
+                    if (!entry?.item_names || typeof entry.score !== 'number') continue;
+                    const key = entry.item_names.join('\0');
+                    const previous = progressTopByItems.get(key);
+                    if (!previous || entry.score > previous.score) {
+                        progressTopByItems.set(key, entry);
+                    }
+                }
+                // Only the strongest progress candidates can affect the final
+                // top 15. Bounding this map prevents progress-message volume
+                // from turning a benchmark timeout into minutes of cleanup.
+                if (progressTopByItems.size > 256) {
+                    const strongest = [...progressTopByItems.entries()]
+                        .sort((a, b) => b[1].score - a[1].score)
+                        .slice(0, 64);
+                    progressTopByItems.clear();
+                    for (const [key, entry] of strongest) {
+                        progressTopByItems.set(key, entry);
+                    }
                 }
                 updateCutoff(msg.top5_names);
                 // Early termination: if any worker found a build meeting the target,
@@ -486,16 +580,25 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
                     }
                 }
             }
+            captureCheckpoints();
         }
 
         function onDone(msg) {
+            if (settled) return;
+            if (Date.now() - startedAtMs >= timeLimitMs) {
+                timedOut = true;
+                cleanup();
+                return;
+            }
             totalChecked += msg.checked || 0;
             totalFeasible += msg.feasible || 0;
             if (msg.top5) allTop.push(...msg.top5);
+            observeEntries(msg.top5);
             updateCutoff(msg.top5);
             totalTrace = mergeTraceMetrics(totalTrace, msg.trace);
             // Clear progress counts for this worker (done supersedes progress).
             delete progressCounts[msg.worker_id];
+            captureCheckpoints();
 
             doneCount++;
             // Dispatch next partition to this worker
@@ -513,7 +616,10 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
         }
 
         function cleanup() {
-            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            captureCheckpoints(true);
             for (const w of workers) {
                 try { w.terminate(); } catch (e) {}
             }
@@ -524,26 +630,25 @@ function runSolverWorkers(initMsgBase, ringPoolSer, partitions, numWorkers, time
                 totalTrace = mergeTraceMetrics(totalTrace, progressCounts[wid].trace);
             }
             // Merge top results from done messages + progress messages.
-            const merged = [...allTop, ...progressTop];
+            const merged = [...allTop, ...progressTopByItems.values()];
             merged.sort((a, b) => (b.score || 0) - (a.score || 0));
             resolve({
                 top5: merged.slice(0, 15),
                 checked: totalChecked,
                 feasible: totalFeasible,
                 timedOut,
+                timeToRecoveryMs,
+                timeToBestMs: bestObserved?.observed_at_ms ?? null,
+                checkpoints,
                 trace: totalTrace,
                 workerError,
             });
         }
 
         // Time limit
-        const timer = setTimeout(() => {
+        timer = setTimeout(() => {
             timedOut = true;
-            for (const w of workers) {
-                try { w.postMessage({ type: 'cancel' }); } catch (e) {}
-            }
-            // Give workers a moment to finish current work
-            setTimeout(cleanup, 500);
+            cleanup();
         }, timeLimitMs);
 
         // Spawn workers
@@ -879,6 +984,20 @@ async function runSolverTest(snapName) {
 
     // 3. Build solver snapshot
     const solverSnap = buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats);
+    if (snap.benchmark_suite === 'current_meta') {
+        const resolvedRows = solverSnap.parsed_combo.map(row => ({
+            base_spell: row.spell?.base_spell ?? null,
+            name: row.spell?.display_name ?? row.spell?.name ?? null,
+            damage_parts: row.spell?.parts?.length ?? row.spell?.display?.length ?? null,
+            mana_excl: row.mana_excl,
+            dmg_excl: row.dmg_excl,
+        }));
+        console.log(`  [${snapName}] resolved combo rows: ${JSON.stringify(resolvedRows)}`);
+        if (snap.expected_resolved_combo_rows) {
+            t.assert(JSON.stringify(resolvedRows) === JSON.stringify(snap.expected_resolved_combo_rows),
+                `${snapName}: combo rows resolve to the calibrated ability-tree contract`);
+        }
+    }
 
     // 4. Set roll mode in sandbox for pool building
     const sp = decoded.solverParams || {};
@@ -907,7 +1026,7 @@ async function runSolverTest(snapName) {
     // its encoded solver section. Production URL behavior remains the default.
     const sfree = snap.free_mask ?? sp.sfree ?? 0;
     const locked = {};
-    const freePools = {};
+    let freePools = {};
 
     for (let i = 0; i < 8; i++) {
         const slot = SLOT_NAMES[i];
@@ -956,12 +1075,21 @@ async function runSolverTest(snapName) {
 
     // 7. Sensitivity weights, dominance pruning, priority sorting
     const dmgWeights = ctx._build_dmg_weights(solverSnap, locked, freePools);
+    // Preserve the historical general-suite pool size. Pruning campaigns set
+    // SOLVER_ITEM_PRUNING explicitly, and production uses the UI-selected
+    // certified default through search.js.
+    const pruningStrategy = getPruningStrategy(process.env.SOLVER_ITEM_PRUNING || 'current');
     let domStats = null;
     if (dmgWeights) {
-        domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
-        ctx._prune_dominated_items(freePools, domStats, {
+        const reduction = ctx.reduce_candidate_pools(freePools, {
+            snap: solverSnap,
+            dmg_weights: dmgWeights,
+            restrictions: solverSnap.restrictions,
+            mode: pruningStrategy.name,
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
         });
+        freePools = reduction.active_pools;
+        domStats = reduction.dominance_stats;
         ctx._prioritize_pools(freePools, dmgWeights);
     }
 
@@ -1122,9 +1250,11 @@ async function runSolverTest(snapName) {
     // so the comparison stays internally consistent even if the URL carried
     // equipped tomes.
 
-    const timeLimitSeconds = snap.benchmark_family
-        ? Math.min(requestedTimeLimitSeconds, snap.time_limit_seconds || 30)
-        : requestedTimeLimitSeconds;
+    const timeLimitSeconds = snap.benchmark_suite === 'current_meta'
+        ? Math.min(requestedTimeLimitSeconds, 3600)
+        : snap.benchmark_family
+            ? Math.min(requestedTimeLimitSeconds, snap.time_limit_seconds || 30)
+            : requestedTimeLimitSeconds;
     const timeLimitMs = timeLimitSeconds * 1000;
     // Real solver creates 4× worker count partitions for work-stealing.
     const numPartitions = Math.max(numWorkers * 4, numWorkers);
@@ -1132,14 +1262,17 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] ${partitions.length} partitions, ${numWorkers} workers, ${timeLimitMs / 1000}s limit`);
 
     const t0 = Date.now();
-    const seedResult = snap.seed_score == null ? null : {
+    const seedResult = snap.disable_seed_incumbent || snap.seed_score == null ? null : {
         score: snap.seed_score,
         item_names: snap.seed_item_names,
         seed: true,
     };
     const result = await runSolverWorkers(
         initMsgBase, ringPoolSer, partitions, numWorkers, timeLimitMs,
-        snap.expected_min_score, seedResult,
+        snap.expected_min_score, seedResult, snap.recovery_contract?.target_score,
+        (process.env.SOLVER_BENCH_CHECKPOINTS
+            ? process.env.SOLVER_BENCH_CHECKPOINTS.split(',').map(Number)
+            : (snap.benchmark_checkpoints_seconds ?? [])).map(seconds => seconds * 1000),
     );
     const elapsed = Date.now() - t0;
     if (result.workerError) throw new Error(`solver worker failed: ${result.workerError}`);
@@ -1153,6 +1286,41 @@ async function runSolverTest(snapName) {
     if (result.top5 && result.top5.length > 0) {
         const bestScore = result.top5[0].score;
         console.log(`  [${snapName}] best score: ${Math.round(bestScore)}`);
+        if (snap.recovery_contract?.target_score != null) {
+            const target = snap.recovery_contract.target_score;
+            const tolerance = snap.recovery_contract.relative_tolerance ?? 0;
+            const threshold = target * (1 - tolerance);
+            const recovered = bestScore >= threshold;
+            const regret = target === 0 ? null : Math.max(0, (target - bestScore) / Math.abs(target));
+            console.log(`  [recovery] ${JSON.stringify({
+                snapshot: snapName,
+                required: !!snap.recovery_contract.required,
+                target_score: target,
+                best_score: bestScore,
+                best_item_names: result.top5[0].item_names,
+                best_score_observed_at_ms: result.timeToBestMs,
+                checkpoints: result.checkpoints,
+                recovered,
+                regret,
+                timed_out: result.timedOut,
+                elapsed_ms: elapsed,
+                time_to_recovery_ms: result.timeToRecoveryMs,
+                input_combinations: inputCombinations,
+                search_combinations: combinations,
+                checked: result.checked,
+                feasible: result.feasible,
+                pruning_strategy: pruningStrategy.name,
+                sensitivity_ratio: pruningStrategy.sensitivity_ratio,
+                removed_slots: snap.recovery_contract.removed_slots,
+            })}`);
+            const recoveryOverride = process.env.SOLVER_ENFORCE_RECOVERY;
+            const enforceRecovery = recoveryOverride === '1'
+                || (recoveryOverride !== '0' && snap.recovery_contract.enforcement === 'fail');
+            if (snap.recovery_contract.required && enforceRecovery) {
+                t.assert(recovered,
+                    `${snapName}: recovered calibrated seed score ${target} or better`);
+            }
+        }
         if (process.env.SOLVER_PRINT_TOP15 === '1') {
             for (const r of result.top5) {
                 console.log(`  [top15] ${r.score.toExponential(17)} | ${r.item_names?.filter(n => n).join(', ')}`);

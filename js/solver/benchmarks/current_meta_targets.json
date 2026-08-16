@@ -1,0 +1,382 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-15T12:41:16.749Z",
+  "benchmark_game_version": "2.2.3.0",
+  "calibration_contract": "Exact known-good score produced by the JS production search path with every equipment slot and weapon locked, median roll groups, and the profile objective and playability constraints.",
+  "profiles": {
+    "archer_boltslinger_fast_hybrid": {
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_known_good",
+      "score": 121865.30310105726,
+      "item_names": [
+        "Nighthawk",
+        "Ornate Shadow Cloak",
+        "Paradox",
+        "Hellstorm Striders",
+        "Insomniac",
+        "Intensity",
+        "Vortex Bracer",
+        "Drop of Void"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Bow Shot",
+          "damage_parts": 3,
+          "mana_excl": false,
+          "dmg_excl": false
+        },
+        {
+          "base_spell": 1,
+          "name": "Arrow Storm",
+          "damage_parts": 5,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "archer_sharpshooter_heavy_melee": {
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_known_good",
+      "score": 30156.972302642484,
+      "item_names": [
+        "Darksteel Full Helm",
+        "Darkiron Aegis",
+        "Jungle Rogue",
+        "Dawnbreak",
+        "Creed Catalyst",
+        "Creed Catalyst",
+        "Prowess",
+        "Renda Langit"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Bow Shot",
+          "damage_parts": 2,
+          "mana_excl": true,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "archer_trapper_slow_melee": {
+      "snapshot": "solver_meta_archer_trapper_slow_melee_known_good",
+      "score": 10612.493887458633,
+      "item_names": [
+        "Firemoss Veil",
+        "Heart of the Forest",
+        "Doomsday Omen",
+        "Crusade Sabatons",
+        "Intensity",
+        "Downfall",
+        "Firemoss Band",
+        "Aberrant's Amulet"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Bow Shot",
+          "damage_parts": 2,
+          "mana_excl": true,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "assassin_acrobat_spellspam": {
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_known_good",
+      "score": 21601.392728088213,
+      "item_names": [
+        "Cumulonimbus",
+        "Phantasmagoria",
+        "Anaerobic",
+        "Willow",
+        "Ingress",
+        "Ingress",
+        "Prowess",
+        "Abrasion"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 1,
+          "name": "Lacerate",
+          "damage_parts": 2,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "assassin_shadestepper_spellsteal": {
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_known_good",
+      "score": 43466.4360396053,
+      "item_names": [
+        "Prosencephalon",
+        "Decree",
+        "Chaos-Woven Greaves",
+        "Stardew",
+        "Cistern Circlet",
+        "Moon Pool Circlet",
+        "Shattershard",
+        "Metamorphosis"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Melee",
+          "damage_parts": 1,
+          "mana_excl": false,
+          "dmg_excl": true
+        },
+        {
+          "base_spell": 3,
+          "name": "Backstab",
+          "damage_parts": 1,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "assassin_trickster_spell": {
+      "snapshot": "solver_meta_assassin_trickster_spell_known_good",
+      "score": 73783.06089451801,
+      "item_names": [
+        "Guillotine",
+        "Withdrawal",
+        "Aleph Null",
+        "Symphonie Fantastique",
+        "Yang",
+        "Intensity",
+        "Shattershard",
+        "Tenuto"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Multihit",
+          "damage_parts": 3,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "mage_arcanist_meteor": {
+      "snapshot": "solver_meta_mage_arcanist_meteor_known_good",
+      "score": 33110.76308374393,
+      "item_names": [
+        "Liffmail Coif",
+        "Flexibility",
+        "Liffmail Chausses",
+        "Liffmail Sollerets",
+        "Diamond Fusion Ring",
+        "Old Keeper's Ring",
+        "Vortex Bracer",
+        "Contrast"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Meteor",
+          "damage_parts": 4,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "mage_light_bender_healing": {
+      "snapshot": "solver_meta_mage_light_bender_healing_known_good",
+      "score": 6202.4800000044015,
+      "item_names": [
+        "Nexus",
+        "Discoverer",
+        "Rebel Ethos",
+        "Dragon Dance",
+        "Unforeseen Ends",
+        "Unforeseen Ends",
+        "Shattershard",
+        "Accursed Eye"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 1,
+          "name": "Heal",
+          "damage_parts": 5,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "total_healing"
+    },
+    "mage_riftwalker_cancelstack": {
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_known_good",
+      "score": 314987.0873295391,
+      "item_names": [
+        "Gaze from the Snowbank",
+        "Untimely Demise",
+        "Writhing Growth",
+        "Crusade Sabatons",
+        "Durian",
+        "Vivisected",
+        "Ironleaf Bangle",
+        "Brass Choker"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Wand Melee",
+          "damage_parts": 3,
+          "mana_excl": true,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "shaman_acolyte_healing": {
+      "snapshot": "solver_meta_shaman_acolyte_healing_known_good",
+      "score": 5280.1875,
+      "item_names": [
+        "Bleeding Mind",
+        "Flexibility",
+        "Sagittarius",
+        "Revenant",
+        "Summa",
+        "Bloodborne",
+        "Prowess",
+        "Bottled Thunderstorm"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Aura",
+          "damage_parts": 6,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "total_healing"
+    },
+    "shaman_ritualist_tierstack": {
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_known_good",
+      "score": 166361.89991284287,
+      "item_names": [
+        "Timeskip",
+        "Calidade Mail",
+        "Runebound Chains",
+        "Nether's Scar",
+        "Breezehands",
+        "Vivisected",
+        "Prowess",
+        "Recalcitrance"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 0,
+          "name": "Relik Melee",
+          "damage_parts": 2,
+          "mana_excl": true,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "shaman_summoner_aura": {
+      "snapshot": "solver_meta_shaman_summoner_aura_known_good",
+      "score": 7300.944943948425,
+      "item_names": [
+        "Unravel",
+        "Wanderlust",
+        "Sagittarius",
+        "Stalking Mist",
+        "Intensity",
+        "Diamond Steam Ring",
+        "Freight Trainer",
+        "Bottled Thunderstorm"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Aura",
+          "damage_parts": 5,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "warrior_battle_monk_uppercut": {
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_known_good",
+      "score": 20908.726848410188,
+      "item_names": [
+        "Polyglot",
+        "Withdrawal",
+        "Omniverse",
+        "Boots of Blue Stone",
+        "Summa",
+        "Summa",
+        "Prowess",
+        "Diamond Fusion Necklace"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Uppercut",
+          "damage_parts": 3,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "warrior_fallen_uppercut": {
+      "snapshot": "solver_meta_warrior_fallen_uppercut_known_good",
+      "score": 30112.915446112416,
+      "item_names": [
+        "Unravel",
+        "Libertas",
+        "Sagittarius",
+        "Revenant",
+        "Hypoxia",
+        "Hypoxia",
+        "Palimpsest",
+        "Metamorphosis"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Uppercut",
+          "damage_parts": 4,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    },
+    "warrior_paladin_tank": {
+      "snapshot": "solver_meta_warrior_paladin_tank_known_good",
+      "score": 7464.285140496257,
+      "item_names": [
+        "Heretic",
+        "Firebird",
+        "Greaves of the Veneer",
+        "Signal Flare",
+        "Iron Will",
+        "Accelerando",
+        "Prowess",
+        "Diamond Solar Necklace"
+      ],
+      "resolved_combo_rows": [
+        {
+          "base_spell": 3,
+          "name": "Uppercut",
+          "damage_parts": 3,
+          "mana_excl": false,
+          "dmg_excl": false
+        }
+      ],
+      "scoring_target": "combo_damage"
+    }
+  }
+}

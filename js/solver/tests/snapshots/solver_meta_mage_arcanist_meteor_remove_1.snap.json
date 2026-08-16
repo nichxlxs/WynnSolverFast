@@ -1,0 +1,171 @@
+{
+  "name": "solver_meta_mage_arcanist_meteor_remove_1",
+  "description": "mage/arcanist rawstack_spell: remove_1; ring1 equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "rawstack_spell",
+  "benchmark_class": "mage",
+  "benchmark_archetype": "arcanist",
+  "benchmark_variant": "remove_1",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "3862bb63a40f5d3ddbd202afca4515af9a1987479e53b2a8f0e8040b8b32b6c4",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3",
+  "designed_version": "2.2.3",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Mage forum; Brushfire Arcanist lootrun cycle. Budget anchor, not a maximum-damage meta claim.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1535072909360627862/1535072909360627862",
+  "core_weapon": "Brushfire",
+  "seed_item_names": [
+    "Liffmail Coif",
+    "Flexibility",
+    "Liffmail Chausses",
+    "Liffmail Sollerets",
+    "Diamond Fusion Ring",
+    "Old Keeper's Ring",
+    "Vortex Bracer",
+    "Contrast"
+  ],
+  "elements": [
+    "earth",
+    "water",
+    "fire",
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [],
+    "elements": []
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Meteor",
+    "proxy_for": "Arcanist spell damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; MR floor retained; Mana Bank charge is not simulated",
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 20000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 15
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -300
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 33110.76308374393,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 1,
+    "removal_seed": "mage_arcanist_meteor:1:0",
+    "removed_slots": [
+      "ring1"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Liffmail Coif",
+    "Flexibility",
+    "Liffmail Chausses",
+    "Liffmail Sollerets",
+    "Old Keeper's Ring",
+    "Vortex Bracer",
+    "Contrast",
+    "Brushfire"
+  ],
+  "free_equipment_slots": [
+    "ring1"
+  ],
+  "free_mask": 16,
+  "url_hash": "CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3_ON40Poa93YeX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 82,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 60,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 20000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 15
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -300
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Meteor",
+      "damage_parts": 4,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Liffmail Coif",
+      "stat_hash": "68a293ffedd07cb56a085e3b97a7e7c66dcd01952bd396b746a8b213582b7699"
+    },
+    "chestplate": {
+      "name": "Flexibility",
+      "stat_hash": "c0d430343638ff808801c096d62ef0248039a12d11a82aa53942ea4ad03879fa"
+    },
+    "leggings": {
+      "name": "Liffmail Chausses",
+      "stat_hash": "54f4a3afa4a076a6b81c563d4955fd7a3c61dcdf1e089ab23e7f51b015201e7d"
+    },
+    "boots": {
+      "name": "Liffmail Sollerets",
+      "stat_hash": "4fd774cf8ef73f32c606a96503dcd63348292da1f9c22f7b989782f1c09c8787"
+    },
+    "ring2": {
+      "name": "Old Keeper's Ring",
+      "stat_hash": "5f9839ce3b2ecbdda4d2acc19dff7c76e6902ad7e59136e1821a8f95b399292d"
+    },
+    "bracelet": {
+      "name": "Vortex Bracer",
+      "stat_hash": "24b450cc6ad18a22964e77c6ca8261c36e31761b8340cf851acd67df54c993a5"
+    },
+    "necklace": {
+      "name": "Contrast",
+      "stat_hash": "d91144e3b0c004ae65f019cde6786fcdbc6720a31bc0be40ca0d444d0b03e209"
+    }
+  },
+  "created": "2026-08-16T02:31:35.738Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

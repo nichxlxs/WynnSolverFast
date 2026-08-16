@@ -1,0 +1,187 @@
+{
+  "name": "solver_meta_warrior_battle_monk_uppercut_remove_3",
+  "description": "warrior/battle_monk spell: remove_3; leggings, bracelet, necklace equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "spell",
+  "benchmark_class": "warrior",
+  "benchmark_archetype": "battle_monk",
+  "benchmark_variant": "remove_3",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "d83e46f7e29325f8d9f7eafabfdd448a264cb2534c566abe3edefcaecc2c29c9",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX013HyGiK4O6W10C0G15ammwqKS24480qUy5jnaDDAO3",
+  "authored_build_url": "https://wynnbuilder-beta.github.io/builder/#CV013HyGiK4O6W10C0G15ammwqKS24480qUy5jnaDDAO3",
+  "designed_version": "2.2.1.0",
+  "version_role": "standardized_current_gap_fill",
+  "seed_quality": "historical_gap_fill",
+  "source_evidence": "Blue's Builds Warrior forum; older Idol Battle Monk spell build standardized to 2.2.3.0.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492894002641633470/1521151813422682184",
+  "core_weapon": "Masterwork Idol",
+  "seed_item_names": [
+    "Polyglot",
+    "Withdrawal",
+    "Omniverse",
+    "Boots of Blue Stone",
+    "Summa",
+    "Summa",
+    "Prowess",
+    "Diamond Fusion Necklace"
+  ],
+  "elements": [
+    "water"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          20,
+          20,
+          20
+        ],
+        "powders": [
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "water"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Uppercut",
+    "proxy_for": "Battle Monk spell damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; MR floor retained",
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 20000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 20
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -200
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 20908.726848410188,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 3,
+    "removal_seed": "warrior_battle_monk_uppercut:3:0",
+    "removed_slots": [
+      "leggings",
+      "bracelet",
+      "necklace"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Polyglot",
+    "Withdrawal",
+    "Boots of Blue Stone",
+    "Summa",
+    "Summa",
+    "Masterwork Idol"
+  ],
+  "free_equipment_slots": [
+    "leggings",
+    "bracelet",
+    "necklace"
+  ],
+  "free_mask": 196,
+  "url_hash": "CX013HyGiK4O6W10C0G15ammwqKS24480qUy5jnaDDAO3_ON40Poa9ZueX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 82,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 20000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -200
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Uppercut",
+      "damage_parts": 3,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Polyglot",
+      "stat_hash": "f7717ceb1acfe933e591a35a536f2a2dd1681fb8483945f122dfa5f89bf33697"
+    },
+    "chestplate": {
+      "name": "Withdrawal",
+      "stat_hash": "3f35f849c6ef4354eb29efa17405de0f75f9f273bc211ae811ac32bb6309bb35"
+    },
+    "boots": {
+      "name": "Boots of Blue Stone",
+      "stat_hash": "f14adc19ec5a3a533b2e331a846e8390d582c1ddb68f5d28d2b72930fe22823b"
+    },
+    "ring1": {
+      "name": "Summa",
+      "stat_hash": "9304c5167a8b6033dfc12f518eef89b8376d00d2feb062c14a24990652f6b947"
+    },
+    "ring2": {
+      "name": "Summa",
+      "stat_hash": "9304c5167a8b6033dfc12f518eef89b8376d00d2feb062c14a24990652f6b947"
+    }
+  },
+  "created": "2026-08-16T02:38:57.647Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}
