@@ -45,6 +45,7 @@ const WORKER_DEPS = [
     'js/solver/pure/engine.js',
     'js/solver/engine/top_results.js',
     'js/solver/engine/worker_shims.js',
+    'js/solver/engine/sp_set_bound.js',
 ];
 
 for (const relPath of WORKER_DEPS) {

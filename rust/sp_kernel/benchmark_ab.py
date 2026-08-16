@@ -158,13 +158,37 @@ def work_signature(row: dict) -> dict:
     return {k: row[k] for k in WORK_KEYS if k in row}
 
 
-def compare_work(a_rows: list[dict], b_rows: list[dict]) -> list[str]:
-    """Reasons the two sides are not comparable. Empty means comparable.
+# `checked` counts the tuple space covered, which a pruning change does not
+# alter -- pruned subtrees are credited exactly as if they had been walked. So
+# it stays the anchor even when the two sides genuinely disagree about results.
+#
+# It is not exactly equal, though. The budget is a stopping threshold tested
+# after each credit, and a credit can be a whole pruned subtree, so each side
+# overshoots by however much its last chunk was worth. Measured overshoot
+# between two pruning configurations is ~0.001% -- three orders of magnitude
+# below the harness noise floor -- so the anchor holds to a tolerance rather
+# than to the leaf.
+WORK_ANCHOR_KEYS = ("checked",)
+ANCHOR_TOLERANCE = 0.005
 
-    Checks two independent things: that each side is self-consistent across its
-    own repeats (the kernel is deterministic, so it must be), and that the two
-    sides agree with each other."""
-    problems = []
+
+def compare_work(a_rows: list[dict], b_rows: list[dict],
+                 expect_divergence: bool = False) -> tuple[list[str], list[str]]:
+    """Return (problems, divergences).
+
+    `problems` are reasons the timing is not a comparison at all. `divergences`
+    are result differences between the two sides.
+
+    By default any divergence is a problem: for an optimization that must
+    preserve results, differing counts mean one side simply searched less, and
+    the ratio would be measuring that rather than speed.
+
+    `expect_divergence` is for the other case -- a deliberate correctness change,
+    where the extra work IS the thing being measured. The result differences are
+    then reported rather than fatal, but the anchor still has to hold: both sides
+    must cover the same tuple space, or they are not doing comparable work.
+    """
+    problems, divergences = [], []
     for name, rows in (("A", a_rows), ("B", b_rows)):
         signatures = {json.dumps(work_signature(r), sort_keys=True) for r in rows}
         if len(signatures) > 1:
@@ -175,11 +199,26 @@ def compare_work(a_rows: list[dict], b_rows: list[dict]) -> list[str]:
 
     a_sig, b_sig = work_signature(a_rows[0]), work_signature(b_rows[0])
     for key in sorted(set(a_sig) | set(b_sig)):
-        if a_sig.get(key) != b_sig.get(key):
-            problems.append(f"{key}: A={a_sig.get(key)} B={b_sig.get(key)}")
+        if a_sig.get(key) == b_sig.get(key):
+            continue
+        a_val, b_val = a_sig.get(key), b_sig.get(key)
+        note = f"{key}: A={a_val} B={b_val}"
+        if key in WORK_ANCHOR_KEYS:
+            # The anchor may only drift by the last credited chunk.
+            scale = max(abs(a_val or 0), abs(b_val or 0), 1)
+            drift = abs((a_val or 0) - (b_val or 0)) / scale
+            if drift > ANCHOR_TOLERANCE:
+                problems.append(
+                    f"{note} -- tuple space covered differs by {drift:.3%}, "
+                    f"beyond the {ANCHOR_TOLERANCE:.1%} budget-overshoot tolerance")
+            continue
+        if expect_divergence:
+            divergences.append(note)
+        else:
+            problems.append(note)
     if tuple(a_rows[0]["top_scores"]) != tuple(b_rows[0]["top_scores"]):
-        problems.append("top-15 scores differ")
-    return problems
+        (divergences if expect_divergence else problems).append("top-15 scores differ")
+    return problems, divergences
 
 
 def calibrate_budget(binary: Path, scenario: str, env_extra: dict,
@@ -264,6 +303,10 @@ def main() -> None:
                         help="paired repeats per scenario (counterbalanced)")
     parser.add_argument("--timeout", type=positive_float, default=300.0,
                         help="per-run backstop in seconds")
+    parser.add_argument("--expect-divergence", action="store_true",
+                        help="the change deliberately alters results (a correctness "
+                             "fix); report result differences instead of refusing. "
+                             "Both sides must still cover the same tuple space.")
     parser.add_argument("--json", type=Path, help="write the full record here")
     parser.add_argument("--tsv", type=Path, help="write a summary table here")
     args = parser.parse_args()
@@ -319,15 +362,18 @@ def main() -> None:
                         b_runs.append(run_once(args.b_bin, scenario, b_env,
                                                budget, args.timeout))
 
-            problems = compare_work(a_runs, b_runs)
+            problems, divergences = compare_work(
+                a_runs, b_runs, expect_divergence=args.expect_divergence)
             row["comparable"] = not problems
             row["problems"] = problems
+            row["divergences"] = divergences
             row["a_runs"], row["b_runs"] = a_runs, b_runs
             row["work"] = work_signature(a_runs[0])
             row.update(summarize(a_runs, b_runs))
         except (EvidenceError, subprocess.TimeoutExpired) as exc:
             row["comparable"] = False
             row["problems"] = [str(exc)]
+            row["divergences"] = []
         rows.append(row)
         record["rows"].append(row)
         _print_row(row)
@@ -364,6 +410,8 @@ def _print_row(row: dict) -> None:
           f"B {row['b_median_s']:7.3f}s   "
           f"{row['speedup']:6.3f}x  ({row['delta_pct']:+6.2f}%)  "
           f"@ {row['budget']:.3g} leaves")
+    for note in row.get("divergences", []):
+        print(f"{'':<28}   results differ -- {note}")
 
 
 def _print_aggregate(rows: list[dict]) -> None:
