@@ -1,0 +1,32 @@
+name: Solver anytime checks
+
+on:
+  pull_request:
+    paths:
+      - 'rust/sp_kernel/**'
+      - 'js/solver/wasm/**'
+      - '.github/workflows/solver-anytime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: rust/sp_kernel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+          targets: wasm32-unknown-unknown
+      - name: Rust semantic and budget regressions
+        run: cargo test --locked --release --lib
+      - name: Benchmark evidence integrity
+        run: python3 -m unittest test_benchmark_quality
+      - name: Compile browser engine
+        run: cargo check --locked --release --target wasm32-unknown-unknown --features wasm --lib

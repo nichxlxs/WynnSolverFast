@@ -1,0 +1,794 @@
+[
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1561.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 616.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2329.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 984.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1192.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1508.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_boltslinger_fast_hybrid_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 991.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2055.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1271.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1984.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1813.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1598.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1021.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_sharpshooter_heavy_melee_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2569.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 969.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1621.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1590.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1528.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1578.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1813.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_archer_trapper_slow_melee_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1185.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1875.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2126.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1950.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1732.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1766.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1624.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_acrobat_spellspam_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1961.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1205.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1333.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1675.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1165.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1209.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1714.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_shadestepper_spellsteal_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1205.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1238.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 843.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1605.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1184.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1529.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1453.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_assassin_trickster_spell_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1507.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 876.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 774.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1521.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 711.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1432.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 885.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_arcanist_meteor_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1122.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_known_good",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1696.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 6.20248000000440152e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 40, 53, 60, 44] want [0.0, 40.0, 53.0, 60.0, 44.0]\n    total_sp got [-185, 67, 76, 60, 74] want [-185.0, 67.0, 76.0, 60.0, 74.0]\n    assigned got 197 want 197\n    score    got 0.00000000000000000e0 want 6.20248000000440152e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 6.20248000000440152e3\ncase 0: MISMATCH expected 6.20248000000440152e3 (40b83a7ae147c0fc) got 0.00000000000000000e0 (0000000000000000) (diff 6.202e3) items=Nexus, Discoverer, Rebel Ethos, Dragon Dance, Unforeseen Ends, Unforeseen Ends, Shattershard, Accursed Eye\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_1",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1433.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 7.33708000000520678e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 34, 58, 65, 39] want [0.0, 34.0, 58.0, 65.0, 39.0]\n    total_sp got [-86, 66, 76, 60, 74] want [-86.0, 66.0, 76.0, 60.0, 74.0]\n    assigned got 196 want 196\n    score    got 0.00000000000000000e0 want 7.33708000000520678e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 7.33708000000520678e3\ncase 0: MISMATCH expected 7.33708000000520678e3 (40bca9147ae15e0b) got 0.00000000000000000e0 (0000000000000000) (diff 7.337e3) items=Nexus, Discoverer, Rebel Ethos, Accelerator, Unforeseen Ends, Unforeseen Ends, Shattershard, Accursed Eye\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_2",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1556.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 1.07881550000076550e4 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 40, 48, 50, 49] want [0.0, 40.0, 48.0, 50.0, 49.0]\n    total_sp got [-86, 74, 76, 67, 74] want [-86.0, 74.0, 76.0, 67.0, 74.0]\n    assigned got 187 want 187\n    score    got 0.00000000000000000e0 want 1.07881550000076550e4\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 1.07881550000076550e4\ncase 0: MISMATCH expected 1.07881550000076550e4 (40c51213d70a4de1) got 0.00000000000000000e0 (0000000000000000) (diff 1.079e4) items=Nexus, Soulflare, Rebel Ethos, Nether's Scar, Unforeseen Ends, Unforeseen Ends, Shattershard, Accursed Eye\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_3",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 2930.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 3.27143000000232178e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 42, 51, 60, 47] want [0.0, 42.0, 51.0, 60.0, 47.0]\n    total_sp got [-162, 66, 60, 64, 80] want [-162.0, 66.0, 60.0, 64.0, 80.0]\n    assigned got 200 want 200\n    score    got 0.00000000000000000e0 want 3.27143000000232178e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 3.27143000000232178e3\ncase 0: MISMATCH expected 3.27143000000232178e3 (40a98edc28f5d681) got 0.00000000000000000e0 (0000000000000000) (diff 3.271e3) items=Vertigo, Discoverer, Rebel Ethos, Dragon Dance, Iron Will, Unforeseen Ends, Gold Steam Bracelet, Accursed Eye\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_4",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1036.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 8.88580900000630754e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 43, 64, 47, 43] want [0.0, 43.0, 64.0, 47.0, 43.0]\n    total_sp got [-64, 66, 76, 45, 74] want [-64.0, 66.0, 76.0, 45.0, 74.0]\n    assigned got 197 want 197\n    score    got 0.00000000000000000e0 want 8.88580900000630754e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 8.88580900000630754e3\ncase 0: MISMATCH expected 8.88580900000630754e3 (40c15ae78d4fecc7) got 0.00000000000000000e0 (0000000000000000) (diff 8.886e3) items=Nexus, Discoverer, Rebel Ethos, X-PM4 Deadlock, Spark of Instinct, Different Times, Shattershard, Gigabyte\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_5",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 2547.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 7.05343000000500615e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 45, 65, 45, 45] want [0.0, 45.0, 65.0, 45.0, 45.0]\n    total_sp got [-149, 65, 76, 57, 72] want [-149.0, 65.0, 76.0, 57.0, 72.0]\n    assigned got 200 want 200\n    score    got 0.00000000000000000e0 want 7.05343000000500615e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 7.05343000000500615e3\ncase 0: MISMATCH expected 7.05343000000500615e3 (40bb8d6e147af6c8) got 0.00000000000000000e0 (0000000000000000) (diff 7.053e3) items=Albino, Discoverer, Mixed Signals, Dragon Dance, Different Times, Different Times, Shattershard, Stormleader\n"
+  },
+  {
+    "scenario": "meta_mage_light_bender_healing_remove_6",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1355.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 6.32539500000448970e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [0, 45, 41, 46, 50] want [0.0, 45.0, 41.0, 46.0, 50.0]\n    total_sp got [-149, 68, 65, 65, 68] want [-149.0, 68.0, 65.0, 65.0, 68.0]\n    assigned got 182 want 182\n    score    got 0.00000000000000000e0 want 6.32539500000448970e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 6.32539500000448970e3\ncase 0: MISMATCH expected 6.32539500000448970e3 (40b8b5651eb86534) got 0.00000000000000000e0 (0000000000000000) (diff 6.325e3) items=Sano's Care, Snow Veil, Mistworn, Dragon Dance, Spark of Instinct, Hellion, Tension Spring, Accursed Eye\n"
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1679.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2152.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1268.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1746.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1571.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1567.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_mage_riftwalker_cancelstack_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 981.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_known_good",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1437.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 5.28018750000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [75, 7, 0, 17, 69] want [75.0, 7.0, 0.0, 17.0, 69.0]\n    total_sp got [70, 25, 4, 30, 140] want [70.0, 25.0, 4.0, 30.0, 140.0]\n    assigned got 168 want 168\n    score    got 0.00000000000000000e0 want 5.28018750000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 5.28018750000000000e3\ncase 0: MISMATCH expected 5.28018750000000000e3 (40b4a03000000000) got 0.00000000000000000e0 (0000000000000000) (diff 5.280e3) items=Bleeding Mind, Flexibility, Sagittarius, Revenant, Summa, Bloodborne, Prowess, Bottled Thunderstorm\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_1",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1061.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 5.68378125000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [71, 3, 0, 13, 78] want [71.0, 3.0, 0.0, 13.0, 78.0]\n    total_sp got [70, 25, 8, 30, 140] want [70.0, 25.0, 8.0, 30.0, 140.0]\n    assigned got 165 want 165\n    score    got 0.00000000000000000e0 want 5.68378125000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 5.68378125000000000e3\ncase 0: MISMATCH expected 5.68378125000000000e3 (40b633c800000000) got 0.00000000000000000e0 (0000000000000000) (diff 5.684e3) items=Bleeding Mind, Flexibility, Empty Joy, Revenant, Summa, Bloodborne, Prowess, Bottled Thunderstorm\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_2",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1295.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 4.74750000000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [75, 32, 0, 0, 74] want [75.0, 32.0, 0.0, 0.0, 74.0]\n    total_sp got [70, 54, 4, 13, 140] want [70.0, 54.0, 4.0, 13.0, 140.0]\n    assigned got 181 want 181\n    score    got 0.00000000000000000e0 want 4.74750000000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 4.74750000000000000e3\ncase 0: MISMATCH expected 4.74750000000000000e3 (40b28b8000000000) got 0.00000000000000000e0 (0000000000000000) (diff 4.748e3) items=Bleeding Mind, Flexibility, Sagittarius, Revenant, Summa, Vilavud Os, Prowess, Staccato\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_3",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1384.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 5.59518750000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [73, 6, 27, 17, 76] want [73.0, 6.0, 27.0, 17.0, 76.0]\n    total_sp got [70, 15, 36, 30, 140] want [70.0, 15.0, 36.0, 30.0, 140.0]\n    assigned got 199 want 199\n    score    got 0.00000000000000000e0 want 5.59518750000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 5.59518750000000000e3\ncase 0: MISMATCH expected 5.59518750000000000e3 (40b5db3000000000) got 0.00000000000000000e0 (0000000000000000) (diff 5.595e3) items=Bleeding Mind, Flexibility, Sagittarius, Revenant, Reminder, Bloodborne, Discordant, Hubris\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_4",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1363.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 5.95546875000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [64, 18, 0, 37, 62] want [64.0, 18.0, 0.0, 37.0, 62.0]\n    total_sp got [70, 25, -15, 57, 140] want [70.0, 25.0, -15.0, 57.0, 140.0]\n    assigned got 181 want 181\n    score    got 0.00000000000000000e0 want 5.95546875000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 5.95546875000000000e3\ncase 0: MISMATCH expected 5.95546875000000000e3 (40b7437800000000) got 0.00000000000000000e0 (0000000000000000) (diff 5.955e3) items=Concussion, The Courier's Cape, Atomizer, Revenant, Summa, Bloodborne, Esclavage, Bottled Thunderstorm\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_5",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1040.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 5.35687500000000000e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [46, 12, 20, 34, 76] want [46.0, 12.0, 20.0, 34.0, 76.0]\n    total_sp got [58, 38, 38, 58, 140] want [58.0, 38.0, 38.0, 58.0, 140.0]\n    assigned got 188 want 188\n    score    got 0.00000000000000000e0 want 5.35687500000000000e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 5.35687500000000000e3\ncase 0: MISMATCH expected 5.35687500000000000e3 (40b4ece000000000) got 0.00000000000000000e0 (0000000000000000) (diff 5.357e3) items=Bleeding Mind, Far Cosmos, Empty Joy, Ouroboros, Summa, Facile, Eternal Toil, Bottled Thunderstorm\n"
+  },
+  {
+    "scenario": "meta_shaman_acolyte_healing_remove_6",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 1144.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 6.41345624999999927e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [24, 22, 25, 44, 70] want [24.0, 22.0, 25.0, 44.0, 70.0]\n    total_sp got [28, 28, 28, 66, 140] want [28.0, 28.0, 28.0, 66.0, 140.0]\n    assigned got 185 want 185\n    score    got 0.00000000000000000e0 want 6.41345624999999927e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 6.41345624999999927e3\ncase 0: MISMATCH expected 6.41345624999999927e3 (40b90d74cccccccc) got 0.00000000000000000e0 (0000000000000000) (diff 6.413e3) items=Astrolabe, Cindercurse Cuirass, Sagittarius, Equites, Summa, Prism, Persistent Echo, Contrast\n"
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1962.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2089.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1032.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1844.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1921.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1711.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_ritualist_tierstack_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1877.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 747.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 695.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1320.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 844.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1516.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1127.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_shaman_summoner_aura_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1398.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1429.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1784.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1198.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2471.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1366.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2302.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_battle_monk_uppercut_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1727.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1524.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1373.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1495.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 828.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1066.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1390.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_fallen_uppercut_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 460.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_known_good",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1371.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_1",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1783.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_2",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1207.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_3",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1376.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_4",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1719.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_5",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1055.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "meta_warrior_paladin_tank_remove_6",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1192.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_cancelstack_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2577.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_cancelstack_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1729.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_cancelstack_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1640.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_heavy_melee_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1913.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_heavy_melee_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1819.8 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_heavy_melee_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1079.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_tierstack_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2016.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_tierstack_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1036.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_tierstack_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1550.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spellsteal_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1291.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spellsteal_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1149.0 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spellsteal_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1245.7 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spell_sustained_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1071.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spell_sustained_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 706.2 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_spell_sustained_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 971.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_hybrid_small",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 942.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_hybrid_medium",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 542.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "fam_hybrid_large",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2400.5 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "gaia2m",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1555.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "gaia_wide",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 2046.6 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "gaia_ultra",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1950.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "gaia_all_free",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1301.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "spell_wide",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 69.3 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "spell_8free",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 58.4 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "ehp",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1431.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  },
+  {
+    "scenario": "heal",
+    "returncode": 1,
+    "stdout": "score_kernel: 1 cases | 0 exact | 1 mismatched | 199.9 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff\npipeline (SP+greedy+mana+score): 0 exact / 1 diff\npipeline compiled-rows: 0 exact / 1 diff\npipeline dense: unsupported scenario shape, Obj fallback\n",
+    "stderr": "case 0: L2 SCORE MISMATCH expected 4.21800000000527325e3 got 0.00000000000000000e0\ncase 0: PIPELINE MISMATCH\n    base_sp  got [74, 98, 0, 0, 0] want [74.0, 98.0, 0.0, 0.0, 0.0]\n    total_sp got [75, 135, 2, 2, 1] want [75.0, 135.0, 2.0, 2.0, 1.0]\n    assigned got 172 want 172\n    score    got 0.00000000000000000e0 want 4.21800000000527325e3\ncase 0: COMPILED MISMATCH got 0.00000000000000000e0 want 4.21800000000527325e3\ncase 0: MISMATCH expected 4.21800000000527325e3 (40b07a00000016a6) got 0.00000000000000000e0 (0000000000000000) (diff 4.218e3) items=Shimmersight, Chaos, Babel, Final Spark, Mercy, Agave, Diamond Static Bracelet, Achromatic Gloom\n"
+  },
+  {
+    "scenario": "xpb",
+    "returncode": 0,
+    "stdout": "score_kernel: 1 cases | 1 exact | 0 mismatched | 1535.1 evals/s\nlayer2: assembly 1 exact / 0 diff | end-to-end score 1 exact / 0 diff\npipeline (SP+greedy+mana+score): 1 exact / 0 diff\npipeline compiled-rows: 1 exact / 0 diff\npipeline dense (per-trial checked): 1 exact / 0 diff\n",
+    "stderr": ""
+  }
+]
