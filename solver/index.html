@@ -1246,6 +1246,24 @@
                                   style="cursor:help"></span>
                         </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap mb-1 mt-2">
+                            <div class="d-flex align-items-center gap-2 w-100">
+                                <label for="solver-search-mode" class="small text-secondary">Search</label>
+                                <select id="solver-search-mode" class="form-select form-select-sm bg-dark text-light"
+                                    style="width:auto" onchange="solver_search_mode_changed()">
+                                    <option value="exhaustive" selected>Exhaustive search</option>
+                                    <option value="quick">Quick search</option>
+                                </select>
+                                <span id="solver-quick-budget-row" style="display:none">
+                                    <label for="solver-quick-budget" class="visually-hidden">Quick search time budget</label>
+                                    <select id="solver-quick-budget" class="form-select form-select-sm bg-dark text-light"
+                                        title="Time budget includes preparation and loading">
+                                        <option value="5" selected>5 seconds</option>
+                                        <option value="15">15 seconds</option>
+                                        <option value="30">30 seconds</option>
+                                    </select>
+                                </span>
+                            </div>
+                            <div id="solver-search-mode-note" class="small text-secondary w-100"></div>
                             <div class="d-flex align-items-center gap-1 w-100">
                                 <button id="solver-run-btn" class="btn btn-sm btn-outline-success flex-grow-1"
                                     onclick="toggle_solver()">Solve</button>

@@ -59,6 +59,7 @@ computed; duplicate copies of a legal ring remain valid choices.
 | `--repair-budget` | 100,000 | Credited combinations per individual repair |
 | `--warm-budget` | Inherit repair budget | Credited combinations for the ranked seed only |
 | `--cycle-stagnation` | 0 | Set to 1 to resume local moves after a forced diversification |
+| `--elite-pool` | 0 | Set to 1 to periodically recombine learned small candidate domains |
 | `--max-repairs` | 1,000 | Upper bound on total seed/repair searches |
 | `--top-k` | 1 | Number of distinct output gear/tome builds; range 1–64 |
 | `--warm-k` | 3 | Candidate count per slot for initial ranked seed |
@@ -139,3 +140,42 @@ The final JSON records the effective `warm_budget` and `cycle_stagnation` so
 benchmark results identify which configuration ran. The separate
 `--max-repairs` guard remains unchanged; use an explicit larger value when
 testing whether a run benefits from continuing until its wall/work deadline.
+
+## Experimental elite-pool repairs for large candidate pools
+
+`--elite-pool 1` adds a bounded recombination proposal every fifth neighborhood
+proposal after at least two feasible archive builds exist. It reopens up to
+six slots, retaining at most six items per reopened slot: the current parent
+first, items frequent in the diverse archive, a warm-ranked item and fresh
+exploration from the full pool. Further archive/warm candidates fill spare
+positions. Other slots remain fixed to the parent. The resulting local domain
+contains at most `6^6 = 46,656` tuples, before feasibility pruning.
+
+This is intended for large pools where a fully reopened triple can contain
+millions of tuples and a capped repair sees only a small part of them. It also
+permits coordinated four-to-six-slot changes across more than two parents.
+The existing evaluator verifies every candidate's skill-point requirements,
+sets, restrictions, score and tome choices. Original ring ordering still
+applies before skill-point solving. The test suite includes a four-slot
+requirement barrier that no one-, two- or three-slot change can improve, while
+the coordinated repair matches exhaustive evaluation of the small fixture.
+
+This is a heuristic domain restriction, not a proof that omitted candidates
+are inferior. Domains are rebuilt from the current archive, ordinary operators
+continue to use the full pools, and `complete` remains false. Both the CLI and
+browser API default this option off pending the long-workload A/B results;
+the JSON API accepts `"elite_pool": true`.
+
+Final JSON includes `elite_calls`, `elite_improvements`, `elite_leaf_calls`,
+`elite_full_domain_tuples` and `elite_restricted_domain_tuples`. The last two
+sum the potential full and retained sizes of the selected local domains.
+Those domains overlap and are not necessarily exhausted. Their ratio is
+neither unique work avoided nor a runtime speedup; use observed time to a
+fixed score target and endpoint score at equal wall budgets for comparisons.
+
+```sh
+target/release/anytime_kernel ENUM.txt SCORE.json \
+  --seconds 60 --seed 1707 --top-k 15 --warm-k 6 \
+  --warm-budget 2000000 --repair-budget 100000 \
+  --max-repairs 100000 --cycle-stagnation 1 --elite-pool 1
+```

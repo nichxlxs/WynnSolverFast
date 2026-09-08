@@ -1,4 +1,4 @@
-//! Native anytime large-neighbourhood search using the production evaluator.
+//! Anytime large-neighbourhood search using the production evaluator.
 //!
 //! This searches overlapping subspaces and DOES NOT prove global optimality.
 //! `complete` is consequently always false, even if a particular repair
@@ -33,6 +33,9 @@ pub struct Options {
     /// Resume local operators after one forced stagnation diversification.
     /// Kept off by default so the existing scheduler remains available for A/B.
     pub cycle_stagnation: bool,
+    /// Periodically recombine small domains learned from the diverse archive.
+    /// This restricts a heuristic repair only, never the original search space.
+    pub elite_pool: bool,
     pub max_repairs: usize,
     pub top_k: usize,
     pub archive_size: usize,
@@ -43,7 +46,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self { seconds: 10.0, seed: 1, work_budget: u64::MAX,
-            repair_budget: 100_000, warm_budget: None, cycle_stagnation: false,
+            repair_budget: 100_000, warm_budget: None, cycle_stagnation: false, elite_pool: false,
             max_repairs: 1_000,
             top_k: 1, archive_size: 24, warm_k: 3, quality_trace: None }
     }
@@ -71,8 +74,61 @@ pub struct Result {
     pub completed_repairs: usize,
     pub operator_calls: [u64; 5],
     pub operator_improvements: [u64; 5],
+    pub elite_calls: u64,
+    pub elite_improvements: u64,
+    pub elite_leaf_calls: u64,
+    /// Sums of overlapping local domain sizes, NOT unique work avoided.
+    pub elite_full_domain_tuples: f64,
+    pub elite_restricted_domain_tuples: f64,
     pub stop_reason: String,
     pub trace: Vec<QualityPoint>,
+}
+
+/// A snapshot of the retained best builds across every repair so far.
+/// Credited tuples include repeated and pruned domains and are deliberately
+/// never divided by the original search space to imply completeness.
+#[derive(Clone, Debug)]
+pub struct Progress {
+    pub elapsed_secs: f64,
+    pub leaf_calls: u64,
+    pub credited_tuples: f64,
+    pub scored: u64,
+    pub repairs: usize,
+    pub completed_repairs: usize,
+    pub phase: String,
+    pub stop_reason: String,
+    pub top: Vec<TopEntry>,
+}
+
+impl Progress {
+    pub fn json(&self, opts: &Options) -> Value {
+        let mut top = Vec::new();
+        for e in &self.top {
+            let mut row = json!({ "score": e.score, "item_names": e.items,
+                "base_sp": e.base_sp, "total_sp": e.total_sp,
+                "assigned_sp": e.assigned_sp });
+            if let Some(t) = &e.tome {
+                row["tome"] = json!({ "guild_idx": t.guild_idx,
+                    "weaponTome": t.weapon_names, "armorTome": t.armor_names });
+            }
+            top.push(row);
+        }
+        json!({ "algorithm": "alns", "complete": false,
+            "quality_reference": "production_evaluator", "seed": opts.seed,
+            "seconds_budget": opts.seconds, "elapsed_secs": self.elapsed_secs,
+            "leaf_calls": self.leaf_calls, "credited_tuples": self.credited_tuples,
+            "scored": self.scored, "repairs": self.repairs,
+            "completed_repairs": self.completed_repairs,
+            "phase": self.phase, "stop_reason": self.stop_reason,
+            "best_score": self.top.first().map(|e| e.score), "top_n": top })
+    }
+}
+
+fn progress_from_result(result: &Result, phase: &str) -> Progress {
+    Progress { elapsed_secs: result.elapsed_secs, leaf_calls: result.leaf_calls,
+        credited_tuples: result.credited_tuples, scored: result.scored,
+        repairs: result.repairs, completed_repairs: result.completed_repairs,
+        phase: phase.into(), stop_reason: result.stop_reason.clone(), top: result.top.clone() }
 }
 
 impl Result {
@@ -93,6 +149,7 @@ impl Result {
             "repair_budget": opts.repair_budget,
             "warm_budget": opts.warm_budget.unwrap_or(opts.repair_budget),
             "cycle_stagnation": opts.cycle_stagnation,
+            "elite_pool": opts.elite_pool,
             "elapsed_secs": self.elapsed_secs,
             "setup_secs": self.setup_secs, "leaf_calls": self.leaf_calls,
             "credited_tuples": self.credited_tuples, "scored": self.scored,
@@ -100,6 +157,11 @@ impl Result {
             "operator_names": ["pair", "triple", "perturb", "crossover", "restart"],
             "operator_calls": self.operator_calls,
             "operator_improvements": self.operator_improvements,
+            "elite_calls": self.elite_calls, "elite_improvements": self.elite_improvements,
+            "elite_leaf_calls": self.elite_leaf_calls,
+            "elite_full_domain_tuples": self.elite_full_domain_tuples,
+            "elite_restricted_domain_tuples": self.elite_restricted_domain_tuples,
+            "elite_domain_semantics": "sum_of_overlapping_local_domains_not_unique_work_avoided",
             "stop_reason": self.stop_reason,
             "best_score": self.top.first().map(|e| e.score), "top": top })
     }
@@ -244,10 +306,76 @@ fn warm_choices(fx: &Fixture, sc: &ScoringCtx, k: usize) -> Vec<Vec<usize>> {
     }).collect()
 }
 
+/// At most six choices in each of six reopened slots: at most 46,656
+/// combinations before the existing feasibility checks. Incumbent items
+/// are first, two frequent archive items follow, and warm/rand proposals
+/// maintain routes outside the learned domain. Remaining positions use
+/// archive/warm candidates, then a cyclic scan from a random offset.
+///
+/// Pool membership and original ring offsets are preserved. Domains are
+/// rebuilt from the current archive on every call and are not permanent
+/// eliminations. Other operators continue to visit the full original pools.
+fn elite_choices(
+    fx: &Fixture, base: &[usize], archive: &[TopEntry], warm: &[Vec<usize>],
+    order: &[usize], rng: &mut Rng,
+) -> (Vec<Vec<usize>>, f64) {
+    let parents: Vec<Vec<usize>> = archive.iter().filter_map(|e| indices(fx, e)).collect();
+    let mut choices: Vec<Vec<usize>> = base.iter().map(|&i| vec![i]).collect();
+    let mut full_tuples = 1.0;
+    for &d in order.iter().take(6) {
+        let size = fx.slots[d].pool.len();
+        full_tuples *= size as f64;
+        let cap = size.min(6);
+        let mut counts = vec![0u64; size];
+        for (rank, parent) in parents.iter().enumerate() {
+            // Keep the best parents influential without discarding the
+            // diverse part of the archive. Integer weights are portable.
+            counts[parent[d]] += if rank < 6 { 3 } else { 1 };
+        }
+        let mut ranked: Vec<usize> = (0..size).filter(|&i| counts[i] > 0 && i != base[d]).collect();
+        ranked.sort_by(|&a, &b| counts[b].cmp(&counts[a]).then_with(|| a.cmp(&b)));
+        for &i in ranked.iter().take(2) {
+            if choices[d].len() < cap { choices[d].push(i); }
+        }
+        if let Some(prior) = warm.get(d).filter(|p| !p.is_empty()) {
+            let start = rng.index(prior.len());
+            for j in 0..prior.len() {
+                let i = prior[(start + j) % prior.len()];
+                if choices[d].len() < cap && !choices[d].contains(&i) {
+                    choices[d].push(i); break;
+                }
+            }
+        }
+        // Reserve exploration before filling further archive choices.
+        let start = rng.index(size);
+        for j in 0..size {
+            let i = (start + j) % size;
+            if choices[d].len() < cap && !choices[d].contains(&i) {
+                choices[d].push(i); break;
+            }
+        }
+        for &i in &ranked {
+            if choices[d].len() < cap && !choices[d].contains(&i) { choices[d].push(i); }
+        }
+        if let Some(prior) = warm.get(d) {
+            for &i in prior {
+                if choices[d].len() < cap && !choices[d].contains(&i) { choices[d].push(i); }
+            }
+        }
+        for j in 0..size {
+            if choices[d].len() == cap { break; }
+            let i = (start + j) % size;
+            if !choices[d].contains(&i) { choices[d].push(i); }
+        }
+    }
+    (choices, full_tuples)
+}
+
 fn run_repair(
     fx: &Fixture, sc: &ScoringCtx, opts: &Options, started: Instant,
     choices: &[Vec<usize>], phase: &str, result: &mut Result,
     sink: &mut Option<&mut dyn FnMut(&QualityPoint)>,
+    progress: &mut Option<&mut dyn FnMut(&Progress)>,
 ) -> Vec<TopEntry> {
     let reduced = reduced_fixture(fx, choices);
     // Canonicalize against the ORIGINAL domain, never the reduced offsets.
@@ -262,6 +390,11 @@ fn run_repair(
     };
     let used = result.leaf_calls;
     let repair = result.repairs;
+    let credited_before = result.credited_tuples;
+    let scored_before = result.scored;
+    let completed_before = result.completed_repairs;
+    let has_progress = progress.is_some();
+    let mut retained = if has_progress { result.top.clone() } else { Vec::new() };
     let mut best = result.trace.last().map(|p| p.best_score).unwrap_or(f64::NEG_INFINITY);
     let mut on_progress = |p: super::ProgressSnapshot| {
         if let Some(e) = p.top_n.first() {
@@ -275,6 +408,17 @@ fn run_repair(
                 }
             }
         }
+        if let Some(callback) = progress.as_mut() {
+            super::merge_top_n(&mut retained, p.top_n, opts.top_k);
+            callback(&Progress {
+                elapsed_secs: started.elapsed().as_secs_f64(),
+                leaf_calls: used + p.leaf_calls,
+                credited_tuples: credited_before + p.checked,
+                scored: scored_before + p.scored, repairs: repair,
+                completed_repairs: completed_before,
+                phase: phase.into(), stop_reason: String::new(), top: retained.clone(),
+            });
+        }
         None
     };
     let mut search = Search::new(&reduced);
@@ -284,7 +428,7 @@ fn run_repair(
     search.trace_phase = match phase {
         "warm" => "warm", "ordered_seed" => "ordered_seed", "pair" => "pair",
         "triple" => "triple", "perturb" => "perturb", "crossover" => "crossover",
-        "restart" => "restart", _ => "repair",
+        "restart" => "restart", "elite" => "elite", _ => "repair",
     };
     // Retain alternatives for the diversity archive, not only a local winner.
     search.result_count = opts.archive_size.max(opts.top_k).min(64);
@@ -293,7 +437,8 @@ fn run_repair(
     search.time_cap = Some(opts.seconds);
     search.global_started = Some(started);
     search.progress_every = 256.0;
-    search.next_progress = 256.0;
+    search.next_progress = if has_progress { 1.0 } else { 256.0 };
+    search.progress_on_first_result = has_progress;
     search.progress = Some(&mut on_progress);
     search.init_equip_names();
     search.run();
@@ -325,7 +470,24 @@ pub fn run(fx: &Fixture, sc: &ScoringCtx, opts: &Options, started: Instant) -> R
 /// terminate the process without losing already found witnesses.
 pub fn run_with_trace(
     fx: &Fixture, sc: &ScoringCtx, opts: &Options, started: Instant,
+    sink: Option<&mut dyn FnMut(&QualityPoint)>,
+) -> Result {
+    run_with_sinks(fx, sc, opts, started, sink, None)
+}
+
+/// Streaming progress contains actual retained top-N witnesses, including
+/// skill-point and tome choices, even during a long first repair.
+pub fn run_with_progress(
+    fx: &Fixture, sc: &ScoringCtx, opts: &Options, started: Instant,
+    progress: Option<&mut dyn FnMut(&Progress)>,
+) -> Result {
+    run_with_sinks(fx, sc, opts, started, None, progress)
+}
+
+fn run_with_sinks(
+    fx: &Fixture, sc: &ScoringCtx, opts: &Options, started: Instant,
     mut sink: Option<&mut dyn FnMut(&QualityPoint)>,
+    mut progress: Option<&mut dyn FnMut(&Progress)>,
 ) -> Result {
     let mut result = Result { setup_secs: started.elapsed().as_secs_f64(), ..Result::default() };
     if fx.slots.iter().any(|s| s.pool.is_empty() || s.pool.len() != s.item_names.len()) {
@@ -344,13 +506,15 @@ pub fn run_with_trace(
     }
     let mut rng = Rng(opts.seed);
     let mut archive = Vec::new();
+    let mut elite_prior = Vec::new();
     let mut seen_domains = HashSet::<Vec<Vec<usize>>>::new();
     // Match the production warm-start ranking first, but retain its witnesses.
     if expired(opts, started, &result).is_none() {
         let warm = warm_choices(fx, sc, opts.warm_k);
+        if opts.elite_pool { elite_prior = warm.clone(); }
         if expired(opts, started, &result).is_none() {
             let seed_opts = warm_options(opts);
-            let entries = run_repair(fx, sc, &seed_opts, started, &warm, "warm", &mut result, &mut sink);
+            let entries = run_repair(fx, sc, &seed_opts, started, &warm, "warm", &mut result, &mut sink, &mut progress);
             super::merge_top_n(&mut result.top, entries.clone(), opts.top_k);
             update_archive(&mut archive, entries, opts.archive_size.max(1));
         }
@@ -362,7 +526,7 @@ pub fn run_with_trace(
         let full = full_choices(fx);
         let mut probe = opts.clone();
         probe.repair_budget = opts.repair_budget.min(10_000);
-        let entries = run_repair(fx, sc, &probe, started, &full, "ordered_seed", &mut result, &mut sink);
+        let entries = run_repair(fx, sc, &probe, started, &full, "ordered_seed", &mut result, &mut sink, &mut progress);
         super::merge_top_n(&mut result.top, entries.clone(), opts.top_k);
         update_archive(&mut archive, entries, opts.archive_size.max(1));
     }
@@ -380,11 +544,19 @@ pub fn run_with_trace(
             indices(fx, &archive[a])
         } else { None };
         // Adapt success weights, but force regular restart/exploration trials.
-        let (op, forced_diversification) = select_operator(&mut rng, base_ix.is_some(), stalled, &result);
+        let (op, forced_diversification) = if opts.elite_pool && n >= 4
+            && archive.len() >= 2 && attempts % 5 == 1 {
+            (5, false)
+        } else { select_operator(&mut rng, base_ix.is_some(), stalled, &result) };
         let base = base_ix.unwrap_or_else(|| fx.slots.iter().map(|s| rng.index(s.pool.len())).collect());
         let mut choices: Vec<Vec<usize>> = base.iter().map(|&i| vec![i]).collect();
         let mut order: Vec<usize> = (0..n).collect(); rng.shuffle(&mut order);
+        let mut elite_full_tuples = 0.0;
         match op {
+            5 => {
+                (choices, elite_full_tuples) = elite_choices(
+                    fx, &base, &archive, &elite_prior, &order, &mut rng);
+            }
             0 | 1 => {
                 let count = if op == 0 { 2 } else { 3 };
                 for &d in order.iter().take(count) {
@@ -449,14 +621,22 @@ pub fn run_with_trace(
         // are different experiments, whereas an identical domain is wasted.
         if !seen_domains.insert(choices.clone()) { continue; }
         if seen_domains.len() > 4096 { seen_domains.clear(); }
-        result.operator_calls[op] += 1;
+        if op == 5 {
+            result.elite_calls += 1;
+            result.elite_full_domain_tuples += elite_full_tuples;
+            result.elite_restricted_domain_tuples += choices.iter().map(|d| d.len() as f64).product::<f64>();
+        } else { result.operator_calls[op] += 1; }
         let old = result.top.first().map(|e| e.score).unwrap_or(f64::NEG_INFINITY);
-        let phase = ["pair", "triple", "perturb", "crossover", "restart"][op];
-        let entries = run_repair(fx, sc, opts, started, &choices, phase, &mut result, &mut sink);
+        let phase = ["pair", "triple", "perturb", "crossover", "restart", "elite"][op];
+        let leaves_before = result.leaf_calls;
+        let entries = run_repair(fx, sc, opts, started, &choices, phase, &mut result, &mut sink, &mut progress);
         super::merge_top_n(&mut result.top, entries.clone(), opts.top_k);
         update_archive(&mut archive, entries, opts.archive_size.max(1));
         let new = result.top.first().map(|e| e.score).unwrap_or(f64::NEG_INFINITY);
-        if new > old { result.operator_improvements[op] += 1; }
+        if op == 5 {
+            result.elite_leaf_calls += result.leaf_calls - leaves_before;
+            if new > old { result.elite_improvements += 1; }
+        } else if new > old { result.operator_improvements[op] += 1; }
         // Reset only after an executed diversification. A repeated domain
         // skipped above must not consume this recovery step.
         stalled = stall_after_repair(stalled, new > old, forced_diversification, opts.cycle_stagnation);
@@ -465,13 +645,93 @@ pub fn run_with_trace(
         result.stop_reason = expired(opts, started, &result).unwrap_or("no_free_slots").into();
     }
     result.elapsed_secs = started.elapsed().as_secs_f64();
+    if let Some(callback) = progress.as_mut() { callback(&progress_from_result(&result, "finished")); }
     result
+}
+
+/// Bounded browser defaults are explicit and do not change native CLI
+/// defaults used by the archived benchmark comparisons.
+pub fn browser_options(options_json: &str) -> std::result::Result<Options, String> {
+    let value: Value = serde_json::from_str(options_json).map_err(|e| format!("invalid anytime options: {e}"))?;
+    let object = value.as_object().ok_or("anytime options must be a JSON object")?;
+    let allowed = ["seconds", "seed", "work_budget", "repair_budget", "warm_budget",
+        "cycle_stagnation", "elite_pool", "max_repairs", "top_k", "archive_size", "warm_k"];
+    for key in object.keys() {
+        if !allowed.contains(&key.as_str()) { return Err(format!("unknown anytime option: {key}")); }
+    }
+    let mut opts = Options { seconds: 5.0, top_k: 15, warm_k: 6,
+        warm_budget: Some(2_000_000), repair_budget: 100_000,
+        max_repairs: 10_000, cycle_stagnation: true, ..Options::default() };
+    if let Some(v) = object.get("seconds") {
+        opts.seconds = v.as_f64().filter(|n| n.is_finite() && (0.0..=300.0).contains(n))
+            .ok_or("seconds must be a finite number in 0..300")?;
+    }
+    let integer = |key: &str, min: u64, max: u64| -> std::result::Result<Option<u64>, String> {
+        object.get(key).map(|value| {
+            // JSON emitted by JavaScript may write integral values as 1.0.
+            value.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0
+                && *n >= min as f64 && *n <= max as f64).map(|n| n as u64)
+                .ok_or_else(|| format!("{key} must be an integer in {min}..{max}"))
+        }).transpose()
+    };
+    if let Some(v) = integer("seed", 0, 9_007_199_254_740_991)? { opts.seed = v; }
+    if let Some(v) = integer("work_budget", 0, 9_007_199_254_740_991)? { opts.work_budget = v; }
+    if let Some(v) = integer("repair_budget", 1, 10_000_000)? { opts.repair_budget = v; }
+    if let Some(v) = integer("warm_budget", 1, 10_000_000)? { opts.warm_budget = Some(v); }
+    if let Some(v) = integer("max_repairs", 1, 100_000)? { opts.max_repairs = v as usize; }
+    if let Some(v) = integer("top_k", 1, 15)? { opts.top_k = v as usize; }
+    if let Some(v) = integer("archive_size", 1, 64)? { opts.archive_size = v as usize; }
+    if let Some(v) = integer("warm_k", 1, 64)? { opts.warm_k = v as usize; }
+    if let Some(v) = object.get("cycle_stagnation") {
+        opts.cycle_stagnation = v.as_bool().ok_or("cycle_stagnation must be a boolean")?;
+    }
+    if let Some(v) = object.get("elite_pool") {
+        opts.elite_pool = v.as_bool().ok_or("elite_pool must be a boolean")?;
+    }
+    opts.archive_size = opts.archive_size.max(opts.top_k);
+    Ok(opts)
+}
+
+/// Platform-neutral browser entry point, callable natively for differential
+/// tests. The deadline starts before parsing and scoring-plan preparation.
+/// Callbacks receive JSON with a full retained `top_n`, never a lone delta.
+pub fn solve_json_with_progress(
+    enum_fixture: &str, score_fixture: &str, options_json: &str,
+    mut callback: Option<&mut dyn FnMut(&str)>,
+) -> String {
+    let started = Instant::now();
+    let error = |message: String| json!({ "algorithm": "alns", "complete": false,
+        "error": message, "top": [], "top_n": [] }).to_string();
+    let opts = match browser_options(options_json) { Ok(o) => o, Err(e) => return error(e) };
+    if enum_fixture.trim().is_empty() { return error("missing enum fixture".into()); }
+    let sc = match serde_json::from_str::<Value>(score_fixture).map_err(|e| e.to_string())
+        .and_then(|v| ScoringCtx::load(&v)) {
+        Ok(sc) => sc, Err(e) => return error(e),
+    };
+    let fx = super::parse_fixture(enum_fixture);
+    // Publish the first feasible result promptly. Thereafter permit up to
+    // 20 updates/second, or an immediate update for a new best score. The
+    // internal search still checks its own work and elapsed-time budgets.
+    let mut last_elapsed = f64::NEG_INFINITY;
+    let mut last_best = f64::NEG_INFINITY;
+    let mut sink = |p: &Progress| {
+        let best = p.top.first().map(|e| e.score).unwrap_or(f64::NEG_INFINITY);
+        if p.phase == "finished" || best > last_best || p.elapsed_secs - last_elapsed >= 0.05 {
+            last_elapsed = p.elapsed_secs;
+            last_best = best;
+            if let Some(cb) = callback.as_mut() { cb(&p.json(&opts).to_string()); }
+        }
+    };
+    let result = run_with_progress(&fx, &sc, &opts, started, Some(&mut sink));
+    let mut output = result.json(&opts);
+    output["top_n"] = progress_from_result(&result, "finished").json(&opts)["top_n"].clone();
+    output.to_string()
 }
 
 pub fn cli_main() -> std::result::Result<(), String> {
     let started = Instant::now();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() < 2 { return Err("usage: anytime_kernel ENUM.txt SCORE.json [--seconds N] [--seed N] [--work-budget N] [--repair-budget N] [--warm-budget N] [--cycle-stagnation 0|1] [--max-repairs N] [--top-k N] [--warm-k N] [--trace PATH]".into()); }
+    if args.len() < 2 { return Err("usage: anytime_kernel ENUM.txt SCORE.json [--seconds N] [--seed N] [--work-budget N] [--repair-budget N] [--warm-budget N] [--cycle-stagnation 0|1] [--elite-pool 0|1] [--max-repairs N] [--top-k N] [--warm-k N] [--trace PATH]".into()); }
     let mut opts = Options::default();
     let mut trace_path = None;
     let mut i = 2;
@@ -485,6 +745,9 @@ pub fn cli_main() -> std::result::Result<(), String> {
             "--warm-budget" => opts.warm_budget = Some(val.parse().map_err(|_| "invalid warm budget")?),
             "--cycle-stagnation" => opts.cycle_stagnation = match val.as_str() {
                 "0" => false, "1" => true, _ => return Err("cycle-stagnation must be 0 or 1".into()),
+            },
+            "--elite-pool" => opts.elite_pool = match val.as_str() {
+                "0" => false, "1" => true, _ => return Err("elite-pool must be 0 or 1".into()),
             },
             "--max-repairs" => opts.max_repairs = val.parse().map_err(|_| "invalid repair count")?,
             "--top-k" => opts.top_k = val.parse().map_err(|_| "invalid top-k")?,
@@ -517,6 +780,10 @@ mod tests {
     use crate::{Unit, enumerate::PoolItem};
 
     fn synthetic(rings: bool) -> (Fixture, ScoringCtx) {
+        synthetic_shape(rings, false)
+    }
+
+    fn synthetic_shape(rings: bool, four_slot_barrier: bool) -> (Fixture, ScoringCtx) {
         let none_names: Vec<String> = (0..8).map(|i| format!("none{i}")).collect();
         let mut registry = serde_json::Map::new();
         for n in &none_names {
@@ -527,17 +794,21 @@ mod tests {
             crafted: false, reqs: [req, 0, 0, 0, 0], skp: [skp, 0, 0, 0, 0],
             set_id: -1, illegal_id: -1, hp, pc: Vec::new(),
         };
-        let defs = if rings {
+        let mut defs = if rings {
             vec![("low", make(10.0, 0, 0)), ("high", make(100.0, 0, 0))]
         } else {
-            vec![("helmet0", make(100.0, 0, 0)), ("helmet1", make(1000.0, 10, 0)),
+            vec![("helmet0", make(100.0, 0, 0)), ("helmet1", make(1000.0, if four_slot_barrier { 30 } else { 10 }, 0)),
                  ("support0", make(100.0, 0, 0)), ("support1", make(-10.0, 0, 10))]
         };
+        if four_slot_barrier {
+            defs.extend([("support20", make(100.0, 0, 0)), ("support21", make(-10.0, 0, 10)),
+                         ("support30", make(100.0, 0, 0)), ("support31", make(-10.0, 0, 10))]);
+        }
         for (n, p) in &defs {
             registry.insert((*n).into(), json!({ "__m": { "displayName": n, "reqs": p.reqs,
                 "skillpoints": p.skp, "hp": p.hp, "maxRolls": { "__m": {} } } }));
         }
-        let slots = (0..2).map(|d| {
+        let slots = (0..if four_slot_barrier { 4 } else { 2 }).map(|d| {
             let start = if rings { 0 } else { d * 2 };
             Slot { name: format!("slot{d}"), pos: if rings { d + 4 } else { d },
                 is_ring1: rings && d == 0, is_ring2: rings && d == 1,
@@ -575,7 +846,7 @@ mod tests {
     fn complete_repair(fx: &Fixture, sc: &ScoringCtx, choices: &[Vec<usize>]) -> Vec<TopEntry> {
         let opts = Options { seconds: 60.0, repair_budget: 10_000, ..Options::default() };
         let mut out = Result::default();
-        let entries = run_repair(fx, sc, &opts, Instant::now(), choices, "test", &mut out, &mut None);
+        let entries = run_repair(fx, sc, &opts, Instant::now(), choices, "test", &mut out, &mut None, &mut None);
         assert_eq!(out.completed_repairs, 1);
         entries
     }
@@ -633,6 +904,88 @@ mod tests {
         assert_eq!(a.leaf_calls, b.leaf_calls);
         assert!(a.leaf_calls <= opts.work_budget);
         assert_eq!(a.json(&opts)["complete"], false);
+    }
+
+    #[test]
+    fn elite_recombination_crosses_four_slot_barrier_with_full_scorer() {
+        let (fx, sc) = synthetic_shape(false, true);
+        let base = vec![0usize; 4];
+        let initial = complete_repair(&fx, &sc, &base.iter().map(|&i| vec![i]).collect::<Vec<_>>());
+        assert_eq!(initial[0].score, 500.0);
+        let mut archive = initial.clone();
+        // Every subspace changing at most three slots is no better. The
+        // expensive helmet needs ALL three individually harmful supports.
+        for mask in 0u32..15 {
+            let choices: Vec<_> = (0..4).map(|d| if mask & (1 << d) != 0 { vec![0, 1] } else { vec![0] }).collect();
+            let entries = complete_repair(&fx, &sc, &choices);
+            assert!(entries[0].score <= initial[0].score);
+            update_archive(&mut archive, entries, 24);
+        }
+        let (choices, full) = elite_choices(&fx, &base, &archive, &vec![vec![0, 1]; 4], &[0, 1, 2, 3], &mut Rng(707));
+        assert_eq!(full, 16.0);
+        assert!(choices.iter().all(|domain| domain == &vec![0, 1]));
+        let repaired = complete_repair(&fx, &sc, &choices);
+        let exhaustive = complete_repair(&fx, &sc, &full_choices(&fx));
+        assert_eq!(repaired[0].score, 1070.0);
+        assert_eq!(repaired[0].score, exhaustive[0].score);
+        assert_eq!(repaired[0].items, exhaustive[0].items);
+        assert_eq!(repaired[0].assigned_sp, 0);
+    }
+
+    #[test]
+    fn elite_domains_are_bounded_deduplicated_and_preserve_incumbent() {
+        let (mut fx, _) = synthetic_shape(false, true);
+        while fx.slots.len() < 8 {
+            fx.slots.push(Slot { name: format!("slot{}", fx.slots.len()), pos: fx.slots.len(),
+                is_ring1: false, is_ring2: false, pool: fx.slots[0].pool.clone(),
+                item_names: fx.slots[0].item_names.clone() });
+        }
+        for (d, slot) in fx.slots.iter_mut().enumerate() {
+            slot.pool = vec![slot.pool[0].clone(); 200];
+            slot.item_names = (0..200).map(|i| format!("item{d}_{i}")).collect();
+        }
+        let base = vec![19; 8];
+        let incumbent = TopEntry { score: 100.0, items: (0..8).map(|d| format!("item{d}_19")).collect(), ..TopEntry::default() };
+        let mut archive = vec![incumbent];
+        for i in 0..12 { archive.push(TopEntry { score: 99.0 - i as f64,
+            items: (0..8).map(|d| format!("item{d}_{i}")).collect(), ..TopEntry::default() }); }
+        let warm = vec![vec![40, 41, 42, 43, 44, 45]; 8];
+        let order: Vec<_> = (0..8).collect();
+        let (a, full) = elite_choices(&fx, &base, &archive, &warm, &order, &mut Rng(909));
+        let (b, _) = elite_choices(&fx, &base, &archive, &warm, &order, &mut Rng(909));
+        assert_eq!(a, b);
+        assert_eq!(full, 200f64.powi(6));
+        assert_eq!(a.iter().map(|d| d.len()).product::<usize>(), 46_656);
+        for (d, domain) in a.iter().enumerate() {
+            assert_eq!(domain[0], base[d]);
+            assert!(domain.iter().all(|&i| i < 200));
+            assert_eq!(domain.iter().copied().collect::<HashSet<_>>().len(), domain.len());
+            if d >= 6 { assert_eq!(domain.len(), 1); }
+        }
+    }
+
+    #[test]
+    fn elite_fixed_work_reproduces_and_off_keeps_legacy_path() {
+        let (fx, sc) = synthetic_shape(false, true);
+        let opts = Options { seconds: 60.0, seed: 19, work_budget: 64,
+            repair_budget: 4, max_repairs: 50, warm_k: 1, elite_pool: true, ..Options::default() };
+        let a = run(&fx, &sc, &opts, Instant::now());
+        let b = run(&fx, &sc, &opts, Instant::now());
+        assert_eq!(a.top[0].score, b.top[0].score);
+        assert_eq!(a.top[0].items, b.top[0].items);
+        assert_eq!(a.leaf_calls, b.leaf_calls);
+        assert_eq!(a.operator_calls, b.operator_calls);
+        assert_eq!(a.elite_calls, b.elite_calls);
+        assert!(a.elite_calls > 0);
+        assert!(a.elite_leaf_calls <= a.leaf_calls && a.leaf_calls <= opts.work_budget);
+        assert_eq!(a.json(&opts)["complete"], false);
+        assert!(!Options::default().elite_pool);
+        let off = run(&fx, &sc, &Options { elite_pool: false, ..opts.clone() }, Instant::now());
+        assert_eq!(off.elite_calls, 0);
+        assert_eq!(off.elite_leaf_calls, 0);
+        assert!(!browser_options("{}").unwrap().elite_pool);
+        assert!(browser_options("{\"elite_pool\":true}").unwrap().elite_pool);
+        assert!(browser_options("{\"elite_pool\":1}").is_err());
     }
 
     #[test]
@@ -746,5 +1099,76 @@ mod tests {
         let capped = Options { work_budget: 1, ..expanded };
         let cap_result = run(&fx, &sc, &capped, Instant::now());
         assert!(cap_result.leaf_calls <= 1, "an expanded seed cannot bypass the global actual-work cap");
+    }
+
+    #[test]
+    fn browser_options_reject_unbounded_and_ambiguous_inputs() {
+        for invalid in ["null", "[]", "{\"seconds\":-1}", "{\"seconds\":301}",
+            "{\"seconds\":1e999}", "{\"top_k\":16}", "{\"top_k\":0}",
+            "{\"work_budget\":-1}", "{\"work_budget\":1.5}",
+            "{\"seed\":9007199254740992}", "{\"max_repairs\":0}",
+            "{\"cycle_stagnation\":1}", "{\"warm_budget\":0}", "{\"typo\":1}"] {
+            assert!(browser_options(invalid).is_err(), "accepted {invalid}");
+        }
+        let opts = browser_options("{\"seconds\":0,\"work_budget\":0,\"seed\":1.0}").unwrap();
+        assert_eq!(opts.seconds, 0.0); assert_eq!(opts.work_budget, 0); assert_eq!(opts.seed, 1);
+        assert_eq!(opts.top_k, 15); assert_eq!(opts.warm_k, 6);
+        assert!(opts.cycle_stagnation);
+        assert_eq!(Options::default().top_k, 1, "native CLI defaults must stay unchanged");
+    }
+
+    #[test]
+    fn streaming_retains_full_witnesses_and_does_not_change_fixed_work_search() {
+        let (fx, sc) = synthetic(false);
+        let opts = Options { seconds: 60.0, seed: 19, work_budget: 12,
+            repair_budget: 4, max_repairs: 12, top_k: 3, warm_k: 1, ..Options::default() };
+        let expected = run(&fx, &sc, &opts, Instant::now());
+        let mut updates = Vec::new();
+        let mut sink = |p: &Progress| updates.push(p.clone());
+        let actual = run_with_progress(&fx, &sc, &opts, Instant::now(), Some(&mut sink));
+        assert_eq!(actual.json(&opts)["top"], expected.json(&opts)["top"],
+            "callbacks must not change retained witnesses");
+        assert_eq!(actual.leaf_calls, expected.leaf_calls);
+        assert_eq!(actual.operator_calls, expected.operator_calls);
+        assert!(actual.leaf_calls <= opts.work_budget);
+        let first = updates.iter().find(|p| !p.top.is_empty()).unwrap();
+        assert_eq!(first.leaf_calls, 1, "publish the first scored witness before a repair ends");
+        assert!(first.repairs < actual.repairs);
+        assert_ne!(first.phase, "finished");
+        for pair in updates.windows(2) {
+            assert!(pair[1].leaf_calls >= pair[0].leaf_calls);
+            assert!(pair[1].credited_tuples >= pair[0].credited_tuples);
+            if let Some(previous) = pair[0].top.first() {
+                assert!(pair[1].top.first().unwrap().score >= previous.score);
+            }
+        }
+        let final_update = updates.last().unwrap();
+        assert_eq!(final_update.json(&opts)["top_n"],
+            progress_from_result(&actual, "finished").json(&opts)["top_n"]);
+        assert_eq!(final_update.phase, "finished");
+        assert!(final_update.top.len() > 1, "stream the full retained top-N, not only one winner");
+        let best = final_update.top.first().unwrap();
+        assert_eq!(best.score, 1090.0);
+        assert_eq!(best.base_sp, [0; 5]);
+        assert_eq!(best.total_sp, [10, 0, 0, 0, 0]);
+        let payload = final_update.json(&opts);
+        assert_eq!(payload["complete"], false);
+        assert_eq!(payload["top_n"][0]["total_sp"], json!(best.total_sp));
+        assert!(payload.get("total").is_none(), "overlapping repairs have no completion percentage");
+    }
+
+    #[test]
+    fn streamed_tome_and_manual_assignment_are_the_retained_witness() {
+        let entry = TopEntry { score: 123.0, items: (0..8).map(|i| format!("item{i}")).collect(),
+            base_sp: [1, 2, 3, 4, 5], total_sp: [11, 12, 13, 14, 15], assigned_sp: 15,
+            tome: Some(crate::scoring::TomeChoice { guild_idx: 3,
+                weapon_names: vec!["weapon tome".into()], armor_names: vec!["armor tome".into()] }) };
+        let result = Result { top: vec![entry], ..Result::default() };
+        let payload = progress_from_result(&result, "test").json(&Options::default());
+        assert_eq!(payload["top_n"][0]["base_sp"], json!([1, 2, 3, 4, 5]));
+        assert_eq!(payload["top_n"][0]["assigned_sp"], 15);
+        assert_eq!(payload["top_n"][0]["tome"]["guild_idx"], 3);
+        assert_eq!(payload["top_n"][0]["tome"]["weaponTome"], json!(["weapon tome"]));
+        assert_eq!(payload["top_n"][0]["tome"]["armorTome"], json!(["armor tome"]));
     }
 }

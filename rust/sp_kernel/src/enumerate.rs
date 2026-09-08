@@ -377,11 +377,13 @@ pub struct Search<'a> {
     /// Optional live-progress sink (browser UI). Called every
     /// `progress_every` credited leaves with a funnel snapshot plus the
     /// current top-N, so a long solve shows movement instead of looking
-    /// hung. Keyed on leaves rather than wall time because wasm32 has no
-    /// usable clock — which also makes emission points deterministic.
+    /// hung. Exact mode retains deterministic credited-leaf emission points.
     progress: Option<&'a mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     progress_every: f64,
     next_progress: f64,
+    /// Anytime UI needs its first retained witness before a long repair ends.
+    /// Kept off for exact search so its callbacks and work remain unchanged.
+    progress_on_first_result: bool,
 
     // Scoring integration (P2.4 layer 3): current equip names by position,
     // the scenario scoring context, per-thread top-N, and the shared cutoff
@@ -653,6 +655,7 @@ impl<'a> Search<'a> {
             progress: None,
             progress_every: (1u64 << 21) as f64,
             next_progress: f64::INFINITY,
+            progress_on_first_result: false,
             equip_names: Default::default(),
             scoring: None,
             original_ring_order: None,
@@ -693,6 +696,7 @@ impl<'a> Search<'a> {
     /// Insert one distinct equipment/tome result before publishing any cutoff.
     /// Warm starts, repairs and enumeration may rediscover the same build.
     fn insert_top(&mut self, entry: TopEntry) -> bool {
+        let first_result = self.top_n.is_empty();
         if !insert_top_n(&mut self.top_n, entry, self.result_count) { return false; }
         if let Some(trace) = &self.quality_trace {
             trace.record(self.trace_phase, &self.top_n, self.result_count);
@@ -703,6 +707,7 @@ impl<'a> Search<'a> {
                 if floor > 0.0 { shared.fetch_max(floor as u64, Ordering::Relaxed); }
             }
         }
+        if first_result && self.progress_on_first_result { self.emit_progress(); }
         true
     }
 
@@ -1689,6 +1694,21 @@ impl QualityTrace {
             .expect("write quality trace finish");
         state.0.flush().expect("flush quality trace");
     }
+
+    /// Native benchmark telemetry, separate from incumbent events. Counters
+    /// describe this phase only: warm work is not original-domain completion.
+    fn work(&self, phase: &str, p: &ProgressSnapshot) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        writeln!(state.0, "{}", serde_json::json!({
+            "event":"work", "phase":phase,
+            "wall_seconds":self.started.elapsed().as_secs_f64(),
+            "checked":p.checked, "total":p.total, "leaf_calls":p.leaf_calls,
+            "scored":p.scored, "feasible":p.feasible,
+            "precheck_reject":p.precheck_reject, "sp_kernel_reject":p.sp_kernel_reject,
+            "gated":p.gated, "bound_pruned":p.bound_pruned,
+        })).expect("write quality work trace");
+        state.0.flush().expect("flush quality work trace");
+    }
 }
 
 /// Wide-key bounds are opt-in: the expanded benchmark found their setup and
@@ -2186,6 +2206,16 @@ pub fn cli_main() {
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
+        let counters = env::var("QUALITY_TRACE_COUNTERS").as_deref() == Ok("1");
+        let mut last_counter = f64::NEG_INFINITY;
+        let mut on_work = |p: ProgressSnapshot| {
+            let elapsed = overall_started.elapsed().as_secs_f64();
+            if elapsed - last_counter >= 0.1 {
+                if let Some(trace) = &quality_trace { trace.work("search", &p); }
+                last_counter = elapsed;
+            }
+            None
+        };
         let mut search = Search::new(&fx);
         search.scoring = scoring;
         search.result_count = options.result_count;
@@ -2200,8 +2230,14 @@ pub fn cli_main() {
         search.bound_tail = bound_tail;
         search.dense_bound = dense_bound;
         search.leaf_budget = cli_leaf_budget;
+        if counters && quality_trace.is_some() {
+            search.progress = Some(&mut on_work);
+            search.progress_every = 8192.0;
+            search.next_progress = 1.0;
+        }
         search.init_equip_names();
         search.run();
+        search.emit_progress();
         let elapsed = start.elapsed();
         (Totals {
             checked: search.checked,

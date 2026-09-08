@@ -2,7 +2,7 @@
 
 The largest demonstrated improvement is in **time to a good scored build**, using the existing Rust evaluator inside a large-neighborhood search. There are repeatable gains above 10× on selected workloads. There is **no evidence of a universal 10× reduction in exhaustive solve time**.
 
-The practical recommendation is to preserve the existing ranked warm search, retain and publish its actual builds, and offer a bounded neighborhood-search mode for improving them. Keep exhaustive enumeration available for users who want to finish the configured search. The neighborhood engine in this change is an experimental **native CLI**; it is not yet a browser UI mode.
+The practical recommendation is to preserve the existing ranked warm search, retain and publish its actual builds, and offer a bounded neighborhood-search mode for improving them. Keep exhaustive enumeration available for users who want to finish the configured search. The measurements below concern the original native CLI research. The September 8 continuation adds a browser **Quick search** mode; its API, deadline behavior and scope are documented in [BROWSER_ANYTIME.md](rust/sp_kernel/BROWSER_ANYTIME.md). Native timing results below are not browser timing claims.
 
 ## What was implemented
 
