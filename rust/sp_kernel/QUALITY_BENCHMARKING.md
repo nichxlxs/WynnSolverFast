@@ -340,3 +340,143 @@ The preferred experimental heuristic profile uses all these explicit arguments:
 Its post-hoc 22-query follow-up used seeds `707,808,909` and five seconds. Earlier
 screen/confirmation/diagnostic arms used the original default repair limit and
 scheduler, and their timing ratios should not be attributed to the changed profile.
+
+## Long-query continuation
+
+The September 8 continuation is indexed in
+[evidence/quick_2026_09_08/README.md](evidence/quick_2026_09_08/README.md).
+Its primary cohort has eight queries and 48 observations: one longer exact run
+per query, one 30-second wide-key exact run, and two 30-second runs per heuristic.
+Three medium exact cases have 180-second caps; five broader cases have 60-second
+caps. The exact traces also supply their common 30-second endpoints. Only one
+query completed, so the other caps must not be called measured hour runtimes.
+
+Both native heuristic arms use top 15, warm depth 6, a 2,000,000 warm budget,
+100,000 repair budget, cyclic recovery and `max_repairs=100000`. They differ only
+by `--elite-pool 1`. This longer native profile is distinct from browser Quick's
+10,000-repair default. Keep elite and wide keys off unless a new controlled
+experiment justifies changing them; fresh seeds did not repeat the initially
+large elite timing gain.
+
+From the repository root, create a new working directory instead of modifying
+the checked-in historical plans:
+
+```sh
+export WYNN_BENCH_DIR="$PWD/bench-work"
+mkdir -p "$WYNN_BENCH_DIR"
+cargo build --manifest-path rust/sp_kernel/Cargo.toml --locked --release --bins
+python3 rust/sp_kernel/export_quality_fixtures.py \
+  --scenarios all --dominance off --prechecks disabled --samples 1 \
+  --out "$WYNN_BENCH_DIR/fixtures"
+python3 rust/sp_kernel/prepare_long_campaign.py \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --out "$WYNN_BENCH_DIR/long_setup"
+python3 rust/sp_kernel/benchmark_long_campaign.py \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --plan-dir "$WYNN_BENCH_DIR/long_setup" \
+  --out "$WYNN_BENCH_DIR/long" --stage all
+python3 rust/sp_kernel/analyze_long_campaign.py \
+  --campaign "$WYNN_BENCH_DIR/long/combined/campaign.json" \
+  --plan-dir "$WYNN_BENCH_DIR/long_setup" --out "$WYNN_BENCH_DIR/long"
+```
+
+`prepare_long_campaign.py` reads the tracked prior raw archives directly,
+verifies their committed manifest hashes, and freezes the strongest eligible
+same-fixture prior endpoints. It does not require untracked unpacked campaign
+directories. It refuses to overwrite a plan or silently substitute a new-arm
+maximum for the historical reference. A changed enum/score hash requires a new
+reference protocol rather than relabeling the old score as comparable.
+
+Gaia's six-run supplement and the twelve-run, three-query confirmation remain
+separate cohorts. To replay their saved configuration in another checkout,
+copy the plans, retain their reference hashes and retarget only local paths
+and the regenerated fixture-index container hash:
+
+```sh
+python3 - <<'PY'
+import hashlib, json, os
+from pathlib import Path
+repo = Path.cwd()
+work = Path(os.environ['WYNN_BENCH_DIR'])
+saved = repo / 'rust/sp_kernel/evidence/quick_2026_09_08'
+index_path = work / 'fixtures/index.json'
+index = {r['name']: r for r in json.loads(index_path.read_text())['scenarios']}
+for setup in ('gaia_setup', 'new_seed_setup'):
+    destination = work / setup
+    destination.mkdir(exist_ok=False)
+    for source in (saved / setup).glob('*.json'):
+        data = json.loads(source.read_text())
+        if source.name == 'plan.json':
+            data['fixture_index_sha256'] = hashlib.sha256(index_path.read_bytes()).hexdigest()
+        if source.name == 'references.json':
+            for name, ref in data.items():
+                assert all(ref[k] == index[name][k] for k in ('enum_sha256', 'score_sha256')), name
+        for variant in data.get('variants', []):
+            variant['binary'] = str(repo / 'rust/sp_kernel/target/release' / Path(variant['binary']).name)
+        (destination / source.name).write_text(json.dumps(data, indent=2) + '\n')
+PY
+python3 rust/sp_kernel/benchmark_long_campaign.py \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --plan-dir "$WYNN_BENCH_DIR/gaia_setup" \
+  --out "$WYNN_BENCH_DIR/gaia" --stage all
+python3 rust/sp_kernel/benchmark_long_campaign.py \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --plan-dir "$WYNN_BENCH_DIR/new_seed_setup" \
+  --out "$WYNN_BENCH_DIR/new_seeds" --stage heuristic
+```
+
+Pass the corresponding `--plan-dir` to the analyzer for each supplement.
+Primary seeds 707/808 are reused historical seeds. The original supplemental
+1217/2423 were new at selection time; replaying them is reproduction, not new
+independent evidence. The three supplemental cases were selected from observed
+exact-baseline quality gaps before new heuristic results, and never alter the
+primary eight-query denominator.
+
+Run timed campaigns sequentially after builds and fixture export have stopped.
+`--resume` retains finished run IDs only when binary hashes, fixtures and budgets
+match. Counter snapshots count exact main traversal and exclude warm search.
+The host deadline retains only observations delivered before the budget. T95,
+T99 and T99.9 compare the same frozen positive reference; a heuristic time must
+not be divided into exhaustive completion time and labelled discovery speed.
+
+After all timed work, `package_long_evidence.py --root "$WYNN_BENCH_DIR"`
+creates deterministic raw archives and verifies every member against its manifest.
+Generate all three cohort analyses first. Packaging also checks all 66 run IDs,
+predeadline results, fixture/reference identity and retained item/SP witness
+structure. Its checks do not establish independent game accuracy.
+
+### Native/WASM Quick parity and timing
+
+The JSON helper binary invokes the same validated API as the WASM export.
+After rebuilding the shipped WASM with `rust/sp_kernel/build-wasm.sh`, run:
+
+```sh
+node rust/sp_kernel/benchmark_quick_wasm.mjs \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --out "$WYNN_BENCH_DIR/wasm-parity132.json" \
+  --mode parity --scenarios all --work-budget 2000
+node rust/sp_kernel/benchmark_quick_wasm.mjs \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --out "$WYNN_BENCH_DIR/wasm-elite-parity3.json" \
+  --mode parity --scenarios fam_spellsteal_medium,meta_mage_arcanist_meteor_remove_6,meta_mage_light_bender_healing_remove_6 \
+  --work-budget 100000 --warm-budget 1000 --repair-budget 10000 --elite-pool 1
+node rust/sp_kernel/benchmark_quick_wasm.mjs \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --out "$WYNN_BENCH_DIR/wasm-clock.json" \
+  --mode clock --scenarios fam_spellsteal_medium --seconds 0.2 --parity-timeout 10 --throw-callback
+node rust/sp_kernel/benchmark_quick_wasm.mjs \
+  --fixtures "$WYNN_BENCH_DIR/fixtures" --out "$WYNN_BENCH_DIR/wasm-long6.json" \
+  --mode timed --arms exact,alns --seconds 15 --seeds 1217 \
+  --scenarios fam_spellsteal_medium,meta_mage_arcanist_meteor_remove_6,meta_mage_light_bender_healing_remove_6 \
+  --references "$WYNN_BENCH_DIR/long_setup/references.json"
+```
+
+These are Node-hosted WASM runs using the shipped glue and binary, with a fresh
+worker per observation. File reads, worker launch and cold module loading count
+toward the parent deadline; fixture generation and browser UI preparation do
+not. They are neither browser-page timings nor native/WASM equal-time parity.
+Fixed-work parity checks all returned item, skill-point and tome witnesses;
+six tiny-budget cases returned identical empty archives on both backends.
+The separate clock check requires the kernel to return on its own time budget,
+even when its callback throws. Dedicated Chromium CI covers page integration,
+cancellation and restart behavior separately.
+
+Harness and provenance checks:
+
+```sh
+node rust/sp_kernel/benchmark_quick_wasm.mjs --self-test
+python3 -m unittest discover -s rust/sp_kernel -p test_long_campaign.py -v
+```

@@ -28,7 +28,7 @@ jobs:
       - name: Rust semantic and budget regressions
         run: cargo test --locked --release --lib
       - name: Benchmark evidence integrity
-        run: python3 -m unittest test_benchmark_quality
+        run: python3 -m unittest test_benchmark_quality test_long_campaign
       - name: Compile browser engine
         run: cargo check --locked --release --target wasm32-unknown-unknown --features wasm --lib
 

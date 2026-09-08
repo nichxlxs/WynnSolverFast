@@ -1,0 +1,112 @@
+{
+  "scope": "Node-hosted WASM, fresh worker and cold module initialization each run. Not browser UI timings. Fixture reads and cold loading count toward host deadline; prior fixture generation does not.",
+  "quality_scope": "T99 is 99% of a prior frozen, same-fixture screening best-known score, not a global optimality guarantee. Archive validation checks witness structure and native parity, not independent game accuracy.",
+  "summary": {
+    "runs": 3,
+    "failures": 0,
+    "returned_api": 3,
+    "host_deadlines": 0,
+    "with_result": 3,
+    "with_frozen_reference": 2,
+    "attained_t99": 2,
+    "attained_t999": 2,
+    "parity_pass": 3
+  },
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": "AMD EPYC 9V74 80-Core Processor",
+    "cpu_count": 9
+  },
+  "profile": {
+    "seed": 707,
+    "top_k": 15,
+    "warm_k": 6,
+    "warm_budget": 2000000,
+    "repair_budget": 100000,
+    "max_repairs": 10000,
+    "cycle_stagnation": true
+  },
+  "config": {
+    "repo": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized",
+    "fixtures": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/fixtures",
+    "out": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/wasm-elite-parity3.json",
+    "mode": "parity",
+    "scenarios": [
+      "fam_spellsteal_medium",
+      "meta_mage_arcanist_meteor_remove_6",
+      "meta_mage_light_bender_healing_remove_6"
+    ],
+    "seeds": [
+      707
+    ],
+    "arms": [
+      "alns"
+    ],
+    "seconds": 5,
+    "workBudget": 100000,
+    "parityTimeout": 60,
+    "elitePool": 1,
+    "warmBudget": 1000,
+    "repairBudget": 10000,
+    "native": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/quick_kernel_json",
+    "references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/confirmation_setup/screening_references.json"
+  },
+  "cases": [
+    {
+      "scenario": "fam_spellsteal_medium",
+      "arm": "alns",
+      "seed": 707,
+      "status": "finished",
+      "work_budget": 100000,
+      "host_budget_seconds": 60,
+      "host_wall_seconds": 1.935292089,
+      "first_result_host_seconds": 0.164400237,
+      "archive_count": 15,
+      "best_score": 92806.8118289668,
+      "t99_host_seconds": null,
+      "t999_host_seconds": null,
+      "validation_errors": 0,
+      "parity_errors": 0,
+      "error": null,
+      "parity_performed": true
+    },
+    {
+      "scenario": "meta_mage_arcanist_meteor_remove_6",
+      "arm": "alns",
+      "seed": 707,
+      "status": "finished",
+      "work_budget": 100000,
+      "host_budget_seconds": 60,
+      "host_wall_seconds": 1.5041564940000003,
+      "first_result_host_seconds": 0.23383512599999995,
+      "archive_count": 15,
+      "best_score": 44638.34702467411,
+      "t99_host_seconds": 1.3705913510000005,
+      "t999_host_seconds": 1.3705913510000005,
+      "validation_errors": 0,
+      "parity_errors": 0,
+      "error": null,
+      "parity_performed": true
+    },
+    {
+      "scenario": "meta_mage_light_bender_healing_remove_6",
+      "arm": "alns",
+      "seed": 707,
+      "status": "finished",
+      "work_budget": 100000,
+      "host_budget_seconds": 60,
+      "host_wall_seconds": 1.7167358569999998,
+      "first_result_host_seconds": 0.22412673199999972,
+      "archive_count": 15,
+      "best_score": 19742.97000001401,
+      "t99_host_seconds": 0.7859284189999999,
+      "t999_host_seconds": 0.7859284189999999,
+      "validation_errors": 0,
+      "parity_errors": 0,
+      "error": null,
+      "parity_performed": true
+    }
+  ]
+}

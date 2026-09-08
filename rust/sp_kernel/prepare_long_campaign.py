@@ -7,8 +7,10 @@ runs will report observed completion or a lower bound, never rate projections
 as measured minutes or hours.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
+import tarfile
 
 from benchmark_quality import finite, sha256
 from quality_suite import HERE
@@ -20,6 +22,40 @@ BROAD = ["fam_cancelstack_large", "fam_heavy_melee_large",
 SEEDS = [707, 808]
 
 
+def load_prior_campaign(historical, source):
+    """Read committed archives without requiring untracked unpacked byproducts.
+
+    Prefer the tracked archive even when a local directory exists: an old or
+    edited unpacked campaign must not silently become new reference evidence.
+    Verify the archive against its committed manifest and record the selected
+    member's digest independently of compression/container metadata.
+    """
+    archive = historical / f"{source}_raw.tar.gz"
+    member = f"{source}/campaign.json"
+    file = historical / member
+    provenance = {"file": str(file.relative_to(HERE)) if file.is_relative_to(HERE) else str(file)}
+    if archive.exists():
+        digest = sha256(archive)
+        manifest_path = historical / "manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+            expected = next((r for r in manifest["files"] if r["path"] == archive.name), None)
+            if expected is None or expected["sha256"] != digest:
+                raise ValueError(f"Historical archive hash mismatch: {archive}")
+        with tarfile.open(archive, "r:gz") as packed:
+            stream = packed.extractfile(member)
+            if stream is None:
+                raise ValueError(f"Missing historical campaign member: {archive}:{member}")
+            payload = stream.read()
+        provenance.update(archive=str(archive.relative_to(HERE)) if archive.is_relative_to(HERE) else str(archive),
+                          archive_sha256=digest, archive_member=member)
+    else:
+        payload = file.read_bytes()
+        provenance["archive_unavailable"] = True
+    provenance["sha256"] = hashlib.sha256(payload).hexdigest()
+    return {**provenance, "runs": json.loads(payload)["runs"]}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--fixtures", type=Path, required=True)
@@ -29,9 +65,7 @@ def main():
     historical = HERE / "evidence/anytime_2026_09_07"
     prior = {}
     for source in ("screen", "confirmation", "diagnostic", "followup"):
-        file = historical / source / "campaign.json"
-        prior[source] = {"sha256": sha256(file), "file": str(file.relative_to(HERE)),
-                         "runs": json.loads(file.read_text())["runs"]}
+        prior[source] = load_prior_campaign(historical, source)
     references = {}
     query_rows = []
     for name in MINUTE + BROAD:
