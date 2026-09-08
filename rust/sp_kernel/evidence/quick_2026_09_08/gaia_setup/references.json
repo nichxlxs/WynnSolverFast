@@ -1,0 +1,93 @@
+{
+  "gaia_all_free": {
+    "kind": "best_known",
+    "score": 324111.66069395555,
+    "enum_sha256": "d4fb396370b745aabd90dc6ac13947cb8c698d76bd7fff46b21e8301037d6455",
+    "score_sha256": "4fd37cf1ccd0dd50b9cbb4bfbabfe7a2bde2dad77890bfd728744ce8ac403100",
+    "source": "Frozen before supplemental Gaia runs: strongest eligible hash-matched endpoint from the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Supplemental cohort requested for Gaia continuity while primary campaign ran; not part of primary eight-query denominator. Not an optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "gaia_all_free__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "gaia_all_free__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "gaia_all_free__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "gaia_all_free__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "gaia_all_free__safe_baseline15__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "gaia_all_free__safe_baseline15__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "gaia_all_free__safe_baseline15__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 303
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "gaia_all_free__alns_cyclic_warm6__r00__s707",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 707
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "gaia_all_free__alns_cyclic_warm6__r01__s808",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 808
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "gaia_all_free__alns_cyclic_warm6__r02__s909",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 909
+      }
+    ],
+    "eligible_prior_runs": 13
+  }
+}
