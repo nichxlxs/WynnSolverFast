@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "campaign_sha256": "ac088cc551bb98d21fa6bd84c83583a457fdd5387a88afe9fa87f0cd3f99a634",
+  "plan_sha256": "566a0e74151771294a3a335a8c710ba1c2e931d6fb5aef96af973ac51cb0ba7e",
+  "reference_sha256": "944b3da9ef778aa0f5bd55432205ba6c1f349d5fea6141bda9aefb9c13b675c3",
+  "queries": [
+    {
+      "name": "gaia_all_free",
+      "reference": {
+        "kind": "best_known",
+        "score": 324111.66069395555,
+        "enum_sha256": "d4fb396370b745aabd90dc6ac13947cb8c698d76bd7fff46b21e8301037d6455",
+        "score_sha256": "4fd37cf1ccd0dd50b9cbb4bfbabfe7a2bde2dad77890bfd728744ce8ac403100",
+        "source": "Frozen before supplemental Gaia runs: strongest eligible hash-matched endpoint from the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Supplemental cohort requested for Gaia continuity while primary campaign ran; not part of primary eight-query denominator. Not an optimum certificate.",
+        "evidence_kind": "prior_campaign_best_known",
+        "supporting_runs": [
+          {
+            "campaign": "screen",
+            "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+            "run_id": "gaia_all_free__safe_baseline15__r00__s1",
+            "budget_seconds": 2.0,
+            "variant": "safe_baseline15",
+            "seed": 1
+          },
+          {
+            "campaign": "screen",
+            "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+            "run_id": "gaia_all_free__retained15__r00__s1",
+            "budget_seconds": 2.0,
+            "variant": "retained15",
+            "seed": 1
+          },
+          {
+            "campaign": "screen",
+            "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+            "run_id": "gaia_all_free__best1__r00__s1",
+            "budget_seconds": 2.0,
+            "variant": "best1",
+            "seed": 1
+          },
+          {
+            "campaign": "screen",
+            "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+            "run_id": "gaia_all_free__wide15__r00__s1",
+            "budget_seconds": 2.0,
+            "variant": "wide15",
+            "seed": 1
+          },
+          {
+            "campaign": "confirmation",
+            "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+            "run_id": "gaia_all_free__safe_baseline15__r00__s101",
+            "budget_seconds": 5.0,
+            "variant": "safe_baseline15",
+            "seed": 101
+          },
+          {
+            "campaign": "confirmation",
+            "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+            "run_id": "gaia_all_free__safe_baseline15__r01__s202",
+            "budget_seconds": 5.0,
+            "variant": "safe_baseline15",
+            "seed": 202
+          },
+          {
+            "campaign": "confirmation",
+            "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+            "run_id": "gaia_all_free__safe_baseline15__r02__s303",
+            "budget_seconds": 5.0,
+            "variant": "safe_baseline15",
+            "seed": 303
+          },
+          {
+            "campaign": "followup",
+            "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+            "run_id": "gaia_all_free__alns_cyclic_warm6__r00__s707",
+            "budget_seconds": 5.0,
+            "variant": "alns_cyclic_warm6",
+            "seed": 707
+          },
+          {
+            "campaign": "followup",
+            "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+            "run_id": "gaia_all_free__alns_cyclic_warm6__r01__s808",
+            "budget_seconds": 5.0,
+            "variant": "alns_cyclic_warm6",
+            "seed": 808
+          },
+          {
+            "campaign": "followup",
+            "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+            "run_id": "gaia_all_free__alns_cyclic_warm6__r02__s909",
+            "budget_seconds": 5.0,
+            "variant": "alns_cyclic_warm6",
+            "seed": 909
+          }
+        ],
+        "eligible_prior_runs": 13
+      },
+      "arms": {
+        "current_exact15": {
+          "runs": 1,
+          "seeds": [
+            707
+          ],
+          "status": [
+            "timeout"
+          ],
+          "budgets_seconds": [
+            60.0
+          ],
+          "t95_seconds": [
+            0.05694020000009914
+          ],
+          "t99_seconds": [
+            0.05694020000009914
+          ],
+          "t999_seconds": [
+            0.1909399449996272
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.05694020000009914,
+          "common_budget_scores": {
+            "5": [
+              324111.66069395555
+            ],
+            "15": [
+              324111.66069395555
+            ],
+            "30": [
+              324111.66069395555
+            ]
+          },
+          "completed_wall_seconds": [
+            null
+          ],
+          "work_at_30_seconds": [
+            {
+              "event": "work",
+              "phase": "search",
+              "wall_seconds": 29.969150497,
+              "checked": 249026306.0,
+              "total": 2152812816000.0,
+              "leaf_calls": 230462,
+              "scored": 30,
+              "feasible": 183622,
+              "precheck_reject": 0.0,
+              "sp_kernel_reject": 46840,
+              "gated": 160391,
+              "bound_pruned": 248323196.0,
+              "observed_seconds": 29.97303402899979
+            }
+          ],
+          "work_at_common_budget": [
+            {
+              "event": "work",
+              "phase": "search",
+              "wall_seconds": 29.969150497,
+              "checked": 249026306.0,
+              "total": 2152812816000.0,
+              "leaf_calls": 230462,
+              "scored": 30,
+              "feasible": 183622,
+              "precheck_reject": 0.0,
+              "sp_kernel_reject": 46840,
+              "gated": 160391,
+              "bound_pruned": 248323196.0,
+              "observed_seconds": 29.97303402899979
+            }
+          ],
+          "no_result": 0
+        },
+        "wide_exact15": {
+          "runs": 1,
+          "seeds": [
+            707
+          ],
+          "status": [
+            "timeout"
+          ],
+          "budgets_seconds": [
+            30.0
+          ],
+          "t95_seconds": [
+            0.05724391600051604
+          ],
+          "t99_seconds": [
+            0.05724391600051604
+          ],
+          "t999_seconds": [
+            0.1908843480005089
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.05724391600051604,
+          "common_budget_scores": {
+            "5": [
+              324111.66069395555
+            ],
+            "15": [
+              324111.66069395555
+            ],
+            "30": [
+              324111.66069395555
+            ]
+          },
+          "completed_wall_seconds": [
+            null
+          ],
+          "work_at_30_seconds": [
+            {
+              "event": "work",
+              "phase": "search",
+              "wall_seconds": 29.922303776,
+              "checked": 237914892.0,
+              "total": 2152812816000.0,
+              "leaf_calls": 205345,
+              "scored": 23,
+              "feasible": 162517,
+              "precheck_reject": 0.0,
+              "sp_kernel_reject": 42828,
+              "gated": 142587,
+              "bound_pruned": 237264912.0,
+              "observed_seconds": 29.924293643000055
+            }
+          ],
+          "work_at_common_budget": [
+            {
+              "event": "work",
+              "phase": "search",
+              "wall_seconds": 29.922303776,
+              "checked": 237914892.0,
+              "total": 2152812816000.0,
+              "leaf_calls": 205345,
+              "scored": 23,
+              "feasible": 162517,
+              "precheck_reject": 0.0,
+              "sp_kernel_reject": 42828,
+              "gated": 142587,
+              "bound_pruned": 237264912.0,
+              "observed_seconds": 29.924293643000055
+            }
+          ],
+          "no_result": 0
+        },
+        "current_alns15": {
+          "runs": 2,
+          "seeds": [
+            707,
+            808
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            30.0,
+            30.0
+          ],
+          "t95_seconds": [
+            0.1644523830000253,
+            0.15409060300044075
+          ],
+          "t99_seconds": [
+            0.1644523830000253,
+            0.15409060300044075
+          ],
+          "t999_seconds": [
+            0.6499004230008723,
+            0.6241752100004305
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.15927149300023302,
+          "common_budget_scores": {
+            "5": [
+              324111.66069395555,
+              324111.66069395555
+            ],
+            "15": [
+              324111.66069395555,
+              324111.66069395555
+            ],
+            "30": [
+              324111.66069395555,
+              324111.66069395555
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        },
+        "elite_alns15": {
+          "runs": 2,
+          "seeds": [
+            707,
+            808
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            30.0,
+            30.0
+          ],
+          "t95_seconds": [
+            0.17097784399993543,
+            0.1753825349996987
+          ],
+          "t99_seconds": [
+            0.17097784399993543,
+            0.1753825349996987
+          ],
+          "t999_seconds": [
+            0.664929982999638,
+            0.6844963089997691
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.17318018949981706,
+          "common_budget_scores": {
+            "5": [
+              324111.66069395555,
+              324111.66069395555
+            ],
+            "15": [
+              324111.66069395555,
+              324111.66069395555
+            ],
+            "30": [
+              324111.66069395555,
+              324111.66069395555
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        }
+      },
+      "comparisons": {
+        "wide_exact15": {
+          "t99_ratio": 0.9946943531883081,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "current_alns15": {
+          "t99_ratio": 0.35750402616000987,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "elite_alns15": {
+          "t99_ratio": 0.3287916485399116,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        }
+      },
+      "new_best_known_at_common_budget": 324111.66069395555,
+      "new_best_known_extension_pct": 0
+    }
+  ],
+  "scope": "Native shared evaluator and hash-identical fixtures. T99 refers to a previously frozen best-known milestone, not 99% of a certified global optimum. Baseline has 1 repetition(s); latency ratios are descriptive.",
+  "common_budget_seconds": 30,
+  "observed_runs": 6,
+  "planned_runs": 6,
+  "missing_runs": [],
+  "failures": [],
+  "complete_matrix": true,
+  "tenfold_all_seed_queries": {
+    "wide_exact15": [],
+    "current_alns15": [],
+    "elite_alns15": []
+  }
+}

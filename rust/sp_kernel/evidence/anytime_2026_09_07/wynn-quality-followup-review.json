@@ -1,0 +1,7168 @@
+{
+  "campaign": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/followup/campaign.json",
+  "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+  "frozen_references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/confirmation_setup/screening_references.json",
+  "references_sha256": "49c77760b398a4b64dbce88bb9a2bf645a5fa2be0dde38d0edf4b457db8278e8",
+  "comparison_scope": "Post-hoc combined scheduler/budget profile, fixed22 queries and fresh707/808/909 seeds, same frozen targets. Endpoint/count comparison with earlier seeds is descriptive only; no paired runtime or isolated parameter attribution.",
+  "run_count": 66,
+  "process_failures": 0,
+  "statuses": {
+    "timeout": 66
+  },
+  "valid_results": 66,
+  "targets": {
+    "0.95": {
+      "runs_attained": 66,
+      "runs_total": 66,
+      "all_three_query_count": 22,
+      "queries_total": 22,
+      "earlier_counts": {
+        "safe_baseline15": 45,
+        "alns1": 57,
+        "alns_warm6": 61
+      }
+    },
+    "0.99": {
+      "runs_attained": 66,
+      "runs_total": 66,
+      "all_three_query_count": 22,
+      "queries_total": 22,
+      "earlier_counts": {
+        "safe_baseline15": 36,
+        "alns1": 53,
+        "alns_warm6": 55
+      }
+    },
+    "0.999": {
+      "runs_attained": 65,
+      "runs_total": 66,
+      "all_three_query_count": 21,
+      "queries_total": 22,
+      "earlier_counts": {
+        "safe_baseline15": 33,
+        "alns1": 50,
+        "alns_warm6": 52
+      }
+    }
+  },
+  "queries": [
+    {
+      "scenario": "meta_archer_boltslinger_fast_hybrid_remove_6",
+      "reference_score": 155663.7797715262,
+      "target99": 154107.14197381094,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          155663.7797715262,
+          155663.7797715262,
+          155663.7797715262
+        ],
+        "median_endpoint_all_valid": 155663.7797715262,
+        "first_result_seconds": [
+          0.09361654600070324,
+          0.07251526700201794,
+          0.07235885199770564
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.09361654600070324,
+              0.07251526700201794,
+              0.07235885199770564
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.2928683930003899,
+              0.6640310340008,
+              0.6480592389998492
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.2928683930003899,
+              0.6640310340008,
+              0.6480592389998492
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.010542710999289,
+          5.009244051001588,
+          5.021845337996638
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            148273.6851806646,
+            148273.6851806646,
+            148273.6851806646
+          ],
+          "median_endpoint_all_valid": 148273.6851806646,
+          "first_result_seconds": [
+            0.08332886200150824,
+            0.08775709699693834,
+            0.09808542099926854
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.09975166499862098,
+                0.10414261299956706,
+                0.11451919200044358
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009779872998479,
+            5.009400211998582,
+            5.00986574199851
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            147530.26229904007,
+            147530.26229904007,
+            147530.26229904007
+          ],
+          "median_endpoint_all_valid": 147530.26229904007,
+          "first_result_seconds": [
+            0.08778842800165876,
+            0.09293791500022053,
+            0.08793402400260675
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009212191002007,
+            5.009179117001622,
+            5.0093523070027
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            155663.7797715262,
+            152797.79243132996,
+            155663.7797715262
+          ],
+          "median_endpoint_all_valid": 155663.7797715262,
+          "first_result_seconds": [
+            0.07259090099978494,
+            0.06797072100016521,
+            0.08255715400082408
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.3063789389998419,
+                0.38701831700018374,
+                0.5198701010012883
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.6839091619985993,
+                null,
+                1.7681403440001304
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.6839091619985993,
+                null,
+                1.7681403440001304
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.380965207998088,
+            2.3501130410004407,
+            3.270201287999953
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            155663.7797715262,
+            152074.58733693647,
+            152074.58733693647
+          ],
+          "median_endpoint_all_valid": 152074.58733693647,
+          "first_result_seconds": [
+            0.07256193800276378,
+            0.0725226950016804,
+            0.07764697499806061
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.07256193800276378,
+                0.0725226950016804,
+                0.07764697499806061
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.7426948440006527,
+                null,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.7426948440006527,
+                null,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.344145274000766,
+            1.7127152569992177,
+            1.9158201439968252
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 4.984090455334078,
+        "best1_warm3": 5.513118017779761,
+        "alns1": 0.0,
+        "alns_warm6": 2.3601526707664355
+      }
+    },
+    {
+      "scenario": "meta_archer_sharpshooter_heavy_melee_remove_6",
+      "reference_score": 38609.29024489125,
+      "target99": 38223.197342442334,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          38609.29024489125,
+          38614.5491786066,
+          38614.5491786066
+        ],
+        "median_endpoint_all_valid": 38614.5491786066,
+        "first_result_seconds": [
+          0.2139210550012649,
+          0.09352656099872547,
+          0.09766712700002245
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.2191590760012332,
+              0.09352656099872547,
+              0.09766712700002245
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.2191590760012332,
+              0.09352656099872547,
+              0.09766712700002245
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.2191590760012332,
+              0.09352656099872547,
+              0.09766712700002245
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.011004281001078,
+          5.010466840998561,
+          5.010707666999224
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            38609.29024489125,
+            38609.29024489125,
+            38609.29024489125
+          ],
+          "median_endpoint_all_valid": 38609.29024489125,
+          "first_result_seconds": [
+            0.1186195910013339,
+            0.12367362700024387,
+            0.1290420389996143
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.1186195910013339,
+                0.12367362700024387,
+                0.1290420389996143
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.1186195910013339,
+                0.12367362700024387,
+                0.1290420389996143
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.1186195910013339,
+                0.12367362700024387,
+                0.1290420389996143
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009822422998695,
+            5.010635012997227,
+            5.011064122998505
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            36951.89405184197,
+            36951.89405184197,
+            36951.89405184197
+          ],
+          "median_endpoint_all_valid": 36951.89405184197,
+          "first_result_seconds": [
+            0.1144393209979171,
+            0.12226558799738996,
+            0.1464443309996568
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.9020813909992285,
+                1.9296167059983418,
+                2.049539873998583
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010488052001165,
+            5.011047937998228,
+            5.011372979999578
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            38614.5491786066,
+            38609.29024489125,
+            38609.29024489125
+          ],
+          "median_endpoint_all_valid": 38609.29024489125,
+          "first_result_seconds": [
+            0.10827926799902343,
+            0.09298710000075516,
+            0.10368047300289618
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.16766038599962485,
+                0.12052082100126427,
+                0.2472031440011051
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.3488293900009012,
+                1.1193640820019937,
+                0.9834825610014377
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.8923801380005898,
+                1.1193640820019937,
+                2.222331723001844
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.568581150000682,
+            2.605522336998547,
+            2.8645330350009317
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            38609.29024489125,
+            38609.29024489125,
+            38609.29024489125
+          ],
+          "median_endpoint_all_valid": 38609.29024489125,
+          "first_result_seconds": [
+            0.09896214200125542,
+            0.09872100399661576,
+            0.10952192400145577
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.09896214200125542,
+                0.09872100399661576,
+                0.10952192400145577
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.09896214200125542,
+                0.09872100399661576,
+                0.10952192400145577
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.09896214200125542,
+                0.09872100399661576,
+                0.10952192400145577
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.6364180279997527,
+            1.5279580779970274,
+            1.5413053379998018
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.01362090233203439,
+        "best1_warm3": 4.499512594488375,
+        "alns1": 0.01362090233203439,
+        "alns_warm6": 0.01362090233203439
+      }
+    },
+    {
+      "scenario": "meta_archer_trapper_slow_melee_remove_6",
+      "reference_score": 25894.477810455217,
+      "target99": 25635.533032350664,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          25894.477810455217,
+          25894.477810455217,
+          25894.477810455217
+        ],
+        "median_endpoint_all_valid": 25894.477810455217,
+        "first_result_seconds": [
+          0.06260033099897555,
+          0.05720328099778271,
+          0.062388286998611875
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.06260033099897555,
+              0.05720328099778271,
+              0.062388286998611875
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.07377956199707114,
+              0.0682469419989502,
+              0.0732249309985491
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.07377956199707114,
+              0.0682469419989502,
+              0.0732249309985491
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          "time_budget",
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.008944097997301,
+          5.008757659998082,
+          5.01176432399734
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25894.477810455217,
+            25894.477810455217,
+            25894.477810455217
+          ],
+          "median_endpoint_all_valid": 25894.477810455217,
+          "first_result_seconds": [
+            0.07793414399930043,
+            0.07234826599960797,
+            0.0672508210009255
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.07793414399930043,
+                0.07234826599960797,
+                0.0672508210009255
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.07793414399930043,
+                0.07234826599960797,
+                0.0672508210009255
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.07793414399930043,
+                0.07234826599960797,
+                0.0672508210009255
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009188178999466,
+            5.009224557998095,
+            5.009087313999771
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25515.15022196329,
+            25515.15022196329,
+            25515.15022196329
+          ],
+          "median_endpoint_all_valid": 25515.15022196329,
+          "first_result_seconds": [
+            0.06735211699924548,
+            0.07758989799913252,
+            0.07250198799738428
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.11958389400024316,
+                0.12411491199964075,
+                0.12450481499763555
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008763023997744,
+            5.008556745997339,
+            5.009553541000059
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25894.477810455217,
+            25894.477810455217,
+            25894.477810455217
+          ],
+          "median_endpoint_all_valid": 25894.477810455217,
+          "first_result_seconds": [
+            0.06203212100081146,
+            0.0578953129988804,
+            0.0679426720016636
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.12651773499965202,
+                0.11700946099881548,
+                0.13242937100221752
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.2636138480011141,
+                0.3965979439999501,
+                0.42337572800170165
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.2636138480011141,
+                0.3965979439999501,
+                0.42337572800170165
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.4398862710004323,
+            1.7746589929993206,
+            1.5827056960006303
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25894.477810455217,
+            25894.477810455217,
+            25894.477810455217
+          ],
+          "median_endpoint_all_valid": 25894.477810455217,
+          "first_result_seconds": [
+            0.06215273699854151,
+            0.06239718700089725,
+            0.06265931700181682
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.06215273699854151,
+                0.06239718700089725,
+                0.06265931700181682
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.07350777399915387,
+                0.07327690999954939,
+                0.07378857600269839
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.07350777399915387,
+                0.07327690999954939,
+                0.07378857600269839
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.6133662270003697,
+            1.3386624900012976,
+            1.3348586980027903
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 1.4866758972298832,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "meta_assassin_acrobat_spellspam_remove_6",
+      "reference_score": 26124.68014511293,
+      "target99": 25863.4333436618,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          26208.867721039467,
+          26208.867721039467,
+          26124.68014511293
+        ],
+        "median_endpoint_all_valid": 26208.867721039467,
+        "first_result_seconds": [
+          0.1268513940012781,
+          0.06756658599988441,
+          0.062294608000229346
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.5830883730013738,
+              0.3980183259991463,
+              0.27533777300050133
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.8106136599999445,
+              1.2025008279997564,
+              0.27533777300050133
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.8106136599999445,
+              1.2025008279997564,
+              0.27533777300050133
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.0087730800005374,
+          5.0085038659999555,
+          5.008500977000949
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            24461.64942022615,
+            24461.64942022615,
+            24461.64942022615
+          ],
+          "median_endpoint_all_valid": 24461.64942022615,
+          "first_result_seconds": [
+            0.07278525900255772,
+            0.0672805829999561,
+            0.07819721799751278
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0107822450008825,
+            5.011177576001501,
+            5.008341536999069
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            24461.64942022615,
+            24461.64942022615,
+            24461.64942022615
+          ],
+          "median_endpoint_all_valid": 24461.64942022615,
+          "first_result_seconds": [
+            0.07300516900068033,
+            0.07765385899983812,
+            0.08144230100151617
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009469372002059,
+            5.008678709000378,
+            5.008491625998431
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            26124.68014511293,
+            22783.761239425527,
+            26208.867721039467
+          ],
+          "median_endpoint_all_valid": 26124.68014511293,
+          "first_result_seconds": [
+            0.06266218499877141,
+            0.06793711900172639,
+            0.05733117400086485
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.42746651799825486,
+                null,
+                0.5181151649994717
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.43270305400073994,
+                null,
+                1.2202770299991244
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.95234987799995,
+                null,
+                1.2202770299991244
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.3683988810007577,
+            0.7864813870000944,
+            1.6858519820016227
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            26124.68014511293,
+            25656.342938128022,
+            26124.68014511293
+          ],
+          "median_endpoint_all_valid": 26124.68014511293,
+          "first_result_seconds": [
+            0.06260139599908143,
+            0.057216762001189636,
+            0.06265715200061095
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.33491251899977215,
+                0.27454535700235283,
+                0.2784489299992856
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.4192536439986725,
+                null,
+                0.331244296998193
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.4192536439986725,
+                null,
+                0.3425723789987387
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.1572942530001455,
+            0.9562285400024848,
+            1.2036614809985622
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 7.142683924529747,
+        "best1_warm3": 7.142683924529747,
+        "alns1": 0.32225303987993836,
+        "alns_warm6": 0.32225303987993836
+      }
+    },
+    {
+      "scenario": "meta_assassin_shadestepper_spellsteal_remove_6",
+      "reference_score": 54110.606244171206,
+      "target99": 53569.50018172949,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          54110.606244171206,
+          54110.606244171206,
+          54110.606244171206
+        ],
+        "median_endpoint_all_valid": 54110.606244171206,
+        "first_result_seconds": [
+          0.07208707900281297,
+          0.07308575299975928,
+          0.07247706599810044
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.07738866900035646,
+              0.07308575299975928,
+              0.07247706599810044
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.07738866900035646,
+              0.07308575299975928,
+              0.07247706599810044
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.07738866900035646,
+              0.07308575299975928,
+              0.07247706599810044
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.010344749000069,
+          5.00929433300189,
+          5.009606490999431
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            54110.606244171206,
+            54110.606244171206,
+            54110.606244171206
+          ],
+          "median_endpoint_all_valid": 54110.606244171206,
+          "first_result_seconds": [
+            0.0882212830001663,
+            0.10452366300160065,
+            0.0879092600007425
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.0882212830001663,
+                0.10452366300160065,
+                0.0879092600007425
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.0882212830001663,
+                0.10452366300160065,
+                0.0879092600007425
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.0882212830001663,
+                0.10452366300160065,
+                0.09363327600294724
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.012855414002843,
+            5.009172991001833,
+            5.009238555001502
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            54110.606244171206,
+            54110.606244171206,
+            54110.606244171206
+          ],
+          "median_endpoint_all_valid": 54110.606244171206,
+          "first_result_seconds": [
+            0.10453930099902209,
+            0.08806925999670057,
+            0.08779173599759815
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.10453930099902209,
+                0.08806925999670057,
+                0.08779173599759815
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.10453930099902209,
+                0.08806925999670057,
+                0.08779173599759815
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.10453930099902209,
+                0.08806925999670057,
+                0.08779173599759815
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009706382999866,
+            5.0094727169998805,
+            5.009663754997746
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            54110.606244171206,
+            54110.606244171206,
+            54110.606244171206
+          ],
+          "median_endpoint_all_valid": 54110.606244171206,
+          "first_result_seconds": [
+            0.08495968700299272,
+            0.0888983780023409,
+            0.07766290099971229
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08495968700299272,
+                0.0888983780023409,
+                0.07766290099971229
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.08495968700299272,
+                0.0888983780023409,
+                0.07766290099971229
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.08495968700299272,
+                0.0888983780023409,
+                0.08313235899913707
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.3734288260020548,
+            1.4428935710020596,
+            1.271828150998772
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            54110.606244171206,
+            54110.606244171206,
+            54110.606244171206
+          ],
+          "median_endpoint_all_valid": 54110.606244171206,
+          "first_result_seconds": [
+            0.08354751500155544,
+            0.08843190699917614,
+            0.08276581699828967
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08354751500155544,
+                0.08843190699917614,
+                0.08276581699828967
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.08354751500155544,
+                0.08843190699917614,
+                0.08276581699828967
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.08963173900338006,
+                0.09436146699954406,
+                0.08276581699828967
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.3646864630027267,
+            1.441036296000675,
+            1.2087703709985362
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 0.0,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "meta_assassin_trickster_spell_remove_6",
+      "reference_score": 79185.81130625762,
+      "target99": 78393.95319319503,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          79750.24075865292,
+          79750.24075865292,
+          79750.24075865292
+        ],
+        "median_endpoint_all_valid": 79750.24075865292,
+        "first_result_seconds": [
+          0.08251341600043816,
+          0.07785066599899437,
+          0.0825387260010757
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.08251341600043816,
+              0.07785066599899437,
+              0.0825387260010757
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.08251341600043816,
+              0.07785066599899437,
+              0.0825387260010757
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.08251341600043816,
+              0.07785066599899437,
+              0.0825387260010757
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          "time_budget",
+          null
+        ],
+        "wall_seconds": [
+          5.010008113000367,
+          5.010101003001182,
+          5.010600328998407
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            79185.81130625762,
+            79185.81130625762,
+            79185.81130625762
+          ],
+          "median_endpoint_all_valid": 79185.81130625762,
+          "first_result_seconds": [
+            0.09300298699963605,
+            0.09822259599968675,
+            0.10946607299774769
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.09300298699963605,
+                0.09822259599968675,
+                0.10946607299774769
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.09300298699963605,
+                0.09822259599968675,
+                0.10946607299774769
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.09300298699963605,
+                0.09822259599968675,
+                0.10946607299774769
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009482497996942,
+            5.009887737000099,
+            5.009951218999049
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            63895.1643613925,
+            63895.1643613925,
+            63895.1643613925
+          ],
+          "median_endpoint_all_valid": 63895.1643613925,
+          "first_result_seconds": [
+            0.09286613799849874,
+            0.09795667599973967,
+            0.10321310299696052
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009662078999099,
+            5.009803437998926,
+            5.009441516998777
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            73704.9832984461,
+            79750.24075865292,
+            79750.24075865292
+          ],
+          "median_endpoint_all_valid": 79750.24075865292,
+          "first_result_seconds": [
+            0.08295976000226801,
+            0.0854577159989276,
+            0.09425283199743717
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                1.9921738880002522,
+                2.11476812500041
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                4.206537693000428,
+                2.538031760999729
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                4.211713859000156,
+                3.4931284909980604
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "capped",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            "repair_limit",
+            "time_budget"
+          ],
+          "wall_seconds": [
+            5.009423137002159,
+            4.736312903998623,
+            5.009965802997613
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            79750.24075865292,
+            79750.24075865292,
+            79750.24075865292
+          ],
+          "median_endpoint_all_valid": 79750.24075865292,
+          "first_result_seconds": [
+            0.0825651300001482,
+            0.07775336800114019,
+            0.08269986099912785
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.0825651300001482,
+                0.07775336800114019,
+                0.08269986099912785
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.0825651300001482,
+                0.07775336800114019,
+                0.08269986099912785
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.0825651300001482,
+                0.07775336800114019,
+                0.08269986099912785
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.390729905000626,
+            1.9800163770014478,
+            2.222207893999439
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.712791146651659,
+        "best1_warm3": 24.814203947553448,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "meta_mage_arcanist_meteor_remove_6",
+      "reference_score": 43293.54757315414,
+      "target99": 42860.61209742259,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          44004.811679503546,
+          44734.31761146617,
+          44636.20793517082
+        ],
+        "median_endpoint_all_valid": 44636.20793517082,
+        "first_result_seconds": [
+          0.1002428610008792,
+          0.09433553900089464,
+          0.09819852000146057
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              3.293945581001026,
+              1.371034462001262,
+              1.8640620940022927
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              3.299210986999242,
+              1.4034805440023774,
+              2.2209797210016404
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              3.299210986999242,
+              1.4034805440023774,
+              2.4014619080007833
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.009941811000317,
+          5.009631166001782,
+          5.010078331000841
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            32307.827582702164,
+            32307.827582702164,
+            32307.827582702164
+          ],
+          "median_endpoint_all_valid": 32307.827582702164,
+          "first_result_seconds": [
+            0.1135937049984932,
+            0.10866180900120526,
+            0.11590791199705563
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0099271830004,
+            5.010261925999657,
+            5.012794756999938
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            32307.827582702164,
+            32307.827582702164,
+            32307.827582702164
+          ],
+          "median_endpoint_all_valid": 32307.827582702164,
+          "first_result_seconds": [
+            0.10319196600175928,
+            0.10837915899901418,
+            0.1085436760004086
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.011086096001236,
+            5.011637124000117,
+            5.010076423997816
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            44361.71772420274,
+            44084.39504336497,
+            44328.481578022525
+          ],
+          "median_endpoint_all_valid": 44328.481578022525,
+          "first_result_seconds": [
+            0.0875656739990518,
+            0.09836856500260183,
+            0.09305139699790743
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.7788947430017288,
+                2.356861601001583,
+                1.9078937549966213
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                1.7788947430017288,
+                2.4502371760027017,
+                3.166036274997168
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                1.7788947430017288,
+                2.4502371760027017,
+                3.166036274997168
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            "time_budget",
+            "time_budget"
+          ],
+          "wall_seconds": [
+            5.010126801000297,
+            5.009962030999304,
+            5.011009198999091
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            44361.71772420274,
+            44084.39504336497,
+            44328.481578022525
+          ],
+          "median_endpoint_all_valid": 44328.481578022525,
+          "first_result_seconds": [
+            0.09283809599946835,
+            0.09320908500012592,
+            0.09289744000125211
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.7120763220009394,
+                2.373806792002142,
+                1.9462160160001076
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                1.7120763220009394,
+                2.4674787020012445,
+                3.225436647000606
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                1.7120763220009394,
+                2.4674787020012445,
+                3.225436647000606
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            "time_budget"
+          ],
+          "wall_seconds": [
+            5.01035680700079,
+            5.010434448002343,
+            5.010238742001093
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 38.159112744149226,
+        "best1_warm3": 38.159112744149226,
+        "alns1": 0.6941955740276562,
+        "alns_warm6": 0.6941955740276562
+      }
+    },
+    {
+      "scenario": "meta_mage_light_bender_healing_remove_6",
+      "reference_score": 15807.210000011217,
+      "target99": 15649.137900011105,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          21589.48500001532,
+          22343.715000015858,
+          22459.50000001594
+        ],
+        "median_endpoint_all_valid": 22343.715000015858,
+        "first_result_seconds": [
+          0.05709798599855276,
+          0.06251518800127087,
+          0.05681174700293923
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.16138368099927902,
+              0.20902245400066022,
+              0.1876724200010358
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.36379372800001875,
+              0.20902245400066022,
+              0.2084153370014974
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.36379372800001875,
+              0.20902245400066022,
+              0.2084153370014974
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.008803498996713,
+          5.009128308000072,
+          5.009242615000403
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            14778.165000010487,
+            14778.165000010487,
+            14778.165000010487
+          ],
+          "median_endpoint_all_valid": 14778.165000010487,
+          "first_result_seconds": [
+            0.07244121099938639,
+            0.07242577600118238,
+            0.07249222199970973
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009810816998652,
+            5.009080404000997,
+            5.009139288998995
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            14778.165000010487,
+            14778.165000010487,
+            14778.165000010487
+          ],
+          "median_endpoint_all_valid": 14778.165000010487,
+          "first_result_seconds": [
+            0.0933878400028334,
+            0.07277143800092745,
+            0.0673529960004089
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.011757491000026,
+            5.009165969000605,
+            5.009006085998408
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            22343.715000015858,
+            20322.360000014418,
+            19014.160000013497
+          ],
+          "median_endpoint_all_valid": 20322.360000014418,
+          "first_result_seconds": [
+            0.06933778900202014,
+            0.06756895799844642,
+            0.06948066399854724
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.0881479950003268,
+                0.3549644199993054,
+                0.7662132439982088
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                1.0934992140028044,
+                0.40774749299816904,
+                2.7830187079998723
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                1.0934992140028044,
+                0.40774749299816904,
+                2.7830187079998723
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "capped",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            "repair_limit",
+            null
+          ],
+          "wall_seconds": [
+            5.009079260002181,
+            3.8140298939979402,
+            5.0091649149981095
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            21047.760000014932,
+            22459.50000001594,
+            22459.50000001594
+          ],
+          "median_endpoint_all_valid": 22459.50000001594,
+          "first_result_seconds": [
+            0.06719504200009396,
+            0.06714879300125176,
+            0.06302163700092933
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.35559442099838634,
+                0.18750881799860508,
+                1.1871274380027899
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                1.0561242799994943,
+                0.33249655500185327,
+                1.1923353820020566
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                1.0561242799994943,
+                0.3379975210009434,
+                1.1923353820020566
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.00942669700089,
+            5.009563022002112,
+            5.009315991999756
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 51.19410968817848,
+        "best1_warm3": 51.19410968817848,
+        "alns1": 9.946457990115354,
+        "alns_warm6": -0.5155279503105681
+      }
+    },
+    {
+      "scenario": "meta_mage_riftwalker_cancelstack_remove_6",
+      "reference_score": 361768.68413388747,
+      "target99": 358150.9972925486,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          361768.68413388747,
+          361768.68413388747,
+          361768.68413388747
+        ],
+        "median_endpoint_all_valid": 361768.68413388747,
+        "first_result_seconds": [
+          0.09809833699910087,
+          0.10926928600019892,
+          0.09333174299899838
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.2674997549984255,
+              0.7885255920009513,
+              0.7833721050010354
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.2674997549984255,
+              2.897740975000488,
+              0.7833721050010354
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.2984369000005245,
+              3.365375485998811,
+              3.9881253269995796
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.016309211998305,
+          5.010415291999379,
+          5.011544011998922
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            319749.3676296457,
+            319749.3676296457,
+            319749.3676296457
+          ],
+          "median_endpoint_all_valid": 319749.3676296457,
+          "first_result_seconds": [
+            0.1135529149978538,
+            0.12002114099959726,
+            0.11396496299857972
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010516930000449,
+            5.010321309000574,
+            5.010610443998303
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            287582.2527227092,
+            287582.2527227092,
+            287582.2527227092
+          ],
+          "median_endpoint_all_valid": 287582.2527227092,
+          "first_result_seconds": [
+            0.11846271499962313,
+            0.1134874490016955,
+            0.1084888530021999
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010785933001898,
+            5.01059081999847,
+            5.010158155000681
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            353887.17274189444,
+            361768.68413388747,
+            359023.73343750124
+          ],
+          "median_endpoint_all_valid": 359023.73343750124,
+          "first_result_seconds": [
+            0.09315537100337679,
+            0.09939636299895938,
+            0.10336581799856503
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.3941282460000366,
+                0.9440016209991882,
+                0.40150020900182426
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                0.9855501509991882,
+                0.40150020900182426
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                0.9855501509991882,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.0428476660017623,
+            2.9453886570008763,
+            2.053278456998669
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            347270.68428697577,
+            360527.18237410026,
+            337738.84912910697
+          ],
+          "median_endpoint_all_valid": 347270.68428697577,
+          "first_result_seconds": [
+            0.10869240799729596,
+            0.10328078699967591,
+            0.10530594000010751
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.36347351799850003,
+                1.0015997379996406,
+                null
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                1.2091704919985204,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.9379731999979413,
+            2.1634728989993164,
+            1.644486188000883
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 13.141329040222294,
+        "best1_warm3": 25.79659582912783,
+        "alns1": 0.7645596769061624,
+        "alns_warm6": 4.174841270198004
+      }
+    },
+    {
+      "scenario": "meta_shaman_acolyte_healing_remove_6",
+      "reference_score": 12244.162500000002,
+      "target99": 12121.720875000003,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          13536.075,
+          12441.6,
+          12516.0
+        ],
+        "median_endpoint_all_valid": 12516.0,
+        "first_result_seconds": [
+          0.1258492409979226,
+          0.0825603859993862,
+          0.08807018399966182
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              1.8294691800001601,
+              2.2565466609994473,
+              1.1820317790006811
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              3.534681034998357,
+              2.3346695660002297,
+              1.791148983000312
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              4.636022364997189,
+              2.3346695660002297,
+              1.791148983000312
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.009840119997534,
+          5.0098002679987985,
+          5.010135939002794
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            10326.69,
+            10326.69,
+            10326.69
+          ],
+          "median_endpoint_all_valid": 10326.69,
+          "first_result_seconds": [
+            0.0977104869998584,
+            0.09856585399757023,
+            0.10364904100060812
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010288679000951,
+            5.010343547997763,
+            5.0106383560014365
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            10326.69,
+            10326.69,
+            10326.69
+          ],
+          "median_endpoint_all_valid": 10326.69,
+          "first_result_seconds": [
+            0.1013538819970563,
+            0.09336139999868465,
+            0.09833935999995447
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010536471996602,
+            5.010966759000439,
+            5.010336154002289
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            13239.9,
+            12574.56,
+            13054.837499999998
+          ],
+          "median_endpoint_all_valid": 13054.837499999998,
+          "first_result_seconds": [
+            0.07764336000036565,
+            0.08289483800035669,
+            0.07754204100274364
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.104171500999655,
+                1.0328697950026253,
+                3.1403539040002215
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                2.8580197709998174,
+                3.141102782999951,
+                3.1767522070003906
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                2.8632798139988154,
+                3.1772040640025807,
+                3.1767522070003906
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            "time_budget",
+            null
+          ],
+          "wall_seconds": [
+            5.01030029300091,
+            5.010168567001529,
+            5.010477263000212
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            13239.9,
+            13382.4,
+            13054.837499999998
+          ],
+          "median_endpoint_all_valid": 13239.9,
+          "first_result_seconds": [
+            0.07729203100097948,
+            0.08239029300239054,
+            0.08291223700143746
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                1.6469350990009843,
+                1.8862347560025228,
+                3.786508233002678
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                3.223064948000683,
+                3.732263480000256,
+                3.822742444001051
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                3.3572181680028734,
+                3.732263480000256,
+                3.822742444001051
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010284145002515,
+            5.010009091001848,
+            5.010285870001098
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 21.200500838119464,
+        "best1_warm3": 21.200500838119464,
+        "alns1": -4.12749296956012,
+        "alns_warm6": -5.467563954410526
+      }
+    },
+    {
+      "scenario": "meta_shaman_ritualist_tierstack_remove_6",
+      "reference_score": 267253.98139341245,
+      "target99": 264581.4415794783,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          270347.23209168727,
+          270347.23209168727,
+          270347.23209168727
+        ],
+        "median_endpoint_all_valid": 270347.23209168727,
+        "first_result_seconds": [
+          0.0828528460006055,
+          0.07719669099969906,
+          0.0829778110019106
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.2513588920010079,
+              0.7134315790026449,
+              0.27058431100158487
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.2513588920010079,
+              1.2758714470000996,
+              0.29706697500296286
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.2513588920010079,
+              1.2758714470000996,
+              0.29706697500296286
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          "time_budget",
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.00965077300134,
+          5.009712753002532,
+          5.009867227003269
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            211221.23243924446,
+            211221.23243924446,
+            211221.23243924446
+          ],
+          "median_endpoint_all_valid": 211221.23243924446,
+          "first_result_seconds": [
+            0.11613065500205266,
+            0.10390565900161164,
+            0.09855742299987469
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009598993001418,
+            5.009344884001621,
+            5.009844077001617
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            211221.23243924446,
+            211221.23243924446,
+            211221.23243924446
+          ],
+          "median_endpoint_all_valid": 211221.23243924446,
+          "first_result_seconds": [
+            0.10926901800121414,
+            0.11885392499971204,
+            0.10369071900277049
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009878767999908,
+            5.0095520409995515,
+            5.009873380000499
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            251149.86270458586,
+            null,
+            null
+          ],
+          "median_endpoint_all_valid": null,
+          "first_result_seconds": [
+            0.12532982799893944,
+            null,
+            null
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            0.6018465439992724,
+            0.1243494059999648,
+            0.1288982580008451
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            267253.98139341245,
+            233277.96498972096,
+            267253.98139341245
+          ],
+          "median_endpoint_all_valid": 267253.98139341245,
+          "first_result_seconds": [
+            0.08454865299790981,
+            0.09974541799965664,
+            0.0826416669988248
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.6674608629982686,
+                null,
+                0.583278430000064
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.6984126600000309,
+                null,
+                0.8004344750006567
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.6984126600000309,
+                null,
+                0.8004344750006567
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.3124256919982145,
+            1.5453955499979202,
+            1.6601928109994333
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 27.99245083916919,
+        "best1_warm3": 27.99245083916919,
+        "alns1": null,
+        "alns_warm6": 1.157419875336263
+      }
+    },
+    {
+      "scenario": "meta_shaman_summoner_aura_remove_6",
+      "reference_score": 8226.53937516732,
+      "target99": 8144.273981415647,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          8338.179065491939,
+          8240.619551005759,
+          8240.619551005759
+        ],
+        "median_endpoint_all_valid": 8240.619551005759,
+        "first_result_seconds": [
+          0.07793974400192383,
+          0.0723667829988699,
+          0.07749281599899405
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.07793974400192383,
+              0.07796472100017127,
+              0.07749281599899405
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.07793974400192383,
+              0.07796472100017127,
+              0.07749281599899405
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.8745728980029526,
+              0.2277775529983046,
+              0.24387485300030676
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.00968413100054,
+          5.009773080997547,
+          5.009755324001162
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            8189.691553185736,
+            8189.691553185736,
+            8189.691553185736
+          ],
+          "median_endpoint_all_valid": 8189.691553185736,
+          "first_result_seconds": [
+            0.08803278000050341,
+            0.11463134000223363,
+            0.09295823100183043
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08803278000050341,
+                0.11999787500099046,
+                0.09295823100183043
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.09955643899957067,
+                0.12628314399989904,
+                0.10448817500218865
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0092474190023495,
+            5.0093343000007735,
+            5.010851136001293
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            7650.4843874445705,
+            7650.4843874445705,
+            7650.4843874445705
+          ],
+          "median_endpoint_all_valid": 7650.4843874445705,
+          "first_result_seconds": [
+            0.08762615800151252,
+            0.08774851199996192,
+            0.0882149369972467
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.00983293399986,
+            5.010437570999784,
+            5.009355686997878
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            8240.619551005759,
+            8240.619551005759,
+            8240.619551005759
+          ],
+          "median_endpoint_all_valid": 8240.619551005759,
+          "first_result_seconds": [
+            0.07803995599897462,
+            0.08851986800073064,
+            0.09715756800142117
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.7681715729995631,
+                0.5282526470000448,
+                0.6796344530011993
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.7738104269992618,
+                0.5932353239986696,
+                1.5121877470010077
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.7738104269992618,
+                0.7022311920009088,
+                1.5121877470010077
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            3.067211473000498,
+            3.15727323900137,
+            3.726241413001844
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            8240.619551005759,
+            8240.619551005759,
+            8240.619551005759
+          ],
+          "median_endpoint_all_valid": 8240.619551005759,
+          "first_result_seconds": [
+            0.08303099499971722,
+            0.0825507679983275,
+            0.0896170380001422
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08870356999977957,
+                0.0825507679983275,
+                0.0896170380001422
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.08870356999977957,
+                0.0825507679983275,
+                0.09549347000211128
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.36216733799665235,
+                0.233176898000238,
+                0.4888639349992445
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.7997620689966425,
+            2.6357571789994836,
+            2.923341993999202
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.6218548951359759,
+        "best1_warm3": 7.713696723957453,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "meta_warrior_battle_monk_uppercut_remove_6",
+      "reference_score": 25939.547280286744,
+      "target99": 25680.151807483875,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          25939.547280286744,
+          26553.014737994446,
+          26553.014737994446
+        ],
+        "median_endpoint_all_valid": 26553.014737994446,
+        "first_result_seconds": [
+          0.08807295299993712,
+          0.0877959630015539,
+          0.09347469100248418
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.09859996099839918,
+              0.09822894900207757,
+              0.1048109570001543
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.21478222899895627,
+              0.21448068999961833,
+              0.16845462399942335
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.21478222899895627,
+              0.21448068999961833,
+              3.6469273200018506
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.01053377000062,
+          5.010226431000774,
+          5.010201809000137
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25939.547280286744,
+            25939.547280286744,
+            25939.547280286744
+          ],
+          "median_endpoint_all_valid": 25939.547280286744,
+          "first_result_seconds": [
+            0.12466345400025602,
+            0.1083378420007648,
+            0.11953097299920046
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.13610103300015908,
+                0.11887114000273868,
+                0.13031695099925855
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.31835807600145927,
+                0.31037553600253887,
+                0.3136085139994975
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.31835807600145927,
+                0.31037553600253887,
+                0.3136085139994975
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.011021040001651,
+            5.010982160001731,
+            5.0105341779999435
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25939.547280286744,
+            25939.547280286744,
+            25939.547280286744
+          ],
+          "median_endpoint_all_valid": 25939.547280286744,
+          "first_result_seconds": [
+            0.11851078399922699,
+            0.114139712000906,
+            0.11377926299974206
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.11851078399922699,
+                0.114139712000906,
+                0.11377926299974206
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.2984110010002041,
+                0.2936856179985625,
+                0.28915962199971545
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.2984110010002041,
+                0.2936856179985625,
+                0.28915962199971545
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.01041514699682,
+            5.010381667998445,
+            5.009989788999519
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25939.547280286744,
+            25939.547280286744,
+            25939.547280286744
+          ],
+          "median_endpoint_all_valid": 25939.547280286744,
+          "first_result_seconds": [
+            0.08811269299985725,
+            0.08791015400129254,
+            0.08869113900072989
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08811269299985725,
+                0.09375681200253894,
+                0.09417072399810422
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.9077632280022954,
+                0.20270507300301688,
+                0.7604199230008817
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.9077632280022954,
+                0.20270507300301688,
+                0.7604199230008817
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.8213427629998478,
+            1.8182086270026048,
+            1.7274370199993427
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            25939.547280286744,
+            25939.547280286744,
+            25939.547280286744
+          ],
+          "median_endpoint_all_valid": 25939.547280286744,
+          "first_result_seconds": [
+            0.09275738100041053,
+            0.08851347800009535,
+            0.08849996700155316
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.10350386999925831,
+                0.10024608200183138,
+                0.10450194300210569
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.8461494279981707,
+                0.2507414610008709,
+                0.8039881600016088
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.8461494279981707,
+                0.2507414610008709,
+                0.8039881600016088
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.7967176689999178,
+            1.8795037029995,
+            1.8303557030012598
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 2.3649890689261044,
+        "best1_warm3": 2.3649890689261044,
+        "alns1": 2.3649890689261044,
+        "alns_warm6": 2.3649890689261044
+      }
+    },
+    {
+      "scenario": "meta_warrior_fallen_uppercut_remove_6",
+      "reference_score": 38088.40528939774,
+      "target99": 37707.521236503766,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          38406.48487840332,
+          38088.40528939774,
+          37937.81358635021
+        ],
+        "median_endpoint_all_valid": 38088.40528939774,
+        "first_result_seconds": [
+          0.09298158900128328,
+          0.09693353300099261,
+          0.0775061740023375
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.6084795550013951,
+              1.0735100230012904,
+              0.4522700840025209
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              1.464853015000699,
+              2.6523156570001447,
+              0.7984061520000978
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              1.7182802290008112,
+              2.7152839090013003,
+              null
+            ],
+            "hits": 2,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.009509489002085,
+          5.009897309002554,
+          5.009457236999879
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            36201.47799910674,
+            36201.47799910674,
+            36201.47799910674
+          ],
+          "median_endpoint_all_valid": 36201.47799910674,
+          "first_result_seconds": [
+            0.0930191739971633,
+            0.09343143899968709,
+            0.09349177699914435
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                4.428932097998768,
+                4.401022999998531,
+                4.211171511997236
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.00961161899977,
+            5.0103273629974865,
+            5.0101291649989435
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            36201.47799910674,
+            36201.47799910674,
+            36201.47799910674
+          ],
+          "median_endpoint_all_valid": 36201.47799910674,
+          "first_result_seconds": [
+            0.09297762699861778,
+            0.09800553699824377,
+            0.09276767800110974
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                4.239915473997826,
+                4.216758877999382,
+                4.094648827998753
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.009458102998906,
+            5.009732708000229,
+            5.009711982002045
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            38406.48487840332,
+            38088.40528939774,
+            37854.13278238792
+          ],
+          "median_endpoint_all_valid": 38088.40528939774,
+          "first_result_seconds": [
+            0.07735229399986565,
+            0.07752405000064755,
+            0.07823912099775043
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.25532367100095144,
+                0.17530753900064155,
+                0.25317236999762827
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.3079107589983323,
+                0.3326468630002637,
+                1.8178346499989857
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3079107589983323,
+                0.3326468630002637,
+                null
+              ],
+              "hits": 2,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.739816901001177,
+            1.6923133710006368,
+            2.3491699609985517
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            37937.81358635021,
+            38088.40528939774,
+            37854.13278238792
+          ],
+          "median_endpoint_all_valid": 37937.81358635021,
+          "first_result_seconds": [
+            0.07745921500099939,
+            0.09009766099916305,
+            0.09289190900017275
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.18237777900139918,
+                0.20663437099938164,
+                0.30134420999820577
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.21394200800205,
+                0.3890001289983047,
+                2.040143727001123
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                0.3890001289983047,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.7329640480020316,
+            1.6747290099992824,
+            2.765959546999511
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 5.212293515578459,
+        "best1_warm3": 5.212293515578459,
+        "alns1": 0.0,
+        "alns_warm6": 0.39694354737858095
+      }
+    },
+    {
+      "scenario": "meta_warrior_paladin_tank_remove_6",
+      "reference_score": 16445.296546915266,
+      "target99": 16280.843581446114,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          16556.751793385876,
+          16556.751793385876,
+          16556.751793385876
+        ],
+        "median_endpoint_all_valid": 16556.751793385876,
+        "first_result_seconds": [
+          0.08306467800139217,
+          0.09387328799857642,
+          0.09283311499893898
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.08306467800139217,
+              0.09387328799857642,
+              0.09283311499893898
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.5807771930012677,
+              1.0152186790000997,
+              0.9083423259980918
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.5807771930012677,
+              1.0152186790000997,
+              0.9083423259980918
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.009946182999556,
+          5.009953025000868,
+          5.010424264000903
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            15627.993833737999,
+            15627.993833737999,
+            15627.993833737999
+          ],
+          "median_endpoint_all_valid": 15627.993833737999,
+          "first_result_seconds": [
+            0.09796699899743544,
+            0.0984443689994805,
+            0.1183991670004616
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.09796699899743544,
+                0.0984443689994805,
+                0.1183991670004616
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010399769998912,
+            5.009849829002633,
+            5.010390429000836
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            12932.700883400961,
+            12932.700883400961,
+            12932.700883400961
+          ],
+          "median_endpoint_all_valid": 12932.700883400961,
+          "first_result_seconds": [
+            0.09793906700360822,
+            0.09804140200139955,
+            0.1033608940015256
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.010132426003111,
+            5.009808306000195,
+            5.009975809000025
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            16556.751793385876,
+            16556.751793385876,
+            16556.751793385876
+          ],
+          "median_endpoint_all_valid": 16556.751793385876,
+          "first_result_seconds": [
+            0.08828476099733962,
+            0.08321386999887181,
+            0.09316190600293339
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.6016091689998575,
+                0.43042549599704216,
+                0.9115198630024679
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.6547450419966481,
+                0.4837353529983375,
+                0.9326346410016413
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.6547450419966481,
+                0.4837353529983375,
+                0.9326346410016413
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            3.69823381599781,
+            4.557343077998667,
+            3.8243911050012684
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            16556.751793385876,
+            16517.32561877692,
+            16517.32561877692
+          ],
+          "median_endpoint_all_valid": 16517.32561877692,
+          "first_result_seconds": [
+            0.08312828300040564,
+            0.08291425800052821,
+            0.09334188199864002
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08312828300040564,
+                0.08291425800052821,
+                0.09334188199864002
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.3136290469992673,
+                0.7395717190011055,
+                0.6074064940003154
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3136290469992673,
+                0.7395717190011055,
+                0.6074064940003154
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            3.4675323629999184,
+            3.590010482002981,
+            3.554460323000967
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 5.942912247910259,
+        "best1_warm3": 28.02238250662985,
+        "alns1": 0.0,
+        "alns_warm6": 0.2386958731632527
+      }
+    },
+    {
+      "scenario": "fam_cancelstack_large",
+      "reference_score": 510715.00785697025,
+      "target99": 505607.85777840053,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          510715.00785697025,
+          510715.00785697025,
+          510715.00785697025
+        ],
+        "median_endpoint_all_valid": 510715.00785697025,
+        "first_result_seconds": [
+          0.051906704997236375,
+          0.05210357599935378,
+          0.05189320900171879
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.0586217249983747,
+              0.058605275000445545,
+              0.058001919998787344
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.0586217249983747,
+              0.058605275000445545,
+              0.06439742899965495
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.0586217249983747,
+              0.06583959700219566,
+              0.06439742899965495
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.008032573998207,
+          5.008186644001398,
+          5.008287272001326
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            510715.00785697025,
+            510715.00785697025,
+            510715.00785697025
+          ],
+          "median_endpoint_all_valid": 510715.00785697025,
+          "first_result_seconds": [
+            0.056914957996923476,
+            0.056877651000831975,
+            0.057050797000556486
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.06298449099995196,
+                0.06239117699806229,
+                0.06381013999998686
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.06298449099995196,
+                0.06239117699806229,
+                0.06381013999998686
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.06298449099995196,
+                0.06239117699806229,
+                0.06381013999998686
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0090582449993235,
+            5.008329429998412,
+            5.008681055001944
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            510715.00785697025,
+            510715.00785697025,
+            510715.00785697025
+          ],
+          "median_endpoint_all_valid": 510715.00785697025,
+          "first_result_seconds": [
+            0.06189055299910251,
+            0.0569856649999565,
+            0.06208767499992973
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.20074890300020343,
+                0.19567895499858423,
+                0.20113363099881099
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.29333151199898566,
+                0.2932137639982102,
+                0.29877130900058546
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3088599639995664,
+                0.31381585899725906,
+                0.3142762759998732
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008103027001198,
+            5.008416352997301,
+            5.008487522998621
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            510715.00785697025,
+            510715.00785697025,
+            510715.00785697025
+          ],
+          "median_endpoint_all_valid": 510715.00785697025,
+          "first_result_seconds": [
+            0.04674918399905437,
+            0.05725943200013717,
+            0.051824931000737706
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.15417143699960434,
+                0.12259077300041099,
+                0.15466877699873294
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.15970623400062323,
+                0.12259077300041099,
+                0.1808393210012582
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.15970623400062323,
+                0.12259077300041099,
+                0.8598907170016901
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.126921258000948,
+            1.1282774870014691,
+            1.402366416001314
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            510715.00785697025,
+            510715.00785697025,
+            510715.00785697025
+          ],
+          "median_endpoint_all_valid": 510715.00785697025,
+          "first_result_seconds": [
+            0.05192771599831758,
+            0.05217895299938391,
+            0.046655932997964555
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.058715511000627885,
+                0.05982860600124695,
+                0.0524172119985451
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.058715511000627885,
+                0.05982860600124695,
+                0.05902839099871926
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.058715511000627885,
+                0.05982860600124695,
+                0.05902839099871926
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.1507893429989053,
+            1.1250364350016753,
+            1.2218898949977302
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 0.0,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "fam_heavy_melee_large",
+      "reference_score": 37822.40581168717,
+      "target99": 37444.181753570294,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          37822.40581168717,
+          37822.40581168717,
+          37822.40581168717
+        ],
+        "median_endpoint_all_valid": 37822.40581168717,
+        "first_result_seconds": [
+          0.041497107999020955,
+          0.041651921997981844,
+          0.041932150001230184
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.041497107999020955,
+              0.041651921997981844,
+              0.041932150001230184
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.041497107999020955,
+              0.041651921997981844,
+              0.041932150001230184
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.041497107999020955,
+              0.041651921997981844,
+              0.041932150001230184
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.0078894030011725,
+          5.007915482001408,
+          5.00781269700019
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            37822.40581168717,
+            37822.40581168717,
+            37822.40581168717
+          ],
+          "median_endpoint_all_valid": 37822.40581168717,
+          "first_result_seconds": [
+            0.0727798170009919,
+            0.07747721499981708,
+            0.07283269699837547
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.0727798170009919,
+                0.07747721499981708,
+                0.07283269699837547
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.0727798170009919,
+                0.07747721499981708,
+                0.07283269699837547
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.0727798170009919,
+                0.07747721499981708,
+                0.07283269699837547
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008349310002814,
+            5.00819371399848,
+            5.008199804000469
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            37822.40581168717,
+            37822.40581168717,
+            37822.40581168717
+          ],
+          "median_endpoint_all_valid": 37822.40581168717,
+          "first_result_seconds": [
+            0.07225015999938478,
+            0.06744615299976431,
+            0.0781828939980187
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.07225015999938478,
+                0.06744615299976431,
+                0.0781828939980187
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.07225015999938478,
+                0.06744615299976431,
+                0.0781828939980187
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.07225015999938478,
+                0.06744615299976431,
+                0.0781828939980187
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008034739999857,
+            5.007933952998428,
+            5.007853436000005
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            37822.40581168717,
+            37822.40581168717,
+            37822.40581168717
+          ],
+          "median_endpoint_all_valid": 37822.40581168717,
+          "first_result_seconds": [
+            0.04688621600143961,
+            0.04192458200122928,
+            0.04168982199917082
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.04688621600143961,
+                0.04192458200122928,
+                0.04168982199917082
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.04688621600143961,
+                0.04192458200122928,
+                0.04168982199917082
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.04688621600143961,
+                0.04192458200122928,
+                0.04168982199917082
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.5431683360002353,
+            1.4263002870029595,
+            1.6162865519982006
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            37822.40581168717,
+            37822.40581168717,
+            37822.40581168717
+          ],
+          "median_endpoint_all_valid": 37822.40581168717,
+          "first_result_seconds": [
+            0.04177357899970957,
+            0.041985217001638375,
+            0.04154232800283353
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.04177357899970957,
+                0.041985217001638375,
+                0.04154232800283353
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.04177357899970957,
+                0.041985217001638375,
+                0.04154232800283353
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.04177357899970957,
+                0.041985217001638375,
+                0.04154232800283353
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.5352881039980275,
+            1.456995286000165,
+            1.7090708329997142
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 0.0,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "fam_tierstack_large",
+      "reference_score": 196090.0892544803,
+      "target99": 194129.1883619355,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          196090.0892544803,
+          196090.0892544803,
+          196090.0892544803
+        ],
+        "median_endpoint_all_valid": 196090.0892544803,
+        "first_result_seconds": [
+          0.031249951000063447,
+          0.03131064199988032,
+          0.03116275699721882
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.0366492310022295,
+              0.036623701998905744,
+              0.0364253629995801
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.0366492310022295,
+              0.036623701998905744,
+              0.0364253629995801
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.0366492310022295,
+              0.036623701998905744,
+              0.0364253629995801
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.007420647001709,
+          5.0074343269989186,
+          5.007467053997971
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            196090.0892544803,
+            196090.0892544803,
+            196090.0892544803
+          ],
+          "median_endpoint_all_valid": 196090.0892544803,
+          "first_result_seconds": [
+            0.06265687799896114,
+            0.05739088200061815,
+            0.0569887240017124
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.06265687799896114,
+                0.05739088200061815,
+                0.0623099500007811
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.06265687799896114,
+                0.05739088200061815,
+                0.0623099500007811
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.06265687799896114,
+                0.05739088200061815,
+                0.0623099500007811
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008025127997826,
+            5.007683174000704,
+            5.010336769002606
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            196090.0892544803,
+            196090.0892544803,
+            196090.0892544803
+          ],
+          "median_endpoint_all_valid": 196090.0892544803,
+          "first_result_seconds": [
+            0.05724244700104464,
+            0.05700635999892256,
+            0.06195719700190239
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.07288085500113084,
+                0.07780922899837606,
+                0.07762719300080789
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.4380259620011202,
+                0.4376404819995514,
+                0.47294179900200106
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.4380259620011202,
+                0.4376404819995514,
+                0.47294179900200106
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.007493635999708,
+            5.007544649997726,
+            5.007601070999954
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            196090.0892544803,
+            196090.0892544803,
+            196090.0892544803
+          ],
+          "median_endpoint_all_valid": 196090.0892544803,
+          "first_result_seconds": [
+            0.03662947500197333,
+            0.036519326000416186,
+            0.036538223997922614
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.08365489800053183,
+                0.08872455800155876,
+                0.08459778500036919
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.46007709500190686,
+                0.6013389930012636,
+                0.19779412199932267
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.46007709500190686,
+                0.6013389930012636,
+                0.19779412199932267
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.0754649930022424,
+            2.5491640889995324,
+            1.6378526349981257
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            196090.0892544803,
+            196090.0892544803,
+            196090.0892544803
+          ],
+          "median_endpoint_all_valid": 196090.0892544803,
+          "first_result_seconds": [
+            0.04282220499953837,
+            0.03639123200264294,
+            0.0364578979970247
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.04832736900061718,
+                0.03639123200264294,
+                0.0364578979970247
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.04832736900061718,
+                0.03639123200264294,
+                0.0364578979970247
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.04832736900061718,
+                0.03639123200264294,
+                0.0364578979970247
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.67678851600067,
+            1.751780497001164,
+            1.8729140590003226
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 0.0,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "fam_spellsteal_large",
+      "reference_score": 93162.6626560366,
+      "target99": 92231.03602947624,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          93162.6626560366,
+          93162.6626560366,
+          93162.6626560366
+        ],
+        "median_endpoint_all_valid": 93162.6626560366,
+        "first_result_seconds": [
+          0.03659183800118626,
+          0.041970562997448724,
+          0.03639670000120532
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.6470596480030508,
+              0.32901763599875267,
+              0.672364698999445
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.6935647020000033,
+              0.44841667999935453,
+              0.6776833240000997
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.6935647020000033,
+              0.44841667999935453,
+              0.6776833240000997
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          null,
+          null
+        ],
+        "wall_seconds": [
+          5.007319090000237,
+          5.007394912998279,
+          5.007957680001709
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            79511.98690363756,
+            79511.98690363756,
+            79511.98690363756
+          ],
+          "median_endpoint_all_valid": 79511.98690363756,
+          "first_result_seconds": [
+            0.057013269997696625,
+            0.06248242600122467,
+            0.062049633997958153
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.007700235997618,
+            5.007529847000114,
+            5.0076600369975495
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            76613.93575980957,
+            76613.93575980957,
+            76613.93575980957
+          ],
+          "median_endpoint_all_valid": 76613.93575980957,
+          "first_result_seconds": [
+            0.057429647000390105,
+            0.0648297490006371,
+            0.06273226000121213
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008125264001137,
+            5.007514179000282,
+            5.007624390000274
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            86616.17629270657,
+            92735.06753792314,
+            93162.6626560366
+          ],
+          "median_endpoint_all_valid": 92735.06753792314,
+          "first_result_seconds": [
+            0.04201741900033085,
+            0.03667094699994777,
+            0.031429325998033164
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                1.0325755089979793,
+                0.7847080100000312
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                1.1821318919974146,
+                0.8365010079978674
+              ],
+              "hits": 2,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                0.8365010079978674
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.2157288500020513,
+            1.5988423739981954,
+            1.7430150619984488
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            93162.6626560366,
+            93162.6626560366,
+            93162.6626560366
+          ],
+          "median_endpoint_all_valid": 93162.6626560366,
+          "first_result_seconds": [
+            0.03154390099734883,
+            0.03144088400222245,
+            0.03694901199924061
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.5972794209992571,
+                0.6323627509991638,
+                1.1739710380024917
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.612717136998981,
+                1.0387731549999444,
+                1.1739710380024917
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.6749820279983396,
+                1.1670962120006152,
+                1.1843179560019053
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            2.0051729939987126,
+            2.423684700999729,
+            1.6904524990022765
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 17.168072744732953,
+        "best1_warm3": 21.600152416276508,
+        "alns1": 0.46109322984921874,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "fam_spell_sustained_large",
+      "reference_score": 1573331.1056414065,
+      "target99": 1557597.7945849923,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          1573331.1056414065,
+          1573331.1056414065,
+          1573331.1056414065
+        ],
+        "median_endpoint_all_valid": 1573331.1056414065,
+        "first_result_seconds": [
+          0.04709520499818609,
+          0.046949535000749165,
+          0.047697789002995705
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.04709520499818609,
+              0.046949535000749165,
+              0.047697789002995705
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.04709520499818609,
+              0.046949535000749165,
+              0.047697789002995705
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.0525767260005523,
+              0.046949535000749165,
+              0.047697789002995705
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          null,
+          "time_budget",
+          null
+        ],
+        "wall_seconds": [
+          5.008083123000688,
+          5.008131000002322,
+          5.008306914001878
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            1573331.1056414065,
+            1573331.1056414065,
+            1573331.1056414065
+          ],
+          "median_endpoint_all_valid": 1573331.1056414065,
+          "first_result_seconds": [
+            0.0520327449994511,
+            0.051840279000316514,
+            0.062147776003257604
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.0520327449994511,
+                0.051840279000316514,
+                0.062147776003257604
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.0520327449994511,
+                0.051840279000316514,
+                0.062147776003257604
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.0520327449994511,
+                0.051840279000316514,
+                0.062147776003257604
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.007986695,
+            5.007719850000285,
+            5.00806009200096
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            1395191.8342772126,
+            1395191.8342772126,
+            1395191.8342772126
+          ],
+          "median_endpoint_all_valid": 1395191.8342772126,
+          "first_result_seconds": [
+            0.05740878399956273,
+            0.05736656299995957,
+            0.05193705700003193
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0086941519984975,
+            5.007722783000645,
+            5.007785183999658
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            1573331.1056414065,
+            1573331.1056414065,
+            1573331.1056414065
+          ],
+          "median_endpoint_all_valid": 1573331.1056414065,
+          "first_result_seconds": [
+            0.04675360199689749,
+            0.05854897600147524,
+            0.04670431600243319
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.7084956159997091,
+                0.3227741020018584,
+                0.8528178300002764
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.7242920529970434,
+                0.5249373050028225,
+                0.858086396001454
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.7401845239983231,
+                0.5249373050028225,
+                0.858086396001454
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.479030355996656,
+            1.4498384860016813,
+            1.4760529190025409
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            1573331.1056414065,
+            1573331.1056414065,
+            1573331.1056414065
+          ],
+          "median_endpoint_all_valid": 1573331.1056414065,
+          "first_result_seconds": [
+            0.04678470900034881,
+            0.052203142000507796,
+            0.04699269899720093
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.04678470900034881,
+                0.052203142000507796,
+                0.04699269899720093
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.04678470900034881,
+                0.052203142000507796,
+                0.04699269899720093
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.04678470900034881,
+                0.052203142000507796,
+                0.04699269899720093
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            0.9326964899992163,
+            0.8412134589998459,
+            0.9568039679979847
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 12.768084430230342,
+        "alns1": 0.0,
+        "alns_warm6": 0.0
+      }
+    },
+    {
+      "scenario": "fam_hybrid_large",
+      "reference_score": 261937.07198258536,
+      "target99": 259317.7012627595,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          262855.8060403939,
+          262855.8060403939,
+          262855.8060403939
+        ],
+        "median_endpoint_all_valid": 262855.8060403939,
+        "first_result_seconds": [
+          0.04139391400167369,
+          0.036310294999566395,
+          0.036238176999177085
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.04139391400167369,
+              0.036310294999566395,
+              0.036238176999177085
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.8753965649993916,
+              0.7830544819989882,
+              0.08859775900054956
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.9169909709999047,
+              0.7830544819989882,
+              0.093778630001907
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          "time_budget",
+          "time_budget",
+          "time_budget"
+        ],
+        "wall_seconds": [
+          5.007461518998753,
+          5.007841216996894,
+          5.008181331999367
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            261937.07198258536,
+            261937.07198258536,
+            261937.07198258536
+          ],
+          "median_endpoint_all_valid": 261937.07198258536,
+          "first_result_seconds": [
+            0.06217075099993963,
+            0.06253362200004631,
+            0.06738848399982089
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.06217075099993963,
+                0.06253362200004631,
+                0.06738848399982089
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.24352288999943994,
+                0.24424280899984296,
+                0.2542866369985859
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3261646840001049,
+                0.3373699990006571,
+                0.3371570380004414
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.007451883000613,
+            5.007537383000454,
+            5.00776696200046
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            261937.07198258536,
+            261937.07198258536,
+            261937.07198258536
+          ],
+          "median_endpoint_all_valid": 261937.07198258536,
+          "first_result_seconds": [
+            0.06751814800009015,
+            0.06258108299880405,
+            0.0727914890012471
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.06751814800009015,
+                0.06258108299880405,
+                0.0727914890012471
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.2375610399976722,
+                0.22869940099917585,
+                0.24338315299974056
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3150588459975552,
+                0.3059438689997478,
+                0.32038987899795757
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0081512319993635,
+            5.008802725998976,
+            5.007751728000585
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            262855.8060403939,
+            256472.97596093998,
+            256472.97596093998
+          ],
+          "median_endpoint_all_valid": 256472.97596093998,
+          "first_result_seconds": [
+            0.03654717199970037,
+            0.041791500996623654,
+            0.036538330001349095
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.03654717199970037,
+                0.041791500996623654,
+                0.036538330001349095
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.4526168609991146,
+                null,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.6184640810024575,
+                null,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.0409745729994029,
+            0.7349385329980578,
+            0.7560443500005931
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            255637.6030798335,
+            262855.8060403939,
+            256472.97596093998
+          ],
+          "median_endpoint_all_valid": 256472.97596093998,
+          "first_result_seconds": [
+            0.03655473399703624,
+            0.036619151000195416,
+            0.036380361998453736
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.03655473399703624,
+                0.036619151000195416,
+                0.036380361998453736
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                0.23433441599991056,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                0.2707269759994233,
+                null
+              ],
+              "hits": 1,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            0.7883212079977966,
+            0.9354273930002819,
+            0.8112147899992124
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.350746097470922,
+        "best1_warm3": 0.350746097470922,
+        "alns1": 2.4886949806462333,
+        "alns_warm6": 2.4886949806462333
+      }
+    },
+    {
+      "scenario": "gaia_all_free",
+      "reference_score": 324111.66069395555,
+      "target99": 320870.54408701597,
+      "followup": {
+        "seeds": [
+          707,
+          808,
+          909
+        ],
+        "endpoint_scores": [
+          324111.66069395555,
+          324111.66069395555,
+          324111.66069395555
+        ],
+        "median_endpoint_all_valid": 324111.66069395555,
+        "first_result_seconds": [
+          0.11811553200095659,
+          0.11865912099892739,
+          0.12350010099908104
+        ],
+        "targets": {
+          "0.95": {
+            "times_seconds": [
+              0.1541019940013939,
+              0.1547367649982334,
+              0.15942203300073743
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.99": {
+            "times_seconds": [
+              0.1541019940013939,
+              0.1547367649982334,
+              0.15942203300073743
+            ],
+            "hits": 3,
+            "total": 3
+          },
+          "0.999": {
+            "times_seconds": [
+              0.6156274899985874,
+              0.6315337779997208,
+              0.6209065029979683
+            ],
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "statuses": [
+          "timeout",
+          "timeout",
+          "timeout"
+        ],
+        "stop_reasons": [
+          "time_budget",
+          "time_budget",
+          null
+        ],
+        "wall_seconds": [
+          5.007166508999944,
+          5.007094647000486,
+          5.006919793999259
+        ]
+      },
+      "earlier": {
+        "safe_baseline15": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            324111.66069395555,
+            324111.66069395555,
+            324111.66069395555
+          ],
+          "median_endpoint_all_valid": 324111.66069395555,
+          "first_result_seconds": [
+            0.04195143299875781,
+            0.0472763039979327,
+            0.04710799299937207
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                0.05231576599908294,
+                0.057725419999769656,
+                0.057511413000611356
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                0.05231576599908294,
+                0.057725419999769656,
+                0.057511413000611356
+              ],
+              "hits": 3,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                0.21753564800019376,
+                0.19673750899892184,
+                0.1960941309989721
+              ],
+              "hits": 3,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.0073653559993545,
+            5.007636959999218,
+            5.00760979199913
+          ]
+        },
+        "best1_warm3": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            265746.80907015124,
+            265746.80907015124,
+            265746.80907015124
+          ],
+          "median_endpoint_all_valid": 265746.80907015124,
+          "first_result_seconds": [
+            2.5447715619993687,
+            2.4334364790011023,
+            2.4288423660000262
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "wall_seconds": [
+            5.008550809001463,
+            5.007283062001079,
+            5.007188679999672
+          ]
+        },
+        "alns1": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            null,
+            null,
+            null
+          ],
+          "median_endpoint_all_valid": null,
+          "first_result_seconds": [
+            null,
+            null,
+            null
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.6499960220025969,
+            1.710412582000572,
+            1.6701405690000684
+          ]
+        },
+        "alns_warm6": {
+          "seeds": [
+            101,
+            202,
+            303
+          ],
+          "endpoint_scores": [
+            null,
+            null,
+            null
+          ],
+          "median_endpoint_all_valid": null,
+          "first_result_seconds": [
+            null,
+            null,
+            null
+          ],
+          "targets": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                null
+              ],
+              "hits": 0,
+              "total": 3
+            }
+          },
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "wall_seconds": [
+            1.7493782870005816,
+            1.7664153580008133,
+            1.7104789040022297
+          ]
+        }
+      },
+      "descriptive_endpoint_gain_percent": {
+        "safe_baseline15": 0.0,
+        "best1_warm3": 21.962578526539247,
+        "alns1": null,
+        "alns_warm6": null
+      }
+    }
+  ],
+  "descriptive_safe_baseline15_endpoint_medians": {
+    "win": 15,
+    "tie": 7,
+    "loss": 0,
+    "unpaired_no_result": 0
+  },
+  "descriptive_alns_warm6_endpoint_medians": {
+    "win": 10,
+    "tie": 9,
+    "loss": 2,
+    "unpaired_no_result": 1
+  }
+}

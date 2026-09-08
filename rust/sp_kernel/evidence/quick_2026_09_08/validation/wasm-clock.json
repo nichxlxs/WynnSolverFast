@@ -1,0 +1,2340 @@
+{
+  "schema_version": 1,
+  "mode": "clock",
+  "created_at": "2026-09-08T22:50:46.052Z",
+  "scope": "Node-hosted WASM, fresh worker and cold module initialization each run. Not browser UI timings. Fixture reads and cold loading count toward host deadline; prior fixture generation does not.",
+  "quality_scope": "T99 is 99% of a prior frozen, same-fixture screening best-known score, not a global optimality guarantee. Archive validation checks witness structure and native parity, not independent game accuracy.",
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": "AMD EPYC 9V74 80-Core Processor",
+    "cpu_count": 9
+  },
+  "source_commit": "366327d5c34edc2f6227724bfd2d6515f21809d2",
+  "source_dirty": true,
+  "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+  "wasm_sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+  "glue_sha256": "6839ed29e56925e46849b2714bc39beb98648ea8fb9378877f96194b6e4cf276",
+  "harness_sha256": "0854bda00fd95196589cf6e2678fa7a3600b83f62d2b863d17dc2bf91b0842bb",
+  "native_sha256": null,
+  "references_sha256": "49c77760b398a4b64dbce88bb9a2bf645a5fa2be0dde38d0edf4b457db8278e8",
+  "config": {
+    "repo": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized",
+    "fixtures": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/fixtures",
+    "out": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/wasm-clock.json",
+    "mode": "clock",
+    "scenarios": [
+      "fam_spellsteal_medium"
+    ],
+    "seeds": [
+      707
+    ],
+    "arms": [
+      "alns"
+    ],
+    "seconds": 0.2,
+    "workBudget": 100000,
+    "parityTimeout": 10,
+    "elitePool": null,
+    "warmBudget": null,
+    "repairBudget": null,
+    "native": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/quick_kernel_json",
+    "references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/confirmation_setup/screening_references.json",
+    "throwCallback": true
+  },
+  "profile": {
+    "seed": 707,
+    "top_k": 15,
+    "warm_k": 6,
+    "warm_budget": 2000000,
+    "repair_budget": 100000,
+    "max_repairs": 10000,
+    "cycle_stagnation": true
+  },
+  "queries": [
+    "fam_spellsteal_medium"
+  ],
+  "runs": [
+    {
+      "scenario": "fam_spellsteal_medium",
+      "group": "families",
+      "variant": "medium",
+      "arm": "alns",
+      "seed": 707,
+      "options": {
+        "seed": 707,
+        "top_k": 15,
+        "warm_k": 6,
+        "warm_budget": 2000000,
+        "repair_budget": 100000,
+        "max_repairs": 10000,
+        "cycle_stagnation": true,
+        "seconds": 0.2
+      },
+      "enum_sha256": "ef7e01582fad54b3dab7d62bd01677f91a405b43d637c0112326b874d3fc1ea6",
+      "score_sha256": "66da3a05f085d980343fd9e3ba8f6642c686a5412d21ec4f3ac91bee4ba0ab22",
+      "complete": false,
+      "host_budget_seconds": 10,
+      "preparation_seconds": 0.015632132999999996,
+      "fixture_generation_seconds": 0.787246924000101,
+      "worker_load_seconds": 0.0047243210000000035,
+      "kernel_call_seconds": 0.21857281799999997,
+      "kernel_budget_seconds": 0.2,
+      "first_result_host_seconds": 0.14837653599999998,
+      "progress_messages": 5,
+      "trajectory": [
+        {
+          "observed_seconds": 0.14837653599999998,
+          "kernel_seconds": 0.065128003,
+          "score": 80641.13636217853,
+          "leaf_calls": 26,
+          "phase": "warm"
+        }
+      ],
+      "status": "finished",
+      "error": null,
+      "result": {
+        "algorithm": "alns",
+        "complete": false,
+        "quality_reference": "production_evaluator",
+        "seed": 707,
+        "seconds_budget": 0.2,
+        "work_budget": 18446744073709552000,
+        "repair_budget": 100000,
+        "warm_budget": 2000000,
+        "cycle_stagnation": true,
+        "elite_pool": false,
+        "elapsed_secs": 0.20945048700000002,
+        "setup_secs": 0.05560129599999999,
+        "leaf_calls": 8539,
+        "credited_tuples": 48496,
+        "scored": 5430,
+        "repairs": 3,
+        "completed_repairs": 1,
+        "operator_names": [
+          "pair",
+          "triple",
+          "perturb",
+          "crossover",
+          "restart"
+        ],
+        "operator_calls": [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "operator_improvements": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "elite_calls": 0,
+        "elite_improvements": 0,
+        "elite_leaf_calls": 0,
+        "elite_full_domain_tuples": 0,
+        "elite_restricted_domain_tuples": 0,
+        "elite_domain_semantics": "sum_of_overlapping_local_domains_not_unique_work_avoided",
+        "stop_reason": "time_budget",
+        "best_score": 80641.13636217853,
+        "top": [
+          {
+            "score": 80641.13636217853,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Final Spark",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              63,
+              38,
+              16,
+              14
+            ],
+            "total_sp": [
+              60,
+              95,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79911.02566147348,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              68,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              63,
+              95,
+              67,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79849.66764928166,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              62,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              69,
+              90,
+              65,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79809.52658531647,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              62,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              75,
+              90,
+              67,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79758.4167814482,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              68,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              57,
+              95,
+              65,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79400.57553761595,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Landscour",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              57,
+              38,
+              22,
+              14
+            ],
+            "total_sp": [
+              66,
+              90,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79178.97324177079,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Accelerando",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              55,
+              65,
+              44,
+              0,
+              36
+            ],
+            "total_sp": [
+              65,
+              93,
+              65,
+              3,
+              47
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78772.52035318149,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78641.86126489476,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78487.81110301618,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78360.14418975165,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78026.23297965137,
+            "items": [
+              "Dust Goggles",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              66,
+              42,
+              0,
+              35
+            ],
+            "total_sp": [
+              63,
+              90,
+              67,
+              -1,
+              53
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76513.40387531785,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76482.38395764935,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Wild Growth",
+              "Final Spark",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              75,
+              83,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              75,
+              114,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76385.73696205331,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          }
+        ],
+        "top_n": [
+          {
+            "score": 80641.13636217853,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Final Spark",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              63,
+              38,
+              16,
+              14
+            ],
+            "total_sp": [
+              60,
+              95,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79911.02566147348,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              68,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              63,
+              95,
+              67,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79849.66764928166,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              62,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              69,
+              90,
+              65,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79809.52658531647,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              62,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              75,
+              90,
+              67,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79758.4167814482,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              68,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              57,
+              95,
+              65,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79400.57553761595,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Landscour",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              57,
+              38,
+              22,
+              14
+            ],
+            "total_sp": [
+              66,
+              90,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79178.97324177079,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Accelerando",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              55,
+              65,
+              44,
+              0,
+              36
+            ],
+            "total_sp": [
+              65,
+              93,
+              65,
+              3,
+              47
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78772.52035318149,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78641.86126489476,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78487.81110301618,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78360.14418975165,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78026.23297965137,
+            "item_names": [
+              "Dust Goggles",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              66,
+              42,
+              0,
+              35
+            ],
+            "total_sp": [
+              63,
+              90,
+              67,
+              -1,
+              53
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76513.40387531785,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76482.38395764935,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Wild Growth",
+              "Final Spark",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              75,
+              83,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              75,
+              114,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76385.73696205331,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          }
+        ]
+      },
+      "host_wall_seconds": 0.29751738899999997,
+      "cleanup_seconds": 0.005409050999999976,
+      "archive": [
+        {
+          "score": 80641.13636217853,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Omniverse",
+            "Final Spark",
+            "Yang",
+            "Twisted Gemstone",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            69,
+            63,
+            38,
+            16,
+            14
+          ],
+          "total_sp": [
+            60,
+            95,
+            65,
+            30,
+            27
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79911.02566147348,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Counterbias",
+            "Final Spark",
+            "Yang",
+            "Insomniac",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            63,
+            68,
+            38,
+            0,
+            31
+          ],
+          "total_sp": [
+            63,
+            95,
+            67,
+            9,
+            45
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79849.66764928166,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Havoc Focus",
+            "Landscour",
+            "Yang",
+            "Insomniac",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            63,
+            62,
+            44,
+            0,
+            31
+          ],
+          "total_sp": [
+            69,
+            90,
+            65,
+            3,
+            45
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79809.52658531647,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Counterbias",
+            "Landscour",
+            "Yang",
+            "Insomniac",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            69,
+            62,
+            38,
+            0,
+            31
+          ],
+          "total_sp": [
+            75,
+            90,
+            67,
+            3,
+            45
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79758.4167814482,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Havoc Focus",
+            "Final Spark",
+            "Yang",
+            "Insomniac",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            57,
+            68,
+            44,
+            0,
+            31
+          ],
+          "total_sp": [
+            57,
+            95,
+            65,
+            9,
+            45
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79400.57553761595,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Omniverse",
+            "Landscour",
+            "Yang",
+            "Twisted Gemstone",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            69,
+            57,
+            38,
+            22,
+            14
+          ],
+          "total_sp": [
+            66,
+            90,
+            65,
+            30,
+            27
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 79178.97324177079,
+          "items": [
+            "Omnistone",
+            "Withdrawal",
+            "Havoc Focus",
+            "Landscour",
+            "Yang",
+            "Accelerando",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            55,
+            65,
+            44,
+            0,
+            36
+          ],
+          "total_sp": [
+            65,
+            93,
+            65,
+            3,
+            47
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 78772.52035318149,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Alstroemania",
+            "Static Cling",
+            "Yang",
+            "Iterative Loop",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            90,
+            80,
+            30,
+            0,
+            0
+          ],
+          "total_sp": [
+            90,
+            121,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 78641.86126489476,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Alstroemania",
+            "Static Cling",
+            "Yang",
+            "Cistern Circlet",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            90,
+            80,
+            30,
+            0,
+            0
+          ],
+          "total_sp": [
+            90,
+            121,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 78487.81110301618,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Havoc Focus",
+            "Static Cling",
+            "Yang",
+            "Iterative Loop",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            79,
+            79,
+            42,
+            0,
+            0
+          ],
+          "total_sp": [
+            79,
+            120,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 78360.14418975165,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Havoc Focus",
+            "Static Cling",
+            "Yang",
+            "Cistern Circlet",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            79,
+            79,
+            42,
+            0,
+            0
+          ],
+          "total_sp": [
+            79,
+            120,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 78026.23297965137,
+          "items": [
+            "Dust Goggles",
+            "Withdrawal",
+            "Counterbias",
+            "Landscour",
+            "Yang",
+            "Insomniac",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            57,
+            66,
+            42,
+            0,
+            35
+          ],
+          "total_sp": [
+            63,
+            90,
+            67,
+            -1,
+            53
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 76513.40387531785,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Signature",
+            "Static Cling",
+            "Yang",
+            "Iterative Loop",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            79,
+            79,
+            42,
+            0,
+            0
+          ],
+          "total_sp": [
+            79,
+            120,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 76482.38395764935,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Wild Growth",
+            "Final Spark",
+            "Yang",
+            "Iterative Loop",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            75,
+            83,
+            42,
+            0,
+            0
+          ],
+          "total_sp": [
+            75,
+            114,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        },
+        {
+          "score": 76385.73696205331,
+          "items": [
+            "Threnody",
+            "Withdrawal",
+            "Signature",
+            "Static Cling",
+            "Yang",
+            "Cistern Circlet",
+            "Misalignment",
+            "Metamorphosis"
+          ],
+          "base_sp": [
+            79,
+            79,
+            42,
+            0,
+            0
+          ],
+          "total_sp": [
+            79,
+            120,
+            67,
+            5,
+            5
+          ],
+          "assigned_sp": 200,
+          "tome": null
+        }
+      ],
+      "retained_payload": {
+        "algorithm": "alns",
+        "complete": false,
+        "quality_reference": "production_evaluator",
+        "seed": 707,
+        "seconds_budget": 0.2,
+        "work_budget": 18446744073709552000,
+        "repair_budget": 100000,
+        "warm_budget": 2000000,
+        "cycle_stagnation": true,
+        "elite_pool": false,
+        "elapsed_secs": 0.20945048700000002,
+        "setup_secs": 0.05560129599999999,
+        "leaf_calls": 8539,
+        "credited_tuples": 48496,
+        "scored": 5430,
+        "repairs": 3,
+        "completed_repairs": 1,
+        "operator_names": [
+          "pair",
+          "triple",
+          "perturb",
+          "crossover",
+          "restart"
+        ],
+        "operator_calls": [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "operator_improvements": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "elite_calls": 0,
+        "elite_improvements": 0,
+        "elite_leaf_calls": 0,
+        "elite_full_domain_tuples": 0,
+        "elite_restricted_domain_tuples": 0,
+        "elite_domain_semantics": "sum_of_overlapping_local_domains_not_unique_work_avoided",
+        "stop_reason": "time_budget",
+        "best_score": 80641.13636217853,
+        "top": [
+          {
+            "score": 80641.13636217853,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Final Spark",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              63,
+              38,
+              16,
+              14
+            ],
+            "total_sp": [
+              60,
+              95,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79911.02566147348,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              68,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              63,
+              95,
+              67,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79849.66764928166,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              62,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              69,
+              90,
+              65,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79809.52658531647,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              62,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              75,
+              90,
+              67,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79758.4167814482,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              68,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              57,
+              95,
+              65,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79400.57553761595,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Landscour",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              57,
+              38,
+              22,
+              14
+            ],
+            "total_sp": [
+              66,
+              90,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79178.97324177079,
+            "items": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Accelerando",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              55,
+              65,
+              44,
+              0,
+              36
+            ],
+            "total_sp": [
+              65,
+              93,
+              65,
+              3,
+              47
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78772.52035318149,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78641.86126489476,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78487.81110301618,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78360.14418975165,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78026.23297965137,
+            "items": [
+              "Dust Goggles",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              66,
+              42,
+              0,
+              35
+            ],
+            "total_sp": [
+              63,
+              90,
+              67,
+              -1,
+              53
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76513.40387531785,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76482.38395764935,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Wild Growth",
+              "Final Spark",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              75,
+              83,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              75,
+              114,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76385.73696205331,
+            "items": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          }
+        ],
+        "top_n": [
+          {
+            "score": 80641.13636217853,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Final Spark",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              63,
+              38,
+              16,
+              14
+            ],
+            "total_sp": [
+              60,
+              95,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79911.02566147348,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              68,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              63,
+              95,
+              67,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79849.66764928166,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              63,
+              62,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              69,
+              90,
+              65,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79809.52658531647,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              62,
+              38,
+              0,
+              31
+            ],
+            "total_sp": [
+              75,
+              90,
+              67,
+              3,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79758.4167814482,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Final Spark",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              68,
+              44,
+              0,
+              31
+            ],
+            "total_sp": [
+              57,
+              95,
+              65,
+              9,
+              45
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79400.57553761595,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Omniverse",
+              "Landscour",
+              "Yang",
+              "Twisted Gemstone",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              69,
+              57,
+              38,
+              22,
+              14
+            ],
+            "total_sp": [
+              66,
+              90,
+              65,
+              30,
+              27
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 79178.97324177079,
+            "item_names": [
+              "Omnistone",
+              "Withdrawal",
+              "Havoc Focus",
+              "Landscour",
+              "Yang",
+              "Accelerando",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              55,
+              65,
+              44,
+              0,
+              36
+            ],
+            "total_sp": [
+              65,
+              93,
+              65,
+              3,
+              47
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78772.52035318149,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78641.86126489476,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Alstroemania",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              90,
+              80,
+              30,
+              0,
+              0
+            ],
+            "total_sp": [
+              90,
+              121,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78487.81110301618,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78360.14418975165,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Havoc Focus",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 78026.23297965137,
+            "item_names": [
+              "Dust Goggles",
+              "Withdrawal",
+              "Counterbias",
+              "Landscour",
+              "Yang",
+              "Insomniac",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              57,
+              66,
+              42,
+              0,
+              35
+            ],
+            "total_sp": [
+              63,
+              90,
+              67,
+              -1,
+              53
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76513.40387531785,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76482.38395764935,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Wild Growth",
+              "Final Spark",
+              "Yang",
+              "Iterative Loop",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              75,
+              83,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              75,
+              114,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          },
+          {
+            "score": 76385.73696205331,
+            "item_names": [
+              "Threnody",
+              "Withdrawal",
+              "Signature",
+              "Static Cling",
+              "Yang",
+              "Cistern Circlet",
+              "Misalignment",
+              "Metamorphosis"
+            ],
+            "base_sp": [
+              79,
+              79,
+              42,
+              0,
+              0
+            ],
+            "total_sp": [
+              79,
+              120,
+              67,
+              5,
+              5
+            ],
+            "assigned_sp": 200
+          }
+        ]
+      },
+      "best_score": 80641.13636217853,
+      "validation_errors": [],
+      "clock_errors": [],
+      "reference": null,
+      "reference_status": "no_frozen_reference",
+      "t99_host_seconds": null,
+      "t999_host_seconds": null
+    }
+  ],
+  "summary": {
+    "runs": 1,
+    "failures": 0,
+    "returned_api": 1,
+    "host_deadlines": 0,
+    "with_result": 1,
+    "with_frozen_reference": 0,
+    "attained_t99": 0,
+    "attained_t999": 0,
+    "parity_pass": 0
+  }
+}

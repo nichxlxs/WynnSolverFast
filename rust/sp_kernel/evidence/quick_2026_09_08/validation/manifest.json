@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "scope": "Validation evidence for the browser Quick path and shared native/WASM kernel. Parity is bounded same-evaluator agreement, not exhaustive or independent game correctness.",
+  "browser_ci": {
+    "commit": "d9b1d383c599cf02c7bff9994fa2c1b3eebfc1bb",
+    "run_id": 34288116399,
+    "job_id": 102268289570,
+    "url": "https://github.com/nichxlxs/WynnSolverFast/actions/runs/34288116399",
+    "assertions": 60,
+    "errors": 0,
+    "artifact_id": 10080318602,
+    "artifact_url": "https://github.com/nichxlxs/WynnSolverFast/actions/runs/34288116399/artifacts/10080318602",
+    "artifact_bytes": 19230712,
+    "artifact_sha256": "ebfd404247a11e4f64200d1f0fda79209f86516c11bd816e29a6433aa8ed5a81",
+    "artifact_sha256_verified": true,
+    "full_trace_zip_in_git": false,
+    "full_trace_zip_local": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/browser-ci-d9b1d383/evidence.zip",
+    "artifact_expiry_utc": "2026-09-22T22:55:40Z"
+  },
+  "rust_units": {
+    "passed": 35,
+    "failed": 0,
+    "source": "elite_rust_tests_final.log"
+  },
+  "javascript_local": {
+    "passed": 575,
+    "failed": 4,
+    "warnings": 2,
+    "source": "javascript-final.log",
+    "failures": [
+      "test_browser_coi",
+      "test_browser_quick_search",
+      "test_browser_rust_bridge",
+      "test_browser_subpath"
+    ],
+    "reason": "Local Playwright installation incomplete and local Chromium unavailable. Dedicated Quick test subsequently passed in real Chromium CI; the three legacy browser guards were not rerun there."
+  },
+  "parity_reports": [
+    {
+      "source_file": "wasm-parity132.json",
+      "source_bytes": 7894371,
+      "source_sha256": "9068b925d3e0e6927704f49f0a02b7df7393e385ce331acd1702d296f14021de",
+      "archive_file": "wasm-parity132.json.gz",
+      "archive_bytes": 268871,
+      "archive_sha256": "9f763ebea21112cd3283205f24ad33765d6f2d673acc4337fe16fcf1b11144be",
+      "archive_status": "complete",
+      "compression": "gzip level9 mtime0",
+      "summary": {
+        "runs": 132,
+        "failures": 0,
+        "returned_api": 132,
+        "host_deadlines": 0,
+        "with_result": 126,
+        "with_frozen_reference": 22,
+        "attained_t99": 9,
+        "attained_t999": 8,
+        "parity_pass": 132
+      },
+      "header": {
+        "schema_version": 1,
+        "mode": "parity",
+        "created_at": "2026-09-08T22:48:30.434Z",
+        "scope": "Node-hosted WASM, fresh worker and cold module initialization each run. Not browser UI timings. Fixture reads and cold loading count toward host deadline; prior fixture generation does not.",
+        "quality_scope": "T99 is 99% of a prior frozen, same-fixture screening best-known score, not a global optimality guarantee. Archive validation checks witness structure and native parity, not independent game accuracy.",
+        "runtime": {
+          "node": "v24.19.0",
+          "platform": "linux",
+          "arch": "x64",
+          "cpus": "AMD EPYC 9V74 80-Core Processor",
+          "cpu_count": 9
+        },
+        "source_commit": "366327d5c34edc2f6227724bfd2d6515f21809d2",
+        "source_dirty": true,
+        "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+        "wasm_sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+        "glue_sha256": "6839ed29e56925e46849b2714bc39beb98648ea8fb9378877f96194b6e4cf276",
+        "harness_sha256": "75914dab19db607dc96b52263da558208f244b03dc0dc12ecc4df24192f16628",
+        "native_sha256": "3308ca6e5aa1c1b2f76e467343f5fb6cf363fc871e776019b48f8d97ca2b6bd6",
+        "references_sha256": "49c77760b398a4b64dbce88bb9a2bf645a5fa2be0dde38d0edf4b457db8278e8",
+        "config": {
+          "repo": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized",
+          "fixtures": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/fixtures",
+          "out": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/wasm-parity132.json",
+          "mode": "parity",
+          "scenarios": [
+            "all"
+          ],
+          "seeds": [
+            707
+          ],
+          "arms": [
+            "alns"
+          ],
+          "seconds": 5,
+          "workBudget": 2000,
+          "parityTimeout": 60,
+          "native": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/quick_kernel_json",
+          "references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/confirmation_setup/screening_references.json"
+        },
+        "profile": {
+          "seed": 707,
+          "top_k": 15,
+          "warm_k": 6,
+          "warm_budget": 2000000,
+          "repair_budget": 100000,
+          "max_repairs": 10000,
+          "cycle_stagnation": true
+        }
+      }
+    },
+    {
+      "source_file": "wasm-elite-parity3.json",
+      "source_bytes": 231442,
+      "source_sha256": "afbfd486fdfa086373271b082f787135c1fdc5ca1018982ff6fd57dd6bfed051",
+      "archive_file": "wasm-elite-parity3.json.gz",
+      "archive_bytes": 11711,
+      "archive_sha256": "52e4c8889920558fcbeaa87d8005b558acf75152a9625818a755849ac98c4b5b",
+      "archive_status": "complete",
+      "compression": "gzip level9 mtime0",
+      "summary": {
+        "runs": 3,
+        "failures": 0,
+        "returned_api": 3,
+        "host_deadlines": 0,
+        "with_result": 3,
+        "with_frozen_reference": 2,
+        "attained_t99": 2,
+        "attained_t999": 2,
+        "parity_pass": 3
+      },
+      "header": {
+        "schema_version": 1,
+        "mode": "parity",
+        "created_at": "2026-09-08T22:50:37.484Z",
+        "scope": "Node-hosted WASM, fresh worker and cold module initialization each run. Not browser UI timings. Fixture reads and cold loading count toward host deadline; prior fixture generation does not.",
+        "quality_scope": "T99 is 99% of a prior frozen, same-fixture screening best-known score, not a global optimality guarantee. Archive validation checks witness structure and native parity, not independent game accuracy.",
+        "runtime": {
+          "node": "v24.19.0",
+          "platform": "linux",
+          "arch": "x64",
+          "cpus": "AMD EPYC 9V74 80-Core Processor",
+          "cpu_count": 9
+        },
+        "source_commit": "366327d5c34edc2f6227724bfd2d6515f21809d2",
+        "source_dirty": true,
+        "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+        "wasm_sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+        "glue_sha256": "6839ed29e56925e46849b2714bc39beb98648ea8fb9378877f96194b6e4cf276",
+        "harness_sha256": "0854bda00fd95196589cf6e2678fa7a3600b83f62d2b863d17dc2bf91b0842bb",
+        "native_sha256": "3308ca6e5aa1c1b2f76e467343f5fb6cf363fc871e776019b48f8d97ca2b6bd6",
+        "references_sha256": "49c77760b398a4b64dbce88bb9a2bf645a5fa2be0dde38d0edf4b457db8278e8",
+        "config": {
+          "repo": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized",
+          "fixtures": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/fixtures",
+          "out": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/wasm-elite-parity3.json",
+          "mode": "parity",
+          "scenarios": [
+            "fam_spellsteal_medium",
+            "meta_mage_arcanist_meteor_remove_6",
+            "meta_mage_light_bender_healing_remove_6"
+          ],
+          "seeds": [
+            707
+          ],
+          "arms": [
+            "alns"
+          ],
+          "seconds": 5,
+          "workBudget": 100000,
+          "parityTimeout": 60,
+          "elitePool": 1,
+          "warmBudget": 1000,
+          "repairBudget": 10000,
+          "native": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/quick_kernel_json",
+          "references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/confirmation_setup/screening_references.json"
+        },
+        "profile": {
+          "seed": 707,
+          "top_k": 15,
+          "warm_k": 6,
+          "warm_budget": 2000000,
+          "repair_budget": 100000,
+          "max_repairs": 10000,
+          "cycle_stagnation": true
+        }
+      }
+    }
+  ],
+  "preserved_files": [
+    {
+      "path": "README.md",
+      "bytes": 4124,
+      "sha256": "1750d8b1a55002da7f28bd72ba4e10548edf60c8a3dc12309cfa62e9fbdb634e"
+    },
+    {
+      "path": "browser-ci-d9b1d383/artifacts.json",
+      "bytes": 873,
+      "sha256": "3836e51b120119041896e898f2bbcbc01553180005138928b1ddfdf5321bb938"
+    },
+    {
+      "path": "browser-ci-d9b1d383/browser-job.log",
+      "bytes": 47065,
+      "sha256": "41a40bde38a3d618b188f1ba914df8e1d25e44d59b0ad6fe309bedfc9c44c7b6"
+    },
+    {
+      "path": "browser-ci-d9b1d383/jobs.json",
+      "bytes": 3127,
+      "sha256": "50a2bb437e388989b04b3042279db62fcd2f8d24f03f8d43654ccb3c813c4002"
+    },
+    {
+      "path": "browser-ci-d9b1d383/results.json",
+      "bytes": 684,
+      "sha256": "51fb7e1928b717501bf007d955baa921fc2558caaed7dce89359cfbfa24b5b01"
+    },
+    {
+      "path": "build-provenance.json",
+      "bytes": 17762,
+      "sha256": "b37fcf253048cabbabfd4294fa125081faa5abf800da6f702e39a21e4dd29120"
+    },
+    {
+      "path": "elite_native_build_final.log",
+      "bytes": 6981,
+      "sha256": "fc29c8be7ac80bea588176ae52a9d0aa5ad32eaf45d793f7a6dace7349d78f24"
+    },
+    {
+      "path": "elite_rust_tests_final.log",
+      "bytes": 10611,
+      "sha256": "0c0e8ce1ca40dc6d68634606d41f701cf11c8c22346b89fd38628745f55f50bc"
+    },
+    {
+      "path": "final-focused-checks.json",
+      "bytes": 584,
+      "sha256": "bbc0a1eec50041421e6fffa94cc8ba46fe11810f47c18a3da79a7bb0a62a6702"
+    },
+    {
+      "path": "javascript-final.log",
+      "bytes": 1710,
+      "sha256": "bc34695865e5060b3b539127993231981aee84ff4e3fbb96638a4ca16478d5ca"
+    },
+    {
+      "path": "toolchain-versions.txt",
+      "bytes": 262,
+      "sha256": "47cf5c89812985cfc4d21ae10700ca65f4f0462e0645d5da3a8cd7d6d27591a0"
+    },
+    {
+      "path": "wasm-build-final.log",
+      "bytes": 7122,
+      "sha256": "f3543806a4087eaf645ff9b039a8ed5fd56071486e593ed0582cbcea773e4ea8"
+    },
+    {
+      "path": "wasm-clock.json",
+      "bytes": 52683,
+      "sha256": "46613536446ad6741ddb0fe06fd30214b8b2fcb84e9f6335019b2b158768636c"
+    },
+    {
+      "path": "wasm-clock.log",
+      "bytes": 248,
+      "sha256": "d2eb5565e0daaa111a167166fe5a848fe4b0bb41c25e6cf95f2e4a6cd7312440"
+    },
+    {
+      "path": "wasm-elite-parity3.json.gz",
+      "bytes": 11711,
+      "sha256": "52e4c8889920558fcbeaa87d8005b558acf75152a9625818a755849ac98c4b5b"
+    },
+    {
+      "path": "wasm-elite-parity3.log",
+      "bytes": 498,
+      "sha256": "c420da05013e849b5432f5d6e83415befd11b65ce57d7f286ff1cf6d57a086e1"
+    },
+    {
+      "path": "wasm-elite-parity3_summary.json",
+      "bytes": 3591,
+      "sha256": "ba88276ba768d6682e9ef988802ca718708d0181804be7f5d7aa7b7ca0a8f19e"
+    },
+    {
+      "path": "wasm-long6.json.gz",
+      "bytes": 12343,
+      "sha256": "4e577c69dad6449e6aa2b3a04ad3ed0031050d98a1ebff1c1a7577a77bae0192"
+    },
+    {
+      "path": "wasm-long6_summary.csv",
+      "bytes": 1093,
+      "sha256": "e97fd7194be9d594cbe6e992072dab11e5d61b5c36f9470d7be3a1fd85857c24"
+    },
+    {
+      "path": "wasm-long6_summary.json",
+      "bytes": 5256,
+      "sha256": "a69a23ab823316c2b0d6d9f6a4fe5b203dff1042f23e8533d200a4f0c9b3cdce"
+    },
+    {
+      "path": "wasm-parity132.json.gz",
+      "bytes": 268871,
+      "sha256": "9f763ebea21112cd3283205f24ad33765d6f2d673acc4337fe16fcf1b11144be"
+    },
+    {
+      "path": "wasm-parity132.log",
+      "bytes": 14571,
+      "sha256": "2216989499fb80a7e28e4bfd15af60134b92b88832d46e538cadbc795846ee2f"
+    },
+    {
+      "path": "wasm-parity132_summary.json",
+      "bytes": 73124,
+      "sha256": "617a8cd6969e7279e78c572ce4e11ef78db9a2d1326b62c25588e1d962714f62"
+    }
+  ],
+  "node_wasm_timed_followup": {
+    "source_file": "wasm-long6.json",
+    "source_bytes": 145981,
+    "source_sha256": "f962b094c3f2c06d7b48d359abb9208f337a126f099d535de6ff4663bb67cea6",
+    "archive_file": "wasm-long6.json.gz",
+    "archive_bytes": 12343,
+    "archive_sha256": "4e577c69dad6449e6aa2b3a04ad3ed0031050d98a1ebff1c1a7577a77bae0192",
+    "archive_status": "complete",
+    "compression": "gzip level9 mtime0",
+    "summary": {
+      "runs": 6,
+      "failures": 0,
+      "returned_api": 0,
+      "host_deadlines": 6,
+      "with_result": 6,
+      "with_frozen_reference": 6,
+      "attained_t99": 3,
+      "attained_t999": 3,
+      "parity_pass": 0
+    },
+    "header": {
+      "schema_version": 1,
+      "mode": "timed",
+      "created_at": "2026-09-08T23:33:07.020Z",
+      "scope": "Node-hosted WASM, fresh worker and cold module initialization each run. Not browser UI timings. Fixture reads and cold loading count toward host deadline; prior fixture generation does not.",
+      "quality_scope": "T99 is 99% of a prior frozen, same-fixture screening best-known score, not a global optimality guarantee. Archive validation checks witness structure and native parity, not independent game accuracy.",
+      "runtime": {
+        "node": "v24.19.0",
+        "platform": "linux",
+        "arch": "x64",
+        "cpus": "AMD EPYC 9V74 80-Core Processor",
+        "cpu_count": 9
+      },
+      "source_commit": "1479d683e0de30d51f14b8ef0a8102bbcc12c34c",
+      "source_dirty": true,
+      "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+      "wasm_sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+      "glue_sha256": "6839ed29e56925e46849b2714bc39beb98648ea8fb9378877f96194b6e4cf276",
+      "harness_sha256": "0854bda00fd95196589cf6e2678fa7a3600b83f62d2b863d17dc2bf91b0842bb",
+      "native_sha256": null,
+      "references_sha256": "4ffdb7a6960bff6be9b19ddfbd2d4f1a6f05e60b04238904ca9764a9d07cacd4",
+      "config": {
+        "repo": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized",
+        "fixtures": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/fixtures",
+        "out": "/workspace/scratch/b17a901c79d8/wynn-quick-validation/wasm-long6.json",
+        "mode": "timed",
+        "scenarios": [
+          "fam_spellsteal_medium",
+          "meta_mage_arcanist_meteor_remove_6",
+          "meta_mage_light_bender_healing_remove_6"
+        ],
+        "seeds": [
+          1217
+        ],
+        "arms": [
+          "exact",
+          "alns"
+        ],
+        "seconds": 15,
+        "workBudget": 100000,
+        "parityTimeout": 60,
+        "elitePool": null,
+        "warmBudget": null,
+        "repairBudget": null,
+        "native": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/quick_kernel_json",
+        "references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/quick_2026_09_08/long_setup/references.json"
+      },
+      "profile": {
+        "seed": 707,
+        "top_k": 15,
+        "warm_k": 6,
+        "warm_budget": 2000000,
+        "repair_budget": 100000,
+        "max_repairs": 10000,
+        "cycle_stagnation": true
+      }
+    }
+  },
+  "build_provenance": "build-provenance.json"
+}

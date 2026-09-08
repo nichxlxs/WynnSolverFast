@@ -5,7 +5,8 @@
 //! validated bit-exact by `bin/score_kernel.rs` against fixtures exported
 //! with SOLVER_EXPORT_SCORE. JS numeric semantics are mirrored throughout
 //! (missing-key NaN flow, insertion-order maps, NaN-propagating max,
-//! half-up rounding). Healing is not ported (never affects total_damage).
+//! half-up rounding). Damage-only paths omit healing amounts; healing
+//! objectives use the separate healing evaluator.
 
 use serde_json::Value;
 use std::borrow::Cow;
@@ -426,8 +427,8 @@ pub fn eval_spell_parts(
             result.kind = Some("damage");
             result.normal_total = norm;
             result.crit_total = crit;
-        } else if part.get("max_hp_heal_pct").is_some() {
-            // Healing not ported: heal parts never contribute to total_damage.
+        } else if part.get("power").or_else(|| part.get("max_hp_heal_pct")).is_some() {
+            // Heal parts never contribute to this damage-only result.
             result.kind = Some("heal");
         } else if let Some(hits) = part.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = part.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -2939,8 +2940,10 @@ pub fn leaf_pipeline_gated(
         // of every allocation the greedy can reach, which is all the gate
         // needs. Disabling the rescue in particular shrinks the reachable
         // set, and a ceiling over a superset is still a ceiling.
-        let gate_env_off = env_once!("SCORE_HPCAST_GATE" == "0")
-            && consts.hp_casting;
+        // Reference campaigns can evaluate every SP-feasible tuple without
+        // relying on this ceiling. The production default is unchanged.
+        let gate_env_off = env_once!("SCORE_CEILING_GATE" == "0")
+            || (env_once!("SCORE_HPCAST_GATE" == "0") && consts.hp_casting);
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
             && !gate_env_off {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
@@ -3717,7 +3720,10 @@ pub fn compute_spell_healing_total(stats: &StatsView, spell: &Value, tables: &Ta
             p.get("name").and_then(|n| n.as_str()) == Some(name)
         }) else { return 0.0 };
         let part_id = format!("{}.{}", base_spell, name);
-        let amount = if let Some(pct) = part.get("max_hp_heal_pct").and_then(|v| v.as_f64()) {
+        // Current spells use `power`; historical fixtures use the older
+        // alias. Match JS spell_part_heal_power, including power=0 precedence.
+        let amount = if let Some(pct) = part.get("power")
+            .or_else(|| part.get("max_hp_heal_pct")).and_then(|v| v.as_f64()) {
             let mut heal_mult = 1.0;
             if let Some(m) = heal_mult_map {
                 for (k, v) in m {
@@ -4366,7 +4372,7 @@ pub fn eval_combo_damage_compiled(
 // compile time: parts lowered to flat structs with precomputed multipliers,
 // part ids, and part-scoped ConvBase key names; hit edges resolved to part
 // indices; part KINDS resolved statically (multipliers → damage,
-// max_hp_heal_pct → heal, total → first sub's kind — the same inference the
+// power/max_hp_heal_pct → heal, total → first sub's kind — the same inference the
 // dynamic path performs); the display part index (find_display_result) and
 // the flat-damage contributor set (given the row's constant DPS chain root)
 // precomputed. Evaluation walks arrays with an indexed memo and computes
@@ -4428,7 +4434,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
         seen.push(i);
         let p = &parts[i];
         if p.get("multipliers").is_some() { return Some("damage"); }
-        if p.get("max_hp_heal_pct").is_some() { return Some("heal"); }
+        if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() { return Some("heal"); }
         if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             for sub in hits.keys() {
                 if let Some(j) = names.iter().position(|x| x == sub) {
@@ -4460,7 +4466,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
                 part_id,
                 conv_names,
             })
-        } else if p.get("max_hp_heal_pct").is_some() {
+        } else if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() {
             PartKindPlan::Heal
         } else if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = p.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -7058,4 +7064,85 @@ pub fn dense_check_thresholds(
         if !*ge && v > *value { return false; }
     }
     true
+}
+
+
+#[cfg(test)]
+mod healing_schema_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn tables() -> Tables {
+        Tables {
+            skillpoint_damage_mult: Vec::new(), base_damage_multiplier: Vec::new(),
+            attack_speeds: Vec::new(), damage_keys: Vec::new(),
+            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0],
+            skillpoint_final_mult_3: 1.0, skillpoint_final_mult_4: 1.0,
+            names: ElemNames::build(),
+        }
+    }
+
+    fn stats(multipliers: Value) -> Obj {
+        json!({"hp": 8000.0, "hpBonus": 2000.0, "healMult": {"__m": multipliers}})
+            .as_object().unwrap().clone()
+    }
+
+    fn spell(heal_fields: Value) -> Value {
+        let mut heal = heal_fields.as_object().unwrap().clone();
+        heal.insert("name".into(), json!("Heal"));
+        json!({"base_spell": 1, "display": "Total", "parts": [
+            heal, {"name": "Total", "hits": {"Heal": 2}}
+        ]})
+    }
+
+    #[test]
+    fn current_healing_power_and_aggregate_are_both_counted() {
+        let stats = stats(json!({}));
+        let heal = spell(json!({"power": 0.15}));
+        // JS sums every part: 1500 direct + 2 * 1500 aggregate.
+        assert_eq!(compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables()), 4500.0);
+    }
+
+    #[test]
+    fn healing_multipliers_apply_globally_or_to_the_matching_leaf_part() {
+        let stats = stats(json!({
+            "global": 20, "selected:1.Heal": 50,
+            "other_spell:2.Heal": 900, "aggregate_only:1.Total": 900
+        }));
+        let heal = spell(json!({"power": 0.15}));
+        // Only global and the Heal-specific boost apply: 4500 * 1.2 * 1.5.
+        let result = compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables());
+        assert!((result - 8100.0).abs() < 1e-9, "{result}");
+    }
+
+    #[test]
+    fn historical_heal_alias_works_but_current_zero_power_takes_precedence() {
+        let stats = stats(json!({}));
+        let view = StatsView::Borrowed(&stats);
+        let tables = tables();
+        for (fields, expected) in [
+            (json!({"max_hp_heal_pct": 0.15}), 4500.0),
+            (json!({"power": 0, "max_hp_heal_pct": 0.15}), 0.0),
+            (json!({"power": 0.10, "max_hp_heal_pct": 0.15}), 3000.0),
+        ] {
+            assert_eq!(compute_spell_healing_total(&view, &spell(fields), &tables), expected);
+        }
+    }
+
+    #[test]
+    fn dynamic_and_compiled_kinds_recognize_current_and_legacy_heal_parts() {
+        let stats = stats(json!({}));
+        for fields in [json!({"power": 0.15}), json!({"power": 0}),
+            json!({"max_hp_heal_pct": 0.15})] {
+            let heal = spell(fields);
+            let dynamic = eval_spell_parts(&StatsView::Borrowed(&stats), &Obj::new(), &heal, &tables());
+            assert_eq!(dynamic.len(), 2);
+            assert!(dynamic.iter().all(|part| part.kind == Some("heal")));
+            let compiled = compile_spell_plan(&heal, &None, &None).unwrap();
+            assert!(matches!(compiled.parts[0].kind, PartKindPlan::Heal));
+            assert!(compiled.parts.iter().all(|part| part.static_kind == Some("heal")));
+            assert_eq!(eval_spell_plan(&StatsView::Borrowed(&stats), &Obj::new(), &compiled,
+                0.0, &tables(), false), (0.0, 0.0));
+        }
+    }
 }

@@ -961,6 +961,8 @@ async function runSolverTest(snapName) {
         domStats = ctx._build_dominance_stats(solverSnap, dmgWeights, solverSnap.restrictions);
         ctx._prune_dominated_items(freePools, domStats, {
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
+            // The VM has no process.env: pass an explicit benchmark override.
+            mode: process.env.SOLVER_DOMINANCE_MODE,
         });
         ctx._prioritize_pools(freePools, dmgWeights);
     }
@@ -995,12 +997,19 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
     const combinations = countCombinations(freePools);
     console.log(`  [${snapName}] search combinations: ${combinations}`);
-    if (snap.combination_budget) {
+    // Exporting a new raw-pool benchmark must not reuse timing-era bands
+    // calibrated after legacy dominance. Ordinary regression gates still run.
+    const exportUncalibratedPools = process.env.SOLVER_EXPORT_RUST
+        && process.env.SOLVER_EXPORT_ALLOW_UNCALIBRATED === '1';
+    if (snap.combination_budget && !exportUncalibratedPools) {
         const budget = snap.combination_budget;
         t.assert(inputCombinations >= budget.input_min && inputCombinations <= budget.input_max,
             `${snapName}: input combinations ${inputCombinations} within calibrated band ${budget.input_min}-${budget.input_max}`);
         t.assert(combinations >= budget.search_min && combinations <= budget.search_max,
             `${snapName}: search combinations ${combinations} within calibrated band ${budget.search_min}-${budget.search_max}`);
+    }
+    if (snap.combination_budget && exportUncalibratedPools) {
+        console.log(`  [${snapName}] export records observed pool counts; historical combination bands not applied`);
     }
 
     // 8. Serialize for worker transfer

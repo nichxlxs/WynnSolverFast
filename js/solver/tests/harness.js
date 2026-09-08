@@ -355,6 +355,7 @@ function loadGameData(ctx) {
     const all_tomes = tomes_raw.concat(none_tomes);
     const tomeMap = new Map();
     const tomeIDMap = new Map();
+    const tomeRedirectMap = new Map();
     const tomeLists = new Map();
     for (const tt of ctx.tome_types) {
         tomeLists.set(tt, []);
@@ -370,6 +371,8 @@ function loadGameData(ctx) {
             } else {
                 tomeIDMap.set(tome.id, tome.displayName);
             }
+        } else {
+            tomeRedirectMap.set(tome.id, tome.remapID);
         }
     }
 
@@ -431,6 +434,7 @@ function loadGameData(ctx) {
     ctx.none_items = none_items;
     ctx.tomeMap = tomeMap;
     ctx.tomeIDMap = tomeIDMap;
+    ctx.tomeRedirectMap = tomeRedirectMap;
     ctx.tomeLists = tomeLists;
     ctx.none_tomes = none_tomes;
     ctx.DEC = enc_data;
@@ -441,7 +445,7 @@ function loadGameData(ctx) {
     ctx.aspect_id_map = aspect_id_map;
     ctx.aspectMap = aspect_map;  // alias used by some code paths
 
-    return { itemMap, sets, tomeMap, none_items, none_tomes, aspect_map, aspect_id_map };
+    return { itemMap, sets, tomeMap, tomeRedirectMap, none_items, none_tomes, aspect_map, aspect_id_map };
 }
 
 // ── URL Hash Decoding ────────────────────────────────────────────────────────

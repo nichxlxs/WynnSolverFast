@@ -19,10 +19,15 @@
 //! per-thread sums combine exactly regardless of scheduling order.
 
 use crate::{Case, Kernel, Unit, SP_PER_ATTR_CAP};
+use crate::bound_memo::{BoundMemo, CeilingKind};
 use std::env;
 use std::fs;
+use std::io::{BufWriter, Write};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use crate::clock::{Clock, Instant};
+use crate::clock::Instant;
+
+pub mod anytime;
 
 /// Bound-eval timing helpers (SCORE_TRACE=1): measures the batch-shaped
 /// ceiling work a GPU offload would target.
@@ -357,6 +362,10 @@ pub struct Search<'a> {
     /// Used where there is no usable wall clock (wasm) and wherever a
     /// reproducible chunk of work is wanted instead of a time slice.
     pub leaf_budget: Option<f64>,
+    /// Real evaluated-leaf budget, unlike credited subtree space.
+    pub actual_leaf_budget: Option<u64>,
+    /// Optional deadline epoch shared by preparation, warm search and repairs.
+    global_started: Option<Instant>,
     /// SP_BOUND_OFF=1: read once at construction, never in the hot path.
     sp_bound_off: bool,
     dense_work: crate::scoring::DenseWork,
@@ -368,18 +377,27 @@ pub struct Search<'a> {
     /// Optional live-progress sink (browser UI). Called every
     /// `progress_every` credited leaves with a funnel snapshot plus the
     /// current top-N, so a long solve shows movement instead of looking
-    /// hung. Keyed on leaves rather than wall time because wasm32 has no
-    /// usable clock — which also makes emission points deterministic.
+    /// hung. Exact mode retains deterministic credited-leaf emission points.
     progress: Option<&'a mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     progress_every: f64,
     next_progress: f64,
+    /// Anytime UI needs its first retained witness before a long repair ends.
+    /// Kept off for exact search so its callbacks and work remain unchanged.
+    progress_on_first_result: bool,
 
     // Scoring integration (P2.4 layer 3): current equip names by position,
     // the scenario scoring context, per-thread top-N, and the shared cutoff
     // (floor(score) as u64; 0 = unset — floor is admissible for the gate).
     equip_names: [&'a str; 8],
     scoring: Option<&'a crate::scoring::ScoringCtx>,
+    /// Root-domain ring ordering for reduced neighbourhoods. Their two local
+    /// pools can have different indices, so local ring flags must be off.
+    /// Only attach when both rings were free in the original search.
+    original_ring_order: Option<&'a std::collections::HashMap<String, usize>>,
     top_n: Vec<TopEntry>,
+    result_count: usize,
+    quality_trace: Option<Arc<QualityTrace>>,
+    trace_phase: &'static str,
     shared_cutoff: Option<&'a AtomicU64>,
     scored: u64,
     gated: u64,
@@ -400,11 +418,11 @@ pub struct Search<'a> {
     bound_tail: usize,
     dense_bound: Option<&'a crate::scoring::DenseBound>,
     bound_pruned: f64,
-    /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
-    /// the prefix, not the band, and prefixes recur across band sweeps).
-    bound_memo: std::collections::HashMap<u64, f64>,
-    /// Current prefix offsets (by depth) for memo keys.
-    prefix_offsets: [u8; 8],
+    /// Ceiling memo keyed by the complete prefix and (for subtrees) band
+    /// budget. Small pools use packed keys; wider pools use structured keys.
+    bound_memo: BoundMemo,
+    /// Current prefix offsets (by depth); never truncate wide-pool offsets.
+    prefix_offsets: [usize; 8],
 }
 
 impl<'a> Search<'a> {
@@ -623,6 +641,8 @@ impl<'a> Search<'a> {
             stop_flag: None,
             stop: false,
             leaf_budget: None,
+            actual_leaf_budget: None,
+            global_started: None,
             time_cap: std::env::var("ENUM_TIME_CAP_SECS").ok().and_then(|v| v.parse().ok()),
             dense_work: Default::default(),
             thresh_reject: 0,
@@ -635,9 +655,14 @@ impl<'a> Search<'a> {
             progress: None,
             progress_every: (1u64 << 21) as f64,
             next_progress: f64::INFINITY,
+            progress_on_first_result: false,
             equip_names: Default::default(),
             scoring: None,
+            original_ring_order: None,
             top_n: Vec::new(),
+            result_count: SearchOptions::from_env().result_count,
+            quality_trace: None,
+            trace_phase: "enumerate",
             shared_cutoff: None,
             scored: 0,
             gated: 0,
@@ -647,7 +672,7 @@ impl<'a> Search<'a> {
             bound_tail: 0,
             dense_bound: None,
             bound_pruned: 0.0,
-            bound_memo: std::collections::HashMap::new(),
+            bound_memo: BoundMemo::new(fx.slots.iter().any(|s| s.pool.len() >= 128)),
             prefix_offsets: [0; 8],
         }
     }
@@ -656,8 +681,8 @@ impl<'a> Search<'a> {
     /// floored cutoff, whichever is higher. None until either exists.
     fn cutoff(&self) -> Option<f64> {
         let mut cutoff: Option<f64> = None;
-        if self.top_n.len() >= 15 {
-            cutoff = Some(self.top_n[14].score);
+        if self.top_n.len() >= self.result_count {
+            cutoff = Some(self.top_n[self.result_count - 1].score);
         }
         if let Some(shared) = self.shared_cutoff {
             let s = shared.load(Ordering::Relaxed);
@@ -668,17 +693,31 @@ impl<'a> Search<'a> {
         cutoff
     }
 
+    /// Insert one distinct equipment/tome result before publishing any cutoff.
+    /// Warm starts, repairs and enumeration may rediscover the same build.
+    fn insert_top(&mut self, entry: TopEntry) -> bool {
+        let first_result = self.top_n.is_empty();
+        if !insert_top_n(&mut self.top_n, entry, self.result_count) { return false; }
+        if let Some(trace) = &self.quality_trace {
+            trace.record(self.trace_phase, &self.top_n, self.result_count);
+        }
+        if self.top_n.len() >= self.result_count {
+            if let Some(shared) = self.shared_cutoff {
+                let floor = self.top_n[self.result_count - 1].score.floor();
+                if floor > 0.0 { shared.fetch_max(floor as u64, Ordering::Relaxed); }
+            }
+        }
+        if first_result && self.progress_on_first_result { self.emit_progress(); }
+        true
+    }
+
     /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
-    /// the packed prefix. Returns true when the subtree CANNOT beat `cutoff`.
+    /// the complete prefix and band budget. Returns true if it cannot beat `cutoff`.
     fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
         let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
         let h_child = hi_rem - offset as i64;
-        let mut key = (depth as u64) << 60;
-        key |= (h_child.clamp(0, 2047) as u64) & 0x7FF;
-        for d in 0..depth {
-            key |= (self.prefix_offsets[d] as u64) << (11 + d * 7);
-        }
-        key |= (offset as u64) << (11 + depth * 7);
+        let key = self.bound_memo.key(
+            CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
         let ceiling = match self.bound_memo.get(&key) {
             Some(&c) => { if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); } c }
             None => {
@@ -725,11 +764,11 @@ impl<'a> Search<'a> {
     }
 
     /// Progress line with rate + ETA, every ~5 seconds (time check amortized
-    /// over 65k credit/leaf events so Instant::now() stays off the hot path).
+    /// over 256 credit/leaf events so Instant::now() stays off the hot path).
     fn maybe_report(&mut self) {
         // Checked first and unmasked: a browser chunk of a few thousand
         // leaves must actually stop there, and the masked path below only
-        // fires every 65536 events.
+        // fires every 256 events.
         if let Some(budget) = self.leaf_budget {
             if self.checked >= budget { self.stop = true; return; }
         }
@@ -737,13 +776,17 @@ impl<'a> Search<'a> {
             self.next_progress = self.checked + self.progress_every;
             self.emit_progress();
         }
+        if self.actual_leaf_budget.is_some_and(|budget| self.leaf_calls >= budget) {
+            self.stop = true;
+        }
         self.report_calls += 1;
-        if self.report_calls & 0xFFFF != 0 { return; }
+        // Repairs need responsive cancellation; one clock read per 256 events.
+        if self.report_calls & 0xFF != 0 { return; }
         if let Some(f) = self.stop_flag {
             if f.load(Ordering::Relaxed) != 0 { self.stop = true; }
         } else if let Some(cap) = self.time_cap {
             // Single-thread mode has no monitor thread; honor the cap here.
-            if self.started.elapsed().as_secs_f64() >= cap { self.stop = true; }
+            if self.global_started.unwrap_or(self.started).elapsed().as_secs_f64() >= cap { self.stop = true; }
         }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
@@ -994,6 +1037,19 @@ impl<'a> Search<'a> {
         self.checked += 1.0;
         self.leaf_calls += 1;
         self.maybe_report();
+        // Preserve the original ordered tuple domain before the SP solver.
+        // Merely deduplicating swapped rings after scoring is insufficient:
+        // tied minimum-SP allocations can depend on equipment input order.
+        if let Some(order) = self.original_ring_order {
+            let canonical = matches!(
+                (order.get(self.equip_names[4]), order.get(self.equip_names[5])),
+                (Some(left), Some(right)) if left <= right
+            );
+            if !canonical {
+                self.precheck_reject += 1.0;
+                return;
+            }
+        }
         // Leaf prechecks (constraint + EHP family)
         let n_pc = self.fx.pc_thresholds.len();
         for i in 0..n_pc {
@@ -1021,18 +1077,7 @@ impl<'a> Search<'a> {
         // Scored path (P2.4 layer 3): full leaf pipeline with ceiling gate.
         if let Some(sc) = self.scoring {
             let names: [&str; 8] = self.equip_names;
-            // Gate cutoff: local 15th-best exact score, or the shared
-            // floored cutoff — whichever is higher.
-            let mut cutoff: Option<f64> = None;
-            if self.top_n.len() >= 15 {
-                cutoff = Some(self.top_n[14].score);
-            }
-            if let Some(shared) = self.shared_cutoff {
-                let s = shared.load(Ordering::Relaxed);
-                if s > 0 && (s as f64) > cutoff.unwrap_or(f64::NEG_INFINITY) {
-                    cutoff = Some(s as f64);
-                }
-            }
+            let cutoff = self.cutoff();
             use crate::scoring::LeafOutcome;
             let _pipe_t0 = if crate::scoring::trace::on() {
                 Some(Instant::now()) } else { None };
@@ -1055,25 +1100,14 @@ impl<'a> Search<'a> {
                 LeafOutcome::Scored(r) => {
                     self.feasible += 1;
                     self.scored += 1;
-                    let pos = self.top_n.iter().position(|x| r.score > x.score)
-                        .unwrap_or(self.top_n.len());
-                    if pos < 15 {
-                        let names_owned = names.iter().map(|s| s.to_string()).collect();
-                        self.top_n.insert(pos, TopEntry {
-                            score: r.score, items: names_owned,
+                    // Allocate result strings only when the score can enter the archive.
+                    if self.top_n.len() < self.result_count
+                        || r.score > self.top_n[self.result_count - 1].score {
+                        self.insert_top(TopEntry {
+                            score: r.score, items: names.iter().map(|s| s.to_string()).collect(),
                             base_sp: r.base_sp, total_sp: r.total_sp,
-                            assigned_sp: r.assigned_sp,
-                            tome: tome_choice,
+                            assigned_sp: r.assigned_sp, tome: tome_choice,
                         });
-                        self.top_n.truncate(15);
-                        if self.top_n.len() == 15 {
-                            if let Some(shared) = self.shared_cutoff {
-                                let floored = self.top_n[14].score.floor();
-                                if floored > 0.0 {
-                                    shared.fetch_max(floored as u64, Ordering::Relaxed);
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -1192,7 +1226,7 @@ impl<'a> Search<'a> {
             // Cached prefix state for the cluster bound: filled at the first
             // cluster miss, reused for every cluster in this node.
             let mut prefix_state: i8 = 0; // 0 unfilled, 1 ok, -1 unavailable
-            while offset <= to {
+            while offset <= to && !self.stop {
                 let o = offset as usize;
                 // Last-slot cluster bound: one ceiling eval covers a cluster
                 // of level-adjacent items; below-cutoff clusters are skipped
@@ -1206,11 +1240,8 @@ impl<'a> Search<'a> {
                                 && self.adapt_super.armed(self.checked)
                                 && crate::scoring::env_once!("SUPER_CLUSTER" != "0") {
                                 let sci = o / db.super_size;
-                                let mut skey = 0xEu64 << 60;
-                                skey |= (sci as u64) << 49;
-                                for dd in 0..depth {
-                                    skey |= (self.prefix_offsets[dd] as u64) << (dd * 7);
-                                }
+                                let skey = self.bound_memo.key(
+                                    CeilingKind::SuperCluster, depth, &self.prefix_offsets, sci, 0);
                                 let sceiling = match self.bound_memo.get(&skey) {
                                     Some(&v) => { self.cluster_memo_hits += 1; v }
                                     None => {
@@ -1252,11 +1283,8 @@ impl<'a> Search<'a> {
                                 self.adapt_super.record(0.0, self.checked);
                             }
                             let c = o / db.cluster_size;
-                            let mut key = 0xFu64 << 60;
-                            key |= (c as u64) << 49;
-                            for dd in 0..depth {
-                                key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
-                            }
+                            let key = self.bound_memo.key(
+                                CeilingKind::Cluster, depth, &self.prefix_offsets, c, 0);
                             let ceiling = match self.bound_memo.get(&key) {
                                 Some(&v) => {
                                     self.cluster_memo_hits += 1;
@@ -1336,7 +1364,7 @@ impl<'a> Search<'a> {
             offset = offset.max(self.part_lo);
             max_offset = max_offset.min(self.part_hi);
         }
-        while offset <= max_offset {
+        while offset <= max_offset && !self.stop {
             let o = offset as usize;
             let illegal = self.fx.slots[depth].pool[o].illegal_id;
             if self.blocks(illegal) {
@@ -1393,7 +1421,7 @@ impl<'a> Search<'a> {
                 }
             }
             self.place(depth, o);
-            self.prefix_offsets[depth] = o as u8;
+            self.prefix_offsets[depth] = o;
             if slot_is_ring1 {
                 self.ring1_placed_offset = o;
                 if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
@@ -1423,6 +1451,13 @@ impl<'a> Search<'a> {
         self.started = Instant::now();
         self.report_every = 1.0;
         self.next_report = 5.0;
+        if self.actual_leaf_budget == Some(0)
+            || self.leaf_budget.is_some_and(|n| n <= 0.0)
+            || self.time_cap.is_some_and(|cap|
+                self.global_started.unwrap_or(self.started).elapsed().as_secs_f64() >= cap) {
+            self.stop = true;
+            return;
+        }
 
         if self.n_free == 0 {
             self.evaluate_leaf();
@@ -1433,7 +1468,7 @@ impl<'a> Search<'a> {
         let l_max = self.l_max as i64;
         let mut band_lo: i64 = 0;
         let mut band_width: i64 = 1;
-        while band_lo <= l_max {
+        while band_lo <= l_max && !self.stop {
             let band_hi = l_max.min(band_lo + band_width - 1);
             self.enumerate(0, band_lo, band_hi);
             band_lo = band_hi + 1;
@@ -1522,14 +1557,166 @@ fn tome_json(t: &Option<crate::scoring::TomeChoice>) -> String {
             c.guild_idx, names(&c.weapon_names), names(&c.armor_names))
 }
 
+/// Gear identity ignores SP allocation (keep the best allocation for that gear),
+/// treats the two ring slots as interchangeable, and includes the chosen tome
+/// multiset. Delimiters are JSON escaped, so names cannot collide.
+pub fn build_identity(entry: &TopEntry) -> String {
+    let mut items = entry.items.clone();
+    if items.len() >= 6 && items[4] > items[5] { items.swap(4, 5); }
+    let tome = entry.tome.as_ref().map(|t| {
+        let mut weapon = t.weapon_names.clone();
+        let mut armor = t.armor_names.clone();
+        weapon.sort();
+        armor.sort();
+        (t.guild_idx, weapon, armor)
+    });
+    serde_json::to_string(&(items, tome)).expect("build identity")
+}
+
+fn same_build(a: &TopEntry, b: &TopEntry) -> bool {
+    if a.items.len() != b.items.len() { return false; }
+    for i in 0..a.items.len() {
+        if a.items.len() >= 6 && (i == 4 || i == 5) { continue; }
+        if a.items[i] != b.items[i] { return false; }
+    }
+    if a.items.len() >= 6 {
+        let ring_a = (&a.items[4], &a.items[5]);
+        let ring_b = (&b.items[4], &b.items[5]);
+        if ring_a != ring_b && ring_a != (ring_b.1, ring_b.0) { return false; }
+    }
+    match (&a.tome, &b.tome) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            let multiset_equal = |a: &[String], b: &[String]| {
+                a.len() == b.len() && a.iter().all(|name|
+                    a.iter().filter(|x| *x == name).count()
+                        == b.iter().filter(|x| *x == name).count())
+            };
+            a.guild_idx == b.guild_idx
+                && multiset_equal(&a.weapon_names, &b.weapon_names)
+                && multiset_equal(&a.armor_names, &b.armor_names)
+        }
+        _ => false,
+    }
+}
+
+fn insert_top_n(into: &mut Vec<TopEntry>, entry: TopEntry, count: usize) -> bool {
+    if count == 0 || !entry.score.is_finite() { return false; }
+    if into.len() >= count && entry.score < into[count - 1].score { return false; }
+    if let Some(old) = into.iter().position(|e| same_build(e, &entry)) {
+        if into[old].score >= entry.score { return false; }
+        into.remove(old);
+    }
+    // Order ties among admitted entries consistently. The hot leaf path
+    // need not materialize equal-cutoff candidates, so which tied identities
+    // are admitted can still depend on traversal order. Scores are unchanged.
+    let pos = into.iter().position(|e| entry.score > e.score
+        || (entry.score == e.score && build_identity(&entry) < build_identity(e))).unwrap_or(into.len());
+    if pos >= count { return false; }
+    into.insert(pos, entry);
+    into.truncate(count);
+    true
+}
+
+pub fn merge_top_n(into: &mut Vec<TopEntry>, from: Vec<TopEntry>, count: usize) {
+    // Normalize the destination as well: callers may merge legacy results.
+    let previous = std::mem::take(into);
+    for e in previous.into_iter().chain(from) { insert_top_n(into, e, count); }
+}
+
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
-    for e in from {
-        let pos = into.iter().position(|x| e.score > x.score).unwrap_or(into.len());
-        if pos < 15 {
-            into.insert(pos, e);
-            into.truncate(15);
+    merge_top_n(into, from, 15);
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SearchOptions {
+    pub result_count: usize,
+    pub retain_warm: bool,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self { Self { result_count: 15, retain_warm: true } }
+}
+
+impl SearchOptions {
+    pub fn from_env() -> Self {
+        Self {
+            result_count: env::var("RESULT_COUNT").ok().and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0).unwrap_or(15),
+            retain_warm: env::var("RETAIN_WARM").as_deref() != Ok("0"),
         }
     }
+}
+
+/// Opt-in native quality log. No file, clock reads or locks on the default
+/// leaf path. Timestamps include fixture/scoring preparation and warm search.
+/// The lock also gives parallel discoveries a single monotonic archive.
+pub struct QualityTrace {
+    started: Instant,
+    state: Mutex<(BufWriter<fs::File>, Vec<TopEntry>)>,
+}
+
+impl QualityTrace {
+    pub fn new(path: &str, started: Instant) -> std::io::Result<Self> {
+        let mut writer = BufWriter::new(fs::File::create(path)?);
+        writeln!(writer, "{}", serde_json::json!({"event":"start", "wall_seconds":0.0}))?;
+        writer.flush()?;
+        Ok(Self { started, state: Mutex::new((writer, Vec::new())) })
+    }
+
+    pub fn record(&self, phase: &str, entries: &[TopEntry], count: usize) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        let previous_best = state.1.first().map(|e| e.score);
+        let previous_kth = state.1.get(count.saturating_sub(1)).map(|e| e.score);
+        merge_top_n(&mut state.1, entries.to_vec(), count);
+        let best = state.1.first();
+        let kth = state.1.get(count.saturating_sub(1)).map(|e| e.score);
+        if best.map(|e| e.score) == previous_best && kth == previous_kth { return; }
+        let Some(best) = best else { return; };
+        let event = serde_json::json!({
+            "event":"incumbent", "phase":phase,
+            "wall_seconds":self.started.elapsed().as_secs_f64(),
+            "score":best.score, "kth_score":kth, "result_count":count,
+            "archive_size":state.1.len(), "items":best.items,
+            "base_sp":best.base_sp, "total_sp":best.total_sp,
+            "assigned_sp":best.assigned_sp, "identity":build_identity(best),
+            "tome":best.tome.as_ref().map(|t| serde_json::json!({
+                "guild_idx":t.guild_idx, "weaponTome":t.weapon_names, "armorTome":t.armor_names})),
+        });
+        writeln!(state.0, "{}", event).expect("write quality trace");
+        state.0.flush().expect("flush quality trace");
+    }
+
+    pub fn finish(&self, complete: bool, warm_seconds: f64) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        writeln!(state.0, "{}", serde_json::json!({"event":"finish", "complete":complete,
+            "wall_seconds":self.started.elapsed().as_secs_f64(), "warm_seconds":warm_seconds}))
+            .expect("write quality trace finish");
+        state.0.flush().expect("flush quality trace");
+    }
+
+    /// Native benchmark telemetry, separate from incumbent events. Counters
+    /// describe this phase only: warm work is not original-domain completion.
+    fn work(&self, phase: &str, p: &ProgressSnapshot) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        writeln!(state.0, "{}", serde_json::json!({
+            "event":"work", "phase":phase,
+            "wall_seconds":self.started.elapsed().as_secs_f64(),
+            "checked":p.checked, "total":p.total, "leaf_calls":p.leaf_calls,
+            "scored":p.scored, "feasible":p.feasible,
+            "precheck_reject":p.precheck_reject, "sp_kernel_reject":p.sp_kernel_reject,
+            "gated":p.gated, "bound_pruned":p.bound_pruned,
+        })).expect("write quality work trace");
+        state.0.flush().expect("flush quality work trace");
+    }
+}
+
+/// Wide-key bounds are opt-in: the expanded benchmark found their setup and
+/// lookup cost outweighed pruning. The switch does not change the bound
+/// mathematics. Read during setup only (including the WASM path).
+fn wide_pool_bounds_allowed(fx: &Fixture) -> bool {
+    std::env::var("WIDE_BOUND_KEYS").as_deref() == Ok("1")
+        || fx.slots.iter().all(|s| s.pool.len() < 128)
 }
 
 /// Run one single-threaded search over a parsed fixture. Shared by the CLI
@@ -1558,6 +1745,19 @@ pub fn run_single_with_progress(
     // whole-space totals.
     part: Option<(i64, i64)>,
 ) -> Totals {
+    run_single_with_options(fx, scoring, leaf_budget, progress, part, SearchOptions::from_env())
+}
+
+pub fn run_single_with_options(
+    fx: &Fixture,
+    scoring: Option<&crate::scoring::ScoringCtx>,
+    leaf_budget: Option<f64>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    part: Option<(i64, i64)>,
+    options: SearchOptions,
+) -> Totals {
+    assert!(options.result_count > 0, "result_count must be positive");
+    let overall_started = Instant::now();
     let shared_cutoff = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
         // Dynamic rows: the all-150-SP ceiling assumes the damage rows are
@@ -1570,7 +1770,7 @@ pub fn run_single_with_progress(
             || sc.objective.needs_two_sided_ceiling() {
             return None;
         }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) { return None; }
+        if !wide_pool_bounds_allowed(fx) { return None; }
         let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         sc.layer2.build_bound_tables(&pools).ok()
     });
@@ -1589,10 +1789,14 @@ pub fn run_single_with_progress(
     let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let bound_cluster: usize = std::env::var("BOUND_CLUSTER").ok()
         .and_then(|v| v.parse().ok()).unwrap_or(4);
-    seed_warm_cutoff(fx, scoring, &shared_cutoff, warm_k, bound_cluster, false);
+    let warm = seed_warm_cutoff(fx, scoring, &shared_cutoff, warm_k, bound_cluster,
+        false, options.result_count, overall_started, None);
+
 
     let mut search = Search::new(fx);
     search.scoring = scoring;
+    search.result_count = options.result_count;
+    search.global_started = Some(overall_started);
     search.shared_cutoff = Some(&shared_cutoff);
     search.bound_tables = bound_tables.as_ref();
     search.bound_max_depth = 0;
@@ -1612,6 +1816,19 @@ pub fn run_single_with_progress(
         search.next_progress = search.progress_every;
     }
     search.init_equip_names();
+    if options.retain_warm {
+        for entry in warm {
+            // Each browser partition publishes only its own witnesses. This
+            // keeps the existing disjoint-partition merge contract intact.
+            let owned = part.is_none_or(|(lo, hi)| fx.slots.first().is_none_or(|slot| {
+                slot.item_names.iter().position(|n| entry.items.get(slot.pos) == Some(n))
+                    .is_some_and(|offset| offset as i64 >= lo && offset as i64 <= hi)
+            }));
+            if owned { search.insert_top(entry); }
+        }
+        search.total_space = search.total_space_of();
+        search.emit_progress();
+    }
     search.run();
     // Final snapshot so the UI's last frame matches the returned totals.
     search.emit_progress();
@@ -1792,9 +2009,10 @@ fn json_str(s: &str) -> String {
 fn seed_warm_cutoff(
     fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
     shared_cutoff: &AtomicU64, warm_k: usize, bound_cluster: usize, verbose: bool,
-) {
+    result_count: usize, overall_started: Instant, quality_trace: Option<&Arc<QualityTrace>>,
+) -> Vec<TopEntry> {
 if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k)) {
-    return;
+    return Vec::new();
 }
 {
     // Rank each pool's items by their solo objective ceiling (item alone
@@ -1860,6 +2078,10 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
     });
     let mut ws = Search::new(&wfx);
     ws.scoring = scoring;
+    ws.result_count = result_count;
+    ws.global_started = Some(overall_started);
+    ws.quality_trace = quality_trace.cloned();
+    ws.trace_phase = "warm";
     ws.shared_cutoff = Some(&shared_cutoff);
     ws.dense_bound = wdb.as_ref();
     ws.init_equip_names();
@@ -1872,14 +2094,16 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
             shared_cutoff.load(Ordering::Relaxed) as f64,
         );
     }
-    let _ = warm_started;
+    ws.top_n
 }
-
-
 }
 
 /// CLI entry point (thin wrapper lives in src/bin/enum_kernel.rs).
 pub fn cli_main() {
+    let overall_started = Instant::now();
+    let options = SearchOptions::from_env();
+    let quality_trace = env::var("QUALITY_TRACE_PATH").ok().map(|path|
+        Arc::new(QualityTrace::new(&path, overall_started).expect("create quality trace")));
     let args: Vec<String> = env::args().collect();
     let fixture_path = args.get(1).map(String::as_str)
         .expect("usage: enum_kernel <fixture> [threads] [score_fixture.json]");
@@ -1927,8 +2151,8 @@ pub fn cli_main() {
     crate::scoring::trace::init_from_env();
     let shared_cutoff = AtomicU64::new(0);
 
-    // Mid-tree damage ceiling bound tables (objective B&B). Memo keys pack
-    // offsets into 7 bits, so guard on pool sizes.
+    // Mid-tree damage ceiling bound tables (objective B&B). Structured keys
+    // allow wide pools; WIDE_BOUND_KEYS=0 restores the old wide-pool bypass.
     let bound_max_depth: usize = env::var("BOUND_DEPTH").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(0);
     let bound_tail: usize = env::var("BOUND_TAIL").ok()
@@ -1937,8 +2161,8 @@ pub fn cli_main() {
         let bound_cluster_on: bool = env::var("BOUND_CLUSTER").ok()
             .and_then(|s| s.parse::<usize>().ok()).unwrap_or(4) > 0;
         if bound_max_depth == 0 && bound_tail == 0 && !bound_cluster_on { return None; }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) {
-            eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
+        if !wide_pool_bounds_allowed(&fx) {
+            eprintln!("bound: WIDE_BOUND_KEYS=0 and pool >=128 items — skipping bound");
             return None;
         }
         // Same gate as `run_single_with_progress`: dynamic rows make the
@@ -1974,21 +2198,46 @@ pub fn cli_main() {
     // waiting for the cutoff to warm up. WARM_K=0 disables.
     let warm_k: usize = env::var("WARM_K").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(6);
-    seed_warm_cutoff(&fx, scoring, &shared_cutoff, warm_k, bound_cluster, true);
+    let warm_started = Instant::now();
+    let warm = seed_warm_cutoff(&fx, scoring, &shared_cutoff, warm_k, bound_cluster,
+        true, options.result_count, overall_started, quality_trace.as_ref());
+    let warm_seconds = warm_started.elapsed().as_secs_f64();
 
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
+        let counters = env::var("QUALITY_TRACE_COUNTERS").as_deref() == Ok("1");
+        let mut last_counter = f64::NEG_INFINITY;
+        let mut on_work = |p: ProgressSnapshot| {
+            let elapsed = overall_started.elapsed().as_secs_f64();
+            if elapsed - last_counter >= 0.1 {
+                if let Some(trace) = &quality_trace { trace.work("search", &p); }
+                last_counter = elapsed;
+            }
+            None
+        };
         let mut search = Search::new(&fx);
         search.scoring = scoring;
+        search.result_count = options.result_count;
+        search.global_started = Some(overall_started);
+        search.quality_trace = quality_trace.clone();
         search.shared_cutoff = Some(&shared_cutoff);
+        if options.retain_warm {
+            for entry in warm.iter().cloned() { search.insert_top(entry); }
+        }
         search.bound_tables = bounds;
         search.bound_max_depth = bound_max_depth;
         search.bound_tail = bound_tail;
         search.dense_bound = dense_bound;
         search.leaf_budget = cli_leaf_budget;
+        if counters && quality_trace.is_some() {
+            search.progress = Some(&mut on_work);
+            search.progress_every = 8192.0;
+            search.next_progress = 1.0;
+        }
         search.init_equip_names();
         search.run();
+        search.emit_progress();
         let elapsed = start.elapsed();
         (Totals {
             checked: search.checked,
@@ -2034,7 +2283,13 @@ pub fn cli_main() {
                     search.shared_checked = Some(&shared_checked);
                     search.stop_flag = Some(&stop_flag);
                     search.scoring = scoring;
+                    search.result_count = options.result_count;
+                    search.global_started = Some(overall_started);
+                    search.quality_trace = quality_trace.clone();
                     search.shared_cutoff = Some(&shared_cutoff);
+                    if options.retain_warm {
+                        for entry in warm.iter().cloned() { search.insert_top(entry); }
+                    }
                     search.bound_tables = bounds;
                     search.bound_max_depth = bound_max_depth;
                     search.bound_tail = bound_tail;
@@ -2045,6 +2300,9 @@ pub fn cli_main() {
                     search.next_report = f64::INFINITY;
                     let l_max = search.l_max as i64;
                     loop {
+                        if time_cap.is_some_and(|cap| overall_started.elapsed().as_secs_f64() >= cap) {
+                            search.stop = true;
+                        }
                         if search.stop { break; }
                         let o = next_offset.fetch_add(1, Ordering::Relaxed);
                         if o >= first_pool_len { break; }
@@ -2052,7 +2310,7 @@ pub fn cli_main() {
                         search.part_hi = o as i64;
                         let mut band_lo: i64 = 0;
                         let mut band_width: i64 = 1;
-                        while band_lo <= l_max {
+                        while band_lo <= l_max && !search.stop {
                             let band_hi = l_max.min(band_lo + band_width - 1);
                             search.enumerate(0, band_lo, band_hi);
                             band_lo = band_hi + 1;
@@ -2092,7 +2350,7 @@ pub fn cli_main() {
                     if done.load(Ordering::Relaxed) != 0 { break; }
                     let elapsed = started.elapsed().as_secs_f64();
                     if let Some(cap) = time_cap {
-                        if elapsed >= cap { stop_flag.store(1, Ordering::Relaxed); }
+                        if overall_started.elapsed().as_secs_f64() >= cap { stop_flag.store(1, Ordering::Relaxed); }
                     }
                     if elapsed < next_report { continue; }
                     next_report = elapsed + 5.0;
@@ -2112,6 +2370,8 @@ pub fn cli_main() {
             for h in handles {
                 let t = h.join().expect("worker thread panicked");
                 totals.checked += t.checked;
+                totals.leaf_calls += t.leaf_calls;
+                totals.stopped_early |= t.stopped_early;
                 totals.precheck_reject += t.precheck_reject;
                 totals.precheck_pass += t.precheck_pass;
                 totals.sp_leaf_reject += t.sp_leaf_reject;
@@ -2122,7 +2382,7 @@ pub fn cli_main() {
                 totals.mana_reject += t.mana_reject;
                 totals.thresh_reject += t.thresh_reject;
                 totals.bound_pruned += t.bound_pruned;
-                merge_top(&mut totals.top_n, t.top_n);
+                merge_top_n(&mut totals.top_n, t.top_n, options.result_count);
             }
             done.store(1, Ordering::Relaxed);
             monitor.join().expect("monitor thread panicked");
@@ -2141,6 +2401,10 @@ pub fn cli_main() {
         totals.leaf_calls,
         totals.leaf_calls as f64 / elapsed.as_secs_f64(),
     );
+    println!("timing: wall_total {:.6}s | warm {:.6}s | main {:.6}s | complete {} | result_count {} | retain_warm {}",
+        overall_started.elapsed().as_secs_f64(), warm_seconds, elapsed.as_secs_f64(),
+        !totals.stopped_early, options.result_count, options.retain_warm);
+    if let Some(trace) = &quality_trace { trace.finish(!totals.stopped_early, warm_seconds); }
     crate::scoring::trace::report();
     if scoring.is_some() {
         println!(
@@ -2154,4 +2418,239 @@ pub fn cli_main() {
                     .collect::<Vec<_>>().join(", "));
         }
     }
+}
+
+#[cfg(test)]
+mod anytime_core_tests {
+    use super::*;
+
+    fn entry(name: &str, score: f64) -> TopEntry {
+        let mut items = vec![String::new(); 8];
+        items[0] = name.into();
+        TopEntry { items, score, ..Default::default() }
+    }
+
+    #[test]
+    fn archive_deduplicates_ring_exchange_before_cutoff() {
+        let mut a = entry("a", 100.0);
+        a.items[4] = "ring A".into();
+        a.items[5] = "ring B".into();
+        let mut swapped = a.clone();
+        swapped.items.swap(4, 5);
+        let mut archive = Vec::new();
+        merge_top_n(&mut archive, vec![a.clone(), swapped, a.clone()], 15);
+        assert_eq!(archive.len(), 1);
+        assert_eq!(build_identity(&archive[0]), build_identity(&a));
+        let mut stronger_allocation = a.clone();
+        stronger_allocation.base_sp[0] = 10;
+        stronger_allocation.score = 120.0;
+        merge_top_n(&mut archive, vec![stronger_allocation], 15);
+        assert_eq!(archive.len(), 1);
+        assert_eq!(archive[0].score, 120.0);
+        assert_eq!(archive[0].base_sp[0], 10);
+    }
+
+    #[test]
+    fn archive_identity_includes_tome_multiset_and_guild() {
+        let mut a = entry("a", 10.0);
+        a.tome = Some(crate::scoring::TomeChoice {
+            guild_idx: 2, weapon_names: vec!["A".into(), "B".into()],
+            armor_names: vec!["C".into(), "D".into()],
+        });
+        let mut permutation = a.clone();
+        permutation.tome.as_mut().unwrap().weapon_names.reverse();
+        permutation.tome.as_mut().unwrap().armor_names.reverse();
+        let mut other = a.clone();
+        other.tome.as_mut().unwrap().guild_idx = 3;
+        let mut multiplicity = a.clone();
+        multiplicity.tome.as_mut().unwrap().weapon_names = vec!["A".into(), "A".into()];
+        let mut archive = Vec::new();
+        merge_top_n(&mut archive, vec![a, permutation, other, multiplicity], 15);
+        assert_eq!(archive.len(), 3);
+    }
+
+    fn empty_fixture() -> Fixture {
+        parse_fixture("BUDGET 200\nPRECHECKS 0\nEHP 0 0 0 0\nEHPNA 0 0 0 0\nTHP 0 0 0\nHPSTART 0\nWEAPON 0 0 0 0 0 0 0 0 0 0\nGUILD 0\nNFIXED 0\nNSLOTS 0\nNSETS 0\n")
+    }
+
+    #[test]
+    fn duplicate_witnesses_cannot_raise_top15_cutoff() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.result_count = 15;
+        let shared = AtomicU64::new(0);
+        search.shared_cutoff = Some(&shared);
+        for _ in 0..30 { search.insert_top(entry("same", 100.0)); }
+        assert_eq!(search.cutoff(), None);
+        assert_eq!(shared.load(Ordering::Relaxed), 0);
+        for i in 0..14 { search.insert_top(entry(&format!("distinct {i}"), 90.0)); }
+        assert_eq!(search.cutoff(), Some(90.0));
+        assert_eq!(shared.load(Ordering::Relaxed), 90);
+    }
+
+    #[test]
+    fn top1_cutoff_has_a_retained_witness_after_zero_budget() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.result_count = 1;
+        search.actual_leaf_budget = Some(0);
+        search.insert_top(entry("warm", 123.0));
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 0);
+        assert_eq!(search.cutoff(), Some(123.0));
+        assert_eq!(search.top_n[0].items[0], "warm");
+    }
+
+    #[test]
+    fn shared_deadline_can_expire_before_main_search() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.global_started = Some(Instant::now());
+        search.time_cap = Some(0.0);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 0);
+    }
+
+    #[test]
+    fn actual_leaf_budget_counts_work_instead_of_credited_space() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.actual_leaf_budget = Some(1);
+        search.run();
+        assert_eq!(search.leaf_calls, 1);
+        assert!(search.stop);
+    }
+    fn wide_fixture(nested: bool) -> Fixture {
+        let mut fx = empty_fixture();
+        let make_slot = |name: &str, pos: usize, count: usize| Slot {
+            name: name.into(), pos, is_ring1: false, is_ring2: false,
+            pool: vec![PoolItem { crafted: false, reqs: [0; 5], skp: [0; 5],
+                set_id: -1, illegal_id: -1, hp: 3.0, pc: Vec::new() }; count],
+            item_names: Vec::new(),
+        };
+        if nested { fx.slots.push(make_slot("helmet", 0, 3)); }
+        fx.slots.push(make_slot("boots", 3, 257));
+        fx
+    }
+
+    #[test]
+    fn wide_last_slot_honors_exact_actual_leaf_budgets() {
+        for budget in [10, 37] {
+            let fx = wide_fixture(false);
+            let mut search = Search::new(&fx);
+            search.actual_leaf_budget = Some(budget);
+            search.run();
+            assert!(search.stop);
+            assert_eq!(search.leaf_calls, budget);
+            assert_eq!(search.checked, budget as f64);
+            assert_eq!(search.feasible, budget);
+            assert_eq!(search.hp_running, fx.hp_start);
+        }
+    }
+
+    #[test]
+    fn nested_budget_stop_restores_parent_state_and_stops_siblings() {
+        let fx = wide_fixture(true);
+        let mut search = Search::new(&fx);
+        search.actual_leaf_budget = Some(37);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 37);
+        assert_eq!(search.checked, 37.0);
+        assert_eq!(search.hp_running, fx.hp_start);
+        assert_eq!(search.sp_free_prov, [0; 5]);
+        assert!(search.equip_set.iter().all(|&set| set == -1));
+    }
+
+    #[test]
+    fn wide_last_slot_honors_credited_budget_without_band_overrun() {
+        let fx = wide_fixture(false);
+        let mut search = Search::new(&fx);
+        search.leaf_budget = Some(37.0);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 37);
+        assert_eq!(search.checked, 37.0);
+    }
+
+    #[test]
+    fn wide_last_slot_observes_shared_cancellation_within_one_poll_window() {
+        let fx = wide_fixture(false);
+        let flag = AtomicU64::new(1);
+        let mut search = Search::new(&fx);
+        search.stop_flag = Some(&flag);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 256);
+        assert_eq!(search.hp_running, fx.hp_start);
+    }
+
+    fn tied_ring_fixture(canonical_flags: bool, freeze_first: bool) -> Fixture {
+        let mut fx = empty_fixture();
+        fx.budget = 10;
+        let a = PoolItem { crafted: false, reqs: [10, 0, 0, 0, 0],
+            skp: [0, 10, 0, 0, 0], set_id: -1, illegal_id: -1,
+            hp: 0.0, pc: Vec::new() };
+        let b = PoolItem { reqs: [0, 10, 0, 0, 0], skp: [10, 0, 0, 0, 0], ..a.clone() };
+        fx.slots.push(Slot { name: "ring1".into(), pos: 4,
+            is_ring1: canonical_flags, is_ring2: false,
+            pool: if freeze_first { vec![b.clone()] } else { vec![a.clone(), b.clone()] },
+            item_names: if freeze_first { vec!["B".into()] } else { vec!["A".into(), "B".into()] },
+        });
+        fx.slots.push(Slot { name: "ring2".into(), pos: 5,
+            is_ring1: false, is_ring2: canonical_flags,
+            pool: vec![a, b], item_names: vec!["A".into(), "B".into()],
+        });
+        fx
+    }
+
+    #[test]
+    fn original_ring_guard_preserves_domain_before_order_sensitive_sp_ties() {
+        let a = Unit { crafted: false, reqs: [10, 0, 0, 0, 0], skp: [0, 10, 0, 0, 0] };
+        let b = Unit { crafted: false, reqs: [0, 10, 0, 0, 0], skp: [10, 0, 0, 0, 0] };
+        let mut case = Case { budget: 10, equipment: [Unit::default(); 8],
+            weapon: Unit::default(), set_free: [0; 5], expected: None };
+        case.equipment[4] = a;
+        case.equipment[5] = b;
+        let forward = Kernel::new().calculate(&case).unwrap();
+        case.equipment.swap(4, 5);
+        let reverse = Kernel::new().calculate(&case).unwrap();
+        assert_eq!(forward.2, reverse.2);
+        assert_eq!(forward.1, [20, 10, 0, 0, 0]);
+        assert_eq!(reverse.1, [10, 20, 0, 0, 0]);
+
+        let order = std::collections::HashMap::from([("A".into(), 0), ("B".into(), 1)]);
+        let original = tied_ring_fixture(true, false);
+        let mut root = Search::new(&original);
+        root.run();
+        assert_eq!(root.feasible, 3);
+        let reduced = tied_ring_fixture(false, false);
+        let mut repair = Search::new(&reduced);
+        repair.original_ring_order = Some(&order);
+        repair.run();
+        assert_eq!(repair.checked, 4.0);
+        assert_eq!(repair.precheck_reject, 1.0);
+        assert_eq!(repair.precheck_pass, 3);
+        assert_eq!(repair.feasible, root.feasible);
+    }
+
+    #[test]
+    fn original_ring_guard_uses_root_ranks_when_one_repair_ring_is_frozen() {
+        let order = std::collections::HashMap::from([("A".into(), 0), ("B".into(), 1)]);
+        let reduced = tied_ring_fixture(false, true);
+        let mut guarded = Search::new(&reduced);
+        guarded.original_ring_order = Some(&order);
+        guarded.run();
+        assert_eq!(guarded.checked, 2.0);
+        assert_eq!(guarded.precheck_reject, 1.0);
+        assert_eq!(guarded.feasible, 1);
+        // No root rule is imposed by default. This is necessary when only
+        // one ring was free in the user's original search configuration.
+        let mut unguarded = Search::new(&reduced);
+        unguarded.run();
+        assert_eq!(unguarded.feasible, 2);
+    }
+
 }

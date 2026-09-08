@@ -399,6 +399,7 @@ impl Kernel {
 pub mod clock;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
+mod bound_memo;
 pub mod enumerate;
 pub mod scoring;
 pub mod mana_sim;

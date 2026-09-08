@@ -1,0 +1,29 @@
+{
+  "assertions": 60,
+  "browser_errors": [],
+  "worker_urls": [
+    "http://127.0.0.1:8765/js/solver/wasm/worker.js",
+    "http://127.0.0.1:8765/js/solver/wasm/worker.js",
+    "http://127.0.0.1:8765/js/solver/wasm/worker.js",
+    "http://127.0.0.1:8765/js/solver/wasm/worker.js"
+  ],
+  "measurements": [
+    {
+      "scenario": "quick_5s_small",
+      "first_result_ms": 192,
+      "final_ms": 5043,
+      "leaf_calls": 4871,
+      "stop_reason": "time_budget"
+    },
+    {
+      "scenario": "cancel_restart",
+      "final_ms": 5050,
+      "leaf_calls": 26664,
+      "stop_reason": "time_budget"
+    },
+    {
+      "scenario": "exhaustive_one_slot",
+      "final_ms": 173
+    }
+  ]
+}

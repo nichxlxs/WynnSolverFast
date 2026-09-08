@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "campaign_sha256": "a09c7ec7ad812030fc2aade4b8a17be0853e11e5cc9b6921fe0c41fba2cd9df4",
+  "plan_sha256": "ca5bcc5215f9bc930b489f37e821d807eec3abf68de57cb7007c6b00371964cb",
+  "reference_sha256": "83992884dfadf3b856ead28bed75f44076a55a85846640b65e76f82583b949fc",
+  "queries": [
+    {
+      "name": "fam_spellsteal_medium",
+      "reference": {
+        "kind": "best_known",
+        "score": 92806.8118289668,
+        "enum_sha256": "ef7e01582fad54b3dab7d62bd01677f91a405b43d637c0112326b874d3fc1ea6",
+        "score_sha256": "66da3a05f085d980343fd9e3ba8f6642c686a5412d21ec4f3ac91bee4ba0ab22",
+        "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+        "evidence_kind": "prior_campaign_best_known",
+        "supporting_runs": [
+          {
+            "campaign": "screen",
+            "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+            "run_id": "fam_spellsteal_medium__alns1__r00__s1",
+            "budget_seconds": 2.0,
+            "variant": "alns1",
+            "seed": 1
+          }
+        ],
+        "eligible_prior_runs": 6
+      },
+      "arms": {
+        "current_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "wide_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "current_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            0.6124153260007006,
+            0.343873005000205
+          ],
+          "t99_seconds": [
+            0.6124153260007006,
+            0.46847227800026303
+          ],
+          "t999_seconds": [
+            0.6124153260007006,
+            0.49495836599999166
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.5404438020004818,
+          "common_budget_scores": {
+            "5": [
+              92806.8118289668,
+              92806.8118289668
+            ],
+            "15": [
+              92806.8118289668,
+              92806.8118289668
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        },
+        "elite_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            0.6438236280000638,
+            0.907205822000833
+          ],
+          "t99_seconds": [
+            0.7016269410005407,
+            0.907205822000833
+          ],
+          "t999_seconds": [
+            0.7068797190004261,
+            0.907205822000833
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 0.8044163815006868,
+          "common_budget_scores": {
+            "5": [
+              92806.8118289668,
+              92806.8118289668
+            ],
+            "15": [
+              92806.8118289668,
+              92806.8118289668
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        }
+      },
+      "comparisons": {
+        "wide_exact15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "current_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "elite_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        }
+      },
+      "new_best_known_at_common_budget": 92806.8118289668,
+      "new_best_known_extension_pct": 0
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_6",
+      "reference": {
+        "kind": "best_known",
+        "score": 44734.31761146617,
+        "enum_sha256": "732c18ea3022f9bff644b63ef1feaf1d8e853a76655a93d93ca6c90f18c20fef",
+        "score_sha256": "7609a6d5113a83214d93c8d519d6829af04f8932d765e45dc9b47ac290ba78cc",
+        "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+        "evidence_kind": "prior_campaign_best_known",
+        "supporting_runs": [
+          {
+            "campaign": "followup",
+            "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+            "run_id": "meta_mage_arcanist_meteor_remove_6__alns_cyclic_warm6__r01__s808",
+            "budget_seconds": 5.0,
+            "variant": "alns_cyclic_warm6",
+            "seed": 808
+          }
+        ],
+        "eligible_prior_runs": 21
+      },
+      "arms": {
+        "current_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "wide_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "current_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            0.8671229700003096,
+            0.5001700250004433
+          ],
+          "t99_seconds": [
+            1.23586462700041,
+            1.5778134640004282
+          ],
+          "t999_seconds": [
+            7.142843019000793,
+            1.5880823040006362
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 1.4068390455004192,
+          "common_budget_scores": {
+            "5": [
+              44636.20793517082,
+              45012.79506452047
+            ],
+            "15": [
+              45012.79506452047,
+              45012.79506452047
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        },
+        "elite_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            1.2059225969996987,
+            1.4703737660001934
+          ],
+          "t99_seconds": [
+            1.4026027780000732,
+            4.05523683499996
+          ],
+          "t999_seconds": [
+            1.4658266469996306,
+            null
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 2.7289198065000164,
+          "common_budget_scores": {
+            "5": [
+              46174.40834387089,
+              44636.20793517082
+            ],
+            "15": [
+              46174.40834387089,
+              44636.20793517082
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        }
+      },
+      "comparisons": {
+        "wide_exact15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "current_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "elite_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        }
+      },
+      "new_best_known_at_common_budget": 46174.40834387089,
+      "new_best_known_extension_pct": 3.2192080024835423
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_6",
+      "reference": {
+        "kind": "best_known",
+        "score": 22459.50000001594,
+        "enum_sha256": "8bf973614a1b7a89c8abc468a563b0793b5386deaec7bc14ab585e673d79349d",
+        "score_sha256": "4e782a53a4b82bb492dc92cc1df090aa986d683087a97e3a8fb6286b26766303",
+        "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+        "evidence_kind": "prior_campaign_best_known",
+        "supporting_runs": [
+          {
+            "campaign": "confirmation",
+            "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+            "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r01__s202",
+            "budget_seconds": 5.0,
+            "variant": "alns_warm6",
+            "seed": 202
+          },
+          {
+            "campaign": "confirmation",
+            "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+            "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r02__s303",
+            "budget_seconds": 5.0,
+            "variant": "alns_warm6",
+            "seed": 303
+          },
+          {
+            "campaign": "followup",
+            "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+            "run_id": "meta_mage_light_bender_healing_remove_6__alns_cyclic_warm6__r02__s909",
+            "budget_seconds": 5.0,
+            "variant": "alns_cyclic_warm6",
+            "seed": 909
+          }
+        ],
+        "eligible_prior_runs": 21
+      },
+      "arms": {
+        "current_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "wide_exact15": {
+          "runs": 0,
+          "seeds": [],
+          "status": [],
+          "budgets_seconds": [],
+          "t95_seconds": [],
+          "t99_seconds": [],
+          "t999_seconds": [],
+          "all_t99_attained": false,
+          "median_t99_seconds": null,
+          "common_budget_scores": {
+            "5": [],
+            "15": []
+          },
+          "completed_wall_seconds": [],
+          "work_at_30_seconds": [],
+          "work_at_common_budget": [],
+          "no_result": 0
+        },
+        "current_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            3.0378482619998977,
+            2.998359932999847
+          ],
+          "t99_seconds": [
+            5.289066133000233,
+            2.998359932999847
+          ],
+          "t999_seconds": [
+            5.289066133000233,
+            2.998359932999847
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 4.14371303300004,
+          "common_budget_scores": {
+            "5": [
+              22147.872500015717,
+              23165.835000016443
+            ],
+            "15": [
+              22459.50000001594,
+              23165.835000016443
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        },
+        "elite_alns15": {
+          "runs": 2,
+          "seeds": [
+            1217,
+            2423
+          ],
+          "status": [
+            "timeout",
+            "timeout"
+          ],
+          "budgets_seconds": [
+            15.0,
+            15.0
+          ],
+          "t95_seconds": [
+            1.7169787779994294,
+            7.530375100000128
+          ],
+          "t99_seconds": [
+            1.7380080349994387,
+            8.542154001000199
+          ],
+          "t999_seconds": [
+            11.08791409100013,
+            null
+          ],
+          "all_t99_attained": true,
+          "median_t99_seconds": 5.140081017999819,
+          "common_budget_scores": {
+            "5": [
+              22343.715000015858,
+              19378.642500013753
+            ],
+            "15": [
+              22459.50000001594,
+              22343.715000015858
+            ]
+          },
+          "completed_wall_seconds": [
+            null,
+            null
+          ],
+          "work_at_30_seconds": [
+            null,
+            null
+          ],
+          "work_at_common_budget": [
+            null,
+            null
+          ],
+          "no_result": 0
+        }
+      },
+      "comparisons": {
+        "wide_exact15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "current_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        },
+        "elite_alns15": {
+          "t99_ratio": null,
+          "t99_ratio_lower_bound": null,
+          "all_candidate_seeds_at_least_tenfold": false
+        }
+      },
+      "new_best_known_at_common_budget": 23165.835000016443,
+      "new_best_known_extension_pct": 3.1449275362318785
+    }
+  ],
+  "scope": "Native shared evaluator and hash-identical fixtures. T99 refers to a previously frozen best-known milestone, not 99% of a certified global optimum. Baseline has 0 repetition(s); latency ratios are descriptive.",
+  "common_budget_seconds": 15,
+  "observed_runs": 12,
+  "planned_runs": 12,
+  "missing_runs": [],
+  "failures": [],
+  "complete_matrix": true,
+  "tenfold_all_seed_queries": {
+    "wide_exact15": [],
+    "current_alns15": [],
+    "elite_alns15": []
+  }
+}
