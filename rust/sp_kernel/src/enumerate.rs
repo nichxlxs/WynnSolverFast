@@ -39,6 +39,41 @@ fn bound_timer_end(t0: Option<Instant>) {
     }
 }
 
+/// Anytime trace (roadmap R8): with ANYTIME_TRACE=1 the native CLI prints a
+/// timestamped line whenever the best score found so far, or the shared
+/// pruning cutoff, improves. `anytime.py` turns these into the primal
+/// integral and time-to-target. Off unless asked for, and inert on wasm32,
+/// whose clock does not run.
+pub mod anytime {
+    use std::sync::{Mutex, OnceLock};
+    use crate::clock::Instant;
+
+    static T0: OnceLock<Instant> = OnceLock::new();
+    static BEST: Mutex<f64> = Mutex::new(f64::NEG_INFINITY);
+
+    #[inline]
+    pub fn on() -> bool {
+        !cfg!(target_arch = "wasm32") && crate::scoring::env_once!("ANYTIME_TRACE" == "1")
+    }
+    /// Pin t = 0 (the CLI calls this first thing; otherwise the first event).
+    pub fn start() { let _ = T0.get_or_init(Instant::now); }
+    fn t() -> f64 { T0.get_or_init(Instant::now).elapsed().as_secs_f64() }
+
+    /// A real scored build reached `score`. Prints only global improvements;
+    /// the lock is taken only when a thread's own best improves, which is rare.
+    pub fn best(score: f64) {
+        let mut b = BEST.lock().unwrap_or_else(|e| e.into_inner());
+        if score > *b {
+            *b = score;
+            eprintln!("anytime: t={:.6} best={:.17e}", t(), score);
+        }
+    }
+    /// The shared (floored) cutoff rose from `prev` to `now`.
+    pub fn cutoff(prev: u64, now: u64) {
+        if now > prev { eprintln!("anytime: t={:.6} cutoff={}", t(), now); }
+    }
+}
+
 /// Self-tuning switch for a bound layer.
 ///
 /// Ablation shows the coarse bound layers are scenario-dependent: the tail
@@ -145,6 +180,10 @@ pub struct Fixture {
     set_table: Vec<Vec<[i32; 5]>>,  // set_id -> bonuses per count (count-1 indexed)
     fixed_names: Vec<(usize, String)>,   // pos, display name (NAMES section)
     none_names: Vec<String>,             // 8 none-item names by slot position
+    /// R21 search tolerance from an optional `EPS <value>` line (0 = exact).
+    /// A search option rather than scenario data, carried here so the browser
+    /// can set it through the fixture it already sends.
+    pub eps: f64,
 }
 
 pub fn parse_fixture(text: &str) -> Fixture {
@@ -249,6 +288,7 @@ pub fn parse_fixture(text: &str) -> Fixture {
     // Optional NAMES section (item display names for score-fixture joining).
     let mut fixed_names = Vec::new();
     let mut none_names = Vec::new();
+    let mut eps = 0.0f64;
     loop {
         let Some(line) = lines.next() else { break };
         let t = toks(line);
@@ -272,6 +312,10 @@ pub fn parse_fixture(text: &str) -> Fixture {
                     fixed_names.push((pos_s.parse().unwrap(), name.trim().to_string()));
                 }
             }
+            "EPS" => {
+                eps = t.get(1).and_then(|v| v.parse::<f64>().ok())
+                    .filter(|e| e.is_finite() && *e > 0.0).unwrap_or(0.0);
+            }
             "NONENAMES" => {
                 let n: usize = t[1].parse().unwrap();
                 for _ in 0..n {
@@ -283,7 +327,7 @@ pub fn parse_fixture(text: &str) -> Fixture {
     }
 
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names }
+              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names, eps }
 }
 
 pub struct Search<'a> {
@@ -396,6 +440,15 @@ pub struct Search<'a> {
     scoring: Option<&'a crate::scoring::ScoringCtx>,
     top_n: Vec<TopEntry>,
     shared_cutoff: Option<&'a AtomicU64>,
+    /// R21: the best score any thread has found, as f64 bits (fetch_max on
+    /// the bits orders non-negative floats correctly; only positive scores
+    /// are published). Read only when `eps > 0`.
+    shared_best: Option<&'a AtomicU64>,
+    /// R21 tolerance. With eps > 0 a subtree is pruned once its ceiling is
+    /// below (1 + eps) * best, so the reported top-1 is within eps of the
+    /// optimum and ranks 2 to 15 are unverified. 0 (the default) is the exact
+    /// search, unchanged. SEARCH_EPS sets it on the CLI.
+    eps: f64,
     scored: u64,
     gated: u64,
     mana_reject: u64,
@@ -672,6 +725,13 @@ impl<'a> Search<'a> {
             scoring: None,
             top_n: Vec::new(),
             shared_cutoff: None,
+            shared_best: None,
+            // SEARCH_EPS (CLI) overrides the fixture's EPS line; "0" forces exact.
+            eps: match std::env::var("SEARCH_EPS").ok().and_then(|v| v.parse::<f64>().ok()) {
+                Some(e) if e.is_finite() && e > 0.0 => e,
+                Some(_) => 0.0,
+                None => fx.eps,
+            },
             scored: 0,
             gated: 0,
             mana_reject: 0,
@@ -696,6 +756,20 @@ impl<'a> Search<'a> {
             let s = shared.load(Ordering::Relaxed);
             if s > 0 && (s as f64) > cutoff.unwrap_or(f64::NEG_INFINITY) {
                 cutoff = Some(s as f64);
+            }
+        }
+        if self.eps > 0.0 {
+            // R21: (1 + eps) * best, defined only for a positive best. With a
+            // positive best it is at least the 15th-best cutoff, so it only
+            // ever raises the line.
+            let mut best = self.top_n.first().map_or(f64::NEG_INFINITY, |e| e.score);
+            if let Some(sb) = self.shared_best {
+                let b = f64::from_bits(sb.load(Ordering::Relaxed));
+                if b > best { best = b; }
+            }
+            if best > 0.0 {
+                let line = best * (1.0 + self.eps);
+                cutoff = Some(cutoff.map_or(line, |c| c.max(line)));
             }
         }
         cutoff
@@ -1161,17 +1235,9 @@ impl<'a> Search<'a> {
         if let Some(sc) = self.scoring {
             let names: [&str; 8] = self.equip_names;
             // Gate cutoff: local 15th-best exact score, or the shared
-            // floored cutoff — whichever is higher.
-            let mut cutoff: Option<f64> = None;
-            if self.top_n.len() >= 15 {
-                cutoff = Some(self.top_n[14].score);
-            }
-            if let Some(shared) = self.shared_cutoff {
-                let s = shared.load(Ordering::Relaxed);
-                if s > 0 && (s as f64) > cutoff.unwrap_or(f64::NEG_INFINITY) {
-                    cutoff = Some(s as f64);
-                }
-            }
+            // floored cutoff, whichever is higher (and the R21 line when
+            // eps > 0). Same rule as every bound, from one place.
+            let cutoff = self.cutoff();
             use crate::scoring::LeafOutcome;
             let _pipe_t0 = if crate::scoring::trace::on() {
                 Some(Instant::now()) } else { None };
@@ -1197,6 +1263,12 @@ impl<'a> Search<'a> {
                     let pos = self.top_n.iter()
                         .position(|x| ranks_before(r.score, &names, x.score, &x.items))
                         .unwrap_or(self.top_n.len());
+                    if pos == 0 {
+                        if anytime::on() { anytime::best(r.score); }
+                        if let (true, Some(sb)) = (self.eps > 0.0 && r.score > 0.0, self.shared_best) {
+                            sb.fetch_max(r.score.to_bits(), Ordering::Relaxed);
+                        }
+                    }
                     if pos < 15 {
                         let names_owned = names.iter().map(|s| s.to_string()).collect();
                         self.top_n.insert(pos, TopEntry {
@@ -1210,7 +1282,8 @@ impl<'a> Search<'a> {
                             if let Some(shared) = self.shared_cutoff {
                                 let floored = self.top_n[14].score.floor();
                                 if floored > 0.0 {
-                                    shared.fetch_max(floored as u64, Ordering::Relaxed);
+                                    let prev = shared.fetch_max(floored as u64, Ordering::Relaxed);
+                                    if anytime::on() { anytime::cutoff(prev, floored as u64); }
                                 }
                             }
                         }
@@ -1707,6 +1780,9 @@ fn ranks_before<A: AsRef<str>, B: AsRef<str>>(a: f64, a_items: &[A], b: f64, b_i
 
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
     for e in from {
+        // The same build can arrive twice (the warm start's builds merged
+        // with a search that found them again). Same items, same score.
+        if into.iter().any(|x| x.items == e.items) { continue; }
         let pos = into.iter().position(|x| ranks_before(e.score, &e.items, x.score, &x.items))
             .unwrap_or(into.len());
         if pos < 15 {
@@ -1743,6 +1819,7 @@ pub fn run_single_with_progress(
     part: Option<(i64, i64)>,
 ) -> Totals {
     let shared_cutoff = AtomicU64::new(0);
+    let shared_best = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
         // Dynamic rows: the all-150-SP ceiling assumes the damage rows are
         // fixed, and they are not — so the mid-tree bound is inadmissible.
@@ -1773,11 +1850,12 @@ pub fn run_single_with_progress(
     let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let bound_cluster: usize = std::env::var("BOUND_CLUSTER").ok()
         .and_then(|v| v.parse().ok()).unwrap_or(4);
-    seed_warm_cutoff(fx, scoring, &shared_cutoff, warm_k, bound_cluster, false);
+    let warm_top = seed_warm_cutoff(fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster, false);
 
     let mut search = Search::new(fx);
     search.scoring = scoring;
     search.shared_cutoff = Some(&shared_cutoff);
+    search.shared_best = Some(&shared_best);
     search.bound_tables = bound_tables.as_ref();
     search.bound_max_depth = 0;
     search.bound_tail = 1;
@@ -1797,6 +1875,7 @@ pub fn run_single_with_progress(
     }
     search.init_equip_names();
     search.run();
+    if search.eps > 0.0 { merge_top(&mut search.top_n, warm_top); }
     // Final snapshot so the UI's last frame matches the returned totals.
     search.emit_progress();
     Totals {
@@ -1975,10 +2054,11 @@ fn json_str(s: &str) -> String {
 /// every search with a cold cutoff.
 fn seed_warm_cutoff(
     fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
-    shared_cutoff: &AtomicU64, warm_k: usize, bound_cluster: usize, verbose: bool,
-) {
+    shared_cutoff: &AtomicU64, shared_best: &AtomicU64, warm_k: usize, bound_cluster: usize,
+    verbose: bool,
+) -> Vec<TopEntry> {
 if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k)) {
-    return;
+    return Vec::new();
 }
 {
     // Rank each pool's items by their solo objective ceiling (item alone
@@ -2037,6 +2117,7 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         set_table: fx.set_table.clone(),
         fixed_names: fx.fixed_names.clone(),
         none_names: fx.none_names.clone(),
+        eps: fx.eps,
     };
     let warm_started = Instant::now();
     let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
@@ -2046,6 +2127,7 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
     let mut ws = Search::new(&wfx);
     ws.scoring = scoring;
     ws.shared_cutoff = Some(&shared_cutoff);
+    ws.shared_best = Some(shared_best);
     ws.dense_bound = wdb.as_ref();
     ws.init_equip_names();
     ws.next_report = f64::INFINITY;
@@ -2058,6 +2140,11 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         );
     }
     let _ = warm_started;
+    // The warm search's builds are real, fully scored builds. The caller keeps
+    // them as results when eps > 0: the main search then prunes below
+    // (1 + eps) * best, which removes the very build that set `best` if the
+    // warm start found it, and the run would report nothing.
+    ws.top_n
 }
 
 
@@ -2065,6 +2152,7 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
 
 /// CLI entry point (thin wrapper lives in src/bin/enum_kernel.rs).
 pub fn cli_main() {
+    anytime::start();
     let args: Vec<String> = env::args().collect();
     let fixture_path = args.get(1).map(String::as_str)
         .expect("usage: enum_kernel <fixture> [threads] [score_fixture.json]");
@@ -2111,6 +2199,7 @@ pub fn cli_main() {
     let scoring = scoring_ctx.as_ref();
     crate::scoring::trace::init_from_env();
     let shared_cutoff = AtomicU64::new(0);
+    let shared_best = AtomicU64::new(0);
 
     // Mid-tree damage ceiling bound tables (objective B&B). Memo keys pack
     // offsets into 7 bits, so guard on pool sizes.
@@ -2159,7 +2248,7 @@ pub fn cli_main() {
     // waiting for the cutoff to warm up. WARM_K=0 disables.
     let warm_k: usize = env::var("WARM_K").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(6);
-    seed_warm_cutoff(&fx, scoring, &shared_cutoff, warm_k, bound_cluster, true);
+    let warm_top = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster, true);
 
     let start = Instant::now();
 
@@ -2167,6 +2256,7 @@ pub fn cli_main() {
         let mut search = Search::new(&fx);
         search.scoring = scoring;
         search.shared_cutoff = Some(&shared_cutoff);
+        search.shared_best = Some(&shared_best);
         search.bound_tables = bounds;
         search.bound_max_depth = bound_max_depth;
         search.bound_tail = bound_tail;
@@ -2174,6 +2264,7 @@ pub fn cli_main() {
         search.leaf_budget = cli_leaf_budget;
         search.init_equip_names();
         search.run();
+        if search.eps > 0.0 { merge_top(&mut search.top_n, warm_top); }
         let elapsed = start.elapsed();
         (Totals {
             checked: search.checked,
@@ -2220,6 +2311,7 @@ pub fn cli_main() {
                     search.stop_flag = Some(&stop_flag);
                     search.scoring = scoring;
                     search.shared_cutoff = Some(&shared_cutoff);
+                    search.shared_best = Some(&shared_best);
                     search.bound_tables = bounds;
                     search.bound_max_depth = bound_max_depth;
                     search.bound_tail = bound_tail;
@@ -2307,10 +2399,12 @@ pub fn cli_main() {
                 totals.mana_reject += t.mana_reject;
                 totals.thresh_reject += t.thresh_reject;
                 totals.bound_pruned += t.bound_pruned;
+                totals.stopped_early |= t.stopped_early;
                 merge_top(&mut totals.top_n, t.top_n);
             }
             done.store(1, Ordering::Relaxed);
             monitor.join().expect("monitor thread panicked");
+            if Search::new(&fx).eps > 0.0 { merge_top(&mut totals.top_n, warm_top); }
             totals
         });
         (totals, start.elapsed())
@@ -2326,6 +2420,16 @@ pub fn cli_main() {
         totals.leaf_calls,
         totals.leaf_calls as f64 / elapsed.as_secs_f64(),
     );
+    // Whether the space was exhausted (a proof) or a budget or time cap
+    // stopped it first. anytime.py keys proven optima on this.
+    println!("search: complete {}", if totals.stopped_early { "no" } else { "yes" });
+    let eps = Search::new(&fx).eps;
+    if eps > 0.0 {
+        // R21's claim, stated where the result is: the top-1 is within eps of
+        // the optimum (if complete); ranks 2 to 15 are not certified.
+        println!("search: eps {} | top-1 within {:.3}% of optimal{} | ranks 2-15 unverified",
+                 eps, eps * 100.0, if totals.stopped_early { " (NOT proved: stopped early)" } else { " (proved)" });
+    }
     crate::scoring::trace::report();
     if let Some(r) = crate::scoring::greedy_audit_report() { println!("{r}"); }
     if scoring.is_some() {
@@ -2376,5 +2480,55 @@ mod top_order_tests {
         assert_eq!(ab.len(), 15);
         assert_eq!(names(&ab), names(&ba));
         assert_eq!(ab[14].items[0], "Clandestine");
+    }
+}
+
+#[cfg(test)]
+mod eps_tests {
+    //! R21 regression: with eps > 0 the search prunes below (1 + eps) * best.
+    //! When the warm start found the best build, that prune removed the build
+    //! itself and the run returned no results at all (tierstack_small at 5%,
+    //! heavy_melee_small at 2%). The claim under test: results are non-empty
+    //! and the top-1 is within eps of the proved optimum.
+    use super::*;
+
+    fn fixture(name: &str) -> String {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        std::fs::read_to_string(format!("{dir}{name}")).expect("fixture")
+    }
+
+    fn top1(json: &str) -> Option<f64> {
+        let v: serde_json::Value = serde_json::from_str(json).expect("solve json");
+        v["top"].as_array().and_then(|a| a.first()).and_then(|e| e["score"].as_f64())
+    }
+
+    fn check(fam: &str, eps: f64, proved_optimum: f64) {
+        let enum_fx = fixture(&format!("enum_{fam}.txt")) + &format!("\nEPS {eps}\n");
+        let score_fx = fixture(&format!("score_{fam}.json"));
+        let out = solve_json_full(&enum_fx, &score_fx, 0.0, None, 0, 1);
+        let best = top1(&out).unwrap_or_else(|| panic!("{fam} eps {eps}: no results: {}", &out[..out.len().min(300)]));
+        assert!(best <= proved_optimum * (1.0 + 1e-12), "{fam}: {best} above the proved optimum");
+        assert!(best >= proved_optimum / (1.0 + eps) * (1.0 - 1e-12),
+                "{fam} eps {eps}: {best} not within eps of {proved_optimum}");
+    }
+
+    #[test]
+    fn eps_keeps_the_incumbent_tierstack() {
+        // Proved optimum: full exact run (anytime_ref.json).
+        check("fam_tierstack_small", 0.05, 2.20863848359218158e5);
+    }
+
+    #[test]
+    fn eps_keeps_the_incumbent_heavy_melee() {
+        check("fam_heavy_melee_small", 0.02, 3.84581312053956135e4);
+    }
+
+    #[test]
+    fn eps_line_parses_and_zero_is_exact() {
+        let base = fixture("enum_fam_tierstack_small.txt");
+        assert_eq!(parse_fixture(&base).eps, 0.0);
+        assert_eq!(parse_fixture(&(base.clone() + "\nEPS 0.01\n")).eps, 0.01);
+        assert_eq!(parse_fixture(&(base.clone() + "\nEPS -1\n")).eps, 0.0);
+        assert_eq!(parse_fixture(&(base + "\nEPS nan\n")).eps, 0.0);
     }
 }
