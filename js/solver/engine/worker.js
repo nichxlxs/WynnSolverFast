@@ -861,6 +861,11 @@ function _run_level_enum() {
         const n = sm.get('set');
         if (n) _sp_reachable_set_names.add(n);
     }
+    // The weapon is a set piece too (calculate_skillpoints counts it).
+    if (_cfg.weapon_sm && !_cfg.weapon_sm.get('crafted')) {
+        const n = _cfg.weapon_sm.get('set');
+        if (n) _sp_reachable_set_names.add(n);
+    }
 
     const _sp_set_names = [];
     for (const set_name of _sp_reachable_set_names) {
@@ -1949,9 +1954,8 @@ function _run_level_enum() {
                 for (let i = 0; i < 5; i++) {
                     if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
                 }
-                // Pieces already worn by locked equipment. The weapon is not
-                // counted, matching calculate_skillpoints, which walks the
-                // eight equipment slots and takes the weapon separately.
+                // Pieces already worn by locked equipment. The weapon is
+                // counted after this loop, as calculate_skillpoints counts it.
                 const si = _sp_set_index.get(sm.get('set'));
                 if (si !== undefined) _sp_set_worn_fixed[si]++;
             }
@@ -1990,6 +1994,11 @@ function _run_level_enum() {
         for (let i = 0; i < 5; i++) {
             if (wep_req[i] > _sp_fixed_max_eff_req[i])
                 _sp_fixed_max_eff_req[i] = wep_req[i];
+        }
+        // ...but it is a worn set piece, as calculate_skillpoints counts it.
+        if (!weapon_sm.get('crafted')) {
+            const si = _sp_set_index.get(weapon_sm.get('set'));
+            if (si !== undefined) _sp_set_worn_fixed[si]++;
         }
     }
 

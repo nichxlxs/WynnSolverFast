@@ -31,18 +31,30 @@
  * inadmissible — that is a real bug this guards against, caught once in the
  * Rust port at two builds short on fam_hybrid_small.
  *
+ * Different sets are worn at the same time, so their bonuses stack: this
+ * set's best reachable row is ADDED to `out`, not maxed into it. Maxing across
+ * sets undercounted any build drawing the same attribute from two sets, which
+ * made the bound inadmissible (two disjoint +10 Dex sets were credited +10).
+ * Within one set only one row applies at a time, so the per-set part is a max.
+ * The Rust engine's `refresh_sp_bound_base` has always summed per set.
+ *
  * @param {number[][]} rows  bonus per attribute, indexed by (count - 1)
  * @param {number} worn      pieces of this set already equipped
  * @param {number} reach     further pieces the remaining slots could supply
- * @param {Int32Array|number[]} out  accumulator, maxed in place (length 5)
+ * @param {Int32Array|number[]} out  accumulator, this set's best added in place (length 5)
  */
 function accumulate_reachable_set_bonus(rows, worn, reach, out) {
     if (!rows || rows.length === 0) return out;
     const lo = Math.min(Math.max(worn, 1), rows.length);
     const hi = Math.max(lo, Math.min(rows.length, worn + reach));
-    for (let t = lo; t <= hi; t++) {
-        const row = rows[t - 1];
-        for (let j = 0; j < 5; j++) if (row[j] > out[j]) out[j] = row[j];
+    for (let j = 0; j < 5; j++) {
+        // Starts at 0: a negative bonus is never credited as provision.
+        let best = 0;
+        for (let t = lo; t <= hi; t++) {
+            const v = rows[t - 1][j];
+            if (v > best) best = v;
+        }
+        out[j] += best;
     }
     return out;
 }
