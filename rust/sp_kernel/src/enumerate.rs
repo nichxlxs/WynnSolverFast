@@ -364,6 +364,10 @@ pub struct Search<'a> {
     pub leaf_budget: Option<f64>,
     /// SP_BOUND_OFF=1: read once at construction, never in the hot path.
     sp_bound_off: bool,
+    /// R9 node bound; SP_NODE_BOUND=0 turns it off.
+    sp_node_on: bool,
+    /// Last-slot ranges R9 rejected with one solve.
+    pub sp_node_reject: u64,
     dense_work: crate::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -394,6 +398,7 @@ pub struct Search<'a> {
     cluster_memo_hits: u64,
     adapt_super: AdaptiveBound,
     adapt_tail: AdaptiveBound,
+    adapt_node: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
     bound_tables: Option<&'a crate::scoring::BoundTables>,
@@ -616,6 +621,8 @@ impl<'a> Search<'a> {
             equip_set,
             ring1_placed_offset: 0,
             sp_bound_off: std::env::var("SP_BOUND_OFF").as_deref() == Ok("1"),
+            sp_node_on: std::env::var("SP_NODE_BOUND").as_deref() != Ok("0"),
+            sp_node_reject: 0,
             checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
             kernel: Kernel::new(),
@@ -636,6 +643,7 @@ impl<'a> Search<'a> {
             cluster_evals: 0,
             cluster_memo_hits: 0,
             adapt_super: AdaptiveBound::new(),
+            adapt_node: AdaptiveBound::new(),
             adapt_tail: AdaptiveBound::new(),
             bound_work: Default::default(),
             checked_flushed: 0.0,
@@ -901,6 +909,62 @@ impl<'a> Search<'a> {
             for j in 0..5 { base[j] += best[j]; }
         }
         self.sp_bound_base = base;
+    }
+
+    /// R9: exact SP feasibility of the placed prefix plus a RELAXED last item,
+    /// for the last slot's offsets [from, to].
+    ///
+    /// The relaxed item has no requirements and, per lane, the largest
+    /// provision any non-crafted candidate in the range carries (crafted SP is
+    /// added after feasibility, so it never helps). Every real candidate has
+    /// at least its requirements and at most those provisions, and SP
+    /// feasibility only gets easier with more provision and fewer
+    /// requirements, so an infeasible relaxation proves every candidate
+    /// infeasible. Set-granted points are bounded per set by the best row any
+    /// reachable piece count gives (worn now, plus one if the range stocks the
+    /// set), positive parts only, SUMMED over sets: the PR #19 review's
+    /// counterexample is a suffix piece with no own provision that completes a
+    /// +30 Dex set, which a provision-only relaxation would wrongly reject.
+    /// Skipped (returns true) when the scored path chooses among guild tome
+    /// candidates, or when SP_NODE_BOUND=0.
+    fn sp_node_feasible(&mut self, depth: usize, from: usize, to: usize) -> bool {
+        if self.sp_bound_off || !self.sp_node_on { return true; }
+        let guild: Option<crate::Unit> = match self.scoring {
+            Some(sc) => {
+                if !sc.layer2.guild_tome_cands.is_empty() { return true; }
+                sc.guild_unit
+            }
+            None => self.fx.guild.as_ref().map(|(g, _)| *g),
+        };
+        let slot = &self.fx.slots[depth];
+        let mut skp = [0i32; 5];
+        let mut first = true;
+        for it in &slot.pool[from..=to] {
+            if it.crafted { continue; }
+            for j in 0..5 {
+                if first || it.skp[j] > skp[j] { skp[j] = it.skp[j]; }
+            }
+            first = false;
+        }
+        if first { skp = [0; 5]; }   // only crafted candidates: none adds SP
+        let mut set_free = [0i32; 5];
+        for (sid, rows) in self.fx.set_table.iter().enumerate() {
+            if rows.is_empty() { continue; }
+            let worn = self.set_counts[sid].max(0) as usize;
+            let reach = usize::from(slot.pool[from..=to].iter().any(|it| it.set_id == sid as i32));
+            if worn + reach == 0 { continue; }
+            let lo = worn.max(1).min(rows.len());
+            let hi = rows.len().min(worn + reach).max(lo);
+            for j in 0..5 {
+                let mut best = 0;
+                for t in lo..=hi { best = best.max(rows[t - 1][j]); }
+                set_free[j] += best;
+            }
+        }
+        let mut equipment = self.equips;
+        equipment[slot.pos] = Unit { crafted: false, reqs: [0; 5], skp };
+        let case = Case { budget: self.fx.budget, equipment, weapon: self.fx.weapon, set_free, expected: None };
+        self.kernel.calculate_with_extra(&case, guild.as_ref()).is_some()
     }
 
     fn sp_bound_ok(&self, depth: usize, offset: usize, _is_leaf: bool) -> bool {
@@ -1194,6 +1258,24 @@ impl<'a> Search<'a> {
             if depth == 0 {
                 from = from.max(self.part_lo);
                 to = to.min(self.part_hi);
+            }
+            // R9: one exact SP solve for the whole in-band range (see
+            // sp_node_feasible). If even the relaxation is infeasible, no
+            // candidate is, so the range is credited and skipped.
+            // Self-tuning like the cluster layers: where it rarely rejects
+            // (tierstack measured 10% slower with it always on), it switches
+            // itself off and re-samples later. Speed only; never a result.
+            if from <= to && self.sp_node_on && self.adapt_node.armed(self.checked) {
+                let ok = self.sp_node_feasible(depth, from as usize, to as usize);
+                let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
+                self.adapt_node.record(skipped, self.checked);
+                if !ok {
+                    self.checked += skipped;
+                    self.sp_leaf_reject += skipped as u64;
+                    self.sp_node_reject += 1;
+                    self.maybe_report();
+                    return;
+                }
             }
             let mut offset = from;
             // Cached prefix state for the cluster bound: filled at the first
