@@ -9,8 +9,10 @@ tested with the existing tools (`benchmark_ab.py`, the oracles,
 
 ## Progress (implementation started 2026-10-07)
 
-Two branches, stacked: `claude/correctness-c1-c7` (section 0) and
-`claude/r1-reachable-sp` on top of it (R1, R9, R12, tie order). Each item below was
+Three branches, stacked: `claude/correctness-c1-c7` (section 0),
+`claude/r1-reachable-sp` (R1, R9, R12, tie order, R8, R21) and
+`claude/r32-search-modes` (PR #18 integrated, the search-mode selector,
+R20). Each item below was
 measured, and every pruning change passed the oracles before landing.
 
 | Item | Status | Where | Evidence |
@@ -28,6 +30,10 @@ measured, and every pruning change passed the oracles before landing.
 | R1 at cluster bounds | done, Rust | `075b053` | last-slot cluster ceilings at reachable SP; 1.059x, exact |
 | R1 at the tail bound | done, Rust | `5a622d2` | per-subtree cap from `sp_bound_base`; 1.0505x geometric mean, 8/11 faster (0.951 to 1.116); top-15 scores identical on all fixtures; full-space `checked` identical |
 | Deterministic ties | done, both engines | `93bd4e8` | Rust `merge_top` and the page's merges kept tied builds in arrival order, so thread or worker scheduling decided their rank and, at rank 15, membership (seen on `fam_heavy_melee_small`: two builds tie exactly at ranks 8/9). Both now use `compareTopResult`'s order (score, then item names) |
+| R8 anytime metrics | done, Rust CLI + harness | `368cbc8` | `ANYTIME_TRACE=1` incumbent events; `anytime.py` primal integral, time to 99%/100%, final gap; `anytime_ref.json` holds 12 proven and 6 best-known family optima (proven over each fixture's pools) |
+| R21 epsilon tolerance | done, Rust; "Near-optimal (proved)" mode in the page | `368cbc8`, `8493bb3` | top-1 within eps of the proved optimum on all six small families at 0.5 to 5%; found and fixed an empty-result bug (the warm build pruned below `(1 + eps) * best`); proof-time measurement still to be redone on a quiet machine (the first run shared the CPU) |
+| PR #18 Quick search | integrated (squash, evidence archives left on the branch) | `1ff0c9a` | its tests plus 60 browser assertions; tie order and set-weapon refusal reconciled; wasm +23% |
+| R20 windowed archive | done: engine (step 1) and page "Shortlist" mode with QoL weights (step 2) | `e996265`, `75ad6a6` | window sets identical to a bounds-off reference on five families at 2% and 10% (2 to 252 builds); completeness withdrawn when an archive fills inside the window; explain-pass stats equal the score on `total_hp` and `ehp` targets (2,000 of 2,000 builds) |
 
 Found while doing this, not yet fixed:
 
@@ -63,9 +69,12 @@ deficit bound and R9 already reject, and the leaf pipeline is about 1% of
 wall. Pairwise conflicts can only remove the kernel rejects, so R10 is
 parked until a profile shows SP kernel time again.
 
-Not done yet, in order: R10 (parked, see above), R5/R21/R8 (gap, epsilon,
-anytime metrics), R23 (incremental leaf fill), the JS mirror of R9, then the
-rest of section 7.
+Not done yet, in order: R21's proof-time measurement on a quiet machine,
+R20 step 3 (collapse near-duplicate builds) and stats for tome-optimised
+builds, R5 (see its correction below), R23 (incremental leaf fill), the JS
+mirror of R9, R10 (parked), then the rest of section 7. Open questions for
+the author: the 400 start-mana cap (needs checking in game) and Radiance
+item-SP scaling (above).
 
 ## 0. Correctness first (from the author's review of PR #19, 2026-10-07)
 
