@@ -1190,7 +1190,8 @@ impl<'a> Search<'a> {
                 LeafOutcome::Scored(r) => {
                     self.feasible += 1;
                     self.scored += 1;
-                    let pos = self.top_n.iter().position(|x| r.score > x.score)
+                    let pos = self.top_n.iter()
+                        .position(|x| ranks_before(r.score, &names, x.score, &x.items))
                         .unwrap_or(self.top_n.len());
                     if pos < 15 {
                         let names_owned = names.iter().map(|s| s.to_string()).collect();
@@ -1678,9 +1679,27 @@ fn tome_json(t: &Option<crate::scoring::TomeChoice>) -> String {
             c.guild_idx, names(&c.weapon_names), names(&c.armor_names))
 }
 
+/// True when a result (score `a`, items `a_items`) ranks strictly ahead of
+/// `(b, b_items)`: higher score first, then item names in ascending order,
+/// slot by slot. The same order as the JS `compareTopResult`, so tied
+/// builds rank identically in both engines and do not depend on which
+/// thread or partition found them first. Names are compared bytewise; JS
+/// compares UTF-16 code units, which agree on every shipped item name.
+fn ranks_before<A: AsRef<str>, B: AsRef<str>>(a: f64, a_items: &[A], b: f64, b_items: &[B]) -> bool {
+    if a != b { return a > b; }
+    let n = a_items.len().max(b_items.len());
+    for i in 0..n {
+        let x = a_items.get(i).map(|s| s.as_ref()).unwrap_or("");
+        let y = b_items.get(i).map(|s| s.as_ref()).unwrap_or("");
+        if x != y { return x < y; }
+    }
+    false
+}
+
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
     for e in from {
-        let pos = into.iter().position(|x| e.score > x.score).unwrap_or(into.len());
+        let pos = into.iter().position(|x| ranks_before(e.score, &e.items, x.score, &x.items))
+            .unwrap_or(into.len());
         if pos < 15 {
             into.insert(pos, e);
             into.truncate(15);
@@ -2311,5 +2330,42 @@ pub fn cli_main() {
                 names.iter().filter(|n| !n.starts_with("No ")).cloned()
                     .collect::<Vec<_>>().join(", "));
         }
+    }
+}
+
+#[cfg(test)]
+mod top_order_tests {
+    use super::*;
+
+    fn entry(score: f64, names: &[&str]) -> TopEntry {
+        TopEntry { score, items: names.iter().map(|s| s.to_string()).collect(), ..Default::default() }
+    }
+
+    #[test]
+    fn ties_rank_by_item_names() {
+        assert!(ranks_before(2.0, &["b"], 1.0, &["a"]));
+        assert!(ranks_before(1.0, &["Clandestine"], 1.0, &["Mechanical Augmentation"]));
+        assert!(!ranks_before(1.0, &["Mechanical Augmentation"], 1.0, &["Clandestine"]));
+        assert!(!ranks_before(1.0, &["a"], 1.0, &["a"]));
+    }
+
+    #[test]
+    fn merge_is_independent_of_thread_order() {
+        // Two threads each found one of a tied pair. Merging in either order
+        // must give the same list, and at capacity the same survivor.
+        let mut base: Vec<TopEntry> = (0..14).map(|i| entry(100.0 - i as f64, &["x"])).collect();
+        base.iter_mut().enumerate().for_each(|(i, e)| e.items = vec![format!("x{i:02}")]);
+        let a = vec![entry(50.0, &["Mechanical Augmentation"])];
+        let b = vec![entry(50.0, &["Clandestine"])];
+        let mut ab = base.clone();
+        merge_top(&mut ab, a.clone());
+        merge_top(&mut ab, b.clone());
+        let mut ba = base.clone();
+        merge_top(&mut ba, b);
+        merge_top(&mut ba, a);
+        let names = |v: &Vec<TopEntry>| v.iter().map(|e| e.items[0].clone()).collect::<Vec<_>>();
+        assert_eq!(ab.len(), 15);
+        assert_eq!(names(&ab), names(&ba));
+        assert_eq!(ab[14].items[0], "Clandestine");
     }
 }
