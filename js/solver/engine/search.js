@@ -965,6 +965,20 @@ function _display_solver_results(topN) {
 const _shortlist_settings = { ...(typeof SHORTLIST_DEFAULTS !== 'undefined' ? SHORTLIST_DEFAULTS : {}) };
 const _SHORTLIST_ROWS = 25;
 let _shortlist_rows_shown = _SHORTLIST_ROWS;
+// R20 step 3: fold builds that differ in one slot under the best of them.
+let _shortlist_group = true;
+const _shortlist_open = new Set();   // representative keys whose variants are shown
+
+function _shortlist_toggle_group(on) {
+    _shortlist_group = !!on;
+    _render_shortlist();
+}
+
+function _shortlist_toggle_variants(key, event) {
+    if (event) event.stopPropagation();
+    if (_shortlist_open.has(key)) _shortlist_open.delete(key); else _shortlist_open.add(key);
+    _render_shortlist();
+}
 
 function _shortlist_set_weight(key, value) {
     _shortlist_settings[key] = Math.max(0, parseFloat(value) || 0);
@@ -995,7 +1009,20 @@ function _render_shortlist() {
     const sl = _solver_state.shortlist;
     if (!sl || !sl.entries.length) { panel.innerHTML = ''; _solver_state._shortlist_ranked = null; return; }
     const ranked = rankShortlist(sl.entries, _shortlist_settings);
-    _solver_state._shortlist_ranked = ranked;
+    const groups = _shortlist_group ? collapseShortlistVariants(ranked, 2)
+        : ranked.map(e => ({ ...e, variants: [] }));
+    // Flat list of displayed rows, so a click can index it: each
+    // representative, then its variants when expanded.
+    const shown = [];
+    for (const g of groups.slice(0, _shortlist_rows_shown)) {
+        const key = (g.item_names ?? []).join('|');
+        shown.push({ entry: g, rank: ranked.indexOf(ranked.find(r => r.item_names === g.item_names)) + 1,
+            key, variants: g.variants.length, variant: false });
+        if (_shortlist_open.has(key)) {
+            for (const v of g.variants) shown.push({ entry: v, rank: ranked.indexOf(v) + 1, key, variants: 0, variant: true });
+        }
+    }
+    _solver_state._shortlist_ranked = shown.map(r => r.entry);
     const pct = +(_solver_state.search_window * 100).toFixed(2);
     const claim = sl.complete
         ? `every build within ${pct}% of the best (proved)`
@@ -1008,23 +1035,29 @@ function _render_shortlist() {
     let html = `<div class="text-secondary small mt-2 mb-1">Shortlist: ${sl.entries.length} ${claim}. `
         + 'Weights add up to the stated bonus over the score ratio; all at 0 is score order.</div>';
     html += '<div class="mb-1">' + slider('w_ehp', 'EHP') + slider('w_mana', 'Mana')
-        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain') + '</div>';
+        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain')
+        + `<label class="small text-secondary ms-2"><input type="checkbox" id="solver-shortlist-group" ${_shortlist_group ? 'checked' : ''} `
+        + `onchange="_shortlist_toggle_group(this.checked)"> group one-slot variants</label></div>`;
     html += '<table class="table table-sm table-dark small mb-1" id="solver-shortlist-table"><thead><tr>'
         + '<th>#</th><th>Score</th><th>EHP (no agi)</th><th>Mana/combo</th><th>Walk</th><th>HPR+LS</th><th>Items</th>'
         + '</tr></thead><tbody>';
-    ranked.slice(0, _shortlist_rows_shown).forEach((e, i) => {
+    shown.forEach((row, i) => {
+        const e = row.entry;
         const st = e.stats ?? {};
         const names = (e.item_names ?? []).filter(n => !/^No /.test(n)).join(', ');
         const mana = st.mana_delta !== undefined ? (st.mana_delta >= 0 ? '+' : '') + st.mana_delta.toFixed(1)
             : (st.mr !== undefined ? `${fmt(st.mr)} mr` : '—');
-        html += `<tr class="solver-shortlist-row" style="cursor:pointer" onclick="_shortlist_load(${i})">`
-            + `<td>${i + 1}</td><td>${(100 * e.score / sl.best).toFixed(2)}%</td>`
+        const more = row.variants
+            ? ` <a href="#" class="solver-shortlist-variants" onclick="_shortlist_toggle_variants(${JSON.stringify(row.key).replace(/"/g, '&quot;')}, event); return false;">`
+                + `${_shortlist_open.has(row.key) ? '\u2212' : '+'}${row.variants}</a>` : '';
+        html += `<tr class="solver-shortlist-row${row.variant ? ' text-secondary' : ''}" style="cursor:pointer" onclick="_shortlist_load(${i})">`
+            + `<td>${row.variant ? '\u2514 ' : ''}${row.rank}${more}</td><td>${(100 * e.score / sl.best).toFixed(2)}%</td>`
             + `<td>${fmt(st.ehp_no_agi)}</td><td>${mana}</td><td>${fmt(st.spd)}%</td>`
             + `<td>${fmt((st.hpr ?? NaN) + (st.ls ?? 0))}</td><td>${names}</td></tr>`;
     });
     html += '</tbody></table>';
-    if (ranked.length > _shortlist_rows_shown) {
-        html += `<div class="solver-expand-toggle small" onclick="_shortlist_show_more()">show more (${ranked.length - _shortlist_rows_shown} hidden)</div>`;
+    if (groups.length > _shortlist_rows_shown) {
+        html += `<div class="solver-expand-toggle small" onclick="_shortlist_show_more()">show more (${groups.length - _shortlist_rows_shown} hidden)</div>`;
     }
     panel.innerHTML = html;
 }

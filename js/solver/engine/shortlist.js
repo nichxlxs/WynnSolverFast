@@ -90,9 +90,46 @@ function mergeShortlistArchives(parts, window) {
     return { entries, best, line, complete };
 }
 
+/**
+ * Slots in which two builds differ. Positions follow the engine's item order
+ * (helmet, chestplate, leggings, boots, ring, ring, bracelet, necklace); the
+ * two rings compare as a pair, so swapped rings are not a difference.
+ */
+function shortlistSlotDistance(a, b) {
+    const x = a ?? [], y = b ?? [];
+    const n = Math.max(x.length, y.length);
+    let d = 0;
+    for (let i = 0; i < n; i++) {
+        if (n >= 6 && (i === 4 || i === 5)) continue;
+        if (x[i] !== y[i]) d++;
+    }
+    if (n >= 6) {
+        const ra = [x[4], x[5]].sort(), rb = [y[4], y[5]].sort();
+        d += (ra[0] !== rb[0]) + (ra[1] !== rb[1]);
+    }
+    return d;
+}
+
+/**
+ * Roadmap R20 step 3 (R17): group near-duplicates. Walks `ranked` in order;
+ * a build within `k - 1` slots of an earlier representative becomes one of
+ * its variants, otherwise it is a new representative. Returns the
+ * representatives, each with `variants` (in rank order). k = 2 groups
+ * builds that differ in a single slot.
+ */
+function collapseShortlistVariants(ranked, k = 2) {
+    const reps = [];
+    for (const e of ranked) {
+        const home = reps.find(r => shortlistSlotDistance(r.item_names, e.item_names) < k);
+        if (home) home.variants.push(e);
+        else reps.push({ ...e, variants: [] });
+    }
+    return reps;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SHORTLIST_DEFAULTS, shortlistUtilities, shortlistUtility, rankShortlist,
-        mergeShortlistArchives,
+        mergeShortlistArchives, shortlistSlotDistance, collapseShortlistVariants,
     };
 }

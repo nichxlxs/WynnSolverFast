@@ -61,6 +61,27 @@ const e = (score, name, stats = {}) => ({ score, item_names: [name], stats });
     t.assert(rankShortlist([]).length === 0, 'empty archive ranks to nothing');
 }
 
+// Variant grouping (R20 step 3).
+{
+    const { shortlistSlotDistance, collapseShortlistVariants } = require('../engine/shortlist.js');
+    const b = (...n) => n;
+    const base = b('H', 'C', 'L', 'B', 'R1', 'R2', 'Br', 'N');
+    t.assert(shortlistSlotDistance(base, b('H', 'C', 'L', 'B', 'R2', 'R1', 'Br', 'N')) === 0,
+        'swapped rings are the same build');
+    t.assert(shortlistSlotDistance(base, b('H', 'C', 'L', 'B', 'R1', 'R3', 'Br', 'N')) === 1, 'one ring changed is one slot');
+    t.assert(shortlistSlotDistance(base, b('X', 'C', 'L', 'B', 'R1', 'R2', 'Br', 'Y')) === 2, 'two slots');
+    const ranked = [
+        { score: 100, item_names: base },
+        { score: 99, item_names: b('H', 'C', 'L', 'B', 'R1', 'R2', 'Br', 'N2') },   // 1 from #1
+        { score: 98, item_names: b('X', 'Y', 'L', 'B', 'R1', 'R2', 'Br', 'N') },    // 2 from #1
+        { score: 97, item_names: b('X', 'Y', 'L', 'B', 'R1', 'R2', 'Br', 'N3') },   // 1 from #3
+    ];
+    const reps = collapseShortlistVariants(ranked, 2);
+    t.assert(reps.length === 2 && reps[0].variants.length === 1 && reps[1].variants.length === 1,
+        'one-slot variants fold under their best representative');
+    t.assert(collapseShortlistVariants(ranked, 1).length === 4, 'k = 1 groups nothing');
+}
+
 const result = t.summary();
 if (require.main === module && result.fail > 0) process.exit(1);
 module.exports = result;

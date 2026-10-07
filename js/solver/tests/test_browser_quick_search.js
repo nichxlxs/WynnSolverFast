@@ -335,14 +335,19 @@ async function shortlistCase(page) {
         `every shortlisted build is inside the 10% window (${r.shortlist.count} builds)`);
     check(r.shortlist.with_stats === r.shortlist.count, 'every shortlisted build carries explain stats');
     check(r.shortlist.complete === true, 'a finished search with a small archive claims completeness');
-    check(r.shortlist_rows === Math.min(25, r.shortlist.count), `the table shows ${r.shortlist_rows} rows`);
+    check(r.shortlist_rows >= 1 && r.shortlist_rows <= Math.min(25, r.shortlist.count),
+        `grouped table shows ${r.shortlist_rows} representative rows`);
+    await page.locator('#solver-shortlist-group').uncheck();
+    const ungrouped = await state(page);
+    check(ungrouped.shortlist_rows === Math.min(25, r.shortlist.count),
+        `ungrouped table shows every build (${ungrouped.shortlist_rows})`);
     check(r.top.length > 0 && Math.abs(r.top[0].score - r.shortlist.best) < 1e-9 * r.shortlist.best,
         'the top-15 view and the shortlist agree on the best score');
     // Re-rank: a weight change re-sorts without a new search.
     const runBefore = r.run_id;
     await page.evaluate(() => _shortlist_set_weight('w_ehp', 0.2));
     const after = await state(page);
-    check(after.run_id === runBefore && after.shortlist_rows === r.shortlist_rows,
+    check(after.run_id === runBefore && after.shortlist_rows === ungrouped.shortlist_rows,
         'changing a weight re-ranks in place without starting a search');
     await page.locator('#solver-shortlist-table tbody tr').first().click();
     await page.locator('#solver-search-mode').selectOption('exhaustive');
