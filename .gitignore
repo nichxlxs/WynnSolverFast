@@ -4,6 +4,7 @@
 !data/**/*.json
 !js/solver/tests/**/*.json
 !js/solver/benchmarks/family_suite.json
+!rust/sp_kernel/anytime_ref.json
 !js/solver/benchmarks/current_meta_profiles.json
 !js/solver/benchmarks/current_meta_targets.json
 !js/solver/benchmarks/current_meta_suite.json

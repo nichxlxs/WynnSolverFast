@@ -23,6 +23,12 @@ known", flagged as such; metrics against it are lower bounds on the gap).
 `--ref-timeout`, whichever comes first. Entries carry the fixtures' sha256
 and are ignored when a fixture changes.
 
+"Proven" means proven over the fixture's pools, which is what a benchmark
+needs, not the scenario's optimum: the general suite exports pools after
+the legacy `current` dominance policy and the snapshot's level band, and
+family sizes are not nested (tierstack small locks Vivisected, level 105,
+which medium's 106-121 band then excludes, so medium's optimum is lower).
+
 Times include fixture load and warm start, measured from process start, so
 they compare like with like between configurations of one machine, not
 across machines.
