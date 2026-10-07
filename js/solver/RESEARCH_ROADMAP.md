@@ -17,7 +17,7 @@ this documentation PR; three were reproduced with focused JS fixtures at
 
 | # | Finding | Where | Status |
 |---|---|---|---|
-| C1 | **Set weapons never count toward their set.** 44 weapons in 2.2.3.0 carry a `sets` entry (Boundless, Corrupted, Cindercurse, Empty, Bony, ...). The loader writes `item.set` from the set tables; `calculate_skillpoints` treats the weapon as passive and never adds it to `set_counts`, so the leaf sees neither the set's stats nor its skill points. The Rust loader counts the weapon's requirements but not its set id. | `js/game/skillpoints.js` weapon block; `enumerate.rs` fixture load | reproduced: Bony Bow + Circlet counts one piece, loses +8 Agi, +45 mdRaw, +15 aDamPct |
+| C1 | **Set weapons never count toward their set.** 44 weapons in 2.2.3.0 carry a `sets` entry (Boundless, Corrupted, Cindercurse, Empty, Bony, ...). The loader writes `item.set` from the set tables; `calculate_skillpoints` treats the weapon as passive and never adds it to `set_counts`, so the leaf sees neither the set's stats nor its skill points. The Rust loader counts the weapon's requirements but not its set id. `build.js` reads `activeSetCounts` from the same call, so the builder's own display likely shares the omission (verify as part of the fix). | `js/game/skillpoints.js` weapon block; `enumerate.rs` fixture load | reproduced: Bony Bow + Circlet counts one piece, loses +8 Agi, +45 mdRaw, +15 aDamPct |
 | C2 | **The JS reachable set-SP bound takes the maximum across sets**; the Rust engine sums per set. Two disjoint sets each granting +10 Dex are credited +10, so a completion needing 95 assigned Dex is bounded at 105 and rejected against the 100-per-lane cap. `test_sp_set_bound.js` pins the wrong behaviour. | `sp_set_bound.js` `accumulate_reachable_set_bonus` | reproduced |
 | C3 | **The raw-stat `>=` precheck runs before set bonuses.** Jester bracelet + ring: raw XP -34 at max roll, +45 set bonus, +11 net; a minimum of +5 rejects them. Tracker queue item 2 called this an open decision; it is a bug. The envelope must include reachable set, tree and SP contributions, or the gate is disabled for any stat that has them. | `_build_constraint_prechecks`, `_fast_constraint_precheck` | counterexample from shipped data |
 | C4 | **The EHP precheck evaluates Def/Agi at 100**; totals reach 150 with provisions, so it is not an upper bound. The divisor is exported to the Rust fixture, so both engines share it. | `worker.js` `_build_constraint_prechecks` | confirmed in source |
@@ -36,6 +36,22 @@ set completion, guild tomes, `<=` restrictions, ties, active-worker bounds,
 zero or negative scores and cross-bucket combinations. Then re-profile the
 current Rust/WASM engine before ranking speed work: the 51.7% SP figure and
 the 24 h projection quoted below are JS-engine measurements.
+
+**Implementation sequence (review follow-up, 2026-10-07).** Commit the
+three reproduced failures (C1, C2, C6) as regression tests first; C6's
+stays a recorded known failure, never a skipped test, until R12's certified
+allocator lands. Then fix C1 and C2. Then C3, C4 and C5, and build the
+independent small-instance oracle. Integrate the useful work from PR #17
+(guarded pruning, archetype fixtures) and PR #18 (Quick search, healing
+schema, quality harness) in small validated changes rather than rebuilding
+it. Freeze a corrected Rust/WASM benchmark baseline. Then R1 first, and
+every later optimisation behind a switch, benchmarked on its own.
+
+**Gate for every new pruning rule:** a documented safe-use condition, an
+adversarial test, and an unpruned comparison. No speedup is accepted that
+silently changes the search universe or the output guarantee. Tangent
+bounds (R2), kernel scheduling (R30) and every new proof label (R21, R32)
+stay behind that gate until they pass it.
 
 ## 1. Where the solver stands
 
@@ -266,7 +282,11 @@ included, preserves the optimum *value* and a best representative; it does
 not preserve the literal top-15, because a dominated item can be the #2 to
 #15 build by name. State the two promises separately in the UI: "top-1
 value exact, list is representative" under dominance, "top-15 exact" only
-with dominance off or certified-equal-only.
+with dominance off or certified-equal-only. Even certified-equal deletion
+changes the literal list and its tie order (**gate, review follow-up**), so
+exact top-15 mode either deletes nothing, or records each deleted item's
+equivalence class and expands it back into the named results at the end
+in the tie-break order the undeleted search would have produced.
 
 **Measure.** Pool reduction on the family suite (the Nori and family
 fixtures are set-heavy); `test_dominance.js` plus a new oracle that
@@ -535,8 +555,14 @@ in the test suite measures how often that happens.
 **Step 1, audit.** An offline oracle: for a sample of scored leaves, enumerate
 every allocation of `remaining` at step 5 over the five lanes (a few hundred
 thousand at most, fine offline), score each, and report how often and by
-how much the greedy falls short, per family. If it never does, document it
-and stop. If it does, the leaf scorer is where the optimum is being lost,
+how much the greedy falls short, per family. If it never does on the sample, that is evidence,
+not a proof (**gate, review follow-up**): sampling cannot certify
+integer-SP optimality. Exact mode therefore needs a certified allocator for
+every case it supports (the exact scan over the present lanes below, the
+closed-form Def/Agi split for the EHP family, and a declared refusal for
+any case neither covers), or its label must read "optimal under greedy SP
+allocation". "Optimal (proved)" never implies more than the allocator
+proves. If it does, the leaf scorer is where the optimum is being lost,
 and no amount of bound tightening fixes that.
 
 **Step 2, structure.** **Correction (review):** damage is not a two-lane
@@ -695,8 +721,12 @@ they are the starting defaults a user should be able to override.
    amount. The payoff: at the end of an exhaustive run the archive provably
    contains *all* builds within `x%` of the optimum, so any re-ranking of
    it is exact over that window. Cap the archive (say 2,000 entries,
-   evicting the lowest score); if the cap binds, report that the window
-   was truncated to the top 2,000 and tell the user to narrow `x`.
+   evicting the lowest score); if the cap binds, the completeness claim is
+   withdrawn, the report says "top 2,000 of the window", and the user is
+   told to narrow `x` (**gate, review follow-up**: a capped or truncated
+   archive never claims to hold every build in the window). Equal-stat
+   deletions (R4) apply here too: the window is complete over
+   representatives unless dominance is off or expanded back.
    Store the assembled stat vector and the mana-sim summary per entry;
    both are already computed at scoring time.
 
@@ -768,8 +798,14 @@ ships with, and the guarantee is as exact as the ceiling is admissible.
 negative weights) take an absolute tolerance `eps_abs` instead, or `eps` is
 refused for them. The claim is about the **top-1 only**: a pruned subtree
 may hold a build better than the current 15th-best, so under `eps > 0`
-ranks 2 to 15 are reported as unverified. Ties at `best` are never pruned,
-because the comparison is strict. It composes with every bound in R1-R3,
+ranks 2 to 15 are reported as unverified. A strict comparison protects ties only at
+`eps = 0` (**gate, review follow-up**): with `best = 100` and `eps = 1%`, a
+subtree whose bound is exactly 100 is below the 101 line and is pruned, so
+under `eps > 0` an alternative optimum tied with the incumbent can be lost.
+The promise is "a build within `eps` of the optimum", and says nothing
+about ties. For a genuine gap (R5), every `eps`-pruned region's bound is
+kept in the ledger alongside the queued, active and unmaterialised work, so
+the reported gap bounds all of it. It composes with every bound in R1-R3,
 R9-R11: each gets `eps` more bite. The UI reports "optimal within 1%" with
 the proof status, which is the honest replacement for a progress bar that
 stalls at 97%.
@@ -811,7 +847,8 @@ the default in MILP solvers, and it does three things at once:
 
 - the global bound (R5) is the maximum over the queue head *and every
   prefix a worker currently holds* (the bound of its unexplored remainder),
-  with any region not yet materialised carrying its parent's bound
+  with any region not yet materialised carrying its parent's bound and
+  every `eps`-pruned region (R21) keeping its bound in the same ledger
   (**correction, review**: incumbent 100, queue head 99 and a claimed
   prefix at 150 is not a proof). Tracked that way the gap is exact and
   still cheap;
@@ -880,7 +917,7 @@ Fully merged branches (`agent/add-family-benchmark-variations`,
 `claude/build-algorithm-optimization-egcj4c`, `claude/rust-wasm-phase2`,
 `claude/wynnsolver-performance-traces-0131sj`) can be deleted.
 
-### `codex/current-family-benchmarks`: a correctness finding on master's default
+### `codex/current-family-benchmarks` (PR #17): a correctness finding on master's default
 
 Adds `engine/candidate_reducer.js` with explicit pruning policies
 (certified, balanced, legacy, aggressive, off), a "fast then verify" mode,
@@ -1267,7 +1304,7 @@ fast-then-verify). Unify them into one enum rather than add a third switch:
 
 | Mode | What runs | What the result means | Report line |
 |---|---|---|---|
-| `exact` | exhaustive engine, admissible bounds only, certified dominance | the optimum, proved | "optimal (proved)" |
+| `exact` | exhaustive engine, admissible bounds only, dominance off or equal-only with expansion (R4), a certified SP allocator (R12) | the optimum, proved; under the greedy allocator only "the best equipment under greedy SP allocation" | "optimal (proved)", or "optimal under greedy SP (proved)" until R12 lands |
 | `exact_eps` (R21) | same, prune at `(1 + eps) * best` | within `eps` of the optimum, proved | "within 1% (proved)" |
 | `window` (R20) | same, cutoff `(1 - x) * best`, archive, QoL re-rank | every build within `x%`, proved | "complete within 5% (proved)" |
 | `quick` | LNS with exact k-slot repair (anytime branch), time budget | a real build, no optimality claim | "best found in 15 s (no proof)" |
