@@ -1144,6 +1144,99 @@ walk speed" into restrictions, weights and a window is a language task, and
 an LLM that drafts a preset the user then edits is the right tool for it.
 The engine underneath stays exact.
 
+### R32. Search modes: "definite optimal" versus "near optimal", one engine, one harness
+
+**The toggle.** One `search_mode` setting, carried in the job and the URL,
+shown as a selector with a one-line label saying what the result means.
+Two halves of it already exist on unmerged branches: the anytime branch's
+"Exhaustive / Quick search" selector (`solver-search-mode`, 5/15/30 s
+budgets) and the benchmarks branch's pruning policies (certified, balanced,
+fast-then-verify). Unify them into one enum rather than add a third switch:
+
+| Mode | What runs | What the result means | Report line |
+|---|---|---|---|
+| `exact` | exhaustive engine, admissible bounds only, certified dominance | the optimum, proved | "optimal (proved)" |
+| `exact_eps` (R21) | same, prune at `(1 + eps) * best` | within `eps` of the optimum, proved | "within 1% (proved)" |
+| `window` (R20) | same, cutoff `(1 - x) * best`, archive, QoL re-rank | every build within `x%`, proved | "complete within 5% (proved)" |
+| `quick` | LNS with exact k-slot repair (anytime branch), time budget | a real build, no optimality claim | "best found in 15 s (no proof)" |
+| `fast_verify` | `quick` or balanced pruning, then `exact` seeded with the result (R13) | the optimum, proved, found sooner | "optimal (proved), found at 0.4 s" |
+| `pseudo_gap` | exact engine on pools restricted to `UB(i) >= incumbent - g`, `g` grown iteratively | optimal within the restricted pools; proved only once `g` reaches the bound | "optimal within gap g (no proof)" |
+
+Every mode uses the same leaf evaluator, so a score means the same thing
+in all of them, and every near-optimal mode's output is a real build that
+`exact` can take as a seed. One rule: `complete: true` and the word
+"optimal" appear only when the exact engine finished or the bound closed;
+everything else prints its budget and "no proof". The anytime branch
+already enforces this (`complete` is always false for its ALNS).
+
+**Near-optimal methods worth implementing, in order, with the engine piece
+each reuses.**
+
+1. **LNS with exact repair (R6; built, on the anytime branch).** First
+   because it exists. Merge it, then add adaptive operator selection (the
+   bandit from R31, for the measured 1,000-repair stall) and
+   *bound-guided neighbourhoods*: fix the slots where the incumbent agrees
+   with the tangent bound's argmax (R2) and re-solve the rest exactly. That
+   is RINS (Danna, Rothberg and Le Pape 2005) with the bound standing in
+   for the LP; local branching (Fischetti and Lodi 2003) is the k-slot
+   neighbourhood R6 already has.
+2. **Pseudo-gap enumeration (Gao, Lu, Yao and Li 2017).** Restrict every
+   pool to the items whose `UB(i)` is within a gap `g` of the incumbent,
+   solve exactly on the restricted pools, raise `g`, repeat. It is R3's
+   fixing used as a dial instead of a proof, and R30's bucket order falls
+   out of it (buckets are gap bands). The exact engine is the inner solver,
+   so it needs no new search code, only pool restriction by a score the
+   warm start already computes; when `g` reaches the cutoff it *is* the
+   exact run, so the mode is anytime toward a proof.
+3. **Beam search over prefixes by ceiling.** R22's prefix queue with a width
+   cap `B` per depth: keep the `B` best prefixes by ceiling, expand, repeat
+   to the leaves, polish with method 1. The textbook construction heuristic
+   for knapsack-shaped problems; the only new code is the width cap on a
+   queue R22 builds anyway. Deterministic and cheap to reason about, which
+   makes it the right baseline arm.
+4. **Path relinking between elite builds.** Walk from one archive build to
+   another one slot at a time, evaluating each intermediate exactly. The
+   fixed set search of Jovanovic and Voss 2024 and the anytime branch's
+   crossover are relatives; nearly free once the archive (R13/R20) exists.
+5. **GRASP restarts.** Greedy randomised construction (sample each slot
+   from the top-k by priority, biased by score), then local search.
+   Trivially parallel, a known-good diversification for method 1's
+   restarts; a component, not a mode.
+6. **NRPA (nested rollout policy adaptation; Rosin 2011, beam variant
+   Cazenave and Teytaud 2012).** Learns a per-run policy over (slot, item)
+   weights from the best rollouts at each nesting level. Fits an
+   eight-decision sequence and needs only the leaf evaluator, but its
+   rollouts are blind to bounds and SP feasibility, so expect many
+   infeasible leaves on requirement-heavy families. One experiment arm;
+   a product mode only if it beats methods 1 to 3 on the matrix.
+7. **Not as modes:** GA and SA (R6's rationale); tabu or reactive local
+   search over single-item moves (Hifi, Michrafy and Sbihi 2004 for MMKP;
+   a one-item move cannot cross coupled requirement barriers, which the
+   anytime branch documented as its reason for multi-slot repairs); ant
+   colony.
+
+**Implementation.** In the engine, a `SearchMode` on the job: `exact`,
+`exact_eps` and `window` are cutoff rules in `Search` (one line each once
+R20 and R21 exist); `quick` is `enumerate/anytime.rs`; `pseudo_gap` is a
+driver loop around `solve_json_full` with restricted pools; beam is a width
+cap on R22's queue. In the UI, one selector, one budget field where a mode
+takes one, the report line above, and a **"Prove it"** button that runs
+`exact` seeded from the current result (R13): that is how a user upgrades a
+quick answer into a certified one without re-entering anything.
+
+**Test plan.** The anytime branch's `QUALITY_BENCHMARKING.md` method is the
+right one and becomes the shared harness for every mode: a cohort fixed
+before the runs, frozen best-known targets per fixture, several seeds,
+T95/T99/T99.9 attainment, endpoint score, primal integral (R8). Add two
+things: (a) **regret against the proved optimum** on every fixture where
+`exact` completes (family-small and the 34 exhaustive controls), so
+heuristic modes are measured against the truth and not a frozen reference;
+(b) a **mode matrix** in CI, each mode on family-small at a 5 s budget,
+reporting attainment and regret, with `exact` held bit-identical to the
+oracle top-15. A near-optimal mode is promoted to the UI only when it beats
+`quick` on the matrix at the same budget on at least one family without
+losing on the rest, and that is also the rule for retiring one.
+
 ### Smaller notes
 
 - **The JS engine is the oracle now.** The Rust engine runs by default in
@@ -1188,7 +1281,9 @@ The engine underneath stays exact.
 9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets,
    **R26** never-used item detection (its exact tier is R3), **R27**
    preparation-phase caching.
-10. **R6** LNS incumbent thread.
+10. **R32** the search-mode toggle, housing **R6** (merge the anytime branch
+    first), then the pseudo-gap and beam arms, all measured on the mode
+    matrix against the proved optimum.
 11. **R29** priority-gap levels and ordering portfolios, then **R7** learned
     ordering once there are enough completed runs to train on; **R31**
     (GNN, deep RL) only under the conditions it states, with bandit-style
@@ -1255,3 +1350,18 @@ The engine underneath stays exact.
 - Ropke, Pisinger. *An adaptive large neighborhood search heuristic for the
   pickup and delivery problem with time windows.* Transportation Science
   40(4), 2006 (adaptive operator selection).
+- Gao, Lu, Yao, Li. *An iterative pseudo-gap enumeration approach for the
+  Multidimensional Multiple-choice Knapsack Problem.* European Journal of
+  Operational Research 260(1):1-11, 2017.
+- Danna, Rothberg, Le Pape. *Exploring relaxation induced neighborhoods to
+  improve MIP solutions.* Mathematical Programming 102, 2005 (RINS).
+- Fischetti, Lodi. *Local branching.* Mathematical Programming 98, 2003.
+- Hifi, Michrafy, Sbihi. *Heuristic algorithms for the multiple-choice
+  multidimensional knapsack problem.* Journal of the Operational Research
+  Society 55(12), 2004 (reactive local search).
+- Mansi, Alves, Carvalho, Hanafi. *A hybrid heuristic for the multiple
+  choice multidimensional knapsack problem.* Engineering Optimization,
+  2013.
+- Rosin. *Nested Rollout Policy Adaptation for Monte Carlo Tree Search.*
+  IJCAI 2011. Cazenave, Teytaud. *Beam Nested Rollout Policy Adaptation.*
+  2012.
