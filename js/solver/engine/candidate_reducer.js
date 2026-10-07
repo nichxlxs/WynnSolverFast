@@ -19,7 +19,9 @@ const CANDIDATE_REDUCTION_POLICIES = Object.freeze({
 });
 
 function get_candidate_reduction_policy(mode) {
-    const name = mode ?? 'balanced';
+    // Certified is the default: it preserves the optimum's value (section 0,
+    // C7 of the roadmap). Balanced and the legacy policies are heuristic.
+    const name = mode ?? 'certified';
     const policy = CANDIDATE_REDUCTION_POLICIES[name];
     if (!policy) {
         throw new Error(`unknown candidate reduction mode ${name}; expected ${Object.keys(CANDIDATE_REDUCTION_POLICIES).join(', ')}`);
@@ -30,7 +32,7 @@ function get_candidate_reduction_policy(mode) {
 function get_candidate_search_stages(mode) {
     if (mode === 'fast_verify') return ['balanced', 'off'];
     get_candidate_reduction_policy(mode);
-    return [mode ?? 'balanced'];
+    return [mode ?? 'certified'];
 }
 
 function _candidate_clone_pools(pools) {

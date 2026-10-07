@@ -15,6 +15,7 @@ const _item_stat_val = ctx._item_stat_val;
 const _set_sensitivity_stat = ctx._set_sensitivity_stat;
 const reduce_candidate_pools = ctx.reduce_candidate_pools;
 const get_candidate_search_stages = ctx.get_candidate_search_stages;
+const get_candidate_reduction_policy = ctx.get_candidate_reduction_policy;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -458,6 +459,31 @@ t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
     }
 }
 
+// Test 20b: the PR #19 review's C7 counterexample. Objective 100*xpb + 0.4*lb:
+// lb's sensitivity is below the 0.5% classification threshold, so the legacy
+// policy ignores it and lets A = (xpb 1, lb 0) delete B = (xpb 0, lb 1000),
+// although B scores 400 against A's 100. The certified default must keep B.
+{
+    const A = makeItem({ xpb: 1, lb: 0 });
+    const B = makeItem({ xpb: 0, lb: 1000 });
+    const weights = new Map([['xpb', 100], ['lb', 0.4]]);
+    const reduce = (mode) => reduce_candidate_pools({ ring: [A, B] }, {
+        snap: { combo_time: 0, parsed_combo: [] },
+        dmg_weights: weights,
+        restrictions: { stat_thresholds: [] },
+        mode,
+    });
+    t.assert(reduce('certified').active_pools.ring.includes(B),
+        'Test 20b: certified pruning keeps B, the higher-scoring item');
+    t.assert(reduce(undefined).active_pools.ring.includes(B),
+        'Test 20b: so does the default');
+    const legacy = reduce('current').active_pools.ring.includes(B);
+    if (!legacy) {
+        // Documents why the legacy policy is labelled unsafe; not a failure.
+        console.log('  note: the legacy policy deletes B here, as the review reported');
+    }
+}
+
 // Test 21: below-threshold but nonzero objective dimensions are uncertain, not
 // irrelevant. This models the aggressive slow-heavy-melee counterexample where
 // Diamond Fiber Bracelet was removed after its damage dimensions were omitted.
@@ -568,13 +594,18 @@ t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
     'Test 26: fast verification expands from balanced to the full pool');
 }
 
-// Test 27: Balanced is the product default when no explicit pruning mode is
-// supplied. Certified and unpruned modes remain available for exact controls.
+// Test 27: Certified is the product default when no explicit pruning mode is
+// supplied: it preserves the optimum's value, which balanced does not
+// guarantee (roadmap section 0, C7). Balanced stays available as an opt-in
+// heuristic, and "off" is the mode that keeps the literal top-15 exact.
 {
     t.assert(typeof get_candidate_search_stages === 'function'
         && JSON.stringify(get_candidate_search_stages())
-            === JSON.stringify(['balanced']),
-    'Test 27: unspecified pruning mode defaults to balanced');
+            === JSON.stringify(['certified']),
+    'Test 27: unspecified pruning mode defaults to certified');
+    t.assert(get_candidate_reduction_policy().name === 'certified'
+        && get_candidate_reduction_policy().exact === true,
+    'Test 27: the default policy is the certified, exact one');
 }
 
 const summary = t.summary();

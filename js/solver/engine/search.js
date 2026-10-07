@@ -2624,7 +2624,7 @@ function start_solver_search() {
     // Reduce through the shared contract-aware seam. Fast-verify creates two
     // stages: guarded first, then the full pool with the first result seeded.
     const candidate_search_mode = document.getElementById('solver-pruning-mode')?.value
-        ?? 'balanced';
+        ?? 'certified';
     const search_plan = {
         mode: candidate_search_mode,
         stages: get_candidate_search_stages(candidate_search_mode),

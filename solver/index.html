@@ -1252,10 +1252,10 @@
                                     class="solver-select form-select form-select-sm"
                                     style="flex:1"
                                     title="How aggressively the solver reduces interchangeable item candidates before search">
-                                    <option value="balanced" selected>Balanced guarded pruning (default)</option>
+                                    <option value="certified" selected>Certified pruning: best score exact (default)</option>
+                                    <option value="off">No item pruning: full top-15 exact</option>
                                     <option value="fast_verify">Fast result, then verify full pool</option>
-                                    <option value="certified">Certified pruning</option>
-                                    <option value="off">No item pruning</option>
+                                    <option value="balanced">Balanced guarded pruning (heuristic, faster)</option>
                                     <option value="current">Legacy heuristic (known unsafe)</option>
                                     <option value="aggressive">Aggressive experimental (known unsafe)</option>
                                 </select>
