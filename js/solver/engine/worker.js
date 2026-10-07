@@ -2484,6 +2484,7 @@ self.onmessage = function (e) {
         const _sn = extract_slider_names(_cfg.health_config);
         _cfg.bp_slider_name = _sn.bp_slider_name;
         _cfg.state_slider_names = _sn.state_slider_names;
+        SP_POLISH_ENABLED = _cfg.sp_polish !== false;
         try {
             _tome_setup(msg);
             _build_constraint_prechecks();

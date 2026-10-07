@@ -2150,6 +2150,7 @@ pub fn cli_main() {
         totals.leaf_calls as f64 / elapsed.as_secs_f64(),
     );
     crate::scoring::trace::report();
+    if let Some(r) = crate::scoring::greedy_audit_report() { println!("{r}"); }
     if scoring.is_some() {
         println!(
             "scoring: scored {} | gated {} | mana_reject {} | thresh_reject {} | bound_pruned {}",

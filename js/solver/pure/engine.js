@@ -461,6 +461,7 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
 function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn) {
     let allocated = 0;
     let cur = trial_score_fn();
+    const placed = [0, 0, 0, 0, 0];   // points this loop added, per lane
 
     for (const step of [20, 4, 1]) {
         let progress = true;
@@ -481,6 +482,7 @@ function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn)
                 const a = Math.min(step, remaining, 100 - base_sp[best_i], cap_total[best_i] - total_sp[best_i]);
                 base_sp[best_i] += a;
                 total_sp[best_i] += a;
+                placed[best_i] += a;
                 remaining -= a;
                 allocated += a;
                 cur = best_s;
@@ -489,7 +491,45 @@ function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn)
         }
     }
 
+    if (SP_POLISH_ENABLED) greedy_sp_polish(base_sp, total_sp, placed, cap_total, cur, trial_score_fn);
     return allocated;
+}
+
+/**
+ * Polish phase (roadmap R12): hill-climb from the greedy result by moving
+ * points the greedy placed from one lane to another, keeping only strict
+ * improvements. The step-20 greedy can spend the budget in one lane before
+ * the finer steps run, so an even split can beat it (20/0 scoring 1.18176
+ * where 10/10 scores 1.19015 in the C6 test); the audit found such leaves on
+ * 32% to 58% of scored leaves in four of six families. Never worse than the
+ * greedy, and the total assigned is unchanged. Mirrored exactly by the Rust
+ * greedy_sp_loop so the engines stay bit-identical.
+ */
+const _POLISH_STEPS = [10, 5, 2, 1];
+// On by default; the worker sets it from _cfg.sp_polish (false disables).
+var SP_POLISH_ENABLED = true;
+function greedy_sp_polish(base_sp, total_sp, placed, cap_total, cur, trial_score_fn) {
+    let improved = true;
+    while (improved) {
+        improved = false;
+        for (const k of _POLISH_STEPS) {
+            for (let i = 0; i < 5; i++) {
+                if (placed[i] < k) continue;
+                for (let j = 0; j < 5; j++) {
+                    if (i === j || base_sp[j] + k > 100 || total_sp[j] + k > cap_total[j]) continue;
+                    base_sp[i] -= k; total_sp[i] -= k; base_sp[j] += k; total_sp[j] += k;
+                    const s = trial_score_fn();
+                    if (s > cur) {
+                        cur = s; placed[i] -= k; placed[j] += k; improved = true;
+                        if (placed[i] < k) break;
+                    } else {
+                        base_sp[i] += k; total_sp[i] += k; base_sp[j] -= k; total_sp[j] -= k;
+                    }
+                }
+            }
+        }
+    }
+    return cur;
 }
 
 /**

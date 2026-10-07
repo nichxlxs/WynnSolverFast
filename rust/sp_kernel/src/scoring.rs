@@ -2235,6 +2235,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
 ) -> i32 {
     let mut allocated = 0;
     let mut cur = trial_score(total_sp);
+    let mut placed = [0i32; 5];   // points this loop added, per lane
 
     for step in [20, 4, 1] {
         let mut progress = true;
@@ -2257,6 +2258,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
                 let a = step.min(remaining).min(100 - base_sp[i]).min(cap_total[i] - total_sp[i]);
                 base_sp[i] += a;
                 total_sp[i] += a;
+                placed[i] += a;
                 remaining -= a;
                 allocated += a;
                 cur = best_s;
@@ -2264,7 +2266,42 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
             }
         }
     }
+    // On by default; SCORE_SP_POLISH=0 restores the bare greedy.
+    if env_once!("SCORE_SP_POLISH" != "0") {
+        greedy_sp_polish(base_sp, total_sp, &mut placed, cap_total, cur, &mut trial_score);
+    }
     allocated
+}
+
+/// Polish phase (roadmap R12), mirroring the JS greedy_sp_polish exactly:
+/// hill-climb from the greedy result by moving greedy-placed points between
+/// lanes, keeping only strict improvements. Never worse than the greedy, and
+/// the total assigned is unchanged.
+fn greedy_sp_polish<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], placed: &mut [i32; 5],
+    cap_total: &[i32; 5], mut cur: f64, trial_score: &mut F,
+) -> f64 {
+    let mut improved = true;
+    while improved {
+        improved = false;
+        for &k in &[10, 5, 2, 1] {
+            for i in 0..5 {
+                if placed[i] < k { continue; }
+                for j in 0..5 {
+                    if i == j || base_sp[j] + k > 100 || total_sp[j] + k > cap_total[j] { continue; }
+                    base_sp[i] -= k; total_sp[i] -= k; base_sp[j] += k; total_sp[j] += k;
+                    let s = trial_score(total_sp);
+                    if s > cur {
+                        cur = s; placed[i] -= k; placed[j] += k; improved = true;
+                        if placed[i] < k { break; }
+                    } else {
+                        base_sp[i] += k; total_sp[i] += k; base_sp[j] -= k; total_sp[j] -= k;
+                    }
+                }
+            }
+        }
+    }
+    cur
 }
 
 /// greedy_sp_allocate without sp_floors (score fixtures are exported with
@@ -3147,6 +3184,14 @@ pub fn leaf_pipeline_gated(
         phase!(fine DMG, obj_score(&mut cb))
     };
     assigned_sp += phase!(GREEDY, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
+    // R12 audit (SCORE_GREEDY_AUDIT=1, measurement only): hill-climb from
+    // the greedy result with pairwise transfers of greedy-placed points and
+    // record whether the trial objective improves. Any improvement proves the
+    // greedy left score on the table at this leaf. The greedy result is then
+    // restored, so nothing downstream changes.
+    if env_once!("SCORE_GREEDY_AUDIT" == "1") {
+        greedy_audit(&mut base_sp, &mut total_sp, &orig_base_sp, &cap_total, &mut trial);
+    }
 
     // Final assemble + mana check (+ rescue).
     let mut sp_f5 = [0f64; 5];
@@ -3280,6 +3325,64 @@ pub fn leaf_pipeline_gated(
     let score = phase!(FINAL, obj_score(&mut combo_base));
     ceiling_tripwire(dense_check, gate_ceiling, score);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
+}
+
+static AUDIT_LEAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AUDIT_IMPROVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Sum and max of relative gains, in parts per billion.
+static AUDIT_GAIN_PPB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AUDIT_MAX_PPB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn greedy_audit<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
+    cap_total: &[i32; 5], trial: &mut F,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (b0, t0) = (*base_sp, *total_sp);
+    let start = trial(total_sp);
+    let mut best = start;
+    let mut improved = true;
+    while improved {
+        improved = false;
+        for &k in &[20, 10, 5, 2, 1] {
+            for i in 0..5 {
+                // Only points the greedy placed can move.
+                if base_sp[i] - orig_base_sp[i] < k { continue; }
+                for j in 0..5 {
+                    if i == j || base_sp[j] + k > 100 || total_sp[j] + k > cap_total[j] { continue; }
+                    base_sp[i] -= k; total_sp[i] -= k; base_sp[j] += k; total_sp[j] += k;
+                    let v = trial(total_sp);
+                    if v > best * (1.0 + 1e-12) {
+                        best = v; improved = true;
+                    } else {
+                        base_sp[i] += k; total_sp[i] += k; base_sp[j] -= k; total_sp[j] -= k;
+                    }
+                }
+            }
+        }
+    }
+    AUDIT_LEAVES.fetch_add(1, Relaxed);
+    if best > start && start > 0.0 {
+        AUDIT_IMPROVED.fetch_add(1, Relaxed);
+        let ppb = ((best - start) / start * 1e9) as u64;
+        AUDIT_GAIN_PPB.fetch_add(ppb, Relaxed);
+        AUDIT_MAX_PPB.fetch_max(ppb, Relaxed);
+    }
+    *base_sp = b0;
+    *total_sp = t0;
+}
+
+/// The R12 audit summary, when SCORE_GREEDY_AUDIT=1 ran.
+pub fn greedy_audit_report() -> Option<String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let n = AUDIT_LEAVES.load(Relaxed);
+    if n == 0 { return None; }
+    let k = AUDIT_IMPROVED.load(Relaxed);
+    let mean = if k > 0 { AUDIT_GAIN_PPB.load(Relaxed) as f64 / k as f64 / 1e7 } else { 0.0 };
+    Some(format!(
+        "greedy_audit: {n} leaves | {k} improvable by pairwise transfer ({:.3}%) | \
+         mean gain where improvable {mean:.4}% | max gain {:.4}%",
+        100.0 * k as f64 / n as f64, AUDIT_MAX_PPB.load(Relaxed) as f64 / 1e7))
 }
 
 /// Check mode (SCORE_DENSE_CHECK=1): a leaf that passed the score-ceiling
