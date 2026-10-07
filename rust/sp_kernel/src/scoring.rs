@@ -2926,6 +2926,16 @@ pub fn leaf_pipeline_gated(
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
+    //
+    // R1 (on by default; SCORE_REACH_SP=0 restores all-150): all-150 in every lane is far above anything a
+    // 200-point budget can buy. The greedy and the mana rescue only ever add
+    // points to a lane under its 100-per-lane assign cap and the 150 total
+    // cap, and together they add at most `remaining`, so lane i can reach
+    // at most total_sp[i] + min(remaining, 100 - base_sp[i], 150 - total_sp[i]).
+    // That is the doom precheck's reachable-Int argument applied to all five
+    // lanes. Each lane's cap is individually reachable; jointly they are a
+    // superset of what the budget allows, so the bound stays admissible.
+    let mut gate_ceiling: Option<f64> = None;
     if let Some(cutoff) = gate_cutoff {
         let two_sided_off = objective.needs_two_sided_ceiling() && !Objective::two_sided_enabled();
         // The JS excludes `hp_casting` here, describing it as sim-coupled
@@ -2961,7 +2971,15 @@ pub fn leaf_pipeline_gated(
                 base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE, {
-                let ceiling_sp = [150f64; 5];
+                let ceiling_sp: [f64; 5] = if env_once!("SCORE_REACH_SP" != "0") {
+                    let rem = (consts.sp_budget - assigned_sp).max(0);
+                    std::array::from_fn(|i| {
+                        let room = rem.min(100 - base_sp[i]).min(150 - total_sp[i]).max(0);
+                        (total_sp[i] + room) as f64
+                    })
+                } else {
+                    [150f64; 5]
+                };
                 let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
                     let DenseWork { leaf, scratch, .. } = &mut **w;
@@ -2994,6 +3012,7 @@ pub fn leaf_pipeline_gated(
                     let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
                     obj_score(&mut cb150)
                 };
+                gate_ceiling = Some(ceiling);
                 ceiling < cutoff - cutoff.abs() * 1e-9
             });
             if gated { return Ok(LeafOutcome::Gated); }
@@ -3189,6 +3208,7 @@ pub fn leaf_pipeline_gated(
                 }
                 v
             });
+            ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
         // Rescue on the dense path (identical shift logic and checks).
@@ -3230,6 +3250,7 @@ pub fn leaf_pipeline_gated(
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 }
             });
+            ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
         return Ok(LeafOutcome::ManaReject);
@@ -3257,7 +3278,20 @@ pub fn leaf_pipeline_gated(
 
     assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
     let score = phase!(FINAL, obj_score(&mut combo_base));
+    ceiling_tripwire(dense_check, gate_ceiling, score);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
+}
+
+/// Check mode (SCORE_DENSE_CHECK=1): a leaf that passed the score-ceiling
+/// gate must not score above the ceiling it was gated against, or the gate is
+/// not an upper bound and would prune genuine candidates. This is the
+/// admissibility test for every change to how the ceiling is computed (R1).
+fn ceiling_tripwire(dense_check: bool, gate_ceiling: Option<f64>, score: f64) {
+    if !dense_check { return; }
+    if let Some(c) = gate_ceiling {
+        assert!(score <= c + c.abs() * 1e-9 || score.is_nan() || c.is_nan(),
+                "score-ceiling gate is not an upper bound: leaf scored {score:?} above ceiling {c:?}");
+    }
 }
 
 /// `eval_combo_damage_with_bp` (engine.js:332) for the dynamic-rows path.

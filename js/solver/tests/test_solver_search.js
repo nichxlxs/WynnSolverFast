@@ -1170,6 +1170,8 @@ async function runSolverTest(snapName) {
     // 9. Build base init message (without partition)
     const initMsgBase = {
         type: 'init',
+        // R1 reachable-SP ceiling: on unless SOLVER_REACH_SP=0 (A/B runs).
+        reach_sp_ceiling: process.env.SOLVER_REACH_SP !== '0',
         pools: poolsSer,
         locked: lockedSer,
         weapon_sm: solverSnap.weapon_sm,
