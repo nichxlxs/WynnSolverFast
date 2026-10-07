@@ -10,7 +10,7 @@ tested with the existing tools (`benchmark_ab.py`, the oracles,
 ## Progress (implementation started 2026-10-07)
 
 Two branches, stacked: `claude/correctness-c1-c7` (section 0) and
-`claude/r1-reachable-sp` on top of it (R1, R12). Each item below was
+`claude/r1-reachable-sp` on top of it (R1, R9, R12, tie order). Each item below was
 measured, and every pruning change passed the oracles before landing.
 
 | Item | Status | Where | Evidence |
@@ -24,9 +24,27 @@ measured, and every pruning change passed the oracles before landing.
 | Independent oracle | done | `223316d` | catches a deliberately over-strict HP precheck |
 | R1 reachable-SP ceiling | done, both engines, on by default | `21b579b` | tripwire over ~3.5B leaves; fixed-work top-15 identical; Rust 1.02x, JS 4x leaves in 30 s |
 | R12 audit + polish | done, on by default | `0ecc907` | greedy beaten on 32-58% of leaves in 4 families before; Rust 0.975x, JS 12-19% fewer leaves; scores never lower |
+| R9 node SP feasibility | done, Rust, adaptive (`SP_NODE_BOUND=0` disables) | `765ce0f` | one exact SP solve per last-slot range with relaxed items and summed set rows; 1.50x geometric mean, top-15 identical; always-on cost tierstack 10%, so AdaptiveBound switches it off where it does not reject |
+| R1 at cluster bounds | done, Rust | `075b053` | last-slot cluster ceilings at reachable SP; 1.059x, exact |
+| R1 at the tail bound | done, Rust | `5a622d2` | per-subtree cap from `sp_bound_base`; 1.0505x geometric mean, 8/11 faster (0.951 to 1.116); top-15 scores identical on all fixtures; full-space `checked` identical |
+| Deterministic ties | done, both engines | `93bd4e8` | Rust `merge_top` and the page's merges kept tied builds in arrival order, so thread or worker scheduling decided their rank and, at rank 15, membership (seen on `fam_heavy_melee_small`: two builds tie exactly at ranks 8/9). Both now use `compareTopResult`'s order (score, then item names) |
 
-Not done yet, in order: R9/R10 (SP bounds), R5/R21/R8 (gap, epsilon,
-anytime metrics), R23 (incremental leaf fill), then the rest of section 7.
+Found while doing this, not yet fixed:
+
+- **Radiance item-SP scaling.** With Radiance, Divine Honor, Shine or
+  Judgement on, the builder also scales the skill points granted by items
+  and set bonuses (`compute_radiance` with `total_item_skillpoints`, after
+  the requirement check); the solver scales the radiance-affected stats but
+  not item SP (the function's own comment says so). So with a boost on, the
+  two disagree on effective SP and on every SP-derived multiplier, and the
+  solver can rank builds differently from what the builder then shows.
+  Needs: the in-game rule confirmed, the leaf and every SP-dependent bound
+  (R1 caps, the ceiling's SP) updated together, and an oracle fixture with
+  the boost on.
+
+Not done yet, in order: R10 (conflict pairs), R5/R21/R8 (gap, epsilon,
+anytime metrics), R23 (incremental leaf fill), the JS mirror of R9, then the
+rest of section 7.
 
 ## 0. Correctness first (from the author's review of PR #19, 2026-10-07)
 
