@@ -79,6 +79,13 @@ async function state(page) {
         status: document.getElementById('solver-status-msg').textContent,
         progress_label: document.getElementById('solver-progress-left')?.textContent ?? '',
         search_eps: _solver_state.search_eps,
+        shortlist: _solver_state.shortlist && {
+            count: _solver_state.shortlist.entries.length, complete: _solver_state.shortlist.complete,
+            best: _solver_state.shortlist.best, line: _solver_state.shortlist.line,
+            min_score: Math.min(..._solver_state.shortlist.entries.map(e => e.score)),
+            with_stats: _solver_state.shortlist.entries.filter(e => e.stats && Number.isFinite(e.stats.ehp_no_agi)).length,
+        },
+        shortlist_rows: document.querySelectorAll('#solver-shortlist-table tbody tr').length,
         top: _solver_state.top5.map(r => ({
             score: r.score,
             items: r.items.map(i => i.statMap.get('displayName') ?? i.statMap.get('name')),
@@ -311,6 +318,36 @@ async function withinCase(page) {
     await page.locator('#solver-search-mode').selectOption('exhaustive');
 }
 
+// Roadmap R20: the Shortlist mode keeps every build within the margin
+// (proved when the search finished and no archive filled), with stats, and
+// the table re-ranks without a new search.
+async function shortlistCase(page) {
+    await load(page);
+    await configure(page, { quick: false, tomes: false });
+    await page.locator('#solver-search-mode').selectOption('shortlist');
+    await page.locator('#solver-window').selectOption('0.1');
+    check(await page.locator('#solver-engine').isDisabled(), 'Shortlist forces the Rust engine');
+    await start(page);
+    const r = await waitFinished(page, 30000);
+    check(r.search_mode === 'shortlist' && r.engine_used === 'rust' && r.shortlist,
+        `Shortlist ran on Rust and produced an archive (${r.search_mode}, ${r.engine_used})`);
+    check(r.shortlist.count > 0 && r.shortlist.min_score >= r.shortlist.line - 1e-9 * Math.abs(r.shortlist.line),
+        `every shortlisted build is inside the 10% window (${r.shortlist.count} builds)`);
+    check(r.shortlist.with_stats === r.shortlist.count, 'every shortlisted build carries explain stats');
+    check(r.shortlist.complete === true, 'a finished search with a small archive claims completeness');
+    check(r.shortlist_rows === Math.min(25, r.shortlist.count), `the table shows ${r.shortlist_rows} rows`);
+    check(r.top.length > 0 && Math.abs(r.top[0].score - r.shortlist.best) < 1e-9 * r.shortlist.best,
+        'the top-15 view and the shortlist agree on the best score');
+    // Re-rank: a weight change re-sorts without a new search.
+    const runBefore = r.run_id;
+    await page.evaluate(() => _shortlist_set_weight('w_ehp', 0.2));
+    const after = await state(page);
+    check(after.run_id === runBefore && after.shortlist_rows === r.shortlist_rows,
+        'changing a weight re-ranks in place without starting a search');
+    await page.locator('#solver-shortlist-table tbody tr').first().click();
+    await page.locator('#solver-search-mode').selectOption('exhaustive');
+}
+
 (async () => {
     fs.mkdirSync(ARTIFACTS, { recursive: true });
     let server = null;
@@ -332,6 +369,7 @@ async function withinCase(page) {
         await unavailableCase(page);
         await exhaustiveCase(page);
         await withinCase(page);
+        await shortlistCase(page);
         const fatal = diagnostics.browser_errors.filter(message => !/fonts|favicon|Google/i.test(message));
         check(fatal.length === 0, `no browser script errors (${fatal.join('; ') || 'none'})`);
         console.log(`\n${assertions} browser assertions passed`);

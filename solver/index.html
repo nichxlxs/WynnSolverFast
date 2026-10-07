@@ -1252,8 +1252,19 @@
                                     style="width:auto" onchange="solver_search_mode_changed()">
                                     <option value="exhaustive" selected>Exhaustive search</option>
                                     <option value="within">Near-optimal (proved)</option>
+                                    <option value="shortlist">Shortlist (every build within a margin)</option>
                                     <option value="quick">Quick search</option>
                                 </select>
+                                <span id="solver-window-row" style="display:none">
+                                    <label for="solver-window" class="visually-hidden">Shortlist margin</label>
+                                    <select id="solver-window" class="form-select form-select-sm bg-dark text-light"
+                                        title="Keep every build scoring within this much of the best"
+                                        onchange="solver_engine_changed()">
+                                        <option value="0.02">within 2%</option>
+                                        <option value="0.05" selected>within 5%</option>
+                                        <option value="0.1">within 10%</option>
+                                    </select>
+                                </span>
                                 <span id="solver-eps-row" style="display:none">
                                     <label for="solver-eps" class="visually-hidden">Proved tolerance</label>
                                     <select id="solver-eps" class="form-select form-select-sm bg-dark text-light"
@@ -1339,6 +1350,7 @@
                         </div>
                         <div id="solver-summary-text" style="display:none" class="text-secondary small mb-1"></div>
                         <div id="solver-results-panel"></div>
+                        <div id="solver-shortlist-panel"></div>
                     </div>
                 </div>
 
@@ -1796,6 +1808,7 @@
     <script src="../js/solver/engine/candidate_reducer.js"></script>
     <script src="../js/solver/engine/rust_bridge.js"></script>
     <script src="../js/solver/engine/top_results.js"></script>
+    <script src="../js/solver/engine/shortlist.js"></script>
     <script src="../js/solver/engine/search.js"></script>
     <script src="../js/solver/solver.js?v=2"></script>
 

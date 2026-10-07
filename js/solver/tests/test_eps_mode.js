@@ -18,6 +18,12 @@ t.assert(bridge.epsFixtureLine({ search_eps: -1 }) === null, 'negative is refuse
 t.assert(bridge.epsFixtureLine({ search_eps: NaN }) === null, 'NaN is refused');
 t.assert(bridge.epsFixtureLine(null) === null, 'no init message: no line');
 
+// R20 shortlist: the WINDOW line, same conventions (a fraction in (0, 1)).
+t.assert(bridge.windowFixtureLine({ search_window: 0.05 }) === 'WINDOW 0.05', 'a window emits WINDOW');
+t.assert(bridge.windowFixtureLine({ search_window: 0 }) === null, 'no window: no line');
+t.assert(bridge.windowFixtureLine({ search_window: 1 }) === null, 'a window of 100% is refused');
+t.assert(bridge.windowFixtureLine({}) === null, 'absent: no line');
+
 // buildEnumFixture must append it; search.js must set it only in 'within'.
 const bridgeSrc = fs.readFileSync(path.join(__dirname, '../engine/rust_bridge.js'), 'utf8');
 t.assert(/const eps = epsFixtureLine\(initMsgBase\);\s*if \(eps\) L\.push\(eps\);/.test(bridgeSrc),

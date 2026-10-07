@@ -630,6 +630,8 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
     }
     const eps = epsFixtureLine(initMsgBase);
     if (eps) L.push(eps);
+    const win = windowFixtureLine(initMsgBase);
+    if (win) L.push(win);
 
     return L.join('\n') + '\n';
 }
@@ -639,6 +641,12 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
 function epsFixtureLine(initMsgBase) {
     const eps = Number(initMsgBase?.search_eps);
     return Number.isFinite(eps) && eps > 0 ? `EPS ${eps}` : null;
+}
+
+/// The R20 window line ('shortlist' search mode), or null without a window.
+function windowFixtureLine(initMsgBase) {
+    const w = Number(initMsgBase?.search_window);
+    return Number.isFinite(w) && w > 0 && w < 1 ? `WINDOW ${w}` : null;
 }
 
 /// Default env for the browser, where the game functions are globals.
@@ -701,7 +709,7 @@ function sanitizeEnumFixtureForAnytime(fixture) {
     return result.endsWith('\n') ? result : result + '\n';
 }
 
-const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, epsFixtureLine, browserEnv, _jser };
+const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, epsFixtureLine, windowFixtureLine, browserEnv, _jser };
 
 // The solver page loads this as a plain script and `search.js` looks for it
 // under this name. Without the assignment the lookup returned undefined, the

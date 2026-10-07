@@ -30,6 +30,8 @@ const _solver_state = {
     last_search_plan: null,       // completed plan and per-stage metrics for diagnostics
     search_mode: 'exhaustive',
     search_eps: 0,                // 'within' mode: proved tolerance (roadmap R21)
+    search_window: 0,             // 'shortlist' mode: archive margin (roadmap R20)
+    shortlist: null,              // merged archive + completeness, after a shortlist run
     run_id: 0,                    // invalidates pending work after Stop/new run
     quick_budget_secs: 5,
     quick_deadline: 0,
@@ -544,7 +546,10 @@ function _merge_worker_top5(workers, include_interim) {
             ? [w.top5 ?? [], w._cur_top5 ?? []]
             : [w.top5 ?? []];
         for (const src of sources) {
-            for (const r of src) {
+            // Sources are best-first, so the merged top-N lies within each
+            // source's first N. A shortlist (R20) source can hold thousands
+            // of builds; reconstructing all of them here was wasted work.
+            for (const r of src.slice(0, _TOP_N)) {
                 if (!r.item_names) continue;
                 const items = _reconstruct_result_items(r.item_names);
                 const merged = {
@@ -952,6 +957,76 @@ function _display_solver_results(topN) {
     panel.innerHTML = html;
     _display_priority_weights();
     if (_solver_state.top15_expanded) _update_top15_time_display();
+}
+
+// ── R20 shortlist: every build within a margin, re-ranked by QoL ───────────
+
+// Weights persist across runs on this page; the archive does not.
+const _shortlist_settings = { ...(typeof SHORTLIST_DEFAULTS !== 'undefined' ? SHORTLIST_DEFAULTS : {}) };
+const _SHORTLIST_ROWS = 25;
+let _shortlist_rows_shown = _SHORTLIST_ROWS;
+
+function _shortlist_set_weight(key, value) {
+    _shortlist_settings[key] = Math.max(0, parseFloat(value) || 0);
+    _render_shortlist();
+}
+
+function _shortlist_show_more() {
+    _shortlist_rows_shown += 100;
+    _render_shortlist();
+}
+
+/// Load a shortlist row into the builder (same path as a top-15 row).
+function _shortlist_load(i) {
+    const e = _solver_state._shortlist_ranked?.[i];
+    if (!e) return;
+    _fill_build_into_ui({
+        score: e.score, items: _reconstruct_result_items(e.item_names),
+        base_sp: e.base_sp ?? [0, 0, 0, 0, 0], total_sp: e.total_sp ?? [0, 0, 0, 0, 0],
+        assigned_sp: e.assigned_sp ?? 0,
+        ...(typeof e.guild_tome_idx === 'number' ? { guild_tome_idx: e.guild_tome_idx } : {}),
+        ...(e.tome_names ? { tome_names: e.tome_names } : {}),
+    });
+}
+
+function _render_shortlist() {
+    const panel = document.getElementById('solver-shortlist-panel');
+    if (!panel) return;
+    const sl = _solver_state.shortlist;
+    if (!sl || !sl.entries.length) { panel.innerHTML = ''; _solver_state._shortlist_ranked = null; return; }
+    const ranked = rankShortlist(sl.entries, _shortlist_settings);
+    _solver_state._shortlist_ranked = ranked;
+    const pct = +(_solver_state.search_window * 100).toFixed(2);
+    const claim = sl.complete
+        ? `every build within ${pct}% of the best (proved)`
+        : `builds within ${pct}% found so far (not complete: the search stopped, or the archive filled)`;
+    const fmt = v => (Number.isFinite(v) ? Math.round(v).toLocaleString() : '—');
+    const slider = (key, label) =>
+        `<label class="small text-secondary me-2">${label} <input type="range" min="0" max="0.2" step="0.01" ` +
+        `value="${_shortlist_settings[key]}" style="width:5em;vertical-align:middle" ` +
+        `oninput="_shortlist_set_weight('${key}', this.value)"> ${_shortlist_settings[key].toFixed(2)}</label>`;
+    let html = `<div class="text-secondary small mt-2 mb-1">Shortlist: ${sl.entries.length} ${claim}. `
+        + 'Weights add up to the stated bonus over the score ratio; all at 0 is score order.</div>';
+    html += '<div class="mb-1">' + slider('w_ehp', 'EHP') + slider('w_mana', 'Mana')
+        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain') + '</div>';
+    html += '<table class="table table-sm table-dark small mb-1" id="solver-shortlist-table"><thead><tr>'
+        + '<th>#</th><th>Score</th><th>EHP (no agi)</th><th>Mana/combo</th><th>Walk</th><th>HPR+LS</th><th>Items</th>'
+        + '</tr></thead><tbody>';
+    ranked.slice(0, _shortlist_rows_shown).forEach((e, i) => {
+        const st = e.stats ?? {};
+        const names = (e.item_names ?? []).filter(n => !/^No /.test(n)).join(', ');
+        const mana = st.mana_delta !== undefined ? (st.mana_delta >= 0 ? '+' : '') + st.mana_delta.toFixed(1)
+            : (st.mr !== undefined ? `${fmt(st.mr)} mr` : '—');
+        html += `<tr class="solver-shortlist-row" style="cursor:pointer" onclick="_shortlist_load(${i})">`
+            + `<td>${i + 1}</td><td>${(100 * e.score / sl.best).toFixed(2)}%</td>`
+            + `<td>${fmt(st.ehp_no_agi)}</td><td>${mana}</td><td>${fmt(st.spd)}%</td>`
+            + `<td>${fmt((st.hpr ?? NaN) + (st.ls ?? 0))}</td><td>${names}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    if (ranked.length > _shortlist_rows_shown) {
+        html += `<div class="solver-expand-toggle small" onclick="_shortlist_show_more()">show more (${ranked.length - _shortlist_rows_shown} hidden)</div>`;
+    }
+    panel.innerHTML = html;
 }
 
 function _toggle_top15_expand() {
@@ -1591,6 +1666,15 @@ function _on_all_workers_done(workers_snapshot) {
     }
 
     _merge_worker_top5(workers_snapshot, false);
+    // R20: merge the partitions' archives (every in-window build, with
+    // stats) before the top-15 view, which keeps only 15, is displayed.
+    if (_solver_state.search_mode === 'shortlist' && _solver_state.engine_used === 'rust'
+        && _solver_state.search_window > 0) {
+        _solver_state.shortlist = mergeShortlistArchives(
+            workers_snapshot.map(w => ({ top_n: w.top5 ?? [], complete: search_completed && !!w.complete,
+                archive_full: !!w.archive_full, archive_last: w.archive_last })),
+            _solver_state.search_window);
+    }
 
     // In fast-verify mode the guarded pool is only the first stage. Its best
     // result becomes the incumbent for a second, full-pool pass. The score
@@ -1634,6 +1718,7 @@ function _on_all_workers_done(workers_snapshot) {
         eps_run ? (search_completed ? `Solved within ${pct}% (proved)` : 'Stopped (not proved)')
             : (search_completed ? 'Solved' : 'Stopped'), elapsed_s);
     _display_solver_results(_solver_state.top5);
+    _render_shortlist();
     if (_solver_state.top5.length > 0) {
         _fill_build_into_ui(_solver_state.top5[0]);
     } else if (search_completed) {
@@ -1991,12 +2076,15 @@ function solver_engine_changed() {
     // best, so the top result is proved within eps of the optimum. The JS
     // engine has no eps; like Quick, the mode owns the engine selector.
     const within = mode_value === 'within';
+    // 'shortlist' (roadmap R20): every build within a margin, ranked by
+    // tunable quality of life. Rust only, like 'within'.
+    const shortlist = mode_value === 'shortlist';
     const running = _solver_state.running;
     const engine = document.getElementById('solver-engine');
     const mode = document.getElementById('solver-search-mode');
     const budget = document.getElementById('solver-quick-budget');
     const eps_sel = document.getElementById('solver-eps');
-    if (engine) engine.disabled = running || quick || within;
+    if (engine) engine.disabled = running || quick || within || shortlist;
     if (mode) mode.disabled = running;
     if (budget) budget.disabled = running;
     if (eps_sel) eps_sel.disabled = running;
@@ -2004,13 +2092,20 @@ function solver_engine_changed() {
     if (budget_row) budget_row.style.display = quick ? '' : 'none';
     const eps_row = document.getElementById('solver-eps-row');
     if (eps_row) eps_row.style.display = within ? '' : 'none';
+    const win_row = document.getElementById('solver-window-row');
+    if (win_row) win_row.style.display = shortlist ? '' : 'none';
+    const win_sel = document.getElementById('solver-window');
+    if (win_sel) win_sel.disabled = running;
+    const win_pct = (parseFloat(win_sel?.value) || 0.05) * 100;
     const note = document.getElementById('solver-search-mode-note');
     const pct = (parseFloat(eps_sel?.value) || 0.01) * 100;
     if (note) note.textContent = quick
         ? 'Find strong builds within a time budget. Results may improve with another run.'
         : within
             ? `Proves the top build is within ${pct}% of the best possible, usually much faster than Exhaustive. Ranks 2 to 15 are not verified.`
-            : '';
+            : shortlist
+                ? `Keeps every build within ${win_pct}% of the best, then lets you re-rank them by EHP, mana, speed and sustain without searching again.`
+                : '';
     const sel = document.getElementById('solver-thread-count');
     if (!sel) return;
     // Both engines scale across workers now — the Rust engine partitions the
@@ -2023,7 +2118,7 @@ function solver_engine_changed() {
 
 function solver_search_mode_changed() {
     const v = document.getElementById('solver-search-mode')?.value;
-    if (v === 'quick' || v === 'within') {
+    if (v === 'quick' || v === 'within' || v === 'shortlist') {
         const engine = document.getElementById('solver-engine');
         if (engine) engine.value = 'rust';
     }
@@ -2321,8 +2416,13 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                         e.tome_names = { weaponTome: w, armorTome: a };
                     }
                 }
+                if (t.stats) e.stats = t.stats;
                 return e;
             });
+            // R20: what the shortlist merge needs from each partition.
+            state.complete = !!m.complete;
+            state.archive_full = !!m.archive_full;
+            state.archive_last = m.archive_last ?? null;
             finish_one();
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
@@ -2543,6 +2643,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     // Read by the Rust fixture builder only (an EPS line); the JS engine has
     // no tolerance, so a fallback run is exact, which still satisfies it.
     init_base.search_eps = _solver_state.search_eps || 0;
+    init_base.search_window = _solver_state.search_window || 0;
 
     // Opt-in Rust/WASM engine; returns false (and we continue with the JS
     // workers below) whenever it is unavailable or the scenario is not one
@@ -2924,10 +3025,17 @@ function start_solver_search() {
     if (document.getElementById('solver-search-mode')?.value === 'quick') {
         return _start_quick_solver_search();
     }
-    const within = document.getElementById('solver-search-mode')?.value === 'within';
-    _solver_state.search_mode = within ? 'within' : 'exhaustive';
+    const mode_value = document.getElementById('solver-search-mode')?.value;
+    const within = mode_value === 'within';
+    const shortlist = mode_value === 'shortlist';
+    _solver_state.search_mode = within ? 'within' : shortlist ? 'shortlist' : 'exhaustive';
     _solver_state.search_eps = within
         ? Math.max(0, parseFloat(document.getElementById('solver-eps')?.value) || 0.01) : 0;
+    _solver_state.search_window = shortlist
+        ? Math.min(0.5, Math.max(0, parseFloat(document.getElementById('solver-window')?.value) || 0.05)) : 0;
+    _solver_state.shortlist = null;
+    _shortlist_rows_shown = _SHORTLIST_ROWS;
+    _render_shortlist();
     _solver_state.algorithm = 'exhaustive';
     _solver_state.complete = false;
     _solver_state.run_id += 1;

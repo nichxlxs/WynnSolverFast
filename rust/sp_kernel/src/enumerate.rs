@@ -990,7 +990,9 @@ impl<'a> Search<'a> {
             mana_reject: self.mana_reject,
             thresh_reject: self.thresh_reject,
             bound_pruned: self.bound_pruned,
-            top_n: self.top_n.clone(),
+            // Interim frames show at most the top 15: an R20 archive can hold
+            // thousands, and the sink serializes every frame.
+            top_n: self.top_n.iter().take(15).cloned().collect(),
         };
         // The sink may hand back the best score any OTHER partition has
         // reached (browser workers share it through a SharedArrayBuffer).
@@ -1000,6 +1002,11 @@ impl<'a> Search<'a> {
         // a valid lower bound on the global top-N threshold, so a leaf whose
         // ceiling cannot reach it cannot enter the merged top-N either.
         let feedback = match self.progress.as_mut() { Some(f) => f(snap), None => None };
+        // The host computes that floor from the 15th-best score. Under an R20
+        // window the archive needs every build above (1 - x) * best, which
+        // can sit far below the 15th best, so the floor would prune builds
+        // inside the window: ignore it there.
+        let feedback = if self.window > 0.0 { None } else { feedback };
         if let (Some(v), Some(shared)) = (feedback, self.shared_cutoff) {
             if v.is_finite() && v > 0.0 {
                 shared.fetch_max(v.floor() as u64, Ordering::Relaxed);

@@ -191,8 +191,16 @@ self.onmessage = async (event) => {
                 // the last link before the host, and it is where the SP
                 // assignment was silently dropped before.
                 tome: t.tome ?? null,
+                // R20 explain-pass stats (windowed runs only).
+                ...(t.stats ? { stats: t.stats } : {}),
             })),
             complete: result.complete,
+            // R20 window fields, passed through for the host's merge rule.
+            ...(result.window ? {
+                window: result.window, archive_cap: result.archive_cap,
+                archive_full: result.archive_full, archive_last: result.archive_last,
+                window_complete: result.window_complete,
+            } : {}),
         });
     } catch (error) {
         post({
