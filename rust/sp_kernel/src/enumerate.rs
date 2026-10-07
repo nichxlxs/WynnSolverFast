@@ -2867,7 +2867,7 @@ mod eps_tests {
     use super::*;
 
     fn fixture(name: &str) -> String {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
         std::fs::read_to_string(format!("{dir}{name}")).expect("fixture")
     }
 
@@ -3170,7 +3170,7 @@ mod window_tests {
 
     #[test]
     fn window_lines_parse() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
         let base = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap();
         let fx = parse_fixture(&base);
         assert_eq!((fx.window, fx.archive_cap), (0.0, DEFAULT_ARCHIVE_CAP));
@@ -3182,7 +3182,7 @@ mod window_tests {
 
     #[test]
     fn window_holds_every_build_within_it() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
         let enum_fx = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap()
             + "\nWINDOW 0.02\n";
         let score_fx = std::fs::read_to_string(format!("{dir}score_fam_tierstack_small.json")).unwrap();
