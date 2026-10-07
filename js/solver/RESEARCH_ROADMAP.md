@@ -1,6 +1,8 @@
 # Research roadmap: faster proofs and better anytime results
 
-Written 2026-10-07 against `027b0e8`. This is a plan, not a ledger: nothing
+Written 2026-10-07 against `027b0e8`, revised the same day after the Codex
+review on PR #19 (corrections in R2, R3, R6, R11, R12, R13, R16, R21 and
+R22, each marked "Correction"). This is a plan, not a ledger: nothing
 here is measured yet. Every "expected" effect below is a hypothesis to be
 tested with the existing tools (`benchmark_ab.py`, the oracles,
 `SCORE_DENSE_CHECK`, the family suite) before it is believed.
@@ -95,9 +97,16 @@ that couples stats through prices: Lagrangian or surrogate multipliers
 (Dyer-Zemel style bounds for MCKP, surrogate bounds in RECORD 2026, the
 group-envelope bounds of Shao 2026 for MCKP families).
 
-**The bound.** Each damage term is a product of positive affine factors of the
-stat vector `x`: `T(x) = prod_k (a_k + c_k . x)`. Where every factor is
-positive on the box, `log T` is concave, so for any linearization point `p`:
+**The bound.** Each per-element damage term is a product of positive factors
+that are either affine in the stat vector `x` (`a_k + c_k . x`: raw, %,
+multipliers) or a concave curve of one skill-point lane
+(`1 + m . f(s)` with `f = skillPointsToPercentage`, a geometric curve that
+is concave and increasing; the element's own lane, Str through the
+strength multiplier, Dex through the crit mix, which is affine in a concave
+`f(dex)`). An affine function is concave, a concave increasing function of
+a concave function is concave, and `log` of a positive concave function is
+concave, so `log T` is concave in `(x, s)` jointly. For any linearization
+point `p`:
 
 ```
 log T(x) <= log T(p) + g(p) . (x - p),   g(p) = sum_k c_k / (a_k + c_k . p)
@@ -112,8 +121,19 @@ bound. Two properties make it attractive:
 - With `p = I` (the current super-item point), every per-term bound is
   `<= T(I)`, so the result is **never looser than today's ceiling** and is
   strictly tighter whenever no single item in a slot holds all the maxima.
-- SP enters linearly too, so the joint 200-point budget from R1 becomes a
-  fractional knapsack over five lanes inside the same bound.
+- **Correction (review).** SP does *not* enter linearly: the gradient in
+  each lane is taken through the curve, `h_lane = m f'(s_p) / (1 + m f(s_p))`,
+  summed over the terms that read that lane (every element present in the
+  combo has one, so Int, Def and Agi carry damage gradients whenever water,
+  fire or air damage is present, not just Str and Dex). The tangent is then
+  linear in the *raw* lane values, and only then does the joint 200-point
+  budget from R1 become a fractional knapsack over the five lanes. Write
+  the SP envelope down and test it on its own (bound `>=` true factor on a
+  grid of lane values) before it goes into the bound.
+- The same tangent is a cheap *incremental* ceiling: moving from one
+  last-slot cluster to the next changes the bound by a dot product of the
+  cluster deltas with `g`, instead of a full assemble and score per cluster
+  as `dense_ceiling_cached` does today.
 
 Any `p` is valid, so `p` can be tuned for tightness (a few Frank-Wolfe style
 iterations: take the separable argmax, move `p` toward it) without risking
@@ -136,7 +156,11 @@ to pay for it.
 
 **What.** For every slot `j` and item `i`, compute `UB(i)` = ceiling with
 slot `j` fixed to `i` and every other slot at its relaxed best. If
-`UB(i) <= cutoff`, delete `i` from the pool for the whole run. Iterate:
+`UB(i)` is *strictly* below the cutoff, by the same float margin the ceiling
+gate uses, delete `i` from the pool for the whole run (**correction**: not
+`<=`; a build scoring exactly the 15th-best can still enter the top-15
+through the item-name tie-breaker, which is why every existing gate prunes
+strictly below the cutoff). Iterate:
 smaller pools give smaller ideal points, which tighten every other `UB`.
 Re-run whenever the shared cutoff rises meaningfully.
 
@@ -155,8 +179,8 @@ since a 2x-loose ceiling fixes very little.
 
 **Also worth trying.** Pair fixing for the two most expensive slot pairs
 (e.g. ring1 x ring2, about 12K canonical pairs): delete pairs whose joint
-`UB <= cutoff`. This turns the ring pair into one merged group, the classic
-MCKP group-merging move.
+`UB` is strictly below the cutoff. This turns the ring pair into one merged
+group, the classic MCKP group-merging move.
 
 **Measure.** Pool sizes before/after at the warm cutoff; the oracle fixtures
 must stay bit-identical; then the completing scenarios and the mage case's
@@ -205,7 +229,11 @@ honest, unlike an ML "probably optimal" guess.
 `readme_spell_wide` improved from 7.83M to 8.19M over minutes, which is
 exactly the case a primal heuristic fixes.
 
-**What.** A side worker that never prunes, only raises `shared_cutoff`:
+**What.** A side worker that never prunes. It feeds real scored builds into
+the shared top-N merge, and the cutoff stays what it is today, the 15th-best
+*distinct* score among real builds (**correction**: it must never publish
+its own best score as the cutoff; that would arm the gate above ranks 2 to
+15 and the exhaustive run would no longer reproduce the exact top-15):
 
 1. Start from the warm incumbent.
 2. **Destroy**: unlock `k` slots (2-3), chosen by rotation or by which slots
@@ -395,11 +423,20 @@ unrestricted spell spam.
 
 **What.** The doom precheck (a mana sim at the highest reachable Int) runs
 only at the leaf (`scoring.rs`); `enumerate.rs` has no mana bound at all.
-Mana feasibility is monotone in every stat the fast sim reads (`mr`, `ms`,
-`maxMana`, `int`, `hp`, cost reductions), so a doom sim at the suffix maxima
-of those stats is a valid subtree bound, exactly as the restriction suffix
-bounds extend the leaf precheck. The bounded-coupling argument from task #28
-covers atree var effects. On defensive objectives (B1) the mana sim is the
+Mana feasibility is monotone in most of what the fast sim reads (`mr`,
+`ms`, `int`, `hp`, cost reductions), so a doom sim at the suffix maxima of
+those stats is a valid subtree bound, exactly as the restriction suffix
+bounds extend the leaf precheck. **Correction (review):** it is *not*
+monotone in `maxMana` whenever the combo carries a buff state with
+`drain_pct_per_second.mana`: `compute_drain_override` drains
+`drain_pct / 100 * max_mana` per second, so under a duration-capped state a
+larger pool drains more, and a doom sim at the `maxMana` maximum can fail
+where a completion with less max mana passes. So the bound must classify
+each input's direction per scenario, the way the bounded-coupling doom
+(task #28) already classifies var-effect outputs: evaluate `maxMana` at its
+suffix *minimum* when such a state is present, or switch the bound off for
+that scenario. The same two-sided check applies to any other input a state
+reads as a percentage of a pool. On defensive objectives (B1) the mana sim is the
 dominant per-leaf cost, and "reducing the number of leaves reaching the
 simulation is what works" is already the recorded conclusion.
 
@@ -422,15 +459,21 @@ how much the greedy falls short, per family. If it never does, document it
 and stop. If it does, the leaf scorer is where the optimum is being lost,
 and no amount of bound tightening fixes that.
 
-**Step 2, structure.** For `combo_damage` without atree effects that read SP,
-only Str (a multiplicative factor through `skillPointsToPercentage`) and Dex
-(crit chance, a convex combination of normal and crit damage) touch damage,
-and Int touches only mana. The allocation is then a two-lane problem with a
-known shape, solvable exactly by a one-dimensional scan over the Str/Dex
-split with the mana rescue as a side condition. When atree var effects read
-other lanes, fall back to the trials. `ceiling_vars_ok` already classifies
-exactly this. This both removes 5 trials per step and makes the leaf score
-exact on the common case.
+**Step 2, structure.** **Correction (review):** damage is not a two-lane
+problem. `calculateSpellDamage` applies `skillPointsToPercentage` of the
+matching lane to each elemental component (Str to earth, Dex to thunder,
+Int to water, Def to fire, Agi to air, line 141 of `damage_calc.js`), on
+top of the Str multiplier and the Dex crit mix. The lanes that matter are
+therefore Str, Dex, and every lane whose element is present in the combo's
+damage after conversions; a mono-element build has two or three, a rainbow
+build has five, and Int always also carries the mana side condition. Within
+that set the objective has a known shape (products of the concave lane
+curves), so an exact scan over the present lanes at step 1 is small for two
+or three lanes and still bounded for five (the trials are 5 evals per step
+today; an exact 3-lane scan at step 5 over 200 points is ~1,500 evals, so
+do it only where the audit shows the greedy misses). When atree var effects
+read SP, fall back to the trials. This makes the leaf score exact on the
+common case; whether it is also faster depends on the lane count.
 
 ### R13. Result archive across runs (anytime, low risk)
 
@@ -440,11 +483,16 @@ run again. Today every run starts cold except for the warm subspace.
 **What.** Keep an archive of scored builds from previous runs (the top few
 thousand with their assembled stat vectors, not just the top 15). When a new
 run starts with the same weapon, combo and objective and only the
-restrictions changed, filter the archive by the new restrictions and seed
-`shared_cutoff` from the best survivor. A score is unchanged by a restriction
-change, so the seed is admissible. Also seed the Rust path from the user's
-current UI build, which the JS engine does (`_eval_current_build`) and the
-Rust bridge does not.
+restrictions changed, filter the archive by the new restrictions and insert
+the survivors into the run's top-N buffer as real scored builds. The cutoff
+is then derived as it always is, the 15th-best distinct score, so it arms
+only when at least 15 distinct survivors exist (**correction**: seeding the
+cutoff from the single best survivor would prune ranks 2 to 15 before the
+buffer ever sees them; the best survivor is a top-1 incumbent for display,
+not a cutoff). A score is unchanged by a restriction change, so the
+survivors are admissible entries. Also insert the user's current UI build
+on the Rust path the same way, as the JS engine does
+(`_eval_current_build` / `_insert_top5`) and the Rust bridge does not.
 
 ### R14. Soft constraints and lexicographic objectives (expressiveness, exact)
 
@@ -490,9 +538,12 @@ needs the weapon chosen too.
 
 **What.** Treat the weapon list as an outer group. Each weapon is its own
 run (the combo, atree and sensitivity weights depend on it), but they share
-the cutoff when the objective is comparable (same combo rows and target):
-a build found under weapon A is a real build, so its score is an admissible
-cutoff for weapon B. Order weapons by their solo ceiling (R3's `UB(i)` with
+one top-N when the objective is comparable (same combo rows and target):
+a build found under weapon A is a real build, so it enters the cross-weapon
+top-N, and the cutoff is that merged list's 15th-best distinct score
+(**correction**: not weapon A's best; that would prune weapon B's ranks 2
+to 15). If the user wants a top-15 *per weapon*, each weapon keeps its own
+cutoff and only the top-1 is shared as a display incumbent. Order weapons by their solo ceiling (R3's `UB(i)` with
 the weapon as the fixed item) and run best-first; most weapons are then
 fixed out before their run starts. The browser bridge already spawns one
 single-threaded engine per worker, so weapons map onto workers directly.
@@ -615,11 +666,17 @@ R9-R11: each gets `eps` more bite. The UI reports "optimal within 1%" with
 the proof status, which is the honest replacement for a progress bar that
 stalls at 97%.
 
-**Interaction with R20.** The window archive wants everything within `x%`
-*below* the best; `eps` discards subtrees that cannot beat the best by
-`eps` *above*. They are independent: use the window cutoff
-`(1 - x) * best` for the archive and prune at `(1 + eps) * (1 - x) * best`
-so the archive is still complete within its window up to `eps`.
+**Interaction with R20 (correction, review).** They are *not* independent.
+The window archive needs every build scoring at least `(1 - x) * best`,
+and any subtree whose ceiling is above that line may hold one, so with a
+complete window the admissible prune line is `(1 - x) * best` and `eps`
+buys nothing on top of it (`(1 + eps)(1 - x) best` is strictly above the
+window boundary and would drop builds inside the window). Offer the two
+modes explicitly: *exact window* prunes at `(1 - x) * best` and ignores
+`eps`; *approximate window* prunes at `(1 + eps)(1 - x) * best` and the UI
+states that the archive is complete only above that line, with the bottom
+`eps` sliver of the window possibly missing. `eps` on its own (no window)
+keeps the top-1 guarantee stated above.
 
 **Measure.** Proof time at `eps` = 0, 0.5%, 1%, 2% on the mage scenario
 and the family-large suite; confirm top-1 is unchanged at every `eps` on
@@ -648,8 +705,13 @@ the default in MILP solvers, and it does three things at once:
   record for R19 (a prefix node is done or not done).
 
 Within a prefix, keep the band sweep as today; only the order *between*
-prefixes changes, so the visited set and every counter stay identical to
-the band order's, which `benchmark_ab.py` can confirm.
+prefixes changes, so the covered space and the final top-15 are identical to
+the band order's. **Correction (review):** the cutoff-dependent counters
+(`bound_pruned`, `gated`, `scored`, `feasible`) will *not* match, because a
+different order finds the incumbent and the 15th-best at different times,
+exactly as they differ between 1 and 4 native threads today. So measure
+this with `benchmark_ab.py --expect-divergence`, asserting total credited
+leaves at completion and the top-15, not counter equality.
 
 **Caveat.** Best-bound order is memory-hungry in MILP because the tree is
 unbounded; here the depth is fixed, so the queue is bounded by the prefix
@@ -767,9 +829,11 @@ not merge it. Cherry-pick these, each as its own small PR with its own test:
 1. **Set weapons.** `calculate_skillpoints` iterates `equipment` for set
    counts and the weapon is passed separately, so a non-crafted set weapon
    (Bony Bow in the Bony set) never activates its set in either engine. The
-   Rust loader counts the weapon's requirements but not its set id.
-   Confirmed on master. The anytime branch works around it by refusing set
-   weapons; this is the fix.
+   Rust loader counts the weapon's requirements but not its set id. The
+   mechanism is confirmed on master, but **no weapon in the 2.2.3.0 data
+   carries a `set` field** (Bony Bow included), so today it is latent rather
+   than live; take the fix as hygiene, with a test on a synthetic set
+   weapon. The anytime branch refuses set weapons for this reason.
 2. **EHP precheck at 100 Def/Agi.** `_build_constraint_prechecks` computes
    the optimistic EHP divisor with `skillPointsToPercentage(100)`, but
    total Def/Agi reach 150 with item provisions, so the precheck is not an
@@ -789,10 +853,110 @@ of tracker item 2) is also disabled on that branch; that one is a known
 open decision on master and belongs with R1's bound work rather than a
 cherry-pick.
 
-## 6. Suggested order
+## 6. Third pass: engine, browser and data levers (2026-10-07)
+
+From reading the Rust leaf path, the browser bridge, the build settings and
+the item data, plus the measurements the engine's own probes already
+recorded but nothing acted on.
+
+### R23. Incremental leaf fill in the Rust engine (exact, low risk, measured headroom)
+
+**Fact.** `LeafState::fill_direct` rebuilds every leaf from scratch: copy
+the template value and presence vectors, then re-apply all eight items'
+stat deltas, each found by a string-keyed `dd.items.get(name)`. The
+`SCORE_TRACE=2` probe added in `2050186` measured **0.82 to 1.16 of the 8
+slots differing between consecutive leaves** across ehp, spell_wide,
+spellsteal, tierstack, hybrid and melee_restr: the search walks one slot,
+so roughly seven eighths of the per-item work recomputes what the previous
+leaf already had. The cluster-bound path already caches a prefix state per
+node (`enumerate.rs` around line 1192); the leaf path does not.
+
+**What.** Keep a per-depth journal of the stat writes each placed item
+made, and at the leaf apply only the changed slot(s), rolling back by
+restoring journaled old values rather than subtracting (bit-exact, the same
+trick `dense_ceiling_cached` uses; a subtract-based running vector is not
+ulp-exact). Resolve item names to integer ids at load so the hot path does
+no string hashing. The BASE phase's share of leaf time, per family, bounds
+the gain; the trace already splits it out.
+
+### R24. Resumable chunked solve: cutoff sharing in the browser, checkpoints, tails
+
+**Facts.** Cross-origin isolation is off by default since `fc3e451` (the
+service worker broke the live site twice), so browser partitions have no
+`SharedArrayBuffer` and `js/solver/wasm/worker.js` returns `undefined` for
+the cutoff: **partitions never share a cutoff in the deployed default**.
+Measured natively, four partitions scored 384 leaves where one scored 78,
+which is why 4-way gives ~1.8x instead of 4x and `search.js` refuses to
+partition below 8M leaves. The engine is one synchronous call per
+partition, so a worker cannot receive a `postMessage` mid-run; WASM.md
+names "making the engine resumable across chunks" as the way out and it
+was never built.
+
+**What.** Make `Search` resumable: run for a leaf budget (`max_leaves`
+already exists), return a cursor (band position, running state, local
+top-N), yield to the event loop, exchange the 15th-best cutoff by
+`postMessage`, continue from the cursor. One mechanism then serves three
+needs: cutoff sharing without isolation, R19's checkpoint record, and the
+fine-grained tail units R22 wants. Also stop structured-cloning the
+~880 KB score fixture per worker: post it once as a transferable buffer or
+build it inside each worker from the shared game data (P1.9).
+
+### R25. Build-flag experiments (cheap, exact)
+
+- `build-wasm.sh` runs `wasm-opt -Oz`, the *size* preset. Try `-O3` and
+  `-C target-feature=+simd128` and measure the in-browser rate on `armor4`
+  and `spell_wide`; expect a few percent to low tens, paid in module size.
+- Native already has `target-cpu=native`, LTO and `codegen-units = 1`.
+  Profile-guided optimisation (`-Cprofile-generate` over the family suite,
+  then `-Cprofile-use`) is the remaining compiler-side lever and is
+  typically worth 5 to 15% on branchy code like the enumerator.
+- Both are measured with `benchmark_ab.py`; neither can change a result.
+
+### R26. Availability filters as pool reducers (product, large space effect)
+
+The 2.2.3.0 data has 522 `untradable` and 20 `quest_item` entries, and tiers
+Mythic 82, Fabled 250, Legendary 917, Rare 1,624, Unique 2,052. The solver
+has a blacklist, a no-major-ID toggle and an owned-*tome* inventory, but no
+item inventory, tier cap or availability filter. Add: exclude untradable
+and quest items the user does not own, cap mythics (0, 1, any), and an
+owned-items-only mode on the tome-inventory pattern. Owned-only collapses
+pools from ~150 to a few dozen, which makes almost any query exhaustive in
+seconds, and it is the question many users actually have ("what is the
+best I can build from my bank"). Price-aware search would need an external
+price feed, which the repo does not have; if one is added, cost is a
+natural R14 soft constraint.
+
+### R27. Measure, then cache, the browser preparation phase
+
+`buildEnumFixture` and `buildScoreFixture` run synchronously on the main
+thread at every solve, serialising pools, the lowered atree and the scoring
+plan (~1 MB). No measurement of that phase exists; the browser e2e logs
+wall time only. Measure it per scenario size. If it is seconds, cache the
+fixture by a hash of (weapon, atree, combo, pools, roll mode) across solves
+(it pairs with R13: only restrictions change between iterations), or build
+it in a worker.
+
+### Smaller notes
+
+- **The JS engine is the oracle now.** The Rust engine runs by default in
+  the browser and the support matrix's "not supported" section is nearly
+  empty. The tracker's JS hot-path items (the 18% Map round trip in
+  `_finalize_leaf_statmap`) no longer pay; put that effort into Rust
+  coverage of the last fallbacks and into the JS suite's role as the
+  differential oracle.
+- **Elemental EHP for named content.** `eDef`/`tDef`/… and `*DefPct` are in
+  the data, and raid bosses and guild-war towers have element mixes; an EHP
+  variant weighted by a content damage profile is a restriction or
+  objective users ask for. It fits R14/R18 as a preset, not a new engine
+  feature.
+- **No set weapons in current data.** Counted in 2.2.3.0: zero weapons with
+  a `set` field, so weapon-set handling is hygiene, not a live bug.
+
+## 7. Suggested order
 
 1. **R1** reachable-SP ceilings: smallest change, provable, likely the largest
-   single bound tightening.
+   single bound tightening. Alongside it, **R23** incremental leaf fill and
+   **R25** build flags: exact, cheap, with measured headroom.
 2. **R9** depth n-1 exact SP bound, then **R10** conflict pairs: cheap,
    exact, and they attack the 51.7% SP cost on restricted workloads.
 3. **R12 step 1** greedy audit: decide whether the leaf score itself is
@@ -806,10 +970,12 @@ cherry-pick.
    archive and a cutoff rule change, so it can land early.
 6. **R2** tangent bound, then **R3** fixing on top of it.
 7. **R11** mid-tree mana bound (for defensive and sustain objectives), and
-   **R22** best-bound prefix scheduling once R2/R3 give prefixes a bound
-   worth ordering by.
+   **R24** resumable chunked solve (browser cutoff sharing, checkpoints)
+   followed by **R22** best-bound prefix scheduling once R2/R3 give
+   prefixes a bound worth ordering by.
 8. **R4** set-aware dominance, **R15** roll-robust evaluation.
-9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets.
+9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets,
+   **R26** availability filters, **R27** preparation-phase caching.
 10. **R6** LNS incumbent thread.
 11. **R7** learned ordering, once there are enough completed runs to train on.
 12. MILP/CP-SAT as an oracle for linear targets, opportunistically.
