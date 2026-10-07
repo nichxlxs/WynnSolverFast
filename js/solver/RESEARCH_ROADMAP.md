@@ -419,6 +419,14 @@ kernel calls at ~0.6 µs, under a second at startup, and it can be made lazy
 matter on tier-stack and high-requirement families, and to find nothing on
 unrestricted spell spam.
 
+**Extension: forward checking.** Store each item's compatibility bitset
+(the items in every other pool it can coexist with). At each node, the
+candidate set of every remaining slot is the AND of the placed items'
+bitsets: an empty set backtracks at once, and the last-slot loop iterates
+only the surviving candidates. This is constraint-programming forward
+checking on the SP constraint, and it is where R10's per-node cost goes to
+one AND per remaining slot per placement.
+
 ### R11. Mid-tree mana bound (exact, medium risk)
 
 **What.** The doom precheck (a mana sim at the highest reachable Int) runs
@@ -474,6 +482,17 @@ today; an exact 3-lane scan at step 5 over 200 points is ~1,500 evals, so
 do it only where the audit shows the greedy misses). When atree var effects
 read SP, fall back to the trials. This makes the leaf score exact on the
 common case; whether it is also faster depends on the lane count.
+
+**Objective-specific exact allocators.** Non-damage targets go through the
+same trial loop (`Objective::Indirect` in Rust, `need_thresh` in the JS
+greedy), but EHP, EHP-no-agi, total HP, HPR and EHPR are closed forms in
+`hp`, `def`, `agi` and `defMult`: the optimal split of the remaining budget
+between Def and Agi, the only lanes they read, each through the same
+concave curve, is a one-dimensional scan, and the mana side condition binds
+Int separately. Replacing the trials with that scan on those targets is
+exact by construction and removes the greedy's share of the per-leaf cost
+on the defensive objectives, where the leaf pipeline is the bottleneck
+(B1).
 
 ### R13. Result archive across runs (anytime, low risk)
 
@@ -641,6 +660,16 @@ they are the starting defaults a user should be able to override.
 the user is willing to trade, and it is the window size `x` the user
 chooses ("I'd give up 5% damage"), which is the question they are actually
 asking.
+
+**The exact multi-objective route, for later.** The window approximates the
+Pareto set of (damage, EHP, ...) by a slab below the damage optimum. The
+exact alternative is bi-objective branch-and-bound with *bound sets*: a
+node is discarded when a set of points, not one ideal point, separates its
+feasible completions from the current nondominated set (Ehrgott and
+Gandibleux 2007; Cerqueus, Przybylski and Gandibleux 2015 for knapsack).
+Two objectives is tractable with the engine's per-objective ceilings as the
+bound set; three or more is not worth it here. Keep it as the follow-up if
+users want the full damage/EHP front rather than a damage-first window.
 
 **Measure.** Pruning cost of the window cutoff versus the top-15 cutoff at
 `x` = 2, 5, 10% on the family suite (fixed-work A/B, expect divergence in
@@ -911,20 +940,49 @@ build it inside each worker from the shared game data (P1.9).
   then `-Cprofile-use`) is the remaining compiler-side lever and is
   typically worth 5 to 15% on branchy code like the enumerator.
 - Both are measured with `benchmark_ab.py`; neither can change a result.
+- Follow-on, once R23 lands: evaluate the last slot's candidates in
+  structure-of-arrays batches of 4 or 8 so the damage arithmetic vectorises
+  (AVX2 natively, simd128 in wasm). `GPU_PLAN.md` measured that batch-shaped
+  work at ~29% of a spell search, so the ceiling is about 1.4x on damage
+  targets and nothing on the others: cheap to try, not a priority.
 
-### R26. Availability filters as pool reducers (product, large space effect)
+### R26. Never-used item detection (exact where it can be, labelled where it cannot)
 
-The 2.2.3.0 data has 522 `untradable` and 20 `quest_item` entries, and tiers
-Mythic 82, Fabled 250, Legendary 917, Rare 1,624, Unique 2,052. The solver
-has a blacklist, a no-major-ID toggle and an owned-*tome* inventory, but no
-item inventory, tier cap or availability filter. Add: exclude untradable
-and quest items the user does not own, cap mythics (0, 1, any), and an
-owned-items-only mode on the tome-inventory pattern. Owned-only collapses
-pools from ~150 to a few dozen, which makes almost any query exhaustive in
-seconds, and it is the question many users actually have ("what is the
-best I can build from my bank"). Price-aware search would need an external
-price feed, which the repo does not have; if one is added, cost is a
-natural R14 soft constraint.
+**Not availability filters.** An earlier draft proposed tradable-only and
+owned-only pools. That answers a different question: the optimal build
+routinely needs the untradable quest reward or the mythic, and players go
+and get it. What would shrink the space is removing items that *cannot*
+appear in the answer, and there are three tiers of that, in decreasing
+strength:
+
+1. **Exact, per run: bound fixing (R3), applied slot-wise.** `UB(i)`
+   strictly below the cutoff deletes `i`; once every item but one in a slot
+   is fixed out, the slot is locked for the rest of the run. That is the
+   group-fixing step of reduce-and-solve for MMKP (Chen and Hao 2014) and
+   the exact form of the lock hint. Its strength is the bound's tightness,
+   which is why R1, R2 and R28 come first.
+2. **Exact, per data version: full-space dominance.** Dominance today is
+   projected onto the stats the current objective reads. An item dominated
+   on *every* stat the engine can read, with requirements no cheaper and
+   provisions no higher, in the same slot and outside any set, cannot be in
+   any optimum for any objective, so it can be dropped at data-build time.
+   Expect little: Walker and Dyer (1998) show the undominated fraction
+   grows quickly with the number of resource dimensions, and here there are
+   ~80 live stats. Count it once on the 2.2.3.0 data before building
+   anything.
+3. **Heuristic, opt-in, labelled: persistence.** Across the archive of
+   completed runs for a class and weapon family, items that never entered
+   any window archive form an exclusion list the user can enable for
+   discovery runs. This is the core idea applied across runs, and it is
+   exactly the pruning the tracker says must never back an exhaustive
+   claim, so the UI says "n items excluded by history" and proof mode
+   ignores the list.
+
+Availability data (522 `untradable`, 20 `quest_item`, 82 mythics in
+2.2.3.0) still earns its place as *display* information on results ("needs
+Divzer, mythic; needs an untradable quest reward") and as an explicit
+opt-in filter for a user who wants a tradable-only answer, never as a
+default.
 
 ### R27. Measure, then cache, the browser preparation phase
 
@@ -935,6 +993,69 @@ wall time only. Measure it per scenario size. If it is seconds, cache the
 fixture by a hash of (weapon, atree, combo, pools, roll mode) across solves
 (it pairs with R13: only restrictions change between iterations), or build
 it in a worker.
+
+### R28. Suffix Pareto fronts: meet-in-the-middle bounds (exact, medium risk)
+
+**Why.** Every bound in the engine upper-bounds the unplaced slots by
+per-stat maxima, a "super-item" no real item matches, which is where the
+recorded ~2x looseness comes from. The tangent bound (R2) tightens the
+objective side but still takes each stat's maximum independently across
+slots.
+
+**What.** For the last `k` slots (start with `k = 2`: the two rings, or
+bracelet and necklace), precompute the real `k`-tuples and keep only their
+Pareto front in the objective's monotone stat space (the same
+higher-is-better classification dominance uses, plus requirements as
+lower-is-better, provisions as higher-is-better, set transitions as in
+`DenseBound`). At a node at depth `n - k`, the subtree ceiling is the
+maximum of the objective over the front's points placed on the prefix,
+not over a super-item. The front covers every real completion, so the
+bound is admissible, and it is as tight as a bound over real completions
+can be.
+
+**Cost.** 150 x 150 ring pairs are ~11K canonical tuples; a front in five to
+eight effective dimensions is typically hundreds of points, so a node pays
+hundreds of cheap evaluations (dot products, in the tangent form) to prune a
+subtree of 11K leaves, against the ~2,800 cluster evaluations the last-slot
+cluster bound spends on the same subtree. This is the Horowitz-Sahni
+meet-in-the-middle idea used as a bound rather than as a solver, and the
+dominance between partial solutions that multi-objective knapsack dynamic
+programming relies on to keep its state sets small (Bazgan, Hugot and
+Vanderpooten 2009).
+
+**Interaction.** Fronts are per objective direction and per data version,
+so they are built once per run (or cached by R27's hash). They give R3 its
+pair fixing for free: a pair not on the front, or on it with `UB` strictly
+below the cutoff, is gone. Set bonuses enter only through the same
+transition deltas the current bound uses.
+
+**Measure.** `bound_pruned` and proof time on the family suite against the
+cluster bound, with `--expect-divergence` (counters shift, the top-15 must
+not); front sizes per family, which decide whether `k = 3` is affordable.
+
+### R29. Priority-gap levels: weighted discrepancy bands (anytime, medium risk)
+
+**Why.** Level-band enumeration is limited discrepancy search (Harvey and
+Ginsberg 1995) with one discrepancy per rank step in any slot, so stepping
+from the best helmet to the second-best costs the same as the same step in
+a bracelet pool whose top items are near-identical. The tracker's own first
+"high priority improvement" asks for exactly this: explore accessory
+alternatives deeper per armour combination, because armour moves the score
+far more. Weighted discrepancy search is the general form.
+
+**What.** Give each item an integer *level* from its priority-score gap to
+the pool's best item, quantised so that near-equal items share a level and
+a large gap costs several; enumerate bands over the sum of levels instead
+of the sum of ranks. The band machinery stays, since bands are still integer
+sums, but an offset now maps to a group of items, so the band credits, the
+ring canonicalisation and the first-slot partitioning need the group form.
+Exactness is untouched: the same visited set, in a different order.
+
+**Measure.** Time to final incumbent and primal integral (R8) on the family
+suite against rank bands. Also try a *portfolio*: two workers running
+different orderings (rank bands, gap bands, solo-ceiling order) sharing one
+cutoff once R24 lands. Portfolios are the cheapest robust anytime gain in
+the search literature, and they cost nothing in exactness.
 
 ### Smaller notes
 
@@ -968,16 +1089,19 @@ it in a worker.
    **R14** soft/lexicographic objectives: the iterative "describe the
    playstyle" loop. R20 is the user-facing payoff and needs only the
    archive and a cutoff rule change, so it can land early.
-6. **R2** tangent bound, then **R3** fixing on top of it.
+6. **R2** tangent bound, then **R3** fixing on top of it, then **R28**
+   suffix Pareto fronts, which replace the super-item for the last slots.
 7. **R11** mid-tree mana bound (for defensive and sustain objectives), and
    **R24** resumable chunked solve (browser cutoff sharing, checkpoints)
    followed by **R22** best-bound prefix scheduling once R2/R3 give
    prefixes a bound worth ordering by.
 8. **R4** set-aware dominance, **R15** roll-robust evaluation.
 9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets,
-   **R26** availability filters, **R27** preparation-phase caching.
+   **R26** never-used item detection (its exact tier is R3), **R27**
+   preparation-phase caching.
 10. **R6** LNS incumbent thread.
-11. **R7** learned ordering, once there are enough completed runs to train on.
+11. **R29** priority-gap levels and ordering portfolios, then **R7** learned
+    ordering once there are enough completed runs to train on.
 12. MILP/CP-SAT as an oracle for linear targets, opportunistically.
 
 ## References
@@ -1011,3 +1135,18 @@ it in a worker.
   Letters 41(6), 2013 (primal integral).
 - *An empirical study of population-based metaheuristics for the
   multiple-choice multidimensional knapsack problem.* Inderscience.
+- Chen, Hao. *A "reduce and solve" approach for the multiple-choice
+  multidimensional knapsack problem.* European Journal of Operational
+  Research 239(2):313-322, 2014.
+- Walker, Dyer. *Dominance in multi-dimensional multiple-choice knapsack
+  problems.* Asia-Pacific Journal of Operational Research, 1998.
+- Harvey, Ginsberg. *Limited Discrepancy Search.* IJCAI 1995.
+- Bazgan, Hugot, Vanderpooten. *Solving efficiently the 0-1 multi-objective
+  knapsack problem.* Computers & Operations Research 36(1), 2009.
+- Ehrgott, Gandibleux. *Bound sets for biobjective combinatorial
+  optimization problems.* Computers & Operations Research 34(9), 2007.
+- Cerqueus, Przybylski, Gandibleux. *Surrogate upper bound sets for
+  bi-objective bi-dimensional binary knapsack problems.* European Journal
+  of Operational Research 244(2), 2015.
+- Horowitz, Sahni. *Computing partitions with applications to the knapsack
+  problem.* Journal of the ACM 21(2), 1974 (meet in the middle).
