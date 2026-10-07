@@ -7,9 +7,46 @@ here is measured yet. Every "expected" effect below is a hypothesis to be
 tested with the existing tools (`benchmark_ab.py`, the oracles,
 `SCORE_DENSE_CHECK`, the family suite) before it is believed.
 
+## 0. Correctness first (from the author's review of PR #19, 2026-10-07)
+
+The review's main conclusion stands above everything below: fix
+correctness and define what "exact" guarantees before investing in faster
+proofs. These are pre-existing runtime issues on master, not regressions of
+this documentation PR; three were reproduced with focused JS fixtures at
+`ef846c5`. Each needs its own small PR with its own test, in this order:
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| C1 | **Set weapons never count toward their set.** 44 weapons in 2.2.3.0 carry a `sets` entry (Boundless, Corrupted, Cindercurse, Empty, Bony, ...). The loader writes `item.set` from the set tables; `calculate_skillpoints` treats the weapon as passive and never adds it to `set_counts`, so the leaf sees neither the set's stats nor its skill points. The Rust loader counts the weapon's requirements but not its set id. | `js/game/skillpoints.js` weapon block; `enumerate.rs` fixture load | reproduced: Bony Bow + Circlet counts one piece, loses +8 Agi, +45 mdRaw, +15 aDamPct |
+| C2 | **The JS reachable set-SP bound takes the maximum across sets**; the Rust engine sums per set. Two disjoint sets each granting +10 Dex are credited +10, so a completion needing 95 assigned Dex is bounded at 105 and rejected against the 100-per-lane cap. `test_sp_set_bound.js` pins the wrong behaviour. | `sp_set_bound.js` `accumulate_reachable_set_bonus` | reproduced |
+| C3 | **The raw-stat `>=` precheck runs before set bonuses.** Jester bracelet + ring: raw XP -34 at max roll, +45 set bonus, +11 net; a minimum of +5 rejects them. Tracker queue item 2 called this an open decision; it is a bug. The envelope must include reachable set, tree and SP contributions, or the gate is disabled for any stat that has them. | `_build_constraint_prechecks`, `_fast_constraint_precheck` | counterexample from shipped data |
+| C4 | **The EHP precheck evaluates Def/Agi at 100**; totals reach 150 with provisions, so it is not an upper bound. The divisor is exported to the Rust fixture, so both engines share it. | `worker.js` `_build_constraint_prechecks` | confirmed in source |
+| C5 | **Rust healing reads `max_hp_heal_pct` only**; current data uses `power`, so a 15%-HP heal scores zero in Rust. Fixed on the anytime branch (PR #18). | `scoring.rs` | reproduced on that branch's suite, 15 of 132 fixtures |
+| C6 | **Greedy SP allocation is not optimal.** With 20 points left and `base_sp = [0, 0, 60, 60, 60]`, the real allocator and evaluator pick 20/0 Str/Dex and score 1.18176; the feasible 10/10 split scores 1.19015, 0.71% better. An exhaustive equipment search therefore proves the best equipment *under greedy allocation*, not the best build. R12's audit measures how often this bites on shipped data. | `pure/engine.js` greedy; R12 | reproduced |
+| C7 | **Default dominance is heuristic.** Dimensions below 0.5% sensitivity are ignored, and a synthetic objective `100 xpb + 0.4 lb` lets A = (xpb 1, lb 0) delete B = (xpb 0, lb 1000) although B scores four times A; the benchmarks branch's Knucklebones case is the shipped-data version. Exact mode uses certified dominance or none; heuristic policies are labelled (R32). | `item_priority.js` `_build_dominance_stats`; R4, R32 | synthetic, plus the branch's measured case |
+
+Validation that goes with them, before any speed work: a tiny
+**independent oracle** over raw pools and integer SP allocations with every
+precheck, bound and dominance policy disabled (the current Cartesian oracle
+reuses production prechecks and scoring, so both can agree on the same
+bug); every proposed prune tested against small exhaustive *subtrees*, not
+against surviving leaves; and fixture coverage for multiple sets, set
+weapons, healing `power`, raw-plus-percent damage, negative SP lanes, future
+set completion, guild tomes, `<=` restrictions, ties, active-worker bounds,
+zero or negative scores and cross-bucket combinations. Then re-profile the
+current Rust/WASM engine before ranking speed work: the 51.7% SP figure and
+the 24 h projection quoted below are JS-engine measurements.
+
 ## 1. Where the solver stands
 
-The engine is an exact, best-first branch-and-bound over an MMKP-shaped space:
+The engine is a branch-and-bound over an MMKP-shaped space. Three
+qualifications, from the review: its traversal is rank-band order (limited
+discrepancy search, R29), not bound-priority search; its default item
+reduction is a sensitivity heuristic that can remove the optimum (C7); and
+its leaf skill-point allocation is a greedy that is not globally optimal
+(C6). "Exact" today therefore means "every surviving tuple is scored under
+the greedy allocator, on the reduced pools"; section 0 is what has to
+change before the word is earned. The space:
 
 - 8 groups (helmet, chest, legs, boots, ring x2, bracelet, necklace), one
   item per group, pools of ~150-250 items at lvl 80+ (72-148 at lvl 98+).
@@ -139,12 +176,25 @@ Any `p` is valid, so `p` can be tuned for tightness (a few Frank-Wolfe style
 iterations: take the separable argmax, move `p` toward it) without risking
 admissibility.
 
-**Where it breaks.** Factors that can go non-positive on the box (negative %
-items driving `1 + sum` toward zero), `max(0, .)` clamps, atree var-scaling
-terms, min/max damage ranges and crit mixing. Apply the tangent bound only to
-terms whose factor lower bound is provably positive on the box, and keep the
-current super-item path for the rest. `ceiling_vars_ok` already encodes a
-similar applicability test.
+**Where it breaks (correction, review).** Positivity of the factors is not
+enough: the implemented formula contains *sums of products*, and the log of
+a sum of products is not concave. The review's counterexample is
+`T(D, b) = D b + 100`: the exponentiated log-tangent at (20, 2), evaluated at
+(10, 1), gives about 105.2 against the true 110, so a bound built that way
+prunes a real completion. The couplings with this shape here are the crit
+mix (`1 + p(dex) * (1 + critDamPct / 100)`, a product of two
+decision-dependent quantities inside a sum), raw boosts scaled by the total
+conversion fraction, and any raw addition that follows a product of
+variables. The sound construction is: decompose each spell part's damage
+into positive summands; apply the tangent only to a summand that is a
+product of factors each provably positive and concave on the box; bound a
+bilinear coupling by its super-item value or a McCormick envelope; and keep
+the current super-item ceiling as the fallback for every unsupported term,
+including factors that can go non-positive (negative % items driving
+`1 + sum` toward zero), `max(0, .)` clamps, atree var-scaling terms and
+min/max damage ranges. The admissibility proof is written per term before
+any pruning uses it; `ceiling_vars_ok` is the model for the applicability
+test.
 
 **Measure.** Same tripwire as R1 (`bound >= true score` asserted at every
 evaluated leaf in check mode), oracle fixtures, and `bound_pruned` /
@@ -162,7 +212,12 @@ gate uses, delete `i` from the pool for the whole run (**correction**: not
 through the item-name tie-breaker, which is why every existing gate prunes
 strictly below the cutoff). Iterate:
 smaller pools give smaller ideal points, which tighten every other `UB`.
-Re-run whenever the shared cutoff rises meaningfully.
+Re-run whenever the shared cutoff rises meaningfully. Two rules from the
+review: the cutoff is always an actual one made of distinct real witnesses
+(the 15th-best distinct score), never an incumbent top-1; and a pool is
+never mutated under a running search. Fix between immutable search
+snapshots, rebuilding the suffix tables, band credits and ring-index tables
+for the reduced pools, so counters and canonical ordering stay consistent.
 
 This is reduced-cost / variable fixing, the engine of the core-based exact
 MMKP algorithm (Mansini & Zanotti 2020: solve a core of promising items,
@@ -202,8 +257,16 @@ computes, per set, the maximum positive transition delta for adding one more
 piece (`set_delta`). So a set item `B` can be dominated by a setless item
 `A` when `A` beats `B + max_transition(B.set)` on every higher-is-better
 stat (and `B`'s set skill points are counted in its provisions, using the
-same reachable set-SP term `sp_set_bound.js` now tests). Negative
-transitions must be treated as zero in `B`'s favour.
+same reachable set-SP term `sp_set_bound.js` now tests, after C2 fixes its
+cross-set maximum). Negative transitions must be treated as zero in `B`'s
+favour.
+
+**Promise (correction, review).** Any dominance deletion, this one
+included, preserves the optimum *value* and a best representative; it does
+not preserve the literal top-15, because a dominated item can be the #2 to
+#15 build by name. State the two promises separately in the UI: "top-1
+value exact, list is representative" under dominance, "top-15 exact" only
+with dominance off or certified-equal-only.
 
 **Measure.** Pool reduction on the family suite (the Nori and family
 fixtures are set-heavy); `test_dominance.js` plus a new oracle that
@@ -390,9 +453,15 @@ are about (c), R14-R19 about (a) and (b).
 and the exact kernel then rejects. That headroom is claimable without
 touching the leaf: at the last node before the leaves, run the exact kernel
 once on `prefix + a synthetic free item carrying the last pool's per-lane
-max provision`. Provisions can only help (the tome plan already relies on
-"a requirement-free bonus can never make a build infeasible"), so if that
-solve fails, every leaf under the node fails. One kernel call per node
+max provision plus every set-granted bonus still reachable from this depth,
+summed per set as the Rust refresh_sp_bound_base does`. Provisions can only
+help (the tome plan already relies on "a requirement-free bonus can never
+make a build infeasible"), so if that solve fails, every leaf under the
+node fails. **Correction (review):** without the set term the bound is
+inadmissible. A prefix set piece requiring Dex 120 whose matching suffix
+piece carries no Dex of its own but completes a +30 Dex set is rejected by a
+provision-only synthetic item, although the real completion is feasible
+with 90 assigned Dex. One kernel call per node
 amortizes over the ~70-250 leaves beneath it.
 
 **Why it matters.** On `solver_mage_gaia_6free_lvl50` the exact SP solve was
@@ -406,8 +475,11 @@ is rejected, never whether).
 ### R10. SP conflict pairs (exact, low risk)
 
 **What.** For every pair of items in different pools, solve the exact SP
-kernel on `{weapon, locked, A, B}` plus the per-lane max provisions of all
-other pools as a free item. If that fails, `A` and `B` can never coexist.
+kernel on `{weapon, locked, A, B}` plus a free item carrying the per-lane max
+provisions of all other pools *and* every set bonus any completion of the
+other pools could still unlock (the same reachable set term as R9; the
+review's future-set-completion case applies here too). If that fails, `A`
+and `B` can never coexist.
 Store it as a bitset (~1,500 items squared is ~280 KB) and consult it when
 placing an item, the way the illegal-set tracker already works. This is the
 conflict-graph knapsack (the special case of forfeit sets with allowance 1
@@ -686,11 +758,18 @@ point. Nobody needs that: "no build beats this by more than 1%" is the
 useful statement, and it is far cheaper to prove.
 
 **What.** A user-set tolerance `eps` (default 0, so nothing changes until
-asked). Prune a subtree when `ceiling <= (1 + eps) * best` instead of
-`ceiling <= best`, and stop the run when the global bound (R5) satisfies the
-same test. The result is guaranteed within `eps` of the optimum; that is
-the `MIPGap` rule every MILP solver ships with, and the guarantee is as
-exact as the ceiling is admissible. It composes with every bound in R1-R3,
+asked). Prune a subtree when `ceiling` is strictly below `(1 + eps) * best`
+(same margin rule as R3) instead of strictly below `best`, and stop the run
+when the global bound (R5) satisfies the same test. The result is guaranteed
+within `eps` of the optimum; that is the `MIPGap` rule every MILP solver
+ships with, and the guarantee is as exact as the ceiling is admissible.
+**Definitions (review):** the multiplicative form is defined only for
+`best > 0`; objectives that can be zero or negative (custom blends with
+negative weights) take an absolute tolerance `eps_abs` instead, or `eps` is
+refused for them. The claim is about the **top-1 only**: a pruned subtree
+may hold a build better than the current 15th-best, so under `eps > 0`
+ranks 2 to 15 are reported as unverified. Ties at `best` are never pruned,
+because the comparison is strict. It composes with every bound in R1-R3,
 R9-R11: each gets `eps` more bite. The UI reports "optimal within 1%" with
 the proof status, which is the honest replacement for a progress bar that
 stalls at 97%.
@@ -702,10 +781,15 @@ complete window the admissible prune line is `(1 - x) * best` and `eps`
 buys nothing on top of it (`(1 + eps)(1 - x) best` is strictly above the
 window boundary and would drop builds inside the window). Offer the two
 modes explicitly: *exact window* prunes at `(1 - x) * best` and ignores
-`eps`; *approximate window* prunes at `(1 + eps)(1 - x) * best` and the UI
-states that the archive is complete only above that line, with the bottom
-`eps` sliver of the window possibly missing. `eps` on its own (no window)
-keeps the top-1 guarantee stated above.
+`eps`; *approximate window* prunes at `(1 + eps)(1 - x) * best`, which is
+meaningful only while `(1 + eps)(1 - x) <= 1` (**second correction,
+review**: with `x = 1%` and `eps = 2%` the line is `1.0098 * best`, above
+the incumbent, so it can prune a subtree holding an undiscovered better
+build; that build is still within `eps` of the incumbent, so the top-1
+claim survives, but no statement about the archive does). When the product
+exceeds 1 the mode reduces to the exact window. The UI states that the
+archive is complete only above the prune line. `eps` on its own (no
+window) keeps the top-1 guarantee stated above.
 
 **Measure.** Proof time at `eps` = 0, 0.5%, 1%, 2% on the mage scenario
 and the family-large suite; confirm top-1 is unchanged at every `eps` on
@@ -725,7 +809,12 @@ thousands of nodes) with their ceiling (R2/R3) and run them from a priority
 queue ordered by bound, highest first. This is best-bound node selection,
 the default in MILP solvers, and it does three things at once:
 
-- the global bound (R5) is the queue head, so the gap is exact and cheap;
+- the global bound (R5) is the maximum over the queue head *and every
+  prefix a worker currently holds* (the bound of its unexplored remainder),
+  with any region not yet materialised carrying its parent's bound
+  (**correction, review**: incumbent 100, queue head 99 and a claimed
+  prefix at 150 is not a proof). Tracked that way the gap is exact and
+  still cheap;
 - the search spends its time where the optimum can still be, so the
   incumbent improves faster and `eps` (R21) is reached sooner;
 - the queue is the work unit for everything else: dynamic claiming across
@@ -814,7 +903,7 @@ than on the legacy one. One question for the merge: the branch makes
 finding, certified-by-default with balanced as an opt-in speed mode is the
 safer reading of its own numbers.
 
-### `agent/anytime-neighborhood-benchmarks`: R6 is already built
+### `agent/anytime-neighborhood-benchmarks` (PR #18): R6 is already built
 
 This is the LNS incumbent thread (R6), the warm-witness retention half of
 R13, and the archive deduplication of R17, implemented in Rust
@@ -855,14 +944,17 @@ fixes. It conflicts with master in seven files, and its own docs say its
 medium/large timings are projections whose raw data was not retained. Do
 not merge it. Cherry-pick these, each as its own small PR with its own test:
 
-1. **Set weapons.** `calculate_skillpoints` iterates `equipment` for set
-   counts and the weapon is passed separately, so a non-crafted set weapon
-   (Bony Bow in the Bony set) never activates its set in either engine. The
-   Rust loader counts the weapon's requirements but not its set id. The
-   mechanism is confirmed on master, but **no weapon in the 2.2.3.0 data
-   carries a `set` field** (Bony Bow included), so today it is latent rather
-   than live; take the fix as hygiene, with a test on a synthetic set
-   weapon. The anytime branch refuses set weapons for this reason.
+1. **Set weapons (C1, live).** `calculate_skillpoints` iterates `equipment`
+   for set counts and the weapon is passed separately, so a non-crafted set
+   weapon never activates its set in either engine; the Rust loader counts
+   the weapon's requirements but not its set id. An earlier draft here
+   called this latent after grepping a `set` key on the raw JSON; the raw
+   field is `sets` (an array) and the loader writes `item.set` from the set
+   tables, and 44 weapons in 2.2.3.0 carry one. The review reproduced it on
+   Bony Bow + Bony Circlet: one piece counted, the two-piece row's +8 Agi,
+   +45 mdRaw and +15 aDamPct lost. A correctness fix in both engines, with
+   that pair as the test. The anytime branch refuses set weapons for this
+   reason; after the fix it need not.
 2. **EHP precheck at 100 Def/Agi.** `_build_constraint_prechecks` computes
    the optimistic EHP divisor with `skillPointsToPercentage(100)`, but
    total Def/Agi reach 150 with item provisions, so the precheck is not an
@@ -878,9 +970,10 @@ not merge it. Cherry-pick these, each as its own small PR with its own test:
    overestimates mana on high-Int, high-maxMana builds).
 
 The raw `>=` precheck ignoring set and tree contributions (the other half
-of tracker item 2) is also disabled on that branch; that one is a known
-open decision on master and belongs with R1's bound work rather than a
-cherry-pick.
+of tracker item 2) is also disabled on that branch; it is C3 in section 0,
+a bug rather than an open decision (the Jester bracelet-and-ring case), and
+the branch's "disable the gate" is the safe interim fix until a proven
+envelope exists.
 
 ## 6. Third pass: engine, browser and data levers (2026-10-07)
 
@@ -902,9 +995,14 @@ node (`enumerate.rs` around line 1192); the leaf path does not.
 
 **What.** Keep a per-depth journal of the stat writes each placed item
 made, and at the leaf apply only the changed slot(s), rolling back by
-restoring journaled old values rather than subtracting (bit-exact, the same
-trick `dense_ceiling_cached` uses; a subtract-based running vector is not
-ulp-exact). Resolve item names to integer ids at load so the hot path does
+restoring journaled old values rather than subtracting (the same trick
+`dense_ceiling_cached` uses; a subtract-based running vector is not
+ulp-exact). Journaling makes only the *rollback* exact (**review**): the
+forward result is bit-identical to a full rebuild only if the adds land in
+the same arithmetic and stage order as `fill_direct` applies them, which is
+item position order, not search depth order. So the incremental path must
+replay that order, or the parity suite must accept and bound an ulp
+difference. Resolve item names to integer ids at load so the hot path does
 no string hashing. The BASE phase's share of leaf time, per family, bounds
 the gain; the trace already splits it out.
 
@@ -1024,10 +1122,16 @@ programming relies on to keep its state sets small (Bazgan, Hugot and
 Vanderpooten 2009).
 
 **Interaction.** Fronts are per objective direction and per data version,
-so they are built once per run (or cached by R27's hash). They give R3 its
-pair fixing for free: a pair not on the front, or on it with `UB` strictly
-below the cutoff, is gone. Set bonuses enter only through the same
-transition deltas the current bound uses.
+so they are built once per run (or cached by R27's hash). A front used for
+bounding does not license deleting the pairs it represents (**correction,
+review**): a dominated pair can still be the literal #2 to #15 build. Pair
+deletion comes only from R3's rule, `UB` strictly below the distinct-witness
+cutoff, evaluated over the full domain; the front merely makes that `UB`
+cheap. Set bonuses enter only through the same transition deltas the
+current bound uses, and those deltas should themselves be tightened to the
+best row among the piece counts actually reachable from the prefix, as the
+SP term already does, instead of crediting the best single transition on
+every added item (**review**).
 
 **Measure.** `bound_pruned` and proof time on the family suite against the
 cluster bound, with `--expect-divergence` (counters shift, the top-15 must
@@ -1082,9 +1186,17 @@ is R7 and the iterated local search is R6; the MIP solver's role is played
 by the exact engine, because the objective does not linearise.
 
 **What it adds.** A schedule. Instead of warm start then full run, run
-nested cores: `k = 3`, then buckets of the next three per slot, each solved
-exactly on kernel plus bucket, skipped when its bound cannot beat the
-incumbent, with the kernel grown by whatever enters the top-N. Every
+nested cores: `k = 3`, then buckets of the next three per slot, each solve
+over the *cumulative* set (kernel plus every bucket admitted so far), never
+kernel-plus-one-bucket (**correction, review**: for an objective like
+`x * y`, two core items at (2, 2) score 16, outside items (5, 0) and (0, 5)
+score 14 each with a core partner and 25 together, so neither enters on its
+own and a one-bucket-at-a-time schedule never finds the pair). A bucket is
+skipped only when `UB` over the *full* domain of every item in it is
+strictly below the distinct-witness cutoff, and the final claim needs every
+outside item fixed out that way or the remaining space enumerated: the
+proof is a partition of the whole space, not a sequence of restricted
+solves. The kernel grows by whatever enters the top-N. Every
 intermediate answer is exact for its core, the incumbent and cutoff only
 rise, and the final sweep of the remaining buckets, under the bounds, is
 the proof. R22's prefix queue is the natural executor (a bucket is a set of
@@ -1250,18 +1362,32 @@ losing on the rest, and that is also the rule for retiring one.
   variant weighted by a content damage profile is a restriction or
   objective users ask for. It fits R14/R18 as a preset, not a new engine
   feature.
-- **No set weapons in current data.** Counted in 2.2.3.0: zero weapons with
-  a `set` field, so weapon-set handling is hygiene, not a live bug.
+- **Set weapons are in current data.** 44 weapons carry a `sets` entry in
+  2.2.3.0 (Boundless, Corrupted, Cindercurse, Empty, Bony, ...); the earlier
+  "none" count here read the wrong key. See C1.
+- **Cost-aware adaptive bounds (review).** `AdaptiveBound` measures pruned
+  leaves per evaluation; the right criterion is wall time saved per
+  evaluation (leaf time of what was pruned, minus the bound's cost). The
+  anytime branch's wider-bound experiment pruned 82% more leaves and covered
+  41% less space per second, which the leaf-count criterion would have
+  called a win.
 
 ## 7. Suggested order
 
+0. **Section 0, C1 to C7**, each as its own PR with its own test, plus the
+   independent oracle; then re-profile the Rust/WASM engine. Everything
+   below is ranked against measurements taken after these land, not against
+   the historical JS numbers.
 1. **R1** reachable-SP ceilings: smallest change, provable, likely the largest
-   single bound tightening. Alongside it, **R23** incremental leaf fill and
-   **R25** build flags: exact, cheap, with measured headroom.
+   single bound tightening. Alongside it, **R23** incremental leaf fill
+   (with its arithmetic-order caveat) and **R25** build flags: exact, cheap,
+   with measured headroom.
 2. **R9** depth n-1 exact SP bound, then **R10** conflict pairs: cheap,
-   exact, and they attack the 51.7% SP cost on restricted workloads.
-3. **R12 step 1** greedy audit: decide whether the leaf score itself is
-   losing the optimum before investing further in bounds.
+   exact, and they attack the SP cost on restricted workloads (re-measure it
+   on the Rust engine first; 51.7% was a JS number).
+3. **R12** beyond the audit (C6 already shows the greedy loses on a
+   synthetic case): the shipped-data loss rate decides how much of step 2
+   and the exact allocators is needed.
 4. **R5** gap reporting, **R21** epsilon tolerance and **R8** anytime
    metrics: make every later change visible and judgeable, and turn
    "cannot finish" into "optimal within 1%" immediately.
