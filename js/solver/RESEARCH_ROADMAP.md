@@ -597,8 +597,80 @@ asking.
 scenario; and a user check that the default weights reproduce the guide's
 ranking order on the six validated family seeds.
 
+### R21. Epsilon-optimality tolerance (exact in the approximation sense, low risk)
+
+**The observation.** Most of a long proof is spent on subtrees whose
+ceiling sits just above the incumbent. The mage case finds its best build
+in seconds; the remaining ~24h is proving that nothing beats it by even one
+point. Nobody needs that: "no build beats this by more than 1%" is the
+useful statement, and it is far cheaper to prove.
+
+**What.** A user-set tolerance `eps` (default 0, so nothing changes until
+asked). Prune a subtree when `ceiling <= (1 + eps) * best` instead of
+`ceiling <= best`, and stop the run when the global bound (R5) satisfies the
+same test. The result is guaranteed within `eps` of the optimum; that is
+the `MIPGap` rule every MILP solver ships with, and the guarantee is as
+exact as the ceiling is admissible. It composes with every bound in R1-R3,
+R9-R11: each gets `eps` more bite. The UI reports "optimal within 1%" with
+the proof status, which is the honest replacement for a progress bar that
+stalls at 97%.
+
+**Interaction with R20.** The window archive wants everything within `x%`
+*below* the best; `eps` discards subtrees that cannot beat the best by
+`eps` *above*. They are independent: use the window cutoff
+`(1 - x) * best` for the archive and prune at `(1 + eps) * (1 - x) * best`
+so the archive is still complete within its window up to `eps`.
+
+**Measure.** Proof time at `eps` = 0, 0.5%, 1%, 2% on the mage scenario
+and the family-large suite; confirm top-1 is unchanged at every `eps` on
+the completing scenarios (it must be, unless the exact optimum is itself
+within `eps` of the found build).
+
+### R22. Best-bound prefix scheduling (exact, medium risk)
+
+**Today.** Enumeration is level-band order: sum of pool ranks, a static
+heuristic fixed before the search. Workers claim first-slot offsets, which
+are coarse and leave a tail where one thread finishes a large subtree
+alone. In the browser, `solve_json_full` hands each worker a static
+partition, with no stealing.
+
+**What.** Materialise prefix nodes at a fixed depth (2 or 3 slots, tens of
+thousands of nodes) with their ceiling (R2/R3) and run them from a priority
+queue ordered by bound, highest first. This is best-bound node selection,
+the default in MILP solvers, and it does three things at once:
+
+- the global bound (R5) is the queue head, so the gap is exact and cheap;
+- the search spends its time where the optimum can still be, so the
+  incumbent improves faster and `eps` (R21) is reached sooner;
+- the queue is the work unit for everything else: dynamic claiming across
+  native threads and browser workers alike (one atomic per claim, the
+  cutoff SAB already exists), a fine-grained tail, and the checkpoint
+  record for R19 (a prefix node is done or not done).
+
+Within a prefix, keep the band sweep as today; only the order *between*
+prefixes changes, so the visited set and every counter stay identical to
+the band order's, which `benchmark_ab.py` can confirm.
+
+**Caveat.** Best-bound order is memory-hungry in MILP because the tree is
+unbounded; here the depth is fixed, so the queue is bounded by the prefix
+count. Diving (depth-first within a prefix) keeps the incumbent moving,
+which the band sweep already does.
+
 ### Smaller notes
 
+- **Lock hints from the archive.** When every build in the window archive
+  (R20) shares the same item in a slot, say so and offer a one-click lock.
+  Locking a slot removes a factor of ~100 from the space; this is the
+  manual workflow from the README, made visible.
+- **Native first for long proofs.** The browser engine has no clock,
+  one thread per worker and no checkpoint. Anything that will not finish
+  in minutes belongs on the native CLI with all cores and R19; make the
+  UI export the job and say so when the estimate (the live search-space
+  line) exceeds a threshold.
+- **Pool order by solo ceiling.** Pools are ordered by the sensitivity
+  priority score; `WARM_K` ranks by solo ceiling instead. Measure which
+  order finds the final incumbent sooner across the family suite, since
+  the band sweep's anytime quality is entirely that ordering.
 - **Warm-start-informed reorder.** Before the main run, move items that
   appear in the warm subspace's top-15 to the front of their pools. Zero
   ML, zero risk, and it is the cheap baseline R7 has to beat.
@@ -618,14 +690,17 @@ ranking order on the six validated family seeds.
    exact, and they attack the 51.7% SP cost on restricted workloads.
 3. **R12 step 1** greedy audit: decide whether the leaf score itself is
    losing the optimum before investing further in bounds.
-4. **R5** gap reporting and **R8** anytime metrics: make every later change
-   visible and judgeable.
+4. **R5** gap reporting, **R21** epsilon tolerance and **R8** anytime
+   metrics: make every later change visible and judgeable, and turn
+   "cannot finish" into "optimal within 1%" immediately.
 5. **R13** result archive, **R20** windowed archive with QoL ranking, and
    **R14** soft/lexicographic objectives: the iterative "describe the
    playstyle" loop. R20 is the user-facing payoff and needs only the
    archive and a cutoff rule change, so it can land early.
 6. **R2** tangent bound, then **R3** fixing on top of it.
-7. **R11** mid-tree mana bound (for defensive and sustain objectives).
+7. **R11** mid-tree mana bound (for defensive and sustain objectives), and
+   **R22** best-bound prefix scheduling once R2/R3 give prefixes a bound
+   worth ordering by.
 8. **R4** set-aware dominance, **R15** roll-robust evaluation.
 9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets.
 10. **R6** LNS incumbent thread.
