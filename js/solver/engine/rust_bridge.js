@@ -423,7 +423,7 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
     const f = (x) => (typeof x === 'number' && Number.isFinite(x)) ? String(x) : '0';
 
     const H = env.evalInCtx(`({
-        sp100: skillPointsToPercentage(100),
+        sp150: skillPointsToPercentage(SP_PERCENTAGE_INPUT_CAP),
         fm3: skillpoint_final_mult[3], fm4: skillpoint_final_mult[4],
         static_ids: [...STATMAP_STATIC_IDS],
         indirect: [...INDIRECT_CONSTRAINT_STATS],
@@ -449,29 +449,61 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
     const running0 = env.ctx._init_running_statmap(initMsgBase.level, fixed_sms);
 
     // ── Prechecks (mirror _build_constraint_prechecks) ──
-    const fixedContrib = (stat) =>
-        (solverSnap.atree_raw?.get(stat) ?? 0) + (solverSnap.static_boosts?.get(stat) ?? 0);
+    // Same envelope as the worker (precheck_required_running in pure/utils.js):
+    // set bonuses, the Radiance scale and atree scaling outputs are counted,
+    // the EHP divisor is taken at the 150 skill-point cap, and a precheck with
+    // no sound envelope is not emitted at all. The tome bound is a post-Radiance
+    // constant exactly as in the worker.
+    const preFixed = (stat) => solverSnap.atree_raw?.get(stat) ?? 0;
+    const postFixed = (stat) => (solverSnap.static_boosts?.get(stat) ?? 0)
+        + (initMsgBase.tome_bound?.get(stat) ?? 0);
+    const reachable = [];
+    for (const pool of Object.values(initMsgBase.pools ?? {})) for (const it of pool ?? []) reachable.push(it.statMap);
+    for (const it of ringPoolSer ?? []) reachable.push(it.statMap);
+    for (const sm of Object.values(partial)) if (!NONE(sm)) reachable.push(sm);
+    reachable.push(initMsgBase.weapon_sm);
+    const envelope = env.ctx.precheck_envelope_context({
+        atree_merged: initMsgBase.atree_merged, button_states: initMsgBase.button_states,
+        slider_states: initMsgBase.slider_states, radiance_boost: initMsgBase.radiance_boost,
+        set_names: env.ctx.collect_set_names(reachable), sets_map: env.ctx.sets,
+    });
+    const hpFixedFor = (target) => {
+        const need = env.ctx.precheck_required_running(envelope, ['hp', 'hpBonus'], target,
+            preFixed('hp') + preFixed('hpBonus'), postFixed('hp') + postFixed('hpBonus'));
+        return need === null ? null : target - need;
+    };
     const thresholds = solverSnap.restrictions?.stat_thresholds ?? [];
     const pcs = [];
     let ehp = null, ehpna = null, thp = null;
     for (const { stat, op, value } of thresholds) {
         if (op !== 'ge') continue;
         if (stat === 'ehp' || stat === 'ehp_no_agi') {
-            const fixed_hp = fixedContrib('hpBonus');
-            const def_pct = H.sp100 * H.fm3;
+            const def_pct = H.sp150 * H.fm3;
             const defMult = 2 - H.classDefFor(initMsgBase.weapon_sm.get('type'));
+            let divisor;
             if (stat === 'ehp') {
-                const agi_pct = H.sp100 * H.fm4;
+                const agi_pct = H.sp150 * H.fm4;
                 const agi_reduction = (100 - 90) / 100;
-                ehp = { threshold: value, fixed_hp, divisor: (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult };
+                divisor = (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult;
             } else {
-                ehpna = { threshold: value, fixed_hp, divisor: (1 - def_pct) * defMult };
+                divisor = (1 - def_pct) * defMult;
             }
+            const fixed_hp = hpFixedFor(value * divisor);
+            if (fixed_hp === null) continue;
+            if (stat === 'ehp') ehp = { threshold: value, fixed_hp, divisor };
+            else ehpna = { threshold: value, fixed_hp, divisor };
             continue;
         }
-        if (stat === 'total_hp') { thp = { threshold: value, fixed_hp: fixedContrib('hpBonus') }; continue; }
+        if (stat === 'total_hp') {
+            const fixed_hp = hpFixedFor(value);
+            if (fixed_hp !== null) thp = { threshold: value, fixed_hp };
+            continue;
+        }
         if (EXCLUDED.has(stat)) continue;
-        pcs.push({ stat, adjusted_threshold: value - fixedContrib(stat), start: running0.get(stat) ?? 0 });
+        const need = env.ctx.precheck_required_running(envelope, [stat], value,
+            preFixed(stat), postFixed(stat));
+        if (need === null) continue;
+        pcs.push({ stat, adjusted_threshold: need, start: running0.get(stat) ?? 0 });
     }
 
     // ── Set / illegal-set id tables ──

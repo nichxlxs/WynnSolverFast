@@ -325,57 +325,87 @@ function _build_constraint_prechecks() {
     const thresholds = _cfg.restrictions?.stat_thresholds ?? [];
     if (thresholds.length === 0) return;
 
-    // Compute fixed stat contributions (constant across all candidates).
-    // atree_raw and static_boosts are both Maps.
-    const fixed = (stat) => {
-        // _cfg.tome_bound is the per-key maximum over every enabled tome bundle.
-        // Including it here keeps the precheck admissible when tome optimisation
-        // is on: a gearset is only rejected if it fails even with the best
-        // conceivable tomes. It is null (contributing 0) when optimisation is
-        // off, so the default path is unchanged.
-        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0)
-            + (_cfg.tome_bound?.get(stat) ?? 0);
+    // Constant contributions, split by where assembly adds them: atree_raw
+    // before the Radiance scale, static boosts and the tome bound after it.
+    // _cfg.tome_bound is the per-key maximum over every enabled tome bundle,
+    // which keeps the precheck admissible when tome optimisation is on; it is
+    // null (contributing 0) when optimisation is off.
+    const pre_fixed = (stat) => _cfg.atree_raw?.get(stat) ?? 0;
+    const post_fixed = (stat) => (_cfg.static_boosts?.get(stat) ?? 0)
+        + (_cfg.tome_bound?.get(stat) ?? 0);
+    const env = precheck_envelope_context({
+        atree_merged: _cfg.atree_merged, button_states: _cfg.button_states,
+        slider_states: _cfg.slider_states, radiance_boost: _cfg.radiance_boost,
+        set_names: collect_set_names(_precheck_reachable_statmaps()), sets_map: sets,
+    });
+
+    // The HP prechecks compare hp + hpBonus. Expressed as the running sum they
+    // need, the fixture/worker form `raw_hp + fixed_hp` is kept by folding the
+    // envelope into fixed_hp: raw_hp >= need  <=>  raw_hp + (T - need) >= T.
+    const hp_fixed_for = (target) => {
+        const need = precheck_required_running(env, ['hp', 'hpBonus'], target,
+            pre_fixed('hp') + pre_fixed('hpBonus'), post_fixed('hp') + post_fixed('hpBonus'));
+        return need === null ? null : target - need;
     };
 
     for (const { stat, op, value } of thresholds) {
         if (op !== 'ge') continue;  // only ge constraints benefit from early rejection
 
         if (stat === 'ehp' || stat === 'ehp_no_agi') {
-            // Precompute fixed EHP constants
-            const fixed_hp = fixed('hpBonus');
-
-            const def_pct = skillPointsToPercentage(100) * skillpoint_final_mult[3];
+            // Total Def and Agi reach 150 with item provisions, and EHP is
+            // increasing in both percentages, so the optimistic divisor is the
+            // one at the 150 cap (evaluating at 100 was not an upper bound).
+            const def_pct = skillPointsToPercentage(SP_PERCENTAGE_INPUT_CAP) * skillpoint_final_mult[3];
             const weaponType = _cfg.weapon_sm?.get('type');
             const classDef = classDefenseMultipliers.get(weaponType) || 1.0;
             const defMult = (2 - classDef);
 
+            let ehp_divisor;
             if (stat === 'ehp') {
-                const agi_pct = skillPointsToPercentage(100) * skillpoint_final_mult[4];
+                const agi_pct = skillPointsToPercentage(SP_PERCENTAGE_INPUT_CAP) * skillpoint_final_mult[4];
                 const agi_reduction = (100 - 90) / 100;
-                const ehp_divisor = (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult;
-                _ehp_precheck = { threshold: value, fixed_hp, ehp_divisor };
+                ehp_divisor = (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult;
             } else {
                 // ehp_no_agi: no agility dodge factor, just def_pct
-                const ehp_divisor = (1 - def_pct) * defMult;
-                _ehp_no_agi_precheck = { threshold: value, fixed_hp, ehp_divisor };
+                ehp_divisor = (1 - def_pct) * defMult;
             }
+            const fixed_hp = hp_fixed_for(value * ehp_divisor);
+            if (fixed_hp === null) continue;
+            const pc = { threshold: value, fixed_hp, ehp_divisor };
+            if (stat === 'ehp') _ehp_precheck = pc; else _ehp_no_agi_precheck = pc;
             continue;
         }
 
         if (stat === 'total_hp') {
-            _total_hp_precheck = { threshold: value, fixed_hp: fixed('hpBonus') };
+            const fixed_hp = hp_fixed_for(value);
+            if (fixed_hp !== null) _total_hp_precheck = { threshold: value, fixed_hp };
             continue;
         }
 
         if (_PRECHECK_EXCLUDED.has(stat)) continue;
 
-        const fixed_contrib = fixed(stat);
+        const need = precheck_required_running(env, [stat], value, pre_fixed(stat), post_fixed(stat));
+        if (need === null) continue;   // no sound envelope: skip the precheck
         _constraint_prechecks.push({
             stat,
             stat_idx: -1,  // resolved by _vec_setup after the stat index exists
-            adjusted_threshold: value - fixed_contrib,
+            adjusted_threshold: need,
         });
     }
+}
+
+/** Every item statMap whose set a build in this search could wear. */
+function _precheck_reachable_statmaps() {
+    const out = [];
+    for (const slot of Object.keys(_cfg.pools ?? {})) {
+        for (const it of _cfg.pools[slot] ?? []) out.push(it.statMap);
+    }
+    for (const it of _cfg.ring_pool ?? []) out.push(it.statMap);
+    for (const item of Object.values(_cfg.locked ?? {})) if (item?.statMap) out.push(item.statMap);
+    if (_cfg.ring1_locked?.statMap) out.push(_cfg.ring1_locked.statMap);
+    if (_cfg.ring2_locked?.statMap) out.push(_cfg.ring2_locked.statMap);
+    if (_cfg.weapon_sm) out.push(_cfg.weapon_sm);
+    return out;
 }
 
 /**
