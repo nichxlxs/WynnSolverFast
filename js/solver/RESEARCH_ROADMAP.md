@@ -346,17 +346,215 @@ because the objective is not separable; meet-in-the-middle over
 armour/accessory halves is equivalent to what the bounded enumeration
 already does.
 
-## 4. Suggested order
+## 4. Second pass: more levers, and the "describe a playstyle" goal
+
+Added 2026-10-07 after a closer read of the leaf pipeline, the SP kernel, the
+restriction model and the research corpus. The goal these serve: the user
+encodes a set of conditions (melee, spell spam, sustain, survivability
+floors, owned items) and the solver returns the best build that meets them.
+That splits into (a) being able to say the conditions, (b) evaluating them
+exactly, and (c) finishing the proof fast enough to iterate on them. R9-R13
+are about (c), R14-R19 about (a) and (b).
+
+### R9. Exact SP bound at depth n-1 (exact, low risk)
+
+**What.** `sp_kernel_reject` counts leaves the cheap per-lane SP bound admits
+and the exact kernel then rejects. That headroom is claimable without
+touching the leaf: at the last node before the leaves, run the exact kernel
+once on `prefix + a synthetic free item carrying the last pool's per-lane
+max provision`. Provisions can only help (the tome plan already relies on
+"a requirement-free bonus can never make a build infeasible"), so if that
+solve fails, every leaf under the node fails. One kernel call per node
+amortizes over the ~70-250 leaves beneath it.
+
+**Why it matters.** On `solver_mage_gaia_6free_lvl50` the exact SP solve was
+51.7% of wall and every leaf paid it. This moves the first solve up one
+level where its verdict covers a whole pool.
+
+**Measure.** `sp_kernel_reject` before and after; `benchmark_ab.py` on the
+family suite (counters must stay comparable: this only changes where a leaf
+is rejected, never whether).
+
+### R10. SP conflict pairs (exact, low risk)
+
+**What.** For every pair of items in different pools, solve the exact SP
+kernel on `{weapon, locked, A, B}` plus the per-lane max provisions of all
+other pools as a free item. If that fails, `A` and `B` can never coexist.
+Store it as a bitset (~1,500 items squared is ~280 KB) and consult it when
+placing an item, the way the illegal-set tracker already works. This is the
+conflict-graph knapsack (the special case of forfeit sets with allowance 1
+and infinite penalty), and it is the pairwise version of R9. Cost is ~1.1M
+kernel calls at ~0.6 µs, under a second at startup, and it can be made lazy
+(only pairs whose prefix is actually visited).
+
+**Measure.** Pairs found, and the same funnel comparison as R9. Expected to
+matter on tier-stack and high-requirement families, and to find nothing on
+unrestricted spell spam.
+
+### R11. Mid-tree mana bound (exact, medium risk)
+
+**What.** The doom precheck (a mana sim at the highest reachable Int) runs
+only at the leaf (`scoring.rs`); `enumerate.rs` has no mana bound at all.
+Mana feasibility is monotone in every stat the fast sim reads (`mr`, `ms`,
+`maxMana`, `int`, `hp`, cost reductions), so a doom sim at the suffix maxima
+of those stats is a valid subtree bound, exactly as the restriction suffix
+bounds extend the leaf precheck. The bounded-coupling argument from task #28
+covers atree var effects. On defensive objectives (B1) the mana sim is the
+dominant per-leaf cost, and "reducing the number of leaves reaching the
+simulation is what works" is already the recorded conclusion.
+
+**Measure.** `spell_ehp` leaves/s and the `mana_reject` counter; the
+`SCORE_DENSE_CHECK` tripwire extended to assert that any subtree the bound
+prunes contains no leaf the full pipeline accepts (sample and verify).
+
+### R12. Greedy SP allocation: audit it, then replace the trials (exactness, medium risk)
+
+**The gap.** A leaf's score is "the score at the SP allocation the greedy
+found" (coordinate ascent with steps 20, 4, 1 over five lanes). That is a
+heuristic, so the solver's optimum is the optimum *under greedy allocation*,
+and a build whose best allocation the greedy misses is under-scored. Nothing
+in the test suite measures how often that happens.
+
+**Step 1, audit.** An offline oracle: for a sample of scored leaves, enumerate
+every allocation of `remaining` at step 5 over the five lanes (a few hundred
+thousand at most, fine offline), score each, and report how often and by
+how much the greedy falls short, per family. If it never does, document it
+and stop. If it does, the leaf scorer is where the optimum is being lost,
+and no amount of bound tightening fixes that.
+
+**Step 2, structure.** For `combo_damage` without atree effects that read SP,
+only Str (a multiplicative factor through `skillPointsToPercentage`) and Dex
+(crit chance, a convex combination of normal and crit damage) touch damage,
+and Int touches only mana. The allocation is then a two-lane problem with a
+known shape, solvable exactly by a one-dimensional scan over the Str/Dex
+split with the mana rescue as a side condition. When atree var effects read
+other lanes, fall back to the trials. `ceiling_vars_ok` already classifies
+exactly this. This both removes 5 trials per step and makes the leaf score
+exact on the common case.
+
+### R13. Result archive across runs (anytime, low risk)
+
+**Why.** The intended workflow is iterative: run, look, tighten a condition,
+run again. Today every run starts cold except for the warm subspace.
+
+**What.** Keep an archive of scored builds from previous runs (the top few
+thousand with their assembled stat vectors, not just the top 15). When a new
+run starts with the same weapon, combo and objective and only the
+restrictions changed, filter the archive by the new restrictions and seed
+`shared_cutoff` from the best survivor. A score is unchanged by a restriction
+change, so the seed is admissible. Also seed the Rust path from the user's
+current UI build, which the JS engine does (`_eval_current_build`) and the
+Rust bridge does not.
+
+### R14. Soft constraints and lexicographic objectives (expressiveness, exact)
+
+**Why.** "At least 18k EHP" is a floor the user would trade a little damage
+for, not a cliff. The restriction model has only hard `ge`/`le` thresholds
+and one weighted blend. Two additions make most playstyle descriptions
+expressible:
+
+- **Penalised shortfall**: `score - w * max(0, threshold - stat)`. This is
+  the forfeit-set penalty with the sign flipped, and it keeps the ceiling
+  admissible: the penalty term is monotone in the stat, so evaluate it at
+  the stat's suffix maximum, which the restriction bound tables already
+  hold. Covers "prefer sustain but allow a little downtime" too, with
+  mana deficit as the stat.
+- **Lexicographic tiers**: maximise damage; among builds within `x%` of the
+  best damage, maximise EHP. Implement as two passes: pass one finds the best
+  damage `D*` exactly; pass two adds the restriction `damage >= (1 - x) D*`
+  and optimises EHP, seeded from pass one's archive (R13). Each pass is an
+  ordinary exact run.
+
+### R15. Roll-robust evaluation (expressiveness, low risk)
+
+**Why.** Items roll. The research corpus measured that needing eight
+independent IDs at the 75% point is a ~1 in 52,000 event, and the roll
+sensitivity tables show which builds only meet their floors at generous
+rolls. A build that is optimal at 85% rolls and infeasible at 50% is not the
+build the user will own.
+
+**What.** Two stat vectors per item: one at the objective roll profile, one
+at a conservative profile for the constraints. The pools are pre-baked per
+roll group already, so this is a second bake. Constraints, SP requirements
+and the mana check use the conservative vector; the objective uses the
+optimistic one. Both bound families stay admissible because each uses its
+own vector's suffix maxima. A stricter variant (worst case over a roll
+range for the objective too) is the robust-knapsack setting of Shao 2026,
+and that paper's group-envelope bounds are the tool if it is ever wanted.
+
+### R16. Weapon as an outer group (scope, exact)
+
+**Why.** A10 in the support matrix: the weapon is fixed, so "best build for
+this playstyle" today means "best build for this weapon". The user's goal
+needs the weapon chosen too.
+
+**What.** Treat the weapon list as an outer group. Each weapon is its own
+run (the combo, atree and sensitivity weights depend on it), but they share
+the cutoff when the objective is comparable (same combo rows and target):
+a build found under weapon A is a real build, so its score is an admissible
+cutoff for weapon B. Order weapons by their solo ceiling (R3's `UB(i)` with
+the weapon as the fixed item) and run best-first; most weapons are then
+fixed out before their run starts. The browser bridge already spawns one
+single-threaded engine per worker, so weapons map onto workers directly.
+
+### R17. Diverse top-N (presentation, no change to the optimum)
+
+Fifteen results that differ by one ring are fifteen copies of one answer.
+Keep the exact top-1, and fill the remaining slots with the best builds that
+differ from every kept build in at least `k` slots (k = 2 or 3). Implement as
+a second-pass filter over R13's archive so the exact top-15 is still
+available on request. For the iterative workflow this shows the user the
+alternatives a tighter condition would select.
+
+### R18. Playstyle presets from the research corpus (product, no engine change)
+
+`research/build-database/threshold-profiles.json` already defines families
+(spell sustained, spellsteal, heavy melee, hybrid) as hard constraints plus
+an optimise list, and the family suite encodes six validated seeds. Expose
+those as restriction templates in the UI: pick "sustained spell", get the
+mana horizon, trough and EHP floors pre-filled, then edit. Combined with R14
+(soft floors) and R16 (weapon choice) this is the "describe the playstyle"
+front end; the exact engine underneath is unchanged.
+
+### R19. Checkpoint and resume (enabling, planned as P3.2)
+
+Long proofs (the mage case at ~24h) are only usable if a run survives a
+closed laptop. P3.2 is already on the tracker; it is listed here because
+R5's gap and R13's archive both need a durable run record, so the three
+share one job directory format.
+
+### Smaller notes
+
+- **Warm-start-informed reorder.** Before the main run, move items that
+  appear in the warm subspace's top-15 to the front of their pools. Zero
+  ML, zero risk, and it is the cheap baseline R7 has to beat.
+- **Nested cores by level.** `WARM_K` nests by priority rank. A second core
+  nested by level (`lvl_min` 100 first, then the full range) is the same
+  trick with a different ordering; the tracker already observed the lvl-100
+  space is 254x smaller and finds a near-optimal build.
+- **Slot order by bound tightness.** Free slots are ordered by pool size.
+  Ordering by how much the suffix maxima shrink when that slot is fixed
+  (bound tightness) would make R2/R3 bite earlier. Measure per family.
+
+## 5. Suggested order
 
 1. **R1** reachable-SP ceilings: smallest change, provable, likely the largest
    single bound tightening.
-2. **R5** gap reporting: makes every later bound improvement visible.
-3. **R8** anytime metrics: needed to judge R6 and R7.
-4. **R2** tangent bound, then **R3** fixing on top of it.
-5. **R4** set-aware dominance.
-6. **R6** LNS incumbent thread.
-7. **R7** learned ordering, once there are enough completed runs to train on.
-8. MILP/CP-SAT as an oracle for linear targets, opportunistically.
+2. **R9** depth n-1 exact SP bound, then **R10** conflict pairs: cheap,
+   exact, and they attack the 51.7% SP cost on restricted workloads.
+3. **R12 step 1** greedy audit: decide whether the leaf score itself is
+   losing the optimum before investing further in bounds.
+4. **R5** gap reporting and **R8** anytime metrics: make every later change
+   visible and judgeable.
+5. **R13** result archive and **R14** soft/lexicographic objectives: the
+   iterative "describe the playstyle" loop.
+6. **R2** tangent bound, then **R3** fixing on top of it.
+7. **R11** mid-tree mana bound (for defensive and sustain objectives).
+8. **R4** set-aware dominance, **R15** roll-robust evaluation.
+9. **R16** weapon as outer group, **R17** diverse top-N, **R18** presets.
+10. **R6** LNS incumbent thread.
+11. **R7** learned ordering, once there are enough completed runs to train on.
+12. MILP/CP-SAT as an oracle for linear targets, opportunistically.
 
 ## References
 
