@@ -2493,7 +2493,7 @@ mod eps_tests {
     use super::*;
 
     fn fixture(name: &str) -> String {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
         std::fs::read_to_string(format!("{dir}{name}")).expect("fixture")
     }
 
