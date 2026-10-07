@@ -523,6 +523,80 @@ closed laptop. P3.2 is already on the tracker; it is listed here because
 R5's gap and R13's archive both need a durable run record, so the three
 share one job directory format.
 
+### R20. QoL ranking over a windowed archive (presentation plus one exact search rule)
+
+**The complaint.** The top-5 panel usually shows one build five times with
+an accessory swapped, ranked by a single number. The user would often take
+the build that is 3% behind on damage if it has a comfortable mana margin,
+more EHP and better walk speed. Today nothing surfaces that trade.
+
+**What the community actually ranks by.** The repo's own guide
+(`research/wynncraft-endgame-class-building-guide.md`, "ranking order")
+puts it as: requirements and legality, then EHP and sustain, then damage,
+then range, movement, AoE and quality of life as tie-breakers, and notes
+that "a 2 percent damage gain can be a downgrade if it loses the only
+comfortable mana margin". Forum consensus numbers worth using as defaults:
+8 to 12 mana regen for a sustained spell build, with under 8 only with
+another mana source; walk speed in 20% tiers (each 20% is one Speed level,
+so utility is a staircase, not a line); non-dodge EHP floors by content,
+which `threshold-profiles.json` already tabulates (18k general combat,
+higher for heavy melee and guild wars). None of these are official rules;
+they are the starting defaults a user should be able to override.
+
+**Design: separate what the search optimises from how results are ranked.**
+
+1. **Windowed archive (exact).** Instead of keeping the top 15 by score,
+   keep *every* feasible build whose score is within `x%` of the incumbent,
+   and set the shared cutoff to `(1 - x) * best` rather than the 15th-best
+   score. That cutoff is still a real scored build's score, so every bound
+   and gate stays admissible; pruning is slightly weaker, by a measurable
+   amount. The payoff: at the end of an exhaustive run the archive provably
+   contains *all* builds within `x%` of the optimum, so any re-ranking of
+   it is exact over that window. Cap the archive (say 2,000 entries,
+   evicting the lowest score); if the cap binds, report that the window
+   was truncated to the top 2,000 and tell the user to narrow `x`.
+   Store the assembled stat vector and the mana-sim summary per entry;
+   both are already computed at scoring time.
+
+2. **Tunable QoL utility (client-side, instant).** Rank the archive by
+   `U = score_norm + sum_k w_k * u_k(stat_k)` where each `u_k` is a
+   saturating utility, not a raw stat:
+   - mana margin: `mana_end` and `mana_trough` from the sim, saturating at
+     a comfortable margin (default: +1 mana regen tier above sustain);
+   - non-dodge EHP: ramps from the content floor to a saturation point;
+   - HPR and life steal: saturating on raw regen per second;
+   - walk speed: a staircase on 20% tiers;
+   - attack speed tier, range, spell cost margin where relevant.
+   Each `w_k` and each saturation point is a slider with a preset per
+   playstyle (R18). Changing a slider re-sorts the archive instantly; no
+   re-solve. Show the components as columns so the user can see *why* the
+   third build outranks the first.
+
+3. **Diversity inside the ranking (R17).** Collapse builds that differ in
+   fewer than `k` slots to their best representative before showing the
+   list, with an expander to see the variants.
+
+4. **Optional: utility as the search target.** If the user wants the search
+   itself to maximise `U`, that is a `custom` blend whose terms are monotone
+   non-decreasing transforms of monotone stats, so the existing ceiling
+   argument (non-negative weights, each term at its suffix maximum) still
+   holds and the gate stays exact. Saturating transforms keep it monotone.
+   Do this only after the archive version proves the utility is right; a
+   bad utility baked into the search is expensive to iterate on, the same
+   utility applied to an archive is free.
+
+**Why the window and not a bigger top-N.** A top-500 by damage is still
+500 near-copies of the best build. The window is defined on the quantity
+the user is willing to trade, and it is the window size `x` the user
+chooses ("I'd give up 5% damage"), which is the question they are actually
+asking.
+
+**Measure.** Pruning cost of the window cutoff versus the top-15 cutoff at
+`x` = 2, 5, 10% on the family suite (fixed-work A/B, expect divergence in
+`gated`, none in the top-1); archive size at the end of each completing
+scenario; and a user check that the default weights reproduce the guide's
+ranking order on the six validated family seeds.
+
 ### Smaller notes
 
 - **Warm-start-informed reorder.** Before the main run, move items that
@@ -546,8 +620,10 @@ share one job directory format.
    losing the optimum before investing further in bounds.
 4. **R5** gap reporting and **R8** anytime metrics: make every later change
    visible and judgeable.
-5. **R13** result archive and **R14** soft/lexicographic objectives: the
-   iterative "describe the playstyle" loop.
+5. **R13** result archive, **R20** windowed archive with QoL ranking, and
+   **R14** soft/lexicographic objectives: the iterative "describe the
+   playstyle" loop. R20 is the user-facing payoff and needs only the
+   archive and a cutoff rule change, so it can land early.
 6. **R2** tangent bound, then **R3** fixing on top of it.
 7. **R11** mid-tree mana bound (for defensive and sustain objectives).
 8. **R4** set-aware dominance, **R15** roll-robust evaluation.
