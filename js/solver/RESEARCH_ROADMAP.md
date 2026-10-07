@@ -7,6 +7,27 @@ here is measured yet. Every "expected" effect below is a hypothesis to be
 tested with the existing tools (`benchmark_ab.py`, the oracles,
 `SCORE_DENSE_CHECK`, the family suite) before it is believed.
 
+## Progress (implementation started 2026-10-07)
+
+Two branches, stacked: `claude/correctness-c1-c7` (section 0) and
+`claude/r1-reachable-sp` on top of it (R1, R12). Each item below was
+measured, and every pruning change passed the oracles before landing.
+
+| Item | Status | Where | Evidence |
+|---|---|---|---|
+| C1 set weapons | done, both engines | `f824bf1` (JS), `d5b82fd` (Rust) | Bony test; new `solver_set_weapon_empty` snapshot; Rust parity 32/96 to 96/96 |
+| C2 cross-set SP bound | done | `f824bf1` | multi-set admissibility test, red on master |
+| C3/C4 prechecks | done, shared envelope | `b0ab23f` | Jester case, 5,000 random cases, Rust bridge mirrors it |
+| C5 Rust healing | done (from PR #18) | `282826a` | healing fixture 0/96 to 96/96 |
+| C6 greedy gap | closed by the R12 polish | `0ecc907` | test is now a hard assertion |
+| C7 default dominance | PR #17 merged, certified default | `c14319c`, `73101ff` | review counterexample test |
+| Independent oracle | done | `223316d` | catches a deliberately over-strict HP precheck |
+| R1 reachable-SP ceiling | done, both engines, on by default | `21b579b` | tripwire over ~3.5B leaves; fixed-work top-15 identical; Rust 1.02x, JS 4x leaves in 30 s |
+| R12 audit + polish | done, on by default | `0ecc907` | greedy beaten on 32-58% of leaves in 4 families before; Rust 0.975x, JS 12-19% fewer leaves; scores never lower |
+
+Not done yet, in order: R9/R10 (SP bounds), R5/R21/R8 (gap, epsilon,
+anytime metrics), R23 (incremental leaf fill), then the rest of section 7.
+
 ## 0. Correctness first (from the author's review of PR #19, 2026-10-07)
 
 The review's main conclusion stands above everything below: fix
