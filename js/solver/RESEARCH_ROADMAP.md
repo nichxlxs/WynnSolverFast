@@ -1095,6 +1095,55 @@ or bound-skipped, never from the kernel alone.
 warm-start-then-full-run; the fraction of buckets skipped by bound, which
 is the direct measure of how much R1, R2 and R28 bought.
 
+### R31. Graph neural networks and deep reinforcement learning: assessed, mostly no
+
+**What the results actually are.** The strong results in this area come
+from distributions of generated instances with a solver in the loop. Gasse
+et al. (NeurIPS 2019) learn MILP branching from strong-branching labels on
+thousands of instances and gain a constant factor in node selection.
+Neural Diving and Predict-and-Search (Nair et al. 2020; Han et al. 2023)
+predict a partial assignment and hand the rest to an exact solver. For
+knapsack specifically, deep RL constructive policies reach gaps of about
+0.3% on standard MKP benchmarks at a fraction of CPLEX's time (Yilmaz and
+Büyüktahtakın 2024): a fast heuristic with no proof, on instances drawn
+from the training distribution.
+
+**Why a GNN does not fit here.** A GNN earns its place when the instance
+structure varies (arbitrary variable-constraint graphs). This problem's
+structure is fixed: eight slots, pools, five SP lanes, set membership. The
+per-item information that matters (solo ceiling, `UB(i)`, requirements and
+provisions against the budget, set and set progress, dominance depth,
+level) is a short feature vector, and a gradient-boosted or logistic model
+on it (R7) is the right size for hundreds to thousands of labelled runs.
+The data constraint is softer than it looks, since the exact engine can
+label generated instances at will, but the *benefit* ceiling is the same
+as R7's, ordering and warm selection, which R29 and the ordering portfolio
+also address with no model at all. Revisit only if R7 plateaus and an
+instance generator yields more than 10^4 labelled instances, and then as a
+promise score for R30, never as a solver.
+
+**Why deep RL as a solver does not fit.** The user wants the optimum with a
+proof. A policy that constructs builds returns a heuristic answer, usually
+within a percent, no faster than the warm start plus LNS this engine
+already has (sub-second to seconds, with real builds), and it learns the
+current data version's items, so every patch retrains it. R6 already
+covers the "fast good answer" niche without training.
+
+**Where RL fits, in its small form.** The engine already has one bandit:
+`AdaptiveBound` measures pruned leaves per evaluation and switches bound
+layers off. The anytime branch's operator scheduler is a measured problem
+(113 of 132 runs stopped at the 1,000-repair cap with ~99% of calls spent
+on perturbations), which is the textbook case for adaptive operator
+selection in ALNS (Ropke and Pisinger 2006): weights or UCB over operators
+by recent improvement. A bandit, not a deep network. The same applies to
+choosing `WARM_K`, the cluster size and the portfolio shares at run time.
+
+**The one place a large model earns its keep.** R18's front end. Turning
+"sustained spell build for Nameless Anomaly, survive the big hit, keep my
+walk speed" into restrictions, weights and a window is a language task, and
+an LLM that drafts a preset the user then edits is the right tool for it.
+The engine underneath stays exact.
+
 ### Smaller notes
 
 - **The JS engine is the oracle now.** The Rust engine runs by default in
@@ -1141,7 +1190,9 @@ is the direct measure of how much R1, R2 and R28 bought.
    preparation-phase caching.
 10. **R6** LNS incumbent thread.
 11. **R29** priority-gap levels and ordering portfolios, then **R7** learned
-    ordering once there are enough completed runs to train on.
+    ordering once there are enough completed runs to train on; **R31**
+    (GNN, deep RL) only under the conditions it states, with bandit-style
+    operator selection for R6 the one RL item worth doing now.
 12. MILP/CP-SAT as an oracle for linear targets, opportunistically.
 
 ## References
@@ -1196,3 +1247,11 @@ is the direct measure of how much R1, R2 and R28 bought.
 - Lamanna, Mansini, Zanotti. *A two-phase kernel search variant for the
   multidimensional multiple-choice knapsack problem.* European Journal of
   Operational Research 297(1):53-65, 2022.
+- Gasse, Chételat, Ferroni, Charlin, Lodi. *Exact Combinatorial
+  Optimization with Graph Convolutional Neural Networks.* NeurIPS 2019.
+- Yilmaz, Büyüktahtakın. *A k-means supported reinforcement learning
+  framework to multi-dimensional knapsack.* Journal of Global Optimization
+  89(3), 2024.
+- Ropke, Pisinger. *An adaptive large neighborhood search heuristic for the
+  pickup and delivery problem with time windows.* Transportation Science
+  40(4), 2006 (adaptive operator selection).
