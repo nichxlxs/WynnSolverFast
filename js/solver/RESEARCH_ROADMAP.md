@@ -42,7 +42,28 @@ Found while doing this, not yet fixed:
   (R1 caps, the ceiling's SP) updated together, and an oracle fixture with
   the boost on.
 
-Not done yet, in order: R10 (conflict pairs), R5/R21/R8 (gap, epsilon,
+**Profile-driven overhead removal** (`df952c5`; not a roadmap item, found by
+profiling before R10). Measured with callgrind on `fam_hybrid_medium`, the
+bound and leaf paths spent more on bookkeeping than expected: `getenv` on
+every subtree-bound eval (`BOUND_DEBUG`, 5.6% of instructions), two
+`Arc<str>` allocations per `fill_direct` call (`parse_mult_entry("tome")`),
+SipHash on item names and memo keys, and a `PoolItem` clone per placement.
+All removed, results bit-identical (full-space top-15 and `checked` equal on
+the six small families), each measured on its own:
+
+| Change | A/B (families, 3 repeats) |
+|---|---|
+| per-eval `getenv` and per-call `Arc` allocation removed | 1.062x geometric mean, 13/18 faster |
+| multiply-shift hasher for the item-name map and bound memo (`FAST_HASH=0` disables) | 1.059x, 16/18 |
+| no `PoolItem` clone in `place`/`unplace`, no allocation in the ring-2 rebuild | 1.0145x, 12/18 |
+
+R10 was re-scoped by the same pass: exact-kernel rejects (`sp_kernel_reject`)
+are 0.3M to 8.6M per medium family run, against 0.7B to 3.4B leaves the
+deficit bound and R9 already reject, and the leaf pipeline is about 1% of
+wall. Pairwise conflicts can only remove the kernel rejects, so R10 is
+parked until a profile shows SP kernel time again.
+
+Not done yet, in order: R10 (parked, see above), R5/R21/R8 (gap, epsilon,
 anytime metrics), R23 (incremental leaf fill), the JS mirror of R9, then the
 rest of section 7.
 
@@ -344,6 +365,28 @@ This is the standard MILP solver display, and it turns R1-R3 into visible
 user value: a tighter bound shrinks the reported gap even when the run is
 stopped early. It also gives a stopping rule ("stop at 1% gap") that is
 honest, unlike an ML "probably optimal" guess.
+
+**Correction (implementation pass, 2026-10-07).** "The bound over the
+remaining bands is available from the banded tables" does not hold as
+stated. After band `[0, H]` the unexplored set is *every leaf whose rank
+sum exceeds `H`*, and that set is not a union of subtrees: under any
+prefix, one slot can sit at a high rank while the rest are at rank 0. The
+subtree ceilings bound rank from above (`h_child`), never from below, so
+the best they give for "rank sum > H" is the root ceiling. Two honest
+options, cheapest first:
+
+1. **Per-partition frontier.** Native threads and browser partitions both
+   own whole first-slot offsets and finish them completely. The dual bound
+   is `max(best, max over unfinished offsets of the depth-0 ceiling)`, which
+   falls as offsets finish. Depth-0 ceilings are loose (that is why
+   `bound_max_depth` is 0), so measure how informative it is before
+   building UI on it: the reported gap at 25/50/75% of wall time on the
+   family suite.
+2. **Rank-sum DP over a separable bound.** With R2's per-item linear upper
+   bound `c_j(r)`, `max sum_j c_j(r_j) subject to sum_j r_j > H` is a small
+   DP over slots and rank budget, recomputed once per band. It tightens as
+   `H` grows exactly when priority order tracks contribution, which is what
+   the band order already assumes. Depends on R2.
 
 ### R6. LNS with exact repair: an incumbent thread (heuristic, cutoff only)
 
