@@ -366,6 +366,12 @@ pub struct Search<'a> {
     sp_bound_off: bool,
     /// R9 node bound; SP_NODE_BOUND=0 turns it off.
     sp_node_on: bool,
+    /// Per slot depth: the largest positive provision per lane among the
+    /// pool's non-crafted items (R1 at the last-slot cluster bounds).
+    last_pool_max_skp: Vec<[i32; 5]>,
+    /// R1 at the cluster bounds: off under SCORE_REACH_SP=0 or when a crafted
+    /// item is anywhere in the search. Decided once at construction.
+    reach_cap_on: bool,
     /// Last-slot ranges R9 rejected with one solve.
     pub sp_node_reject: u64,
     dense_work: crate::scoring::DenseWork,
@@ -622,6 +628,18 @@ impl<'a> Search<'a> {
             ring1_placed_offset: 0,
             sp_bound_off: std::env::var("SP_BOUND_OFF").as_deref() == Ok("1"),
             sp_node_on: std::env::var("SP_NODE_BOUND").as_deref() != Ok("0"),
+            reach_cap_on: std::env::var("SCORE_REACH_SP").as_deref() != Ok("0")
+                && !fx.fixed.iter().any(|(_, u, _, _)| u.crafted)
+                && !fx.slots.iter().any(|sl| sl.pool.iter().any(|it| it.crafted))
+                && !fx.guild.as_ref().is_some_and(|(g, _)| g.crafted),
+            last_pool_max_skp: fx.slots.iter().map(|sl| {
+                let mut m = [0i32; 5];
+                for it in &sl.pool {
+                    if it.crafted { continue; }
+                    for j in 0..5 { if it.skp[j] > m[j] { m[j] = it.skp[j]; } }
+                }
+                m
+            }).collect(),
             sp_node_reject: 0,
             checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
@@ -967,6 +985,32 @@ impl<'a> Search<'a> {
         self.kernel.calculate_with_extra(&case, guild.as_ref()).is_some()
     }
 
+    /// R1 at the last-slot cluster bounds: per lane, the highest total a
+    /// completion of this prefix can reach. Totals are assigned points plus
+    /// provisions, assigned points are at most 100 per lane (and at most the
+    /// budget), and provisions are at most the positive parts of the fixed,
+    /// guild, placed and weapon provisions, the best reachable set rows
+    /// (sp_bound_base already sums the first four bar the weapon, and the set
+    /// term) and the largest the last pool offers. Capped at 150, the input
+    /// cap of the skill-point curve. All-150 when the scored path chooses
+    /// among guild tome candidates (a candidate can add provisions the fixture
+    /// guild does not), when any crafted item is fixed or pooled (crafted
+    /// points reach the final totals but none of the provision sums used
+    /// here), or when SCORE_REACH_SP=0.
+    fn last_slot_sp_cap(&self, depth: usize) -> [f64; 5] {
+        let off = !self.reach_cap_on || match self.scoring {
+            Some(sc) => !sc.layer2.guild_tome_cands.is_empty(),
+            None => true,
+        };
+        if off { return [150.0; 5]; }
+        let pool_max = &self.last_pool_max_skp[depth];
+        let assign = 100.min(self.fx.budget.max(0));
+        std::array::from_fn(|j| {
+            let prov = self.sp_bound_base[j] + pool_max[j] + self.fx.weapon.skp[j].max(0);
+            (prov + assign).min(150) as f64
+        })
+    }
+
     fn sp_bound_ok(&self, depth: usize, offset: usize, _is_leaf: bool) -> bool {
         // Measurement oracle. Skipping the bound entirely is trivially
         // admissible, so `feasible` under SP_BOUND_OFF=1 is the true count and
@@ -1278,6 +1322,9 @@ impl<'a> Search<'a> {
                 }
             }
             let mut offset = from;
+            // R1 at the last-slot clusters: the highest total each lane can
+            // reach from this prefix (see last_slot_sp_cap).
+            let node_sp_cap = self.last_slot_sp_cap(depth);
             // Cached prefix state for the cluster bound: filled at the first
             // cluster miss, reused for every cluster in this node.
             let mut prefix_state: i8 = 0; // 0 unfilled, 1 ok, -1 unavailable
@@ -1318,7 +1365,7 @@ impl<'a> Search<'a> {
                                             crate::scoring::dense_ceiling_cached(
                                                 d, &mut self.bound_work,
                                                 &db.super_clusters[sci], &db.super_cluster_terms[sci],
-                                                &sc.rows, &sc.compiled_rows, &sc.tables)
+                                                &sc.rows, &sc.compiled_rows, &sc.tables, &node_sp_cap)
                                         } else { f64::INFINITY };
                                         bound_timer_end(bt0);
                                         if self.bound_memo.len() >= BOUND_MEMO_CAP {
@@ -1369,7 +1416,7 @@ impl<'a> Search<'a> {
                                         crate::scoring::dense_ceiling_cached(
                                             d, &mut self.bound_work,
                                             &db.last_clusters[c], &db.last_cluster_terms[c],
-                                            &sc.rows, &sc.compiled_rows, &sc.tables)
+                                            &sc.rows, &sc.compiled_rows, &sc.tables, &node_sp_cap)
                                     } else { f64::INFINITY };
                                     bound_timer_end(bt0);
                                     // Bound the memo's memory: recent

@@ -7011,7 +7011,7 @@ pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
 /// sets against it). Deltas are journaled and rolled back.
 pub fn dense_ceiling_cached(
     d: &DenseCtx, work: &mut DenseWork, adds: &[(u32, f64)], term_adds: &[(usize, f64)],
-    rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    rows: &[Row], compiled: &[CompiledRow], tables: &Tables, ceiling_sp: &[f64; 5],
 ) -> f64 {
     let leaf = &mut work.leaf;
     let mut journal: Vec<(u32, f64, bool)> = Vec::with_capacity(adds.len());
@@ -7043,8 +7043,7 @@ pub fn dense_ceiling_cached(
             scratch.def_vals.clear();
             scratch.def_vals.extend_from_slice(&leaf.def_vals);
         }
-        let ceiling_sp = [150f64; 5];
-        dense_assemble(d, leaf, scratch, &ceiling_sp);
+        dense_assemble(d, leaf, scratch, ceiling_sp);
     }
     let v = {
         let DenseWork { leaf, scratch, .. } = work;
