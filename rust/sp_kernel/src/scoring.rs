@@ -3050,8 +3050,10 @@ pub fn leaf_pipeline_gated(
         // of every allocation the greedy can reach, which is all the gate
         // needs. Disabling the rescue in particular shrinks the reachable
         // set, and a ceiling over a superset is still a ceiling.
-        let gate_env_off = env_once!("SCORE_HPCAST_GATE" == "0")
-            && consts.hp_casting;
+        // Reference campaigns can evaluate every SP-feasible tuple without
+        // relying on this ceiling. The production default is unchanged.
+        let gate_env_off = env_once!("SCORE_CEILING_GATE" == "0")
+            || (env_once!("SCORE_HPCAST_GATE" == "0") && consts.hp_casting);
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
             && !gate_env_off {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {

@@ -11,7 +11,9 @@
 // `worker_error` carrying `worker_id`), so `_on_all_workers_done` and the
 // progress UI consume both engines without branching.
 
-import init, { initSync, solve_partition, search_space } from './sp_kernel.js';
+import init, * as kernel from './sp_kernel.js';
+
+const { initSync, solve_partition, search_space } = kernel;
 
 let moduleReady;
 
@@ -33,7 +35,9 @@ function loadModule(compiled) {
 
 self.onmessage = async (event) => {
     const msg = event.data;
-    if (msg?.type !== 'solve') return;
+    if (!['solve', 'solve_anytime'].includes(msg?.type)) return;
+    const quick = msg.type === 'solve_anytime';
+    const started = performance.now();
     const worker_id = msg.worker_id ?? 0;
     const post = (body) => self.postMessage({ worker_id, ...body });
     // Int32Array over the host's SharedArrayBuffer, or null when the page is
@@ -44,6 +48,52 @@ self.onmessage = async (event) => {
     try {
         post({ type: 'progress', phase: 'loading engine', checked: 0, total: 0 });
         await loadModule(msg.compiled_module);
+
+        if (quick) {
+            if (typeof kernel.solve_anytime_with_progress !== 'function') {
+                post({ type: 'worker_error', code: 'quick_engine_unavailable',
+                    message: 'Quick search engine is unavailable. Reload the page to update it.' });
+                return;
+            }
+            const options = { ...(msg.options ?? {}) };
+            const budget = Number(options.seconds);
+            if (!Number.isFinite(budget) || budget <= 0 || budget > 300) {
+                post({ type: 'worker_error', code: 'quick_invalid_budget',
+                    message: 'Quick search requires a time budget between 0 and 300 seconds.' });
+                return;
+            }
+            // Host and worker performance clocks have different time origins.
+            // Charge only this worker's own loading time against the remaining
+            // duration supplied by the host, which already charged preparation.
+            options.seconds = Math.max(0, budget - (performance.now() - started) / 1000);
+            if (options.seconds === 0) {
+                post({ type: 'done', algorithm: 'alns', complete: false,
+                    elapsed_secs: (performance.now() - started) / 1000,
+                    seconds_budget: budget, stop_reason: 'deadline',
+                    leaf_calls: 0, scored: 0, top_n: [] });
+                return;
+            }
+            post({ type: 'progress', phase: 'searching', algorithm: 'alns',
+                complete: false, leaf_calls: 0, scored: 0, top_n: [] });
+            const raw = kernel.solve_anytime_with_progress(
+                msg.enum_fixture, msg.score_fixture, JSON.stringify(options),
+                payload => {
+                    const p = JSON.parse(payload);
+                    post({ ...p, type: 'progress', phase: 'searching', complete: false });
+                },
+            );
+            const result = JSON.parse(raw);
+            if (result.error) {
+                post({ type: 'worker_error', code: 'quick_unsupported_scenario', message: result.error });
+                return;
+            }
+            post({ ...result, type: 'done', complete: false,
+                top_n: result.top_n ?? (result.top ?? []).map(t => ({
+                    ...t, item_names: t.item_names ?? t.items,
+                })),
+            });
+            return;
+        }
 
         post({ type: 'progress', phase: 'preparing search', checked: 0, total: 0 });
         let total = 0;

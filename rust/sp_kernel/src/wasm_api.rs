@@ -5,12 +5,10 @@
 //! as strings (the browser fetches or generates them; there is no
 //! filesystem in wasm), and the result is JSON.
 //!
-//! Work is bounded by a deterministic LEAF BUDGET rather than wall time:
-//! wasm32 has no usable monotonic clock, and a leaf budget also gives the
-//! UI reproducible chunks it can loop over while keeping the page
-//! responsive. Threads are out of scope here (they need SharedArrayBuffer
-//! plus cross-origin isolation) — this is the single-threaded path, which
-//! is already ~1000x the current JS engine per core.
+//! Exact search retains its deterministic leaf-budget API. Anytime search
+//! additionally accepts a wall-time budget using the worker's monotonic
+//! `performance.now()` clock. Both run inside a dedicated worker so the
+//! page remains responsive and the host can cancel by terminating it.
 
 use wasm_bindgen::prelude::*;
 
@@ -40,8 +38,8 @@ pub fn search_space(enum_fixture: &str) -> f64 {
 /// movement in the UI instead of appearing hung — the reason to run this in
 /// a dedicated worker rather than chunking on the main thread.
 ///
-/// Emission is keyed on leaves rather than wall time because wasm32 has no
-/// usable clock; that also makes the emission points reproducible.
+/// Exact-mode emission is keyed on credited leaves, preserving its existing
+/// progress behavior and deterministic emission points.
 #[wasm_bindgen]
 pub fn solve_with_progress(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64, on_progress: &js_sys::Function,
@@ -89,5 +87,22 @@ pub fn solve_partition(
     };
     crate::enumerate::solve_json_full(
         enum_fixture, score_fixture, max_leaves, Some(&mut sink), part_index, part_count,
+    )
+}
+
+/// Search overlapping neighborhoods for strong builds within a time budget.
+/// This is a heuristic: every progress/final payload sets `complete:false`.
+/// Options and witness shapes are shared with the native testable wrapper.
+#[wasm_bindgen]
+pub fn solve_anytime_with_progress(
+    enum_fixture: &str, score_fixture: &str, options_json: &str,
+    on_progress: &js_sys::Function,
+) -> String {
+    let mut sink = |payload: &str| {
+        // UI callback failures must not turn a valid search into a WASM trap.
+        let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_str(payload));
+    };
+    crate::enumerate::anytime::solve_json_with_progress(
+        enum_fixture, score_fixture, options_json, Some(&mut sink),
     )
 }

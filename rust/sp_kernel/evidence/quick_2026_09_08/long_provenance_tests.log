@@ -1,0 +1,8 @@
+test_expected_counts_come_from_plan (test_long_campaign.LongCampaignIntegrity.test_expected_counts_come_from_plan) ... ok
+test_tracked_archive_wins_over_stale_unpacked_data (test_long_campaign.LongCampaignIntegrity.test_tracked_archive_wins_over_stale_unpacked_data) ... ok
+test_unpacked_fallback_explicitly_reports_missing_archive (test_long_campaign.LongCampaignIntegrity.test_unpacked_fallback_explicitly_reports_missing_archive) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.003s
+
+OK

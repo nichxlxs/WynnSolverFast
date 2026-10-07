@@ -42,6 +42,35 @@ export function solve(enum_fixture, score_fixture, max_leaves) {
 }
 
 /**
+ * Search overlapping neighborhoods for strong builds within a time budget.
+ * This is a heuristic: every progress/final payload sets `complete:false`.
+ * Options and witness shapes are shared with the native testable wrapper.
+ * @param {string} enum_fixture
+ * @param {string} score_fixture
+ * @param {string} options_json
+ * @param {Function} on_progress
+ * @returns {string}
+ */
+export function solve_anytime_with_progress(enum_fixture, score_fixture, options_json, on_progress) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(enum_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(score_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(options_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.solve_anytime_with_progress(ptr0, len0, ptr1, len1, ptr2, len2, on_progress);
+        deferred4_0 = ret[0];
+        deferred4_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * `solve_with_progress` restricted to one partition of the search space.
  *
  * wasm threads need `SharedArrayBuffer` and COOP/COEP cross-origin
@@ -92,8 +121,8 @@ export function solve_partition(enum_fixture, score_fixture, max_leaves, part_in
  * movement in the UI instead of appearing hung — the reason to run this in
  * a dedicated worker rather than chunking on the main thread.
  *
- * Emission is keyed on leaves rather than wall time because wasm32 has no
- * usable clock; that also makes the emission points reproducible.
+ * Exact-mode emission is keyed on credited leaves, preserving its existing
+ * progress behavior and deterministic emission points.
  * @param {string} enum_fixture
  * @param {string} score_fixture
  * @param {number} max_leaves
@@ -132,6 +161,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_now_4b23a1420c8a31f6: function() {
+            const ret = performance.now();
+            return ret;
+        },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);

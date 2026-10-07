@@ -662,7 +662,37 @@ function browserEnv(scope) {
     return { ctx, evalInCtx };
 }
 
-const _bridge = { buildScoreFixture, buildEnumFixture, browserEnv, _jser };
+/**
+ * Quick search uses the same conservative fixture scope as the quality suite.
+ * Raw item totals omit finalized set/skill-point effects, so their minimum
+ * prechecks cannot safely reject a candidate. Keep the schema and item columns
+ * intact; restrictions in the separate scoring fixture remain authoritative.
+ */
+function sanitizeEnumFixtureForAnytime(fixture) {
+    if (typeof fixture !== 'string' || !fixture.trim()) {
+        throw new Error('Quick search requires a nonempty enumeration fixture.');
+    }
+    let names = false;
+    const result = fixture.split(/\r?\n/).map(line => {
+        const fields = line.trim().split(/\s+/);
+        if (fields[0] === 'NAMES') names = true;
+        if (names) return line;
+        if (fields[0] === 'PC') {
+            if (fields.length !== 4) throw new Error('Unsupported quick-search PC schema.');
+            fields[2] = '-1e300';
+            return fields.join(' ');
+        }
+        if (['EHP', 'EHPNA', 'THP'].includes(fields[0])) {
+            const expected = fields[0] === 'THP' ? 4 : 5;
+            if (fields.length !== expected) throw new Error('Unsupported quick-search HP schema.');
+            return [fields[0], ...fields.slice(1).map(() => '0')].join(' ');
+        }
+        return line;
+    }).join('\n');
+    return result.endsWith('\n') ? result : result + '\n';
+}
+
+const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, browserEnv, _jser };
 
 // The solver page loads this as a plain script and `search.js` looks for it
 // under this name. Without the assignment the lookup returned undefined, the

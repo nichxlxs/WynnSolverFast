@@ -17,6 +17,13 @@ export function search_space(enum_fixture: string): number;
 export function solve(enum_fixture: string, score_fixture: string, max_leaves: number): string;
 
 /**
+ * Search overlapping neighborhoods for strong builds within a time budget.
+ * This is a heuristic: every progress/final payload sets `complete:false`.
+ * Options and witness shapes are shared with the native testable wrapper.
+ */
+export function solve_anytime_with_progress(enum_fixture: string, score_fixture: string, options_json: string, on_progress: Function): string;
+
+/**
  * `solve_with_progress` restricted to one partition of the search space.
  *
  * wasm threads need `SharedArrayBuffer` and COOP/COEP cross-origin
@@ -45,8 +52,8 @@ export function solve_partition(enum_fixture: string, score_fixture: string, max
  * movement in the UI instead of appearing hung — the reason to run this in
  * a dedicated worker rather than chunking on the main thread.
  *
- * Emission is keyed on leaves rather than wall time because wasm32 has no
- * usable clock; that also makes the emission points reproducible.
+ * Exact-mode emission is keyed on credited leaves, preserving its existing
+ * progress behavior and deterministic emission points.
  */
 export function solve_with_progress(enum_fixture: string, score_fixture: string, max_leaves: number, on_progress: Function): string;
 
@@ -56,6 +63,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly search_space: (a: number, b: number) => number;
     readonly solve: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly solve_anytime_with_progress: (a: number, b: number, c: number, d: number, e: number, f: number, g: any) => [number, number];
     readonly solve_partition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: any) => [number, number];
     readonly solve_with_progress: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;

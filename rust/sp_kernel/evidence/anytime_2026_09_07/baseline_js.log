@@ -1,0 +1,33 @@
+Found 22 test file(s):
+
+Running test_atree_lowering_coverage... PASS (8/8)
+Running test_benchmark_stats... PASS (10/10)
+Running test_browser_coi... FAIL (0/1)
+Running test_browser_rust_bridge... FAIL (0/1)
+Running test_browser_subpath... FAIL (0/1)
+Running test_combo_damage... PASS (0/0, 2 warnings)
+Running test_display_fallback... PASS (23/23)
+Running test_dominance... PASS (54/54)
+Running test_enum_order... PASS
+Running test_guild_tome... PASS (44/44)
+Running test_incremental_stats... PASS (13/13)
+Running test_mana_sim... PASS (74/74)
+Running test_real_world_benchmark... PASS (21/21)
+Running test_scaling_association... PASS (4/4)
+Running test_scoring_target_coverage... PASS (25/25)
+Running test_skillpoints... PASS (1/1)
+Running test_solver_search... PASS (140/140)
+Running test_solver_url... PASS (39/39)
+Running test_sp_set_bound... PASS (16/16)
+Running test_tome_bundles... PASS (46/46)
+Running test_top_results... PASS (8/8)
+Running test_trace_metrics... PASS (19/19)
+
+════════════════════════════════════════════════════════════
+TOTAL: 545 passed, 3 failed, 2 warnings
+════════════════════════════════════════════════════════════
+
+Failed tests:
+  - test_browser_coi (FAIL)
+  - test_browser_rust_bridge (FAIL)
+  - test_browser_subpath (FAIL)
