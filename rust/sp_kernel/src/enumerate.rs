@@ -719,10 +719,11 @@ impl<'a> Search<'a> {
                 let slot = &self.fx.slots[depth];
                 let mut names = self.equip_names;
                 names[slot.pos] = &slot.item_names[offset];
+                let sp_cap = self.subtree_sp_cap(depth, offset);
                 let dense_c = match (sc.dense.as_ref(), self.dense_bound) {
                     (Some(d), Some(db)) => crate::scoring::dense_subtree_ceiling(
                         d, db, depth + 1, h_child, &names, &mut self.bound_work,
-                        &sc.rows, &sc.compiled_rows, &sc.tables),
+                        &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap),
                     _ => None,
                 };
                 let c = match dense_c {
@@ -1007,6 +1008,25 @@ impl<'a> Search<'a> {
         let assign = 100.min(self.fx.budget.max(0));
         std::array::from_fn(|j| {
             let prov = self.sp_bound_base[j] + pool_max[j] + self.fx.weapon.skp[j].max(0);
+            (prov + assign).min(150) as f64
+        })
+    }
+
+    /// R1 at the tail bound: the SP cap for the subtree below pool item
+    /// `offset` placed at `depth`. sp_bound_base (refreshed for `depth`)
+    /// already covers every later pool's largest provision and the reachable
+    /// set rows; the candidate's own and the weapon's are added. Same
+    /// switches as last_slot_sp_cap.
+    fn subtree_sp_cap(&self, depth: usize, offset: usize) -> [f64; 5] {
+        let off = !self.reach_cap_on || match self.scoring {
+            Some(sc) => !sc.layer2.guild_tome_cands.is_empty(),
+            None => true,
+        };
+        if off { return [150.0; 5]; }
+        let it = &self.fx.slots[depth].pool[offset];
+        let assign = 100.min(self.fx.budget.max(0));
+        std::array::from_fn(|j| {
+            let prov = self.sp_bound_base[j] + it.skp[j].max(0) + self.fx.weapon.skp[j].max(0);
             (prov + assign).min(150) as f64
         })
     }
@@ -1955,7 +1975,7 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
                     let c = sc.dense.as_ref().and_then(|d| {
                         crate::scoring::dense_ceiling_with(
                             d, &[], &[], &names, &mut work,
-                            &sc.rows, &sc.compiled_rows, &sc.tables)
+                            &sc.rows, &sc.compiled_rows, &sc.tables, &[150.0; 5])
                     }).unwrap_or(f64::NEG_INFINITY);
                     (i, c)
                 })

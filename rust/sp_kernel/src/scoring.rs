@@ -7065,6 +7065,7 @@ pub fn dense_ceiling_cached(
 pub fn dense_ceiling_with(
     d: &DenseCtx, adds: &[(u32, f64)], term_adds: &[(usize, f64)], prefix_names: &[&str],
     work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let dd = d.direct.as_ref()?;
     if !work.leaf.fill_direct(d, dd, prefix_names) { return None; }
@@ -7083,8 +7084,7 @@ pub fn dense_ceiling_with(
     }
     work.scratch.reset(&work.leaf, d);
     let DenseWork { leaf, scratch, .. } = work;
-    let ceiling_sp = [150f64; 5];
-    dense_assemble(d, leaf, scratch, &ceiling_sp);
+    dense_assemble(d, leaf, scratch, ceiling_sp);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))
 }
 
@@ -7096,10 +7096,11 @@ pub fn dense_ceiling_with(
 pub fn dense_subtree_ceiling(
     d: &DenseCtx, db: &DenseBound, next_depth: usize, hi_rem: i64, prefix_names: &[&str],
     work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let h = hi_rem.clamp(0, db.h_max) as usize;
     dense_ceiling_with(d, &db.table[next_depth][h], &db.term_table[next_depth][h],
-                       prefix_names, work, rows, compiled, tables)
+                       prefix_names, work, rows, compiled, tables, ceiling_sp)
 }
 
 // ── check_thresholds (pure/engine.js) ────────────────────────────────────────
