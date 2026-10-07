@@ -1057,6 +1057,44 @@ different orderings (rank bands, gap bands, solo-ceiling order) sharing one
 cutoff once R24 lands. Portfolios are the cheapest robust anytime gain in
 the search literature, and they cost nothing in exactness.
 
+### R30. Kernel search as the schedule for cores and fixing (exact once the buckets close)
+
+**The recipe.** Kernel search (Angelelli, Mansini and Speranza 2010; the
+two-phase MMKP variant of Lamanna, Mansini and Zanotti 2022) organises
+"prune, then solve exactly on the rest" as a loop: rank items by a promise
+score from the LP relaxation; take the top items as the *kernel*; solve the
+restricted problem exactly; add the next *bucket* of items and solve on
+kernel plus bucket with the constraint that at least one bucket item is
+used (otherwise the solve repeats work); keep the bucket items that entered
+the solution in the kernel; repeat. With a bound test per bucket (skip it
+when the restricted problem's upper bound cannot beat the incumbent) and
+the buckets run to exhaustion, the heuristic becomes the core-based exact
+algorithm of Mansini and Zanotti 2020, from the same group.
+
+**Mapping.** The kernel is `WARM_K` (top-k per slot). The promise score is
+the solo ceiling today and `UB(i)` from R3 once it exists, which is the
+reduced-cost analogue for a nonlinear objective through R2's tangent. The
+restricted exact solve is this engine on reduced pools, which the warm
+start already runs. "At least one bucket item" is one slot restricted to
+the bucket, which the band enumerator expresses as a prefix set. The
+bucket bound test is R3's fixing. In the quoted recipe, the ML classifier
+is R7 and the iterated local search is R6; the MIP solver's role is played
+by the exact engine, because the objective does not linearise.
+
+**What it adds.** A schedule. Instead of warm start then full run, run
+nested cores: `k = 3`, then buckets of the next three per slot, each solved
+exactly on kernel plus bucket, skipped when its bound cannot beat the
+incumbent, with the kernel grown by whatever enters the top-N. Every
+intermediate answer is exact for its core, the incumbent and cutoff only
+rise, and the final sweep of the remaining buckets, under the bounds, is
+the proof. R22's prefix queue is the natural executor (a bucket is a set of
+prefixes). Exhaustiveness is claimed only when every bucket has been solved
+or bound-skipped, never from the kernel alone.
+
+**Measure.** Primal integral and proof time on the family suite against
+warm-start-then-full-run; the fraction of buckets skipped by bound, which
+is the direct measure of how much R1, R2 and R28 bought.
+
 ### Smaller notes
 
 - **The JS engine is the oracle now.** The Rust engine runs by default in
@@ -1090,7 +1128,9 @@ the search literature, and they cost nothing in exactness.
    playstyle" loop. R20 is the user-facing payoff and needs only the
    archive and a cutoff rule change, so it can land early.
 6. **R2** tangent bound, then **R3** fixing on top of it, then **R28**
-   suffix Pareto fronts, which replace the super-item for the last slots.
+   suffix Pareto fronts, which replace the super-item for the last slots;
+   **R30** is the kernel-search schedule that strings them together once
+   they exist.
 7. **R11** mid-tree mana bound (for defensive and sustain objectives), and
    **R24** resumable chunked solve (browser cutoff sharing, checkpoints)
    followed by **R22** best-bound prefix scheduling once R2/R3 give
@@ -1150,3 +1190,9 @@ the search literature, and they cost nothing in exactness.
   of Operational Research 244(2), 2015.
 - Horowitz, Sahni. *Computing partitions with applications to the knapsack
   problem.* Journal of the ACM 21(2), 1974 (meet in the middle).
+- Angelelli, Mansini, Speranza. *Kernel Search: a general heuristic for
+  the multi-dimensional knapsack problem.* Computers & Operations Research
+  37(11), 2010.
+- Lamanna, Mansini, Zanotti. *A two-phase kernel search variant for the
+  multidimensional multiple-choice knapsack problem.* European Journal of
+  Operational Research 297(1):53-65, 2022.
