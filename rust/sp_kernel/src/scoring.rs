@@ -2545,6 +2545,67 @@ pub mod trace {
 ///
 /// Each expansion gets its own static, so the value is resolved on first use
 /// and read as a plain bool thereafter.
+/// Hasher for maps probed on the hot path (item names in `fill_direct`, the
+/// enumerator's packed-offset bound memo). Keys are item names and packed
+/// slot offsets, never adversarial, so std's DoS-resistant SipHash buys
+/// nothing there and cost more than the lookup's other work. FAST_HASH=0
+/// restores SipHash; the maps' contents and every result are the same.
+#[derive(Clone, Copy)]
+pub struct FastBuild { fast: bool }
+impl Default for FastBuild {
+    fn default() -> Self { FastBuild { fast: env_once!("FAST_HASH" != "0") } }
+}
+pub enum FastHasher { Fast(u64), Sip(std::collections::hash_map::DefaultHasher) }
+const FAST_K: u64 = 0x9E37_79B9_7F4A_7C15;
+impl std::hash::BuildHasher for FastBuild {
+    type Hasher = FastHasher;
+    fn build_hasher(&self) -> FastHasher {
+        if self.fast { FastHasher::Fast(0) } else { FastHasher::Sip(Default::default()) }
+    }
+}
+impl std::hash::Hasher for FastHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        match self {
+            FastHasher::Fast(h) => {
+                let mut chunks = bytes.chunks_exact(8);
+                for c in &mut chunks {
+                    let w = u64::from_le_bytes(c.try_into().unwrap());
+                    *h = (h.rotate_left(23) ^ w).wrapping_mul(FAST_K);
+                }
+                let r = chunks.remainder();
+                if !r.is_empty() {
+                    let mut buf = [0u8; 8];
+                    buf[..r.len()].copy_from_slice(r);
+                    *h = (h.rotate_left(23) ^ u64::from_le_bytes(buf)).wrapping_mul(FAST_K);
+                }
+            }
+            FastHasher::Sip(s) => s.write(bytes),
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, v: u8) {
+        match self {
+            FastHasher::Fast(h) => *h = (h.rotate_left(23) ^ v as u64).wrapping_mul(FAST_K),
+            FastHasher::Sip(s) => s.write_u8(v),
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, v: u64) {
+        match self {
+            FastHasher::Fast(h) => *h = (h.rotate_left(23) ^ v).wrapping_mul(FAST_K),
+            FastHasher::Sip(s) => s.write_u64(v),
+        }
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        match self {
+            FastHasher::Fast(h) => h ^ (h >> 29),
+            FastHasher::Sip(s) => s.finish(),
+        }
+    }
+}
+
 macro_rules! env_once {
     ($name:literal == $val:literal) => {{
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -5358,7 +5419,7 @@ impl DenseCtx {
             }
 
             // Items, tomes, weapon lowered to indexed adds (read keys only).
-            let mut items = HashMap::new();
+            let mut items: HashMap<String, DItem, FastBuild> = HashMap::default();
             let mut add_arena: Vec<(u32, f64)> = Vec::new();
             for (name, item) in &l2.item_registry {
                 let mut di = DenseDirect::lower_item(
@@ -5422,7 +5483,8 @@ impl DenseCtx {
             Some(DenseDirect {
                 template_vals: Vec::new(),      // sized after interning settles
                 template_present: Vec::new(),
-                items, add_arena, post_item_adds, sets, sets_by_id,
+                items, tome_entry: parse_mult_entry("tome"),
+                add_arena, post_item_adds, sets, sets_by_id,
                 atree_prog, const_prog, static_prog,
                 term_capture, dam_mobs_idx, def_mobs_idx,
                 dam_tail: parse_tail(&dam_sim),
@@ -6352,7 +6414,10 @@ fn item_has_arcanes(item: &Obj) -> bool {
 pub struct DenseDirect {
     pub template_vals: Vec<f64>,
     pub template_present: Vec<u64>,
-    pub items: HashMap<String, DItem>,
+    pub items: HashMap<String, DItem, FastBuild>,
+    /// The damMult/defMult "tome" entry, parsed once (fill_direct used to
+    /// parse it, allocating two Arc<str>, on every call).
+    pub tome_entry: DMultEntry,
     /// All items' stat adds, back to back.
     pub add_arena: Vec<(u32, f64)>,
     /// tome sums + weapon sums, applied after the per-leaf items (add_item order).
@@ -6559,12 +6624,12 @@ impl DenseLeaf {
 
         // Mult entry lists: tome first, then the constant tail.
         self.dam_entries.clear();
-        self.dam_entries.push(parse_mult_entry("tome"));
+        self.dam_entries.push(dd.tome_entry.clone());
         self.dam_vals.clear();
         self.dam_vals.push(dam_tome);
         for (e, v) in &dd.dam_tail { self.dam_entries.push(e.clone()); self.dam_vals.push(*v); }
         self.def_entries.clear();
-        self.def_entries.push(parse_mult_entry("tome"));
+        self.def_entries.push(dd.tome_entry.clone());
         self.def_vals.clear();
         self.def_vals.push(def_tome);
         for (e, v) in &dd.def_tail { self.def_entries.push(e.clone()); self.def_vals.push(*v); }

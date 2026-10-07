@@ -418,7 +418,7 @@ pub struct Search<'a> {
     bound_pruned: f64,
     /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
     /// the prefix, not the band, and prefixes recur across band sweeps).
-    bound_memo: std::collections::HashMap<u64, f64>,
+    bound_memo: std::collections::HashMap<u64, f64, crate::scoring::FastBuild>,
     /// Current prefix offsets (by depth) for memo keys.
     prefix_offsets: [u8; 8],
 }
@@ -680,7 +680,7 @@ impl<'a> Search<'a> {
             bound_tail: 0,
             dense_bound: None,
             bound_pruned: 0.0,
-            bound_memo: std::collections::HashMap::new(),
+            bound_memo: std::collections::HashMap::default(),
             prefix_offsets: [0; 8],
         }
     }
@@ -737,7 +737,7 @@ impl<'a> Search<'a> {
                 c
             }
         };
-        if std::env::var("BOUND_DEBUG").as_deref() == Ok("1") {
+        if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
             use std::sync::atomic::AtomicU64 as A;
             static N: A = A::new(0);
             if N.fetch_add(1, Ordering::Relaxed) < 30 {
@@ -849,10 +849,13 @@ impl<'a> Search<'a> {
         let d = self.ring2_depth as usize;
         let ub = self.fx.slots[d].pool.len() - 1;
         let lb = ring1_offset;
-        let tail = self.subtree[d + 1].clone();
         let l_max = self.l_max;
-        let mut prefix = vec![0f64; l_max + 2];
-        for l in 0..=l_max { prefix[l + 1] = prefix[l] + tail[l]; }
+        // The prefix sums of the next row are `subtree_prefix[d + 1]`: built
+        // the same way in `new`, and only this ring-2 row is ever rebuilt. Used
+        // in place of a fresh copy and sum (two allocations per ring-1
+        // placement); the values are bit-identical.
+        let (head, rest) = self.subtree_prefix.split_at_mut(d + 1);
+        let prefix = &rest[0];
         {
             let row = &mut self.subtree[d];
             for l in 0..=l_max { row[l] = 0.0; }
@@ -867,8 +870,9 @@ impl<'a> Search<'a> {
                 }
             }
         }
+        let own = &mut head[d];
         for t in 0..=l_max {
-            self.subtree_prefix[d][t + 1] = self.subtree_prefix[d][t] + self.subtree[d][t];
+            own[t + 1] = own[t] + self.subtree[d][t];
         }
     }
 
@@ -1230,8 +1234,12 @@ impl<'a> Search<'a> {
     }
 
     fn place(&mut self, depth: usize, item_idx: usize) {
-        let slot = &self.fx.slots[depth];
-        let it = slot.pool[item_idx].clone();
+        // Borrow through the fixture reference itself (lifetime 'a, not tied
+        // to `self`), so the item is read in place instead of cloned: the
+        // clone copied its restriction Vec on every placement.
+        let fx: &'a Fixture = self.fx;
+        let slot = &fx.slots[depth];
+        let it = &slot.pool[item_idx];
         let n_pc = it.pc.len();
         for i in 0..n_pc { self.pc_running[i] += it.pc[i]; }
         self.hp_running += it.hp;
@@ -1267,8 +1275,9 @@ impl<'a> Search<'a> {
     }
 
     fn unplace(&mut self, depth: usize, item_idx: usize) {
-        let slot = &self.fx.slots[depth];
-        let it = slot.pool[item_idx].clone();
+        let fx: &'a Fixture = self.fx;
+        let slot = &fx.slots[depth];
+        let it = &slot.pool[item_idx];
         let n_pc = it.pc.len();
         for i in 0..n_pc { self.pc_running[i] -= it.pc[i]; }
         self.hp_running -= it.hp;
