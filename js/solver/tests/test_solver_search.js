@@ -702,7 +702,7 @@ function _oracleTupleBlocked(items) {
     return false;
 }
 
-function runOracleEnumeration(initMsgBase, ringPoolSer) {
+function runOracleEnumeration(initMsgBase, ringPoolSer, oracleMode = null) {
     return new Promise((resolve, reject) => {
         // Enumerate canonical tuples: Cartesian product of free armor slots,
         // times canonical ring pairs (i <= j) when both rings are free.
@@ -772,6 +772,7 @@ function runOracleEnumeration(initMsgBase, ringPoolSer) {
 
                 worker.postMessage({
                     ...initMsgBase,
+                    ...(oracleMode ? { oracle_exhaustive_sp: oracleMode } : {}),
                     pools: {},
                     ring_pool: [],
                     locked: lockedOverride,
@@ -984,6 +985,13 @@ async function runSolverTest(snapName) {
 
     // 3. Build solver snapshot
     const solverSnap = buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats);
+    // Independent-oracle snapshots lower the SP budget for BOTH the production
+    // run and the oracles, so every leaf has few unassigned points and the
+    // exhaustive allocation stays tractable. It is the same instance for all
+    // three runs, so the comparison stays exact.
+    if (snap.independent_oracle?.sp_budget != null) {
+        solverSnap.sp_budget = snap.independent_oracle.sp_budget;
+    }
     if (snap.benchmark_suite === 'current_meta') {
         const resolvedRows = solverSnap.parsed_combo.map(row => ({
             base_spell: row.spell?.base_spell ?? null,
@@ -1078,7 +1086,8 @@ async function runSolverTest(snapName) {
     // Preserve the historical general-suite pool size. Pruning campaigns set
     // SOLVER_ITEM_PRUNING explicitly, and production uses the UI-selected
     // certified default through search.js.
-    const pruningStrategy = getPruningStrategy(process.env.SOLVER_ITEM_PRUNING || 'current');
+    const pruningStrategy = getPruningStrategy(process.env.SOLVER_ITEM_PRUNING
+        || snap.independent_oracle?.item_pruning || 'current');
     let domStats = null;
     if (dmgWeights) {
         const reduction = ctx.reduce_candidate_pools(freePools, {
@@ -1405,6 +1414,44 @@ async function runSolverTest(snapName) {
         const altScores = altResult.top5.map(r => r.score);
         t.assert(JSON.stringify(altScores) === JSON.stringify(prodScores),
             `${snapName}: 3-partition top-N scores identical`);
+    }
+
+    // 13. Independent oracle (roadmap section 0). The oracle above shares the
+    // production leaf, so a precheck, gate or allocation bug would agree with
+    // itself. These runs lock every slot (no enumeration bounds), switch the
+    // prechecks and the ceiling gate off, and then:
+    //   'greedy'     keeps the production allocator. Production must match it
+    //                exactly: any difference is a pruning soundness bug.
+    //   'exhaustive' tries every integer allocation of the remaining points.
+    //                Its gain over 'greedy' is what the greedy alone loses
+    //                (C6), reported as a known gap until R12 lands.
+    if (snap.independent_oracle) {
+        t.assert(!initMsgBase.tome_opt, `${snapName}: independent oracle runs without tome optimisation`);
+        const greedy = await runOracleEnumeration(initMsgBase, ringPoolSer, 'greedy');
+        // Exhaustive allocation costs C(remaining + 5, 5) evaluations per leaf,
+        // so a snapshot whose leaves keep most of the budget unassigned opts
+        // out with "exhaustive": false and checks pruning soundness only.
+        const exhaustive = snap.independent_oracle.exhaustive === false
+            ? null
+            : await runOracleEnumeration(initMsgBase, ringPoolSer, 'exhaustive');
+        const top = (r) => r.top.length ? r.top[0].score : null;
+        const prodBest = result.top5.length ? result.top5[0].score : null;
+        console.log(`  [${snapName}] independent oracle: production ${prodBest}, `
+            + `greedy ${top(greedy)}, exhaustive ${exhaustive ? top(exhaustive) : 'skipped'} `
+            + `(${greedy.feasible} SP-feasible of ${greedy.tupleCount})`);
+        t.assert(prodBest === top(greedy),
+            `${snapName}: production best equals the prune-free greedy oracle `
+            + `(${prodBest} vs ${top(greedy)})`);
+        const gs = greedy.top.map(r => r.score), ps = result.top5.map(r => r.score);
+        t.assert(JSON.stringify(gs) === JSON.stringify(ps),
+            `${snapName}: production top-N equals the prune-free greedy oracle`);
+        if (exhaustive) t.assert(top(exhaustive) !== null && top(exhaustive) >= top(greedy),
+            `${snapName}: exhaustive allocation never scores below greedy`);
+        if (exhaustive && top(exhaustive) > top(greedy)) {
+            const gap = (top(exhaustive) - top(greedy)) / Math.abs(top(greedy));
+            t.warn(`${snapName}: KNOWN GAP C6: exhaustive SP allocation beats greedy by `
+                + `${(gap * 100).toFixed(4)}% (${top(exhaustive)} vs ${top(greedy)}). See roadmap R12.`);
+        }
     }
 }
 

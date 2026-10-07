@@ -1542,6 +1542,55 @@ function _run_level_enum() {
         return { score, final_assigned };
     }
 
+    // ── Independent oracle: exhaustive integer SP allocation ────────────────
+    //
+    // Enabled by _cfg.oracle_exhaustive_sp (tests only; 'greedy' disables the
+    // prechecks and the gate but keeps the greedy). The production leaf
+    // spends unassigned skill points with a greedy and a mana rescue, and is
+    // guarded by prechecks and a ceiling gate. This replaces all four: every
+    // integer allocation of the remaining budget (sum <= remaining, within the
+    // 100-per-lane assign cap and the total caps) is assembled, threshold- and
+    // mana-checked in full, and scored; the best feasible one wins. It shares
+    // only assembly and scoring with production, so a pruning or allocation
+    // bug cannot hide in both. Cost is C(remaining + 5, 5) evaluations per
+    // leaf, so use it on small spaces with small remaining budgets.
+    function _score_leaf_exhaustive(build_sm, base_sp, total_sp, assigned_sp) {
+        const remaining = sp_budget - assigned_sp;
+        const cap_total = _sp_caps ?? _default_sp_caps;
+        const room = [0, 0, 0, 0, 0];
+        for (let i = 0; i < 5; i++) {
+            room[i] = Math.max(0, Math.min(100 - base_sp[i], cap_total[i] - total_sp[i]));
+        }
+        const base0 = base_sp.slice(), total0 = total_sp.slice();
+        const a = [0, 0, 0, 0, 0];
+        let best = null;
+        const tryAlloc = () => {
+            for (let i = 0; i < 5; i++) { total_sp[i] = total0[i] + a[i]; base_sp[i] = base0[i] + a[i]; }
+            const combo_base = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
+            const need_thresh = restrictions.stat_thresholds.length > 0
+                || (_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage';
+            const thresh_stats = need_thresh ? _assemble_threshold_stats(combo_base) : null;
+            if (restrictions.stat_thresholds.length > 0
+                && !_check_thresholds(thresh_stats, restrictions.stat_thresholds)) return;
+            if (!_eval_combo_mana_check(combo_base)) return;
+            const score = _eval_score(combo_base, thresh_stats);
+            if (best === null || score > best.score) {
+                best = { score, total: total_sp.slice(), base: base_sp.slice(),
+                         final_assigned: assigned_sp + a[0] + a[1] + a[2] + a[3] + a[4] };
+            }
+        };
+        const walk = (lane, left) => {
+            if (lane === 5) { tryAlloc(); return; }
+            const hi = Math.min(left, room[lane]);
+            for (let v = 0; v <= hi; v++) { a[lane] = v; walk(lane + 1, left - v); }
+            a[lane] = 0;
+        };
+        walk(0, Math.max(0, remaining));
+        if (!best) return null;
+        for (let i = 0; i < 5; i++) { total_sp[i] = best.total[i]; base_sp[i] = best.base[i]; }
+        return { score: best.score, final_assigned: best.final_assigned };
+    }
+
     function _evaluate_leaf() {
         _checked++;
         if (_trace) { _trace.leaf_count++; _trace.leaf_evaluator_calls++; }
@@ -1551,7 +1600,8 @@ function _run_level_enum() {
         // additive stat thresholds, before expensive SP solver + stat assembly.
         // running_sm has all item stats accumulated; prechecks account for
         // fixed contributions (atree_raw + static_boosts).
-        if (_constraint_prechecks.length > 0 && !_fast_constraint_precheck(running_sm)) {
+        const oracle = !!_cfg.oracle_exhaustive_sp;
+        if (!oracle && _constraint_prechecks.length > 0 && !_fast_constraint_precheck(running_sm)) {
             _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
@@ -1559,7 +1609,7 @@ function _run_level_enum() {
             _maybe_progress();
             return;
         }
-        if (!_fast_ehp_precheck(running_sm)) {
+        if (!oracle && !_fast_ehp_precheck(running_sm)) {
             _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
@@ -1628,7 +1678,7 @@ function _run_level_enum() {
             if (sc !== _CUTOFF_SENTINEL && sc > _gate_cutoff) _gate_cutoff = sc;
         }
         if (_top5.length >= 15 && _top5[14].score > _gate_cutoff) _gate_cutoff = _top5[14].score;
-        if (_ceiling_gate_ok && _gate_cutoff > -Infinity) {
+        if (!oracle && _ceiling_gate_ok && _gate_cutoff > -Infinity) {
             const ceiling_t0 = _trace_start('ceiling');
             // In all-tomes mode the ceiling is evaluated with the per-key
             // optimistic bundle, which upper-bounds every real bundle; null
@@ -1652,7 +1702,11 @@ function _run_level_enum() {
         if (_tome_guild_candidates === null && _tome_wa_bundles === null) {
             // Default path — single SP solution, no tome loop. Pipeline,
             // counters, and inserted entries identical to the pre-tome code.
-            const res = _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
+            // 'greedy' keeps the production allocator, so comparing it with
+            // the exhaustive mode isolates what the greedy alone loses.
+            const res = (oracle && _cfg.oracle_exhaustive_sp !== 'greedy')
+                ? _score_leaf_exhaustive(build_sm, base_sp, total_sp, assigned_sp)
+                : _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
             if (_dbg) _dbg_leaf_time += performance.now() - t0;
             if (!res) { _maybe_progress(); return; }
             _dbg_scored++;
