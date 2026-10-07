@@ -971,6 +971,13 @@ async function runSolverTest(snapName) {
     // 1. Decode URL
     const decoded = decodeSolverUrl(ctx, snap.url_hash);
     t.assert(decoded.playerClass !== null, `${snapName}: decoded class = ${decoded.playerClass}`);
+    // A snapshot can swap the weapon (same class) to reach mechanics no
+    // checked-in build URL covers, e.g. a weapon that belongs to a set.
+    if (snap.weapon_override) {
+        t.assert(ctx.itemMap.has(snap.weapon_override),
+            `${snapName}: weapon override ${snap.weapon_override} exists`);
+        decoded.equipment[8] = snap.weapon_override;
+    }
 
     // 2. Build atree + spells
     // Build a seed statMap from the URL-hash items so activeMajorIDs are populated
@@ -1107,6 +1114,20 @@ async function runSolverTest(snapName) {
     if (snap.max_pool_size) {
         for (const key of Object.keys(freePools)) {
             freePools[key] = freePools[key].slice(0, snap.max_pool_size);
+        }
+    }
+    // pool_include forces named items into a truncated pool (replacing its
+    // last entries), so a fixture can guarantee a mechanic is reachable.
+    for (const [slot, names] of Object.entries(snap.pool_include ?? {})) {
+        const full = allPools[slot === 'ring1' || slot === 'ring2' ? 'ring' : slot] ?? [];
+        for (const name of names) {
+            const pool = freePools[slot];
+            if (!pool || pool.some(it => ctx._get_item_name?.(it.statMap) === name
+                || it.statMap.get('displayName') === name || it.statMap.get('name') === name)) continue;
+            const item = full.find(it => it.statMap.get('displayName') === name
+                || it.statMap.get('name') === name);
+            t.assert(!!item, `${snapName}: pool_include ${name} found in the ${slot} pool`);
+            if (item) pool[pool.length - 1] = item;
         }
     }
 

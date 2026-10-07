@@ -1667,11 +1667,6 @@ function solver_engine_changed() {
         : 'Number of JavaScript worker threads';
 }
 
-/// True when the weapon belongs to a set and so counts toward it.
-function _weapon_is_set_piece(weapon_sm) {
-    return !!(weapon_sm && !weapon_sm.get('crafted') && weapon_sm.get('set'));
-}
-
 /// Run the whole search in the Rust engine. Returns true when it handled the
 /// search; false means the caller should use the JS workers.
 function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
@@ -1686,15 +1681,6 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
     try {
         const bridge = window.__solver_rust_bridge;
         if (!bridge) return false;
-        // A set weapon counts toward its set (calculate_skillpoints), and the
-        // Rust engine does not model that yet: its fixtures carry the weapon's
-        // requirements and skill points but not its set id. Run those
-        // scenarios on the JS workers rather than score them without the set.
-        if (_weapon_is_set_piece(snap.weapon_sm)) {
-            _solver_state.engine_fallback_reason =
-                'the Rust engine does not yet count a set weapon toward its set';
-            return false;
-        }
         const env = bridge.browserEnv();
         const enum_fixture = bridge.buildEnumFixture({
             initMsgBase: init_base, ringPoolSer: ring_pool_ser, solverSnap: snap, env,

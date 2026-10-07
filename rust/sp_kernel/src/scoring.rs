@@ -1475,9 +1475,11 @@ impl Layer2 {
         for tome in &self.tome_sms { self.add_item(&mut sm, tome); }
         self.add_item(&mut sm, weapon);
 
-        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names.
+        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names,
+        // and the weapon's: a non-crafted weapon is a set piece too
+        // (calculate_skillpoints counts it).
         let mut set_counts: Vec<(String, i64)> = Vec::new();
-        for item in &equips {
+        for item in equips.iter().copied().chain(std::iter::once(weapon)) {
             if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
             let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
             match set_counts.iter_mut().find(|(n, _)| n == set_name) {
@@ -5240,6 +5242,11 @@ impl DenseCtx {
             scratch_arena.clear();
             DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
             let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
+            let weapon_set_id = if weapon.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) {
+                None
+            } else {
+                weapon.get("set").and_then(|v| v.as_str()).and_then(|n| l2.set_ids.get(n).copied())
+            };
             post_item_adds.extend(scratch_arena.iter().copied());
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
@@ -5286,7 +5293,7 @@ impl DenseCtx {
                 dam_tome_adds: dam_sim.tome_adds,
                 def_tome_adds: def_sim.tome_adds,
                 atk_spd_idx: tables.atk_spd_index(weapon.get("atkSpd").and_then(|v| v.as_str())),
-                template_zero_idxs, base_arcanes, hp_idx, agi_def_idx,
+                template_zero_idxs, base_arcanes, weapon_set_id, hp_idx, agi_def_idx,
                 hp_base: l2.hp_base,
                 class_def_idx: 0,               // filled below
                 class_def_val,
@@ -6235,6 +6242,9 @@ pub struct DenseDirect {
     pub template_zero_idxs: Vec<u32>,
     /// ARCANES present on tomes/weapon (leaf items OR onto this).
     pub base_arcanes: bool,
+    /// The weapon's set id when it is a non-crafted set piece; it seeds the
+    /// per-leaf set counts.
+    pub weapon_set_id: Option<u32>,
     pub hp_idx: u32,
     pub agi_def_idx: u32,
     pub hp_base: f64,
@@ -6338,7 +6348,8 @@ impl DenseLeaf {
             trace::add(trace::FD_DIFF_SLOTS, diff);
             if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
-        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        // Nine slots can hold a set piece: eight equips and the weapon.
+        let mut set_counts: [(u32, i64); 9] = [(u32::MAX, 0); 9];
         let mut n_sets = 0usize;
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
@@ -6353,6 +6364,15 @@ impl DenseLeaf {
                         None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
                     }
                 }
+            }
+        }
+        // The weapon counts after the equipment, in the order
+        // calculate_skillpoints builds its set map, so bonuses are summed in
+        // the same order as the JS engine.
+        if let Some(sid) = dd.weapon_set_id {
+            match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
+                Some((_, c)) => *c += 1,
+                None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
             }
         }
         add_item_ops!(&dd.post_item_adds);

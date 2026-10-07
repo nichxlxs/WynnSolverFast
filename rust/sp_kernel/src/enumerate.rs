@@ -135,6 +135,10 @@ pub struct Fixture {
     thp: Option<(f64, f64)>,        // threshold, fixed_hp
     hp_start: f64,
     weapon: Unit,
+    /// The weapon's set id, or -1. A non-crafted weapon is a set piece and
+    /// counts toward its set like any equipment (older fixtures omit the
+    /// field and read as -1).
+    weapon_set: i32,
     guild: Option<(Unit, i32)>,     // unit, set_id
     fixed: Vec<(usize, Unit, i32, i32)>, // pos, unit, set_id, illegal_id
     slots: Vec<Slot>,
@@ -176,6 +180,7 @@ pub fn parse_fixture(text: &str) -> Fixture {
 
     let wt = toks(next());
     let weapon = unit_from(&wt, 1);
+    let weapon_set: i32 = wt.get(11).map(|v| v.parse().unwrap()).unwrap_or(-1);
 
     let gt = toks(next());
     let guild = if gt[1] == "1" {
@@ -278,7 +283,7 @@ pub fn parse_fixture(text: &str) -> Fixture {
     }
 
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, guild, fixed, slots, set_table, fixed_names, none_names }
+              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names }
 }
 
 pub struct Search<'a> {
@@ -590,6 +595,8 @@ impl<'a> Search<'a> {
         for j in 0..5 {
             if fx.weapon.reqs[j] > sp_fixed_max_req[j] { sp_fixed_max_req[j] = fx.weapon.reqs[j]; }
         }
+        // The weapon is a worn set piece (calculate_skillpoints counts it).
+        if fx.weapon_set >= 0 { set_counts[fx.weapon_set as usize] += 1; }
 
         Search {
             fx, n_free, l_max, ring1_depth, ring2_depth, rings_contiguous,
@@ -1839,6 +1846,7 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         thp: fx.thp,
         hp_start: fx.hp_start,
         weapon: fx.weapon,
+        weapon_set: fx.weapon_set,
         guild: fx.guild,
         fixed: fx.fixed.clone(),
         slots: fx.slots.iter().zip(&warm_sel).map(|(sl, sel)| Slot {
