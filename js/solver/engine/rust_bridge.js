@@ -628,8 +628,17 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
         const noneSm = initMsgBase.none_item_sms[p];
         L.push(noneSm?.get?.('displayName') ?? noneSm?.get?.('name') ?? '');
     }
+    const eps = epsFixtureLine(initMsgBase);
+    if (eps) L.push(eps);
 
     return L.join('\n') + '\n';
+}
+
+/// The enumeration fixture's R21 tolerance line ('within' search mode), or
+/// null for an exact search. Engines without R21 skip unknown keys.
+function epsFixtureLine(initMsgBase) {
+    const eps = Number(initMsgBase?.search_eps);
+    return Number.isFinite(eps) && eps > 0 ? `EPS ${eps}` : null;
 }
 
 /// Default env for the browser, where the game functions are globals.
@@ -692,7 +701,7 @@ function sanitizeEnumFixtureForAnytime(fixture) {
     return result.endsWith('\n') ? result : result + '\n';
 }
 
-const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, browserEnv, _jser };
+const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, epsFixtureLine, browserEnv, _jser };
 
 // The solver page loads this as a plain script and `search.js` looks for it
 // under this name. Without the assignment the lookup returned undefined, the

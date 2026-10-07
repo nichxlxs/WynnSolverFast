@@ -77,6 +77,8 @@ async function state(page) {
         deadline_timer: _solver_state.deadline_timer,
         error: document.getElementById('solver-error-text').textContent,
         status: document.getElementById('solver-status-msg').textContent,
+        progress_label: document.getElementById('solver-progress-left')?.textContent ?? '',
+        search_eps: _solver_state.search_eps,
         top: _solver_state.top5.map(r => ({
             score: r.score,
             items: r.items.map(i => i.statMap.get('displayName') ?? i.statMap.get('name')),
@@ -129,14 +131,14 @@ async function load(page) {
         'actual page loads the bridge before search orchestration');
 }
 
-async function configure(page, { quick = true, seconds = 5, wide = false, tomes = true } = {}) {
+async function configure(page, { quick = true, seconds = 5, wide = false, tomes = true, mode = null } = {}) {
     await page.locator('#solver-target').selectOption('total_hp');
     const mana = page.locator('#combo-mana-btn');
     if ((await mana.getAttribute('class')).includes('toggleOn')) await mana.click();
     await page.locator('#restr-tome-opt').selectOption(tomes ? '1' : '0');
-    await page.locator('#solver-search-mode').selectOption(quick ? 'quick' : 'exhaustive');
+    await page.locator('#solver-search-mode').selectOption(mode ?? (quick ? 'quick' : 'exhaustive'));
     if (quick) await page.locator('#solver-quick-budget').selectOption(String(seconds));
-    else await page.locator('#solver-engine').selectOption('rust');
+    else if (mode !== 'within') await page.locator('#solver-engine').selectOption('rust');
     for (const slot of GEAR) {
         const shouldFree = wide || slot === 'helmet';
         const isFree = await page.locator(`#${slot}-choice`).getAttribute('data-solver-filled');
@@ -149,8 +151,8 @@ async function configure(page, { quick = true, seconds = 5, wide = false, tomes 
     await page.locator('#restr-lvl-max').fill(wide ? '121' : String(level));
     await page.locator('#restr-lvl-max').press('Tab');
     check(await page.locator('#solver-target').inputValue() === 'total_hp', 'target selection applies');
-    check((await page.locator('#solver-engine').isDisabled()) === quick,
-        'Quick owns the engine selector; Exhaustive retains engine choice');
+    check((await page.locator('#solver-engine').isDisabled()) === (quick || mode === 'within'),
+        'Quick and Near-optimal own the engine selector; Exhaustive retains engine choice');
 }
 
 async function start(page) {
@@ -283,6 +285,32 @@ async function exhaustiveCase(page) {
     measurements.push({ scenario: 'exhaustive_one_slot', final_ms: result.elapsed_ms });
 }
 
+// Roadmap R21/R32: the Near-optimal mode runs the exhaustive Rust engine
+// with a tolerance. The top result must not score below the exact run's
+// best by more than the tolerance, and the label must state the claim.
+async function withinCase(page) {
+    await load(page);
+    await configure(page, { quick: false, tomes: false });
+    await start(page);
+    const exact = await waitFinished(page, 20000);
+    await page.locator('#solver-search-mode').selectOption('within');
+    await page.locator('#solver-eps').selectOption('0.02');
+    check(await page.locator('#solver-engine').inputValue() === 'rust'
+        && await page.locator('#solver-engine').isDisabled(), 'Near-optimal forces the Rust engine');
+    await start(page);
+    const within = await waitFinished(page, 20000);
+    check(within.search_mode === 'within' && within.search_eps === 0.02 && within.engine_used === 'rust',
+        `Near-optimal runs the Rust engine with eps 0.02 (${within.search_mode}, ${within.search_eps}, ${within.engine_used})`);
+    check(within.top.length > 0 && exact.top.length > 0
+        && within.top[0].score >= exact.top[0].score / 1.02 * (1 - 1e-12)
+        && within.top[0].score <= exact.top[0].score * (1 + 1e-12),
+        `Near-optimal top-1 ${within.top[0]?.score} within 2% of exact ${exact.top[0]?.score}`);
+    check(/Solved within 2% \(proved\)/.test(within.progress_label),
+        `completion states the proved tolerance (${within.progress_label})`);
+    checkWitness(within.top[0], 'Near-optimal result', false);
+    await page.locator('#solver-search-mode').selectOption('exhaustive');
+}
+
 (async () => {
     fs.mkdirSync(ARTIFACTS, { recursive: true });
     let server = null;
@@ -303,6 +331,7 @@ async function exhaustiveCase(page) {
         await cancelRestartCase(page);
         await unavailableCase(page);
         await exhaustiveCase(page);
+        await withinCase(page);
         const fatal = diagnostics.browser_errors.filter(message => !/fonts|favicon|Google/i.test(message));
         check(fatal.length === 0, `no browser script errors (${fatal.join('; ') || 'none'})`);
         console.log(`\n${assertions} browser assertions passed`);

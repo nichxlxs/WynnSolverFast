@@ -29,6 +29,7 @@ const _solver_state = {
     search_plan: null,            // staged candidate reduction / verification plan
     last_search_plan: null,       // completed plan and per-stage metrics for diagnostics
     search_mode: 'exhaustive',
+    search_eps: 0,                // 'within' mode: proved tolerance (roadmap R21)
     run_id: 0,                    // invalidates pending work after Stop/new run
     quick_budget_secs: 5,
     quick_deadline: 0,
@@ -1624,7 +1625,14 @@ function _on_all_workers_done(workers_snapshot) {
     if (_status_el) _status_el.textContent = '';
 
     // Show progress panel in stopped state
-    _show_solver_stopped_progress(search_completed ? 'Solved' : 'Stopped', elapsed_s);
+    // The proved claim only holds when the Rust engine ran with the
+    // tolerance and finished; a JS fallback run is exact and says 'Solved'.
+    const eps_run = _solver_state.search_mode === 'within' && _solver_state.engine_used === 'rust'
+        && _solver_state.search_eps > 0;
+    const pct = +(_solver_state.search_eps * 100).toFixed(3);
+    _show_solver_stopped_progress(
+        eps_run ? (search_completed ? `Solved within ${pct}% (proved)` : 'Stopped (not proved)')
+            : (search_completed ? 'Solved' : 'Stopped'), elapsed_s);
     _display_solver_results(_solver_state.top5);
     if (_solver_state.top5.length > 0) {
         _fill_build_into_ui(_solver_state.top5[0]);
@@ -1977,19 +1985,32 @@ function _rust_engine_available() {
 /// keeps its time budget independent of the selected exhaustive worker count.
 function solver_engine_changed() {
     const rust = document.getElementById('solver-engine')?.value === 'rust';
-    const quick = document.getElementById('solver-search-mode')?.value === 'quick';
+    const mode_value = document.getElementById('solver-search-mode')?.value;
+    const quick = mode_value === 'quick';
+    // 'within' (roadmap R21/R32): the Rust engine prunes below (1 + eps) x
+    // best, so the top result is proved within eps of the optimum. The JS
+    // engine has no eps; like Quick, the mode owns the engine selector.
+    const within = mode_value === 'within';
     const running = _solver_state.running;
     const engine = document.getElementById('solver-engine');
     const mode = document.getElementById('solver-search-mode');
     const budget = document.getElementById('solver-quick-budget');
-    if (engine) engine.disabled = running || quick;
+    const eps_sel = document.getElementById('solver-eps');
+    if (engine) engine.disabled = running || quick || within;
     if (mode) mode.disabled = running;
     if (budget) budget.disabled = running;
+    if (eps_sel) eps_sel.disabled = running;
     const budget_row = document.getElementById('solver-quick-budget-row');
     if (budget_row) budget_row.style.display = quick ? '' : 'none';
+    const eps_row = document.getElementById('solver-eps-row');
+    if (eps_row) eps_row.style.display = within ? '' : 'none';
     const note = document.getElementById('solver-search-mode-note');
+    const pct = (parseFloat(eps_sel?.value) || 0.01) * 100;
     if (note) note.textContent = quick
-        ? 'Find strong builds within a time budget. Results may improve with another run.' : '';
+        ? 'Find strong builds within a time budget. Results may improve with another run.'
+        : within
+            ? `Proves the top build is within ${pct}% of the best possible, usually much faster than Exhaustive. Ranks 2 to 15 are not verified.`
+            : '';
     const sel = document.getElementById('solver-thread-count');
     if (!sel) return;
     // Both engines scale across workers now — the Rust engine partitions the
@@ -2001,7 +2022,8 @@ function solver_engine_changed() {
 }
 
 function solver_search_mode_changed() {
-    if (document.getElementById('solver-search-mode')?.value === 'quick') {
+    const v = document.getElementById('solver-search-mode')?.value;
+    if (v === 'quick' || v === 'within') {
         const engine = document.getElementById('solver-engine');
         if (engine) engine.value = 'rust';
     }
@@ -2518,6 +2540,9 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
     // Build the heavy init message once (without partition — added per-worker below)
     const init_base = _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, null, 0);
+    // Read by the Rust fixture builder only (an EPS line); the JS engine has
+    // no tolerance, so a fallback run is exact, which still satisfies it.
+    init_base.search_eps = _solver_state.search_eps || 0;
 
     // Opt-in Rust/WASM engine; returns false (and we continue with the JS
     // workers below) whenever it is unavailable or the scenario is not one
@@ -2899,7 +2924,10 @@ function start_solver_search() {
     if (document.getElementById('solver-search-mode')?.value === 'quick') {
         return _start_quick_solver_search();
     }
-    _solver_state.search_mode = 'exhaustive';
+    const within = document.getElementById('solver-search-mode')?.value === 'within';
+    _solver_state.search_mode = within ? 'within' : 'exhaustive';
+    _solver_state.search_eps = within
+        ? Math.max(0, parseFloat(document.getElementById('solver-eps')?.value) || 0.01) : 0;
     _solver_state.algorithm = 'exhaustive';
     _solver_state.complete = false;
     _solver_state.run_id += 1;

@@ -1251,8 +1251,20 @@
                                 <select id="solver-search-mode" class="form-select form-select-sm bg-dark text-light"
                                     style="width:auto" onchange="solver_search_mode_changed()">
                                     <option value="exhaustive" selected>Exhaustive search</option>
+                                    <option value="within">Near-optimal (proved)</option>
                                     <option value="quick">Quick search</option>
                                 </select>
+                                <span id="solver-eps-row" style="display:none">
+                                    <label for="solver-eps" class="visually-hidden">Proved tolerance</label>
+                                    <select id="solver-eps" class="form-select form-select-sm bg-dark text-light"
+                                        title="The top result is proved to be within this much of the best build"
+                                        onchange="solver_engine_changed()">
+                                        <option value="0.005">within 0.5%</option>
+                                        <option value="0.01" selected>within 1%</option>
+                                        <option value="0.02">within 2%</option>
+                                        <option value="0.05">within 5%</option>
+                                    </select>
+                                </span>
                                 <span id="solver-quick-budget-row" style="display:none">
                                     <label for="solver-quick-budget" class="visually-hidden">Quick search time budget</label>
                                     <select id="solver-quick-budget" class="form-select form-select-sm bg-dark text-light"
