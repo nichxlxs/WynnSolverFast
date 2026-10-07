@@ -4,6 +4,16 @@
 !data/**/*.json
 !js/solver/tests/**/*.json
 !js/solver/benchmarks/family_suite.json
+!js/solver/benchmarks/current_meta_profiles.json
+!js/solver/benchmarks/current_meta_targets.json
+!js/solver/benchmarks/current_meta_suite.json
+!js/solver/benchmarks/current_meta_guarded_exact123_final_results.json
+!js/solver/benchmarks/current_meta_guarded_exact123_final_paired_analysis.json
+!js/solver/benchmarks/current_meta_guarded_balanced_resolution_results.json
+!js/solver/benchmarks/current_meta_guarded_cancelstack_final_exact_results.json
+!js/solver/benchmarks/current_meta_guarded_counterexamples_final_results.json
+js/solver/benchmarks/current_meta_*_report.md
+!js/solver/benchmarks/current_meta_guarded_exact123_final_report.md
 !research/build-database/family-seed-browser-validation.json
 # The browser tests need playwright-core, and `node_modules/playwright-core`
 # is committed without its 12MB `lib/` (swallowed by the `lib/` rule below).

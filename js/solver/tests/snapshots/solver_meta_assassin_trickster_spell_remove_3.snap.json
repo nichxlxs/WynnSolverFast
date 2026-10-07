@@ -1,0 +1,260 @@
+{
+  "name": "solver_meta_assassin_trickster_spell_remove_3",
+  "description": "assassin/trickster spell: remove_3; leggings, ring2, bracelet equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "spell",
+  "benchmark_class": "assassin",
+  "benchmark_archetype": "trickster",
+  "benchmark_variant": "remove_3",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "7f082a03bcacbcb1bceaaaadfdb1145af20706159b59a4ae4b87c855214dc306",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX05ukXJyGWixsv5wDE9t8W2jEPL6OGl1Vm2MLhQLhQNgOMpwKdQpQcJ1T2Wtczq7cu-yUI-nDHb1",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX05ukXJyGWixsv5wDE9t8W2jEPL6OGl1Vm2MLhQLhQNgOMpwKdQpQcJ1T2Wtczq7cu-yUI-nDHb1",
+  "designed_version": "2.2.3.0",
+  "version_role": "authored_current",
+  "seed_quality": "current_unreviewed",
+  "source_evidence": "Blue's Builds current Assassin forum; current Architect Trickster discovery candidate.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492965916818936028/1535642469365055568",
+  "core_weapon": "Architect",
+  "seed_item_names": [
+    "Guillotine",
+    "Withdrawal",
+    "Aleph Null",
+    "Symphonie Fantastique",
+    "Yang",
+    "Intensity",
+    "Shattershard",
+    "Tenuto"
+  ],
+  "elements": [
+    "earth",
+    "water",
+    "fire"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 0,
+        "powder_ids": [
+          27,
+          27,
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 2,
+        "powder_ids": [
+          27
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 3,
+        "powder_ids": [
+          27,
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          27,
+          27,
+          27,
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "fire"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Multihit",
+    "proxy_for": "Trickster spell damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; MR floor retained",
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 20000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 15
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -400
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 73783.06089451801,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 3,
+    "removal_seed": "assassin_trickster_spell:3:0",
+    "removed_slots": [
+      "leggings",
+      "ring2",
+      "bracelet"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Guillotine",
+    "Withdrawal",
+    "Symphonie Fantastique",
+    "Yang",
+    "Tenuto",
+    "Architect"
+  ],
+  "free_equipment_slots": [
+    "leggings",
+    "ring2",
+    "bracelet"
+  ],
+  "free_mask": 100,
+  "url_hash": "CX05ukXJyGWixsv5wDE9t8W2jEPL6OGl1Vm2MLhQLhQNgOMpwKdQpQcJ1T2Wtczq7cu-yUI-nDHb1_ON40Poa9ZCdX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 79,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 20000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 15
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -400
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Multihit",
+      "damage_parts": 3,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Guillotine",
+      "stat_hash": "6138f82760a78e6900d9fab482733c6a4555d291adcc66f2bb4ff3166085ab24"
+    },
+    "chestplate": {
+      "name": "Withdrawal",
+      "stat_hash": "3f35f849c6ef4354eb29efa17405de0f75f9f273bc211ae811ac32bb6309bb35"
+    },
+    "boots": {
+      "name": "Symphonie Fantastique",
+      "stat_hash": "d49cac2133fe2178d02c058590eaab6f7f1f13c8850a63a18522c891dce2c0e5"
+    },
+    "ring1": {
+      "name": "Yang",
+      "stat_hash": "9d1d3ef1b4d65a53476fe8b022662f4d9f4c15749a5d79f62a1dd99ded2a7423"
+    },
+    "necklace": {
+      "name": "Tenuto",
+      "stat_hash": "8039b463fc4d1baf5bc37f73288a5a1b911a13390047f00a4523a2324ba6d565"
+    }
+  },
+  "created": "2026-08-16T02:35:03.700Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

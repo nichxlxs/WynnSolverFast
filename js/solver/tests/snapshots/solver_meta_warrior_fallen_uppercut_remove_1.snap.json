@@ -1,0 +1,199 @@
+{
+  "name": "solver_meta_warrior_fallen_uppercut_remove_1",
+  "description": "warrior/fallen blood_pact_spell: remove_1; ring1 equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "blood_pact_spell",
+  "benchmark_class": "warrior",
+  "benchmark_archetype": "fallen",
+  "benchmark_variant": "remove_1",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "c108e3850dc74ba98b912f72030d746dec19175231b7161b2d5d72ba0f20ca9a",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0oq0xG8t2uQ05Ge0IlHmlHhcYuKAeK0uVUs-Ts4p0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0oq0xG8t2uQ05Ge0IlHmlHhcYuKAeK0uVUs-Ts4p0",
+  "designed_version": "2.2.3.0",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Warrior forum; Hero Fallen build with explicit Blood Pact activation and rotations.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1505283155903647846/1505283155903647846",
+  "core_weapon": "Hero",
+  "seed_item_names": [
+    "Unravel",
+    "Libertas",
+    "Sagittarius",
+    "Revenant",
+    "Hypoxia",
+    "Hypoxia",
+    "Palimpsest",
+    "Metamorphosis"
+  ],
+  "elements": [
+    "earth",
+    "thunder",
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          34,
+          34,
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "air"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Uppercut",
+    "proxy_for": "Fallen Blood Pact spell damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 20000
+      },
+      {
+        "stat": "ms",
+        "op": "ge",
+        "value": 10
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -300
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 30112.915446112416,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 1,
+    "removal_seed": "warrior_fallen_uppercut:1:0",
+    "removed_slots": [
+      "ring1"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Unravel",
+    "Libertas",
+    "Sagittarius",
+    "Revenant",
+    "Hypoxia",
+    "Palimpsest",
+    "Metamorphosis",
+    "Hero"
+  ],
+  "free_equipment_slots": [
+    "ring1"
+  ],
+  "free_mask": 16,
+  "url_hash": "CX0oq0xG8t2uQ05Ge0IlHmlHhcYuKAeK0uVUs-Ts4p0_ON40Poa93YdX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 80,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 60,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 20000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 10
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -300
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Uppercut",
+      "damage_parts": 4,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Unravel",
+      "stat_hash": "f47829b8c5093a9b13ac1134f8cad36560cfb00bdc2b89220c651f9c6fd6650a"
+    },
+    "chestplate": {
+      "name": "Libertas",
+      "stat_hash": "fc1847d5ef7aebf3c8a07dee6a112ca6029e61f9d049cf6fc49d64e7a1b367c6"
+    },
+    "leggings": {
+      "name": "Sagittarius",
+      "stat_hash": "680292033a73e842b692676100e890edbdcb612d51a8049b92e0ea8470978aa2"
+    },
+    "boots": {
+      "name": "Revenant",
+      "stat_hash": "fe51fb872171303894e3e8ddeb7a718fc2c3a3f50facbfc6b5030dee220bd9ce"
+    },
+    "ring2": {
+      "name": "Hypoxia",
+      "stat_hash": "d476ba07df41c5277cb5f04369987f9eb3c11e92f3f2342e577526f0f59846d8"
+    },
+    "bracelet": {
+      "name": "Palimpsest",
+      "stat_hash": "1f6707bd7ecd5011977f9981b5e6b50f876d1c011b6136e1c28cc3ebf7615be6"
+    },
+    "necklace": {
+      "name": "Metamorphosis",
+      "stat_hash": "02246fdfdd468f54bac8004064d7e5dc64cddc47fadd98152d3e49998031f167"
+    }
+  },
+  "created": "2026-08-16T02:32:13.345Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

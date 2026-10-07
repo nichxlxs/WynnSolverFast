@@ -42,9 +42,9 @@ const _INDIRECT_CONSTRAINT_STATS = INDIRECT_CONSTRAINT_STATS;
 
 // Mapping from indirect constraint stats to the direct item stats that contribute to them.
 const _INDIRECT_CONTRIBUTORS = {
-    ehp: ['hpBonus'],
-    ehp_no_agi: ['hpBonus'],
-    total_hp: ['hpBonus'],
+    ehp: ['hp', 'hpBonus'],
+    ehp_no_agi: ['hp', 'hpBonus'],
+    total_hp: ['hp', 'hpBonus'],
     hpr: ['hprRaw', 'hprPct'],
     ehpr: ['hpBonus', 'hprRaw', 'hprPct'],
     total_mana: ['maxMana'],
@@ -172,6 +172,20 @@ function _sensitivity_eval_score(combo_base, snap) {
         () => _eval_sensitivity_combo_healing(combo_base, snap),
         null,
         snap.custom_weights);
+}
+
+/**
+ * Set a finalized combo stat for sensitivity perturbation. Some item IDs are
+ * copied into derived nested multipliers by finalizeStatmap, so changing only
+ * the flat source key would not change the evaluator that consumes the nested
+ * representation.
+ */
+function _set_sensitivity_stat(combo_base, stat, value) {
+    combo_base.set(stat, value);
+    if (stat === 'healPct') {
+        const heal_mult = combo_base.get('healMult');
+        if (heal_mult instanceof Map) heal_mult.set('item', value);
+    }
 }
 
 // ── Step 4: Baseline statMap construction ───────────────────────────────────
@@ -457,9 +471,9 @@ function _compute_sensitivity_weights(snap, locked, pools) {
         if (!delta || delta === 0) continue;
 
         const old = combo_base.get(stat) ?? 0;
-        combo_base.set(stat, old + delta);
+        _set_sensitivity_stat(combo_base, stat, old + delta);
         const perturbed_score = _sensitivity_eval_score(combo_base, snap);
-        combo_base.set(stat, old); // restore
+        _set_sensitivity_stat(combo_base, stat, old); // restore
 
         const sensitivity = (perturbed_score - baseline_score) / delta;
         if (sensitivity !== 0) {
@@ -1047,9 +1061,14 @@ function _estimate_mana_tight(snap, combo_base) {
  *
  * Returns { higher: Set<string>, lower: Set<string> }.
  */
-function _build_dominance_stats(snap, dmg_weights, restrictions) {
+function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     const higher = new Set();
     const lower = new Set();
+
+    const sensitivity_ratio = options.sensitivity_ratio ?? 0.005;
+    if (!Number.isFinite(sensitivity_ratio) || sensitivity_ratio < 0 || sensitivity_ratio > 1) {
+        throw new Error(`invalid dominance sensitivity ratio ${sensitivity_ratio}`);
+    }
 
     // Compute threshold from max absolute sensitivity
     let max_abs = 0;
@@ -1057,7 +1076,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
         const abs_w = Math.abs(w);
         if (abs_w > max_abs) max_abs = abs_w;
     }
-    const threshold = max_abs * 0.005;
+    const threshold = max_abs * sensitivity_ratio;
 
     // Classify by sensitivity sign
     for (const [stat, w] of dmg_weights) {
@@ -1072,13 +1091,15 @@ function _build_dominance_stats(snap, dmg_weights, restrictions) {
         else if (op === 'le') lower.add(stat);
     }
 
-    // Indirect EHP/HP constraints: add hpBonus to higher set.
-    // hpBonus is always positive for EHP and is a clear dominant-direction stat.
+    // Indirect EHP/HP constraints: both static armour HP and rolled HP bonus
+    // are monotone contributors. Static HP lives directly on the item map,
+    // rather than in maxRolls, but _item_stat_val handles both locations.
     // We skip individual def stats — they interact non-monotonically with EHP
     // and adding all 5 would make dominance proofs nearly impossible.
     for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
         if (op !== 'ge') continue;
         if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') {
+            higher.add('hp');
             higher.add('hpBonus');
             break;
         }
@@ -1348,6 +1369,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
     }
 
     const preserve_set_items = options.preserve_set_items !== false;
+    const return_report = options.return_report === true;
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
     const equal_stats = [...(dominance_stats.equal ?? [])];
@@ -1362,6 +1384,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
     }
 
     let total_pruned = 0;
+    const certificates = [];
 
     for (const [slot, pool] of Object.entries(pools)) {
         // Separate NONE items (never pruned) from real items
@@ -1374,7 +1397,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
         const dominated = new Array(real.length).fill(false);
         // Debug: record which item dominated each pruned item
-        const dominated_by = _dbg ? new Array(real.length).fill(-1) : null;
+        const dominated_by = (_dbg || return_report) ? new Array(real.length).fill(-1) : null;
 
         const _name = (sm) => sm.get('displayName') ?? sm.get('name') ?? '?';
 
@@ -1388,11 +1411,13 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
             // Standalone stats cannot prove dominance for an ordinary set item:
             // either side may enable a bonus with an item in another slot.
             if (preserve_set_items && a_sm.get('set')) continue;
+            if ((a_sm.get('majorIds') ?? []).length > 0) continue;
 
             for (let j = 0; j < real.length; j++) {
                 if (i === j || dominated[j]) continue;
                 const b_sm = real[j].statMap;
                 if (preserve_set_items && b_sm.get('set')) continue;
+                if ((b_sm.get('majorIds') ?? []).length > 0) continue;
 
                 // Exclusive set guard: an item from an exclusive set must not
                 // dominate items outside that set (or from a different exclusive
@@ -1442,12 +1467,33 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
                 if (!ok) continue;
 
                 dominated[j] = true;
-                if (_dbg) dominated_by[j] = i;
+                if (dominated_by) dominated_by[j] = i;
             }
         }
 
         const pruned_count = dominated.filter(Boolean).length;
         total_pruned += pruned_count;
+
+        if (return_report) {
+            for (let j = 0; j < real.length; j++) {
+                if (!dominated[j]) continue;
+                let root = dominated_by[j];
+                const seen = new Set([j]);
+                while (root >= 0 && dominated[root] && !seen.has(root)) {
+                    seen.add(root);
+                    root = dominated_by[root];
+                }
+                certificates.push({
+                    slot,
+                    item: real[j],
+                    dominator: root >= 0 ? real[root] : real[dominated_by[j]],
+                    proof_kind: 'contract_dominance',
+                    higher_stats: [...higher_stats],
+                    lower_stats: [...lower_stats],
+                    equal_stats: [...equal_stats],
+                });
+            }
+        }
 
         if (_dbg) {
             const sp_names = ['str', 'dex', 'int', 'def', 'agi'];
@@ -1513,13 +1559,14 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
     if (total_pruned > 0) {
         console.log('[solver] dominance pruning removed', total_pruned, 'items across all pools');
     }
-    return total_pruned;
+    return return_report ? { removed_count: total_pruned, certificates } : total_pruned;
 }
 
 // Test exports (Node.js only)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         _item_stat_val, _build_dominance_stats, _prune_dominated_items,
+        _set_sensitivity_stat,
         _INDIRECT_CONSTRAINT_STATS,
         _DOMINANCE_MODES, _DOMINANCE_DEFAULT_MODE,
         _normalize_dominance_mode, _resolve_dominance_mode,

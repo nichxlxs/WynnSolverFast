@@ -1,0 +1,190 @@
+{
+  "name": "solver_meta_mage_riftwalker_cancelstack_remove_4",
+  "description": "mage/riftwalker cancelstack: remove_4; helmet, chestplate, bracelet, necklace equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "cancelstack",
+  "benchmark_class": "mage",
+  "benchmark_archetype": "riftwalker",
+  "benchmark_variant": "remove_4",
+  "benchmark_tier": "anytime",
+  "benchmark_checkpoints_seconds": [
+    60,
+    180,
+    300
+  ],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "29667958d4ac0ada0d5f2828d5e82d1364ceccfbd21c47151345ca4a00a26c06",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0tAGuFym0XQmjHCDIvHAPn8l6fpe0W+v4tMz9Ho7",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0tAGuFym0XQmjHCDIvHAPn8l6fpe0W+v4tMz9Ho7",
+  "designed_version": "2.2.3.2",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Mage forum; Trance Riftwalker cancelstack with tank, DPS, and sustain variants.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492897519804616855/1492897519804616855",
+  "core_weapon": "Trance",
+  "seed_item_names": [
+    "Gaze from the Snowbank",
+    "Untimely Demise",
+    "Writhing Growth",
+    "Crusade Sabatons",
+    "Durian",
+    "Vivisected",
+    "Ironleaf Bangle",
+    "Brass Choker"
+  ],
+  "elements": [
+    "earth",
+    "thunder",
+    "fire"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          6,
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "earth",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "earth",
+      "fire"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "three-second main-attack window",
+    "proxy_for": "cancelstack melee DPS",
+    "combo_rows": [
+      {
+        "spell_node_id": 118,
+        "qty": 3,
+        "mana_excl": true,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": true,
+    "allow_downtime": false,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 22000
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -500
+      },
+      {
+        "stat": "mainAttackRange",
+        "op": "ge",
+        "value": -20
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 314987.0873295391,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 4,
+    "removal_seed": "mage_riftwalker_cancelstack:4:0",
+    "removed_slots": [
+      "helmet",
+      "chestplate",
+      "bracelet",
+      "necklace"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Writhing Growth",
+    "Crusade Sabatons",
+    "Durian",
+    "Vivisected",
+    "Trance"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "bracelet",
+    "necklace"
+  ],
+  "free_mask": 195,
+  "url_hash": "CX0tAGuFym0XQmjHCDIvHAPn8l6fpe0W+v4tMz9Ho7_ON80Poa9ROeG0s74000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 81,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 300,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 22000
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -500
+    },
+    {
+      "stat": "mainAttackRange",
+      "op": "ge",
+      "value": -20
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 0,
+      "name": "Wand Melee",
+      "damage_parts": 3,
+      "mana_excl": true,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "leggings": {
+      "name": "Writhing Growth",
+      "stat_hash": "51c9e913fa4a9b1004b8ed378eb4213d9c98f53d400ce0f7f7ffacb13d2db24c"
+    },
+    "boots": {
+      "name": "Crusade Sabatons",
+      "stat_hash": "d2db5ba2b93cb4b212f0803ad665b14a41efc1fd200bc985c28c86fdc717527b"
+    },
+    "ring1": {
+      "name": "Durian",
+      "stat_hash": "5eee897a1d77d689fcc8c9f6183ab4f6ede98a5a6af22a866cbd320fa1283df8"
+    },
+    "ring2": {
+      "name": "Vivisected",
+      "stat_hash": "36ef2665b9dcb1c6431a25ded492b0b30d704ce24f76bbb4414f0239146d71d7"
+    }
+  },
+  "created": "2026-08-16T03:36:35.564Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

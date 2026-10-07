@@ -12,6 +12,9 @@ const t = new TestRunner('Dominance Pruning');
 const _prune_dominated_items = ctx._prune_dominated_items;
 const _build_dominance_stats = ctx._build_dominance_stats;
 const _item_stat_val = ctx._item_stat_val;
+const _set_sensitivity_stat = ctx._set_sensitivity_stat;
+const reduce_candidate_pools = ctx.reduce_candidate_pools;
+const get_candidate_search_stages = ctx.get_candidate_search_stages;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -250,6 +253,24 @@ function makeNoneItem() {
     t.assert(ds.lower.has('spRaw1'), 'Test 17: spRaw1 in lower');
 }
 
+// Test 17b: benchmark strategy ratios expose conservative/current/aggressive fronts
+{
+    const snap = { combo_time: 0, parsed_combo: [] };
+    const dmg_weights = new Map([['damPct', 1], ['weakStat', 0.003]]);
+    const restrictions = { stat_thresholds: [] };
+    const conservative = _build_dominance_stats(
+        snap, dmg_weights, restrictions, { sensitivity_ratio: 0 });
+    const current = _build_dominance_stats(snap, dmg_weights, restrictions);
+    const aggressive = _build_dominance_stats(
+        snap, dmg_weights, restrictions, { sensitivity_ratio: 0.02 });
+    t.assert(conservative.higher.has('weakStat'),
+        'Test 17b: conservative strategy retains weak nonzero sensitivity');
+    t.assert(!current.higher.has('weakStat'),
+        'Test 17b: current strategy excludes sensitivity below 0.5%');
+    t.assert(!aggressive.higher.has('weakStat'),
+        'Test 17b: aggressive strategy excludes sensitivity below 2%');
+}
+
 // Test 18: ordinary set pieces are not safe standalone dominance candidates.
 // A weaker item can enable a globally superior set bonus with another slot.
 {
@@ -266,6 +287,21 @@ function makeNoneItem() {
     _prune_dominated_items(legacyPools, ds, { preserve_set_items: false });
     t.assert(!legacyPools.helmet.includes(setPiece),
         'Test 18: benchmark-only legacy mode reproduces original set pruning');
+}
+
+// Test 18b: healPct is finalized into healMult.item. Sensitivity perturbation
+// must update both representations or healing objectives see a false zero
+// sensitivity and can prune the exact optimum.
+{
+    const combo = new Map([
+        ['healPct', 2],
+        ['healMult', new Map([['item', 2]])],
+    ]);
+    _set_sensitivity_stat(combo, 'healPct', 10);
+    t.assert(combo.get('healPct') === 10,
+        'Test 18b: healing sensitivity updates the source item stat');
+    t.assert(combo.get('healMult').get('item') === 10,
+        'Test 18b: healing sensitivity updates the finalized multiplier');
 }
 
 // Test 19: relevant-but-non-monotonic stats require equality for dominance.
@@ -396,6 +432,150 @@ t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
+
+// Test 20: the reducer preserves a discrete melee enabler even when the local
+// sensitivity probe is zero. This is the reduced form of the exact
+// mage_riftwalker_cancelstack counterexample where Knucklebones (+3 atkTier)
+// was incorrectly classified as dominated by an empty bracelet.
+{
+    t.assert(typeof reduce_candidate_pools === 'function',
+        'Test 20: candidate reducer interface is available');
+    if (typeof reduce_candidate_pools === 'function') {
+        const empty = makeItem({});
+        const knucklebones = makeItem({ atkTier: 3, ls: -2100, ms: -160 });
+        const pools = { bracelet: [empty, knucklebones] };
+        const reduction = reduce_candidate_pools(pools, {
+            snap: {
+                combo_time: 0,
+                parsed_combo: [{ spell: { base_spell: 0, scaling: 'melee' }, mana_excl: true }],
+            },
+            dmg_weights: new Map(),
+            restrictions: { stat_thresholds: [] },
+            mode: 'certified',
+        });
+        t.assert(reduction.active_pools.bracelet.includes(knucklebones),
+            'Test 20: certified reduction preserves zero-gradient atkTier items');
+    }
+}
+
+// Test 21: below-threshold but nonzero objective dimensions are uncertain, not
+// irrelevant. This models the aggressive slow-heavy-melee counterexample where
+// Diamond Fiber Bracelet was removed after its damage dimensions were omitted.
+{
+    if (typeof reduce_candidate_pools === 'function') {
+        const buzzsaw = makeItem({}, [50,0,0,0,0], [6,0,0,0,0]);
+        const diamondFiber = makeItem(
+            { mdPct: 16, eDamPct: 16 },
+            [100,0,0,0,0],
+            [6,0,0,0,0],
+        );
+        const reduction = reduce_candidate_pools({ bracelet: [buzzsaw, diamondFiber] }, {
+            snap: {
+                combo_time: 0,
+                parsed_combo: [{ spell: { base_spell: 0, scaling: 'melee' }, mana_excl: true }],
+            },
+            dmg_weights: new Map([
+                ['dominantScale', 1],
+                ['mdPct', 0.003],
+                ['eDamPct', 0.003],
+            ]),
+            restrictions: { stat_thresholds: [] },
+            mode: 'balanced',
+        });
+        t.assert(reduction.active_pools.bracelet.includes(diamondFiber),
+            'Test 21: balanced reduction defers rather than deletes weak active dimensions');
+    }
+}
+
+// Test 22: every removed item remains recoverable through the deferred pool and
+// carries a machine-readable dominance certificate for diagnostics and staged
+// widening.
+{
+    if (typeof reduce_candidate_pools === 'function') {
+        const strong = makeItem({ damPct: 20 });
+        const weak = makeItem({ damPct: 10 });
+        const reduction = reduce_candidate_pools({ helmet: [strong, weak] }, {
+            snap: { combo_time: 0, parsed_combo: [] },
+            dmg_weights: new Map([['damPct', 1]]),
+            restrictions: { stat_thresholds: [] },
+            mode: 'certified',
+        });
+        const certificate = reduction.certificates.find(entry => entry.item === weak);
+        t.assert(reduction.deferred_pools.helmet.includes(weak)
+            && certificate?.dominator === strong
+            && certificate?.proof_kind === 'contract_dominance',
+        'Test 22: reducer returns deferred items with dominance certificates');
+    }
+}
+
+// Test 23: a standalone stat comparison cannot prove that an item with a
+// unique Major ID is replaceable. Major IDs can change combat behaviour in
+// ways that do not appear in rolled identification stats.
+{
+    const plain = makeItem({ damPct: 20 });
+    const major = makeItem({ damPct: 10 });
+    major.statMap.set('majorIds', ['FREERUNNER']);
+    const pools = { boots: [plain, major] };
+    _prune_dominated_items(pools, {
+        higher: new Set(['damPct']), lower: new Set(), equal: new Set(),
+    });
+    t.assert(pools.boots.includes(major),
+        'Test 23: items with Major IDs are not standalone-dominance pruned');
+}
+
+// Test 24: static armour HP participates in an EHP contract. It lives on the
+// item statMap rather than maxRolls, so omitting it could erase the only item
+// that makes an EHP threshold feasible.
+{
+    if (typeof reduce_candidate_pools === 'function') {
+        const damage = makeItem({ damPct: 20 });
+        const health = makeItem({ damPct: 10 });
+        health.statMap.set('hp', 4000);
+        const reduction = reduce_candidate_pools({ chestplate: [damage, health] }, {
+            snap: { combo_time: 0, parsed_combo: [] },
+            dmg_weights: new Map([['damPct', 1]]),
+            restrictions: { stat_thresholds: [{ stat: 'ehp', op: 'ge', value: 20000 }] },
+            mode: 'certified',
+        });
+        t.assert(reduction.active_pools.chestplate.includes(health),
+            'Test 24: certified EHP reduction preserves static armour HP');
+    }
+}
+
+// Test 25: disabling equipment pruning does not disable the dominance contract
+// metadata consumed by tome optimisation and diagnostics.
+{
+    if (typeof reduce_candidate_pools === 'function') {
+        const reduction = reduce_candidate_pools({ ring: [makeItem({ mr: 5 })] }, {
+            snap: { combo_time: 0, parsed_combo: [] },
+            dmg_weights: new Map([['mr', 1]]),
+            restrictions: { stat_thresholds: [] },
+            mode: 'off',
+        });
+        t.assert(reduction.dominance_stats?.higher?.has('mr')
+            && reduction.removed_count === 0,
+        'Test 25: unpruned mode retains contract metadata without removing items');
+    }
+}
+
+// Test 26: fast verification first searches the guarded active pool, then the
+// full pool. The second stage provides eventual exhaustive coverage while the
+// first supplies an incumbent for score bounds and early UI results.
+{
+    t.assert(typeof get_candidate_search_stages === 'function'
+        && JSON.stringify(get_candidate_search_stages('fast_verify'))
+            === JSON.stringify(['balanced', 'off']),
+    'Test 26: fast verification expands from balanced to the full pool');
+}
+
+// Test 27: Balanced is the product default when no explicit pruning mode is
+// supplied. Certified and unpruned modes remain available for exact controls.
+{
+    t.assert(typeof get_candidate_search_stages === 'function'
+        && JSON.stringify(get_candidate_search_stages())
+            === JSON.stringify(['balanced']),
+    'Test 27: unspecified pruning mode defaults to balanced');
+}
 
 const summary = t.summary();
 if (require.main === module) {

@@ -1,0 +1,178 @@
+{
+  "name": "solver_meta_shaman_summoner_aura_remove_3",
+  "description": "shaman/summoner spell_summoner: remove_3; leggings, ring2, necklace equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "spell_summoner",
+  "benchmark_class": "shaman",
+  "benchmark_archetype": "summoner",
+  "benchmark_variant": "remove_3",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "2e466a97495d9cc9c7ec2c740b484a370c2e81d5e5082140fe96f8917d6d93cb",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0oqG2E8t2VJH052nmoHEdWsqYSk4S90yFOTntvbAg0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0oqG2E8t2VJH052nmoHEdWsqYSk4S90yFOTntvbAg0",
+  "designed_version": "2.2.3",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Shaman forum; timed Aura, Uproot, Hummingbirds, and Commander cycle. Author notes a stronger alternative exists.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1536048071010549831/1536048071010549831",
+  "core_weapon": "Masterwork Olympic",
+  "seed_item_names": [
+    "Unravel",
+    "Wanderlust",
+    "Sagittarius",
+    "Stalking Mist",
+    "Intensity",
+    "Diamond Steam Ring",
+    "Freight Trainer",
+    "Bottled Thunderstorm"
+  ],
+  "elements": [
+    "earth",
+    "thunder",
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          34,
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "air"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Aura cast",
+    "proxy_for": "direct Summoner spell damage; summon AI and pet DPS remain unmodelled",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 18000
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -300
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 7300.944943948425,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 3,
+    "removal_seed": "shaman_summoner_aura:3:0",
+    "removed_slots": [
+      "leggings",
+      "ring2",
+      "necklace"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Unravel",
+    "Wanderlust",
+    "Stalking Mist",
+    "Intensity",
+    "Freight Trainer",
+    "Masterwork Olympic"
+  ],
+  "free_equipment_slots": [
+    "leggings",
+    "ring2",
+    "necklace"
+  ],
+  "free_mask": 164,
+  "url_hash": "CX0oqG2E8t2VJH052nmoHEdWsqYSk4S90yFOTntvbAg0_ON40Poa9ZKeX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 81,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 600,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -300
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Aura",
+      "damage_parts": 5,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Unravel",
+      "stat_hash": "f47829b8c5093a9b13ac1134f8cad36560cfb00bdc2b89220c651f9c6fd6650a"
+    },
+    "chestplate": {
+      "name": "Wanderlust",
+      "stat_hash": "d0f65f16892d84d72c100f80a70236d16f5a82ded7f742c8d6c2c2b12fc04495"
+    },
+    "boots": {
+      "name": "Stalking Mist",
+      "stat_hash": "c0eaeb3f5cc9f39f9563778c83b0e4ed22c04217c24fc11a0205ab3fc9c2d7d7"
+    },
+    "ring1": {
+      "name": "Intensity",
+      "stat_hash": "85a8a37c0d9cf62554aa87cef650e5eec02d1394472d0e0d7791a3319d4bd3cb"
+    },
+    "bracelet": {
+      "name": "Freight Trainer",
+      "stat_hash": "7efcde41ff73d34b274074219c09dd099dc290e7148500d3148b051cd974fe44"
+    }
+  },
+  "created": "2026-08-16T02:38:40.607Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

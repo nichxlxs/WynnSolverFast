@@ -22,8 +22,9 @@ import argparse, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-BIN = ROOT / "target" / "release" / "enum_kernel"
+BIN = ROOT / "target" / "release" / ("enum_kernel.exe" if os.name == "nt" else "enum_kernel")
 FIX = ROOT / "fixtures"
+META_MANIFEST = ROOT.parents[1] / "js" / "solver" / "benchmarks" / "current_meta_suite.json"
 
 # scenario -> (enum fixture, score fixture or None)
 SCENARIOS = {
@@ -50,6 +51,25 @@ for _fam in FAMILIES:
 
 FAMILY_SCENARIOS = [f"fam_{f}_{s}" for f in FAMILIES
                     for s in ("small", "medium", "large")]
+
+# Current-meta scenarios are generated from the same manifest as the JS suite.
+# The fixture exporter preserves the snapshot stem, so no hand-maintained list
+# is needed when profiles are added or replaced.
+META_SCENARIOS = []
+META_REQUIRED_SCENARIOS = []
+META_STRESS_SCENARIOS = []
+META_CONTRACTS = {}
+if META_MANIFEST.exists():
+    _meta = json.loads(META_MANIFEST.read_text(encoding="utf-8"))
+    for _scenario in _meta.get("scenarios", []):
+        _stem = _scenario["snapshot"].removeprefix("solver_")
+        SCENARIOS[_stem] = (f"enum_{_stem}.txt", f"score_{_stem}.json")
+        META_SCENARIOS.append(_stem)
+        META_CONTRACTS[_stem] = _scenario.get("recovery_contract", {})
+        if _scenario.get("recovery_contract", {}).get("required"):
+            META_REQUIRED_SCENARIOS.append(_stem)
+        else:
+            META_STRESS_SCENARIOS.append(_stem)
 
 DEFAULT_SCENARIOS = ["spell_wide", "ehp", "xpb", "spell_8free"]
 
@@ -176,9 +196,17 @@ def main():
     ap.add_argument("--json", help="write results to this path")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip cross-config result verification")
+    ap.add_argument("--enforce-recovery", action="store_true",
+                    help="fail report-only recovery contracts when their target is missed")
     args = ap.parse_args()
     if args.scenarios and "families" in args.scenarios:
         args.scenarios = [x for x in args.scenarios if x != "families"] + FAMILY_SCENARIOS
+    if args.scenarios and "current-meta" in args.scenarios:
+        args.scenarios = [x for x in args.scenarios if x != "current-meta"] + META_SCENARIOS
+    if args.scenarios and "current-meta-required" in args.scenarios:
+        args.scenarios = [x for x in args.scenarios if x != "current-meta-required"] + META_REQUIRED_SCENARIOS
+    if args.scenarios and "current-meta-stress" in args.scenarios:
+        args.scenarios = [x for x in args.scenarios if x != "current-meta-stress"] + META_STRESS_SCENARIOS
 
     if not BIN.exists():
         sys.exit(f"missing {BIN} — run: cargo build --release")
@@ -245,6 +273,18 @@ def main():
                     print(f"  !! FAIL {r['config']}: top-15 score set differs")
                 elif r["top_items"] != base["top_items"]:
                     print(f"  ~  {r['config']}: tie-order differs (scores identical, allowed)")
+        contract = META_CONTRACTS.get(scen)
+        if contract and contract.get("target_score") is not None:
+            scores = [float(score) for score in base.get("top_scores", [])]
+            target = float(contract["target_score"])
+            threshold = target * (1.0 - float(contract.get("relative_tolerance", 0.0)))
+            recovered = bool(scores) and max(scores) >= threshold
+            regret = max(0.0, (target - max(scores)) / abs(target)) if scores and target else None
+            print(f"  recovery target {target:.6g}: {'PASS' if recovered else 'MISS'}"
+                  + (f" | regret {regret:.3%}" if regret is not None else ""))
+            enforce = contract.get("enforcement") == "fail" or args.enforce_recovery
+            if enforce and not recovered:
+                failures.append((scen, base["config"], "calibrated seed score not recovered"))
         print()
 
     if args.json:
