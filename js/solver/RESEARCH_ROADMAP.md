@@ -682,7 +682,114 @@ which the band sweep already does.
   Ordering by how much the suffix maxima shrink when that slot is fixed
   (bound tightness) would make R2/R3 bite earlier. Measure per family.
 
-## 5. Suggested order
+## 5. Existing unmerged branches (reviewed 2026-10-07)
+
+Five branches carry commits master does not have. Two are superseded, one
+is a large finished piece of this roadmap, one is a correctness finding
+with tests, and one is a conflicting bundle with three real fixes inside.
+
+| Branch | State vs master | Verdict |
+|---|---|---|
+| `codex/review-and-optimize-wynnsolver-performance` | 1 ahead, 122 behind | **Delete.** Its one commit (SP maxima restore from a stack, trace phases, `top_results.js`) is on master in the same shape (`_sp_max_save`, `_TRACE_PHASES`). |
+| `codex/rust-wasm-solver` | 5 ahead, 96 behind | **Delete.** Superseded by PR #5. Its two admissibility fixes (seed dedup by item names, `ceiling_vars_ok`) are both on master. The `search_core.rs` layout never landed and the current `enumerate.rs` replaced it. |
+| `codex/current-family-benchmarks` | 1 ahead, 0 behind | **Merge.** See below. |
+| `agent/anytime-neighborhood-benchmarks` | 4 ahead, 0 behind | **Merge, after trimming the evidence tarballs.** See below. |
+| `agent/exact-solver-optimization-validation` | 1 ahead, 6 behind, 7 conflicts | **Do not merge; cherry-pick three fixes.** See below. |
+
+Fully merged branches (`agent/add-family-benchmark-variations`,
+`claude/build-algorithm-optimization-egcj4c`, `claude/rust-wasm-phase2`,
+`claude/wynnsolver-performance-traces-0131sj`) can be deleted.
+
+### `codex/current-family-benchmarks`: a correctness finding on master's default
+
+Adds `engine/candidate_reducer.js` with explicit pruning policies
+(certified, balanced, legacy, aggressive, off), a "fast then verify" mode,
+15 current-meta archetype snapshots at six removal depths (90 fixtures), and
+`research/guarded-item-pruning-implementation-findings.md`. Its headline
+result is against **current master's default dominance**: on Mage
+Riftwalker cancelstack with three slots free, the default prunes
+Knucklebones (+3 attack tier) as dominated by an empty bracelet, because
+attack tier was not a dominance dimension in that scenario, and the
+exhaustive optimum drops from 350,291 to 314,987 (a 10.08% loss). The
+certified policy matched the unpruned optimum in all 34 exhaustive controls;
+balanced matched every available control at 56% space reduction.
+
+Checked here: the branch is on current master with no conflicts, and its
+tests pass (`test_dominance.js` 68/68, `test_current_meta_benchmarks.js`
+1,153/1,153). Its "Test 20" pins the Knucklebones case. Merge it; then this
+roadmap's R4 (set-aware dominance) builds on the certified policy rather
+than on the legacy one. One question for the merge: the branch makes
+*balanced* the product default, which is still a heuristic. Given the
+finding, certified-by-default with balanced as an opt-in speed mode is the
+safer reading of its own numbers.
+
+### `agent/anytime-neighborhood-benchmarks`: R6 is already built
+
+This is the LNS incumbent thread (R6), the warm-witness retention half of
+R13, and the archive deduplication of R17, implemented in Rust
+(`enumerate/anytime.rs`, 1,174 lines) with a browser "Quick search" mode
+(5/15/30 s budgets), a 132-query quality suite, 1,209 recorded runs, and
+frozen-target methodology that is better than most of the literature cited
+above. Honest about its limits: it never reports completion, and the
+reports separate score gains from timing gains. On the six-slot-free
+archetype queries the follow-up profile reached the frozen 99% target on
+66/66 runs where plain enumeration managed 36/66, with endpoint score gains
+of +38% (Arcanist), +51% (Light Bender), +28% (Ritualist tierstack) at a
+five-second budget.
+
+It also carries a **Rust scoring bug fix**: healing parts use the current
+`power` field, and the Rust evaluator only recognised the legacy
+`max_hp_heal_pct` alias, so it returned zero healing on 15 of 132 exported
+fixtures (every Light Bender and Acolyte snapshot) where the JS returned
+positive values. That fix alone is worth merging.
+
+Checked here: no conflicts with master, `test_quick_search.js` 18/18,
+`cargo test --release --lib` 35/35. Two
+things to trim before merging: `rust/sp_kernel/evidence/**` holds ~7.6 MB
+of `.tar.gz` raw campaign archives, which belong in a release asset or a
+separate evidence branch, not in the source tree; and the shipped wasm
+grows from 632 KB to 893 KB, which the browser pays on every load, so the
+anytime module should probably be a separate wasm build or feature-gated.
+After merging, R6 becomes "integrate Quick search's archive with the
+exhaustive run's cutoff" (the branch keeps them as separate modes) and R20's
+windowed archive can reuse its diverse-archive code.
+
+### `agent/exact-solver-optimization-validation`: three fixes worth taking
+
+A single 4,298-line commit from 2026-08-15 bundling the reachable set-SP
+bound (which landed separately as PRs #15 and #16), an adaptive ceiling
+memo (master took a different fix), dominance policy modes (overlapping
+with the branch above), two benchmark harnesses, and three game-correctness
+fixes. It conflicts with master in seven files, and its own docs say its
+medium/large timings are projections whose raw data was not retained. Do
+not merge it. Cherry-pick these, each as its own small PR with its own test:
+
+1. **Set weapons.** `calculate_skillpoints` iterates `equipment` for set
+   counts and the weapon is passed separately, so a non-crafted set weapon
+   (Bony Bow in the Bony set) never activates its set in either engine. The
+   Rust loader counts the weapon's requirements but not its set id.
+   Confirmed on master. The anytime branch works around it by refusing set
+   weapons; this is the fix.
+2. **EHP precheck at 100 Def/Agi.** `_build_constraint_prechecks` computes
+   the optimistic EHP divisor with `skillPointsToPercentage(100)`, but
+   total Def/Agi reach 150 with item provisions, so the precheck is not an
+   upper bound and can reject a build whose real EHP meets the `>=`
+   threshold. The divisor is exported to the Rust fixture, so both engines
+   share the hole. Confirmed on master. Fix: evaluate at the reachable cap
+   (150, or the R1 per-lane cap), which also closes tracker queue item 2's
+   EHP half.
+3. **Maximum mana cap.** The branch clamps start mana to 400 in both
+   simulators. The wiki's Mana page states no cap, so verify this against
+   the live game before adopting; if it is real, it is a one-line change in
+   each simulator, and it is a feasibility fix (the sim currently
+   overestimates mana on high-Int, high-maxMana builds).
+
+The raw `>=` precheck ignoring set and tree contributions (the other half
+of tracker item 2) is also disabled on that branch; that one is a known
+open decision on master and belongs with R1's bound work rather than a
+cherry-pick.
+
+## 6. Suggested order
 
 1. **R1** reachable-SP ceilings: smallest change, provable, likely the largest
    single bound tightening.
