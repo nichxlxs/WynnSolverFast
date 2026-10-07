@@ -275,6 +275,8 @@ fn reduced_fixture(fx: &Fixture, choices: &[Vec<usize>]) -> Fixture {
         set_table: fx.set_table.clone(), fixed_names: fx.fixed_names.clone(),
         none_names: fx.none_names.clone(),
         eps: fx.eps,
+        // Repairs are heuristic sub-searches: no R20 archive inside them.
+        window: 0.0, archive_cap: crate::enumerate::DEFAULT_ARCHIVE_CAP,
     }
 }
 
@@ -820,7 +822,8 @@ mod tests {
         let fx = Fixture { budget: 0, pc_thresholds: vec![], pc_start: vec![],
             ehp: None, ehpna: None, thp: None, hp_start: 0.0, weapon: Unit::default(),
             guild: None, fixed: vec![], slots, set_table: vec![], fixed_names: vec![],
-            none_names: none_names.clone(), weapon_set: -1, eps: 0.0 };
+            none_names: none_names.clone(), weapon_set: -1, eps: 0.0,
+            window: 0.0, archive_cap: crate::enumerate::DEFAULT_ARCHIVE_CAP };
         let score = json!({
             "meta": { "scoring_target": "total_hp" },
             "weapon_sm": { "__m": { "reqs": vec![0;5], "skillpoints": vec![0;5], "type": "wand",

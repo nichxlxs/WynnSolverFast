@@ -7368,3 +7368,35 @@ mod healing_schema_tests {
         }
     }
 }
+
+/// R20 explain pass: the stats a QoL ranking needs for one scored build,
+/// recomputed from its items and final skill points. Runs only for archived
+/// builds at the end of a windowed search, never on the hot path. Returns
+/// None when the build cannot be assembled (an unknown item name).
+///
+/// `mana_delta` is end minus start mana over one combo from the fast sim
+/// (negative means the combo drains mana); it is omitted when the scenario
+/// has no timed combo.
+pub fn explain_build(sc: &ScoringCtx, items: &[&str], total_sp: &[i32; 5]) -> Option<Vec<(&'static str, f64)>> {
+    let sp: Vec<f64> = total_sp.iter().map(|&v| v as f64).collect();
+    let combo_base = sc.layer2.assemble(items, &sp, &sc.weapon).ok()?;
+    let view = StatsView::Borrowed(&combo_base);
+    let (total_hp, ehp, ehp_no_agi, hpr, _ehpr) = defense_stats(&view, &sc.tables);
+    let mut out = vec![
+        ("total_hp", total_hp), ("ehp", ehp), ("ehp_no_agi", ehp_no_agi), ("hpr", hpr),
+        ("total_mana", eval_indirect_stat(&view, "total_mana", &sc.tables)),
+        ("mr", view.num_or0("mr")), ("ms", view.num_or0("ms")), ("spd", view.num_or0("spd")),
+        ("ls", view.num_or0("ls")), ("atkTier", view.num_or0("atkTier")),
+    ];
+    if sc.consts.combo_time > 0.0 {
+        let has_transcendence = combo_base.get("activeMajorIDs")
+            .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+            .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+            .unwrap_or(false);
+        let (start, end, _, _) = simulate_mana_fast(
+            &sc.rows, &combo_base, has_transcendence, &sc.registry, &sc.tables, &sc.consts,
+            Some(&sc.compiled_rows));
+        out.push(("mana_delta", end - start));
+    }
+    Some(out)
+}

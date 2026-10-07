@@ -189,6 +189,11 @@ pub struct Fixture {
     /// A search option rather than scenario data, carried here so the browser
     /// can set it through the fixture it already sends.
     pub eps: f64,
+    /// R20 windowed archive: keep every build within `window` (a fraction)
+    /// of the best, up to `archive_cap` entries, from optional `WINDOW <x>`
+    /// and `ARCHIVE <n>` lines. 0 = the usual top-N.
+    pub window: f64,
+    pub archive_cap: usize,
 }
 
 pub fn parse_fixture(text: &str) -> Fixture {
@@ -294,6 +299,8 @@ pub fn parse_fixture(text: &str) -> Fixture {
     let mut fixed_names = Vec::new();
     let mut none_names = Vec::new();
     let mut eps = 0.0f64;
+    let mut window = 0.0f64;
+    let mut archive_cap = DEFAULT_ARCHIVE_CAP;
     loop {
         let Some(line) = lines.next() else { break };
         let t = toks(line);
@@ -317,6 +324,14 @@ pub fn parse_fixture(text: &str) -> Fixture {
                     fixed_names.push((pos_s.parse().unwrap(), name.trim().to_string()));
                 }
             }
+            "WINDOW" => {
+                window = t.get(1).and_then(|v| v.parse::<f64>().ok())
+                    .filter(|w| w.is_finite() && *w > 0.0 && *w < 1.0).unwrap_or(0.0);
+            }
+            "ARCHIVE" => {
+                archive_cap = t.get(1).and_then(|v| v.parse::<usize>().ok())
+                    .filter(|&n| n > 0).unwrap_or(DEFAULT_ARCHIVE_CAP);
+            }
             "EPS" => {
                 eps = t.get(1).and_then(|v| v.parse::<f64>().ok())
                     .filter(|e| e.is_finite() && *e > 0.0).unwrap_or(0.0);
@@ -332,7 +347,32 @@ pub fn parse_fixture(text: &str) -> Fixture {
     }
 
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names, eps }
+              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names, eps,
+              window, archive_cap }
+}
+
+/// Default R20 archive capacity. Beyond it the window's completeness claim is
+/// withdrawn rather than the archive growing without bound.
+pub const DEFAULT_ARCHIVE_CAP: usize = 2000;
+
+/// The result capacity a search over `fx` uses: the archive cap when an R20
+/// window is set, the configured top-N otherwise.
+pub fn effective_result_count(fx: &Fixture, options: &SearchOptions) -> usize {
+    if fx.window > 0.0 { fx.archive_cap } else { options.result_count }
+}
+
+/// R20: whether an archive holds every build within the window. `complete`
+/// is whether the search exhausted its space; `top` is the final archive,
+/// best first. Sound when nothing in the final window was evicted or
+/// pruned: an evicted entry scored at most the archive's last score at the
+/// time, which only rises, and a pruned subtree's ceiling was below
+/// max(last score, window line) at the time, both at most their final
+/// values. So it holds when the archive is not full, or its last entry is
+/// below the final window line.
+pub fn window_complete(complete: bool, top: &[TopEntry], cap: usize, window: f64) -> bool {
+    if !complete || window <= 0.0 { return false; }
+    let Some(best) = top.first().map(|e| e.score) else { return true };
+    top.len() < cap || top[cap - 1].score < best * (1.0 - window)
 }
 
 pub struct Search<'a> {
@@ -467,6 +507,10 @@ pub struct Search<'a> {
     /// optimum and ranks 2 to 15 are unverified. 0 (the default) is the exact
     /// search, unchanged. SEARCH_EPS sets it on the CLI.
     eps: f64,
+    /// R20 window (0 = off). When set, `eps` is ignored: the exact window's
+    /// prune line is (1 - window) * best, and a tolerance on top of it would
+    /// drop builds inside the window.
+    window: f64,
     scored: u64,
     gated: u64,
     mana_reject: u64,
@@ -757,6 +801,7 @@ impl<'a> Search<'a> {
                 Some(_) => 0.0,
                 None => fx.eps,
             },
+            window: fx.window,
             scored: 0,
             gated: 0,
             mana_reject: 0,
@@ -783,17 +828,18 @@ impl<'a> Search<'a> {
                 cutoff = Some(s as f64);
             }
         }
-        if self.eps > 0.0 {
-            // R21: (1 + eps) * best, defined only for a positive best. With a
-            // positive best it is at least the 15th-best cutoff, so it only
-            // ever raises the line.
+        if self.window > 0.0 || self.eps > 0.0 {
+            // R21: (1 + eps) * best; R20: (1 - window) * best, which takes
+            // precedence. Defined only for a positive best (a real build's
+            // score), so the line is admissible like the 15th-best cutoff.
             let mut best = self.top_n.first().map_or(f64::NEG_INFINITY, |e| e.score);
             if let Some(sb) = self.shared_best {
                 let b = f64::from_bits(sb.load(Ordering::Relaxed));
                 if b > best { best = b; }
             }
             if best > 0.0 {
-                let line = best * (1.0 + self.eps);
+                let line = if self.window > 0.0 { best * (1.0 - self.window) }
+                           else { best * (1.0 + self.eps) };
                 cutoff = Some(cutoff.map_or(line, |c| c.max(line)));
             }
         }
@@ -812,7 +858,7 @@ impl<'a> Search<'a> {
         // A new local best: report it (R8) and publish it for the R21 line.
         if self.top_n[0].score == score {
             if anytime_trace::on() { anytime_trace::best(score); }
-            if let (true, Some(sb)) = (self.eps > 0.0 && score > 0.0, self.shared_best) {
+            if let (true, Some(sb)) = ((self.eps > 0.0 || self.window > 0.0) && score > 0.0, self.shared_best) {
                 sb.fetch_max(score.to_bits(), Ordering::Relaxed);
             }
         }
@@ -2027,6 +2073,7 @@ pub fn run_single_with_options(
     options: SearchOptions,
 ) -> Totals {
     assert!(options.result_count > 0, "result_count must be positive");
+    let options = SearchOptions { result_count: effective_result_count(fx, &options), ..options };
     let overall_started = Instant::now();
     let shared_cutoff = AtomicU64::new(0);
     let shared_best = AtomicU64::new(0);
@@ -2236,19 +2283,45 @@ pub fn solve_json_full(
         // the build's skill points; without it the UI would show a zeroed
         // allocation whose stats contradict the score.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}{}}}",
                               sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
-                              tome_json(&e.tome)));
+                              tome_json(&e.tome), stats_json(&fx, ctx.as_ref(), e)));
     }
     top.push(']');
     format!(
         "{{\"checked\":{},\"feasible\":{},\"scored\":{},\"gated\":{},\
          \"mana_reject\":{},\"thresh_reject\":{},\"bound_pruned\":{},\
-         \"complete\":{},\"top\":{}}}",
+         \"complete\":{},{}\"top\":{}}}",
         totals.checked, totals.feasible, totals.scored, totals.gated,
         totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
-        complete, top,
+        complete, window_json(&fx, complete, &totals.top_n), top,
     )
+}
+
+/// R20: `,"stats":{...}` for an archived build in a windowed run (empty
+/// otherwise, and for a build whose tome choice was optimised, since the
+/// explain pass assembles with the fixture's tomes).
+fn stats_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, e: &TopEntry) -> String {
+    let (true, Some(sc), None) = (fx.window > 0.0, ctx, e.tome.as_ref()) else { return String::new() };
+    let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
+    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.total_sp) else { return String::new() };
+    let body: Vec<String> = stats.iter().filter(|(_, v)| v.is_finite())
+        .map(|(k, v)| format!("\"{k}\":{v}")).collect();
+    format!(",\"stats\":{{{}}}", body.join(","))
+}
+
+/// R20 fields for the solve JSON (empty without a window). `archive_full`
+/// and `archive_last` let a host that merges several partitions apply the
+/// completeness rule itself: every partition complete, and every full
+/// partition's last score below the merged window line.
+fn window_json(fx: &Fixture, complete: bool, top: &[TopEntry]) -> String {
+    if fx.window <= 0.0 { return String::new(); }
+    let full = top.len() >= fx.archive_cap;
+    let last = if full { top[fx.archive_cap - 1].score } else { f64::NEG_INFINITY };
+    format!("\"window\":{},\"archive_cap\":{},\"archive_full\":{},\"archive_last\":{},\"window_complete\":{},",
+            fx.window, fx.archive_cap, full,
+            if last.is_finite() { format!("{last:.17e}") } else { "null".into() },
+            window_complete(complete, top, fx.archive_cap, fx.window))
 }
 
 fn json_str(s: &str) -> String {
@@ -2348,6 +2421,8 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         fixed_names: fx.fixed_names.clone(),
         none_names: fx.none_names.clone(),
         eps: fx.eps,
+        window: fx.window,
+        archive_cap: fx.archive_cap,
     };
     let warm_started = Instant::now();
     let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
@@ -2388,7 +2463,12 @@ pub fn cli_main() {
     let fixture_path = args.get(1).map(String::as_str)
         .expect("usage: enum_kernel <fixture> [threads] [score_fixture.json]");
     let text = fs::read_to_string(fixture_path).expect("cannot read fixture");
-    let fx = parse_fixture(&text);
+    let mut fx = parse_fixture(&text);
+    // SEARCH_WINDOW (CLI) overrides the fixture's WINDOW line; "0" turns it off.
+    if let Some(w) = env::var("SEARCH_WINDOW").ok().and_then(|v| v.parse::<f64>().ok()) {
+        fx.window = if w.is_finite() && w > 0.0 && w < 1.0 { w } else { 0.0 };
+    }
+    let options = SearchOptions { result_count: effective_result_count(&fx, &options), ..options };
 
     let n_threads: usize = args.get(2)
         .map(|s| s.parse().expect("threads must be a number"))
@@ -2688,6 +2768,13 @@ pub fn cli_main() {
     // Whether the space was exhausted (a proof) or a budget or time cap
     // stopped it first. anytime.py keys proven optima on this.
     println!("search: complete {}", if totals.stopped_early { "no" } else { "yes" });
+    if fx.window > 0.0 {
+        let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
+        let inside = totals.top_n.iter().filter(|e| e.score >= best * (1.0 - fx.window)).count();
+        println!("search: window {} | {} builds within {:.3}% of the best (archive {} of cap {}) | complete within window: {}",
+                 fx.window, inside, fx.window * 100.0, totals.top_n.len(), fx.archive_cap,
+                 if window_complete(!totals.stopped_early, &totals.top_n, fx.archive_cap, fx.window) { "yes" } else { "no" });
+    }
     let eps = Search::new(&fx).eps;
     if eps > 0.0 {
         // R21's claim, stated where the result is: the top-1 is within eps of
@@ -2711,6 +2798,17 @@ pub fn cli_main() {
             println!("top15: {:.17e} | {}", score,
                 names.iter().filter(|n| !n.starts_with("No ")).cloned()
                     .collect::<Vec<_>>().join(", "));
+        }
+        // R20: the explain pass's stats per archived build, one line each,
+        // after the top15 lines so their parsers are unaffected.
+        if fx.window > 0.0 {
+            for (rank, e) in totals.top_n.iter().enumerate() {
+                let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
+                if let (None, Some(st)) = (e.tome.as_ref(), crate::scoring::explain_build(scoring.unwrap(), &names, &e.total_sp)) {
+                    println!("stats: {} {}", rank + 1, st.iter().map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>().join(" "));
+                }
+            }
         }
     }
 }
@@ -3035,4 +3133,60 @@ mod anytime_core_tests {
         assert_eq!(unguarded.feasible, 2);
     }
 
+}
+
+#[cfg(test)]
+mod window_tests {
+    //! R20 windowed archive. The completeness rule, the fixture lines, and an
+    //! end-to-end check against a brute-force reference: on tierstack_small
+    //! a run with no cutoff at all (RESULT_COUNT 1e6, every feasible build
+    //! scored and kept; 221,194 builds) has exactly 3 builds within 2% of the
+    //! best, and the windowed run must return those 3.
+    use super::*;
+
+    fn entry(score: f64) -> TopEntry { TopEntry { score, ..Default::default() } }
+
+    #[test]
+    fn completeness_rule() {
+        let top: Vec<TopEntry> = [100.0, 99.0, 97.0].iter().map(|&s| entry(s)).collect();
+        // Not full: complete if the search finished.
+        assert!(window_complete(true, &top, 10, 0.02));
+        assert!(!window_complete(false, &top, 10, 0.02));
+        // Full, last entry (97) below the line (98): nothing in the window lost.
+        assert!(window_complete(true, &top, 3, 0.02));
+        // Full, last entry (97) at or above the line (96.5): an evicted build
+        // may have been inside the window, so the claim is withdrawn.
+        assert!(!window_complete(true, &top, 3, 0.035));
+        // No window: never claims.
+        assert!(!window_complete(true, &top, 10, 0.0));
+    }
+
+    #[test]
+    fn window_lines_parse() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let base = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap();
+        let fx = parse_fixture(&base);
+        assert_eq!((fx.window, fx.archive_cap), (0.0, DEFAULT_ARCHIVE_CAP));
+        let fx = parse_fixture(&(base.clone() + "\nWINDOW 0.05\nARCHIVE 300\n"));
+        assert_eq!((fx.window, fx.archive_cap), (0.05, 300));
+        let fx = parse_fixture(&(base + "\nWINDOW 1.5\nARCHIVE 0\n"));
+        assert_eq!((fx.window, fx.archive_cap), (0.0, DEFAULT_ARCHIVE_CAP));
+    }
+
+    #[test]
+    fn window_holds_every_build_within_it() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+        let enum_fx = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap()
+            + "\nWINDOW 0.02\n";
+        let score_fx = std::fs::read_to_string(format!("{dir}score_fam_tierstack_small.json")).unwrap();
+        let out = solve_json_full(&enum_fx, &score_fx, 0.0, None, 0, 1);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["window_complete"], serde_json::json!(true), "{}", &out[..out.len().min(400)]);
+        let scores: Vec<f64> = v["top"].as_array().unwrap().iter()
+            .map(|e| e["score"].as_f64().unwrap()).collect();
+        let best = scores[0];
+        assert!((best - 2.20863848359218158e5).abs() < 1e-6, "top-1 {best}");
+        let inside = scores.iter().filter(|&&s| s >= best * 0.98).count();
+        assert_eq!(inside, 3, "builds within 2%: {scores:?}");
+    }
 }
