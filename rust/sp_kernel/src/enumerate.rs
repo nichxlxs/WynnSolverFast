@@ -467,6 +467,11 @@ pub struct Search<'a> {
     reach_cap_on: bool,
     /// Last-slot ranges R9 rejected with one solve.
     pub sp_node_reject: u64,
+    /// R9 ran early for the current last-slot node (from its parent, before
+    /// the tail ceiling; see `r9_early`) and passed, so the node skips it.
+    r9_done: bool,
+    /// Ceiling evaluations the early R9 check avoided (diagnostics).
+    pub r9_early_skips: u64,
     dense_work: crate::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -756,6 +761,8 @@ impl<'a> Search<'a> {
                 m
             }).collect(),
             sp_node_reject: 0,
+            r9_done: false,
+            r9_early_skips: 0,
             checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
             kernel: Kernel::new(),
@@ -1513,7 +1520,8 @@ impl<'a> Search<'a> {
             // Self-tuning like the cluster layers: where it rarely rejects
             // (tierstack measured 10% slower with it always on), it switches
             // itself off and re-samples later. Speed only; never a result.
-            if from <= to && self.sp_node_on && self.adapt_node.armed(self.checked) {
+            let r9_done = std::mem::replace(&mut self.r9_done, false);
+            if from <= to && !r9_done && self.sp_node_on && self.adapt_node.armed(self.checked) {
                 let ok = self.sp_node_feasible(depth, from as usize, to as usize);
                 let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
                 self.adapt_node.record(skipped, self.checked);
@@ -1709,6 +1717,45 @@ impl<'a> Search<'a> {
                 && self.n_free - (depth + 1) <= self.bound_tail
                 && self.adapt_tail.armed(self.checked);
             let bound_here = depth < self.bound_max_depth || tail_here;
+            let mut r9_pre_ok = false;
+            // R9 before the tail ceiling. When the child is the last slot, the
+            // child's first act is R9's one SP solve over its in-band range,
+            // and an infeasible verdict skips the whole range. A ceiling
+            // evaluation (several times the cost of the solve) made just
+            // before it is then wasted, so run the solve first. Both are
+            // admissible rejections of the same leaves, so results are
+            // unchanged; a passing verdict is handed to the child so the solve
+            // is not repeated. R9_EARLY=0 disables.
+            if bound_here && depth + 2 == self.n_free && self.bound_tables.is_some()
+                && self.sp_node_on && crate::scoring::env_once!("R9_EARLY" != "0")
+                && self.cutoff().is_some() && self.adapt_node.armed(self.checked)
+                && !self.fx.slots[depth + 1].pool.is_empty() {
+                let child = depth + 1;
+                let child_ring2 = child as isize == self.ring2_depth && self.ring1_depth >= 0;
+                let child_min: i64 = if child_ring2 {
+                    if slot_is_ring1 { offset } else { self.ring1_placed_offset as i64 }
+                } else { 0 };
+                let from = child_min.max(lo_rem - offset).max(0);
+                let to = (self.fx.slots[child].pool.len() as i64 - 1).min(hi_rem - offset);
+                if from <= to {
+                    self.place(depth, o);
+                    let ok = self.sp_node_feasible(child, from as usize, to as usize);
+                    self.unplace(depth, o);
+                    let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
+                    self.adapt_node.record(skipped, self.checked);
+                    if !ok {
+                        if slot_is_ring1 && self.rings_contiguous { self.rebuild_ring2_subtree(o); }
+                        self.checked += skipped;
+                        self.sp_leaf_reject += skipped as u64;
+                        self.sp_node_reject += 1;
+                        self.r9_early_skips += 1;
+                        self.maybe_report();
+                        offset += 1;
+                        continue;
+                    }
+                    r9_pre_ok = true;
+                }
+            }
             if bound_here && self.bound_tables.is_some() {
                 if let Some(cutoff) = self.cutoff() {
                     if self.bound_prunes(depth, o, cutoff, hi_rem) {
@@ -1735,6 +1782,8 @@ impl<'a> Search<'a> {
             // The child refreshes the hoist for its own depth; restore ours
             // before the next offset is tested against it.
             let saved_base = self.sp_bound_base;
+            // Set only here, so an offset the ceiling prunes cannot leak it.
+            self.r9_done = r9_pre_ok;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
             self.sp_bound_base = saved_base;
             self.unplace(depth, o);
