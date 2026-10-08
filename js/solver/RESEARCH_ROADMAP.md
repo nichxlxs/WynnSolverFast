@@ -31,9 +31,11 @@ measured, and every pruning change passed the oracles before landing.
 | R1 at the tail bound | done, Rust | `5a622d2` | per-subtree cap from `sp_bound_base`; 1.0505x geometric mean, 8/11 faster (0.951 to 1.116); top-15 scores identical on all fixtures; full-space `checked` identical |
 | Deterministic ties | done, both engines | `93bd4e8` | Rust `merge_top` and the page's merges kept tied builds in arrival order, so thread or worker scheduling decided their rank and, at rank 15, membership (seen on `fam_heavy_melee_small`: two builds tie exactly at ranks 8/9). Both now use `compareTopResult`'s order (score, then item names) |
 | R8 anytime metrics | done, Rust CLI + harness | `368cbc8` | `ANYTIME_TRACE=1` incumbent events; `anytime.py` primal integral, time to 99%/100%, final gap; `anytime_ref.json` holds 12 proven and 6 best-known family optima (proven over each fixture's pools) |
-| R21 epsilon tolerance | done, Rust; "Near-optimal (proved)" mode in the page | `368cbc8`, `8493bb3` | top-1 within eps of the proved optimum on all six small families at 0.5 to 5%; found and fixed an empty-result bug (the warm build pruned below `(1 + eps) * best`); proof-time measurement still to be redone on a quiet machine (the first run shared the CPU) |
+| R21 epsilon tolerance | done, Rust; "Near-optimal (proved)" mode in the page | `368cbc8`, `8493bb3` | top-1 within eps of the proved optimum on all six small families at 0.5 to 5%; found and fixed an empty-result bug (the warm build pruned below `(1 + eps) * best`). **Proof time barely moves**: on the six medium families at 1% and 2%, scored leaves fall 10 to 150x but wall time changes by 0 to 12% (spellsteal 89.7 to 78.6 s; heavy melee 66.7 to 68.7 s). Wall time there is the enumeration walk and loose ceilings, not the last few percent of cutoff, so bound tightness (R2) is the lever, not eps |
 | PR #18 Quick search | integrated (squash, evidence archives left on the branch) | `1ff0c9a` | its tests plus 60 browser assertions; tie order and set-weapon refusal reconciled; wasm +23% |
-| R20 windowed archive | done: engine (step 1) and page "Shortlist" mode with QoL weights (step 2) | `e996265`, `75ad6a6` | window sets identical to a bounds-off reference on five families at 2% and 10% (2 to 252 builds); completeness withdrawn when an archive fills inside the window; explain-pass stats equal the score on `total_hp` and `ehp` targets (2,000 of 2,000 builds) |
+| R20 windowed archive | done: engine (step 1), page "Shortlist" mode with QoL weights (step 2), one-slot variant grouping (step 3), stats for tome-optimised builds | `e996265`, `75ad6a6`, `f86d5ba`, `9d88008` | window sets identical to a bounds-off reference on five families at 2% and 10% (2 to 252 builds); completeness withdrawn when an archive fills inside the window; explain-pass stats equal the score on `total_hp`, `ehp` and the ehp tome scenario (2,000 of 2,000 each) |
+| Rust mana rescue dropped the tome bundle | fixed (on the correctness PR) | `352b572` | found by the R20 explain pass: with tome optimisation, a build that needed the mana rescue was mana-checked and scored without its weapon/armour tomes (the JS engine includes them); 43 of 2,000 archived builds under-scored by up to 7%; regression test pins a corrected score |
+| R9 before the tail ceiling | done, Rust (`R9_EARLY=0` disables) | `0e4ec50` | runs the one SP solve before the ceiling evaluation it can make unnecessary; exact (full-space top-15 and `checked` identical); fixed-work A/B 1.27x geometric mean, 13/18 faster, up to 4.59x (hybrid large); full proofs 1.37x cancelstack, 1.13x hybrid, 1.08x spell sustained (medium) |
 
 Found while doing this, not yet fixed:
 
@@ -69,9 +71,12 @@ deficit bound and R9 already reject, and the leaf pipeline is about 1% of
 wall. Pairwise conflicts can only remove the kernel rejects, so R10 is
 parked until a profile shows SP kernel time again.
 
-Not done yet, in order: R21's proof-time measurement on a quiet machine,
-R20 step 3 (collapse near-duplicate builds) and stats for tome-optimised
-builds, R5 (see its correction below), R23 (incremental leaf fill), the JS
+Measurement note: the container moved hosts mid-session (the old
+`target-cpu=native` binaries now fault with an illegal instruction), so
+absolute times before and after that point are not comparable; every A/B
+above ran both sides on one host.
+
+Not done yet, in order: R5 (see its correction below), R23 (incremental leaf fill), the JS
 mirror of R9, R10 (parked), then the rest of section 7. Open questions for
 the author: the 400 start-mana cap (needs checking in game) and Radiance
 item-SP scaling (above).
