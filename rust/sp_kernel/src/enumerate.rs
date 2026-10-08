@@ -726,6 +726,12 @@ pub struct Search<'a> {
     r2_pruned: f64,
     tan_forbidden: Option<Vec<bool>>,
     tan_dense: Vec<f64>,
+    /// Fast R2 path: per-run plan (built on first use), buffers, memo, and
+    /// whether bound_work still holds the last subtree ceiling's assemble.
+    tan_plan: Option<Option<crate::tangent::TanPlan>>,
+    tan_work: crate::tangent::TanWork,
+    tan_memo: BoundMemo,
+    ceiling_fresh: bool,
     adapt_node: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
@@ -1016,6 +1022,10 @@ impl<'a> Search<'a> {
             r2_pruned: 0.0,
             tan_forbidden: None,
             tan_dense: Vec::new(),
+            tan_plan: None,
+            tan_work: Default::default(),
+            tan_memo: BoundMemo::new(fx.slots.iter().any(|s| s.pool.len() >= 128)),
+            ceiling_fresh: false,
             bound_work: Default::default(),
             checked_flushed: 0.0,
             progress: None,
@@ -1177,6 +1187,37 @@ impl<'a> Search<'a> {
     /// BOUND_OBSERVE only: the R2 tangent bound (see `tangent`) for the
     /// subtree under (depth, offset), and the envelope check at the observed
     /// best leaf's own items. Records into `bound_observe`; never prunes.
+    /// R2 fast path: the grouped tangent at the subtree ceiling's own point,
+    /// reusing that evaluation's assembled scratch (see `tangent::fast_bound`).
+    /// Must follow `subtree_ceiling_value` for the same (depth, offset).
+    /// Memoized like the ceiling; None when the gates refuse or the scratch
+    /// is not the ceiling's (a ceiling memo hit with no tangent memo entry).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fast_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let h_child = hi_rem - offset as i64;
+        let key = self.tan_memo.key(CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
+        if let Some(&v) = self.tan_memo.get(&key) { return v.is_finite().then_some(v); }
+        if !self.ceiling_fresh { return None; }
+        if self.tan_plan.is_none() {
+            self.tan_plan = Some(crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows));
+        }
+        let plan = self.tan_plan.as_ref().unwrap().as_ref()?;
+        let h = h_child.clamp(0, db.h_max) as usize;
+        let mut slots = [(0usize, 0usize); 8];
+        let mut ns = 0;
+        for j in depth + 1..self.n_free { slots[ns] = (j, h); ns += 1; }
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+        let v = crate::tangent::fast_bound(
+            plan, &mut self.tan_work, d, scratch, leaf, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &sp_cap, &db.table[depth + 1][h], &slots[..ns]);
+        if self.tan_memo.len() >= BOUND_MEMO_CAP { self.tan_memo.clear(); }
+        self.tan_memo.insert(key, v.unwrap_or(f64::INFINITY));
+        v
+    }
+
     /// R2: the tag-grouped tangent bound for the subtree under (depth,
     /// offset), or None when the envelope's gates refuse it. Must be called
     /// before `offset` is placed (it reads the hoisted SP state for depth).
@@ -1323,6 +1364,7 @@ impl<'a> Search<'a> {
         let h_child = hi_rem - offset as i64;
         let key = self.bound_memo.key(
             CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
+        self.ceiling_fresh = false;
         let ceiling = match self.bound_memo.get(&key) {
             Some(&c) => { if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); } c }
             None => {
@@ -1337,6 +1379,7 @@ impl<'a> Search<'a> {
                         &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap),
                     _ => None,
                 };
+                self.ceiling_fresh = dense_c.is_some();
                 let c = match dense_c {
                     Some(c) => c,
                     None => sc.layer2.subtree_ceiling(
@@ -2231,7 +2274,12 @@ impl<'a> Search<'a> {
                     if self.r2_on && tail_here && self.adapt_tan.armed(self.checked) {
                         self.r2_evals += 1;
                         let t0 = std::time::Instant::now();
-                        let pruned = match self.tangent_bound(depth, o, hi_rem) {
+                        let tv = if crate::scoring::env_once!("R2_SLOW" == "1") {
+                            self.tangent_bound(depth, o, hi_rem)
+                        } else {
+                            self.fast_tangent(depth, o, hi_rem)
+                        };
+                        let pruned = match tv {
                             Some(t) if t < cutoff - cutoff.abs() * 1e-9 =>
                                 self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset),
                             _ => 0.0,

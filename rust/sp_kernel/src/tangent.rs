@@ -644,3 +644,516 @@ fn scatter(x: &[(u32, f64)], dense: &mut Vec<f64>) {
 fn gather_clear(x: &[(u32, f64)], dense: &mut [f64]) {
     for &(i, _) in x { dense[i as usize] = 0.0; }
 }
+
+// ── Fast path: the grouped tangent at the ceiling's own point ───────────────
+//
+// The live prune runs where the tail ceiling has just been evaluated, so
+// its assembled scratch (prefix + the table deltas P, crit floor applied)
+// is reused instead of filling and assembling the prefix again. The
+// tangent point is P itself: every completion's deltas x satisfy
+// 0 <= x <= P componentwise (P sums each slot's per-stat maxima and the set
+// transitions), which is all the grouping needs (x - P <= 0, gradients
+// >= 0). Each factor is still anchored at x = 0 for its clamps and gates:
+// F(0) = F(P) - c . P. Terms are grouped by tag with the componentwise
+// minimum gradient; nothing is allocated per node.
+
+/// Per-run tables for `fast_bound`.
+pub struct TanPlan {
+    /// Dense stat index -> coordinate (or -1): every index a factor reads,
+    /// plus the inputs of var effects writing such an index.
+    u_of: Vec<i32>,
+    u_idx: Vec<u32>,
+    /// Per depth, per offset: the item's clamped deltas on the coordinates.
+    slot_rows: Vec<Vec<Vec<(u16, f64)>>>,
+    /// Per depth: first offset whose item has a positive delta on a
+    /// forbidden index (usize::MAX when none).
+    slot_forbid_from: Vec<usize>,
+    chains: Vec<ChainPlan>,
+    /// Coordinate of critDamPct when it is a var output (refused then).
+    crit_is_var_output: bool,
+}
+
+struct ChainPlan {
+    eff: usize,
+    /// Output coordinates the envelope reads.
+    outs: Vec<u16>,
+    /// Captured inputs: (const-term slot, coordinate, factor), every sign.
+    inputs: Vec<(usize, u16, f64)>,
+}
+
+impl TanPlan {
+    pub fn new(d: &DenseCtx, item_vecs: &[Vec<Vec<(u32, f64)>>], rows: &[Row]) -> Option<TanPlan> {
+        if !matches!(d.obj, DObjective::Damage) { return None; }
+        let dd = d.direct.as_ref()?;
+        let reads = read_indices(d);
+        let forbidden = forbidden_indices(d, rows);
+        let mut u_of = vec![-1i32; d.n];
+        let mut u_idx: Vec<u32> = Vec::new();
+        let mut coord = |i: u32, u_of: &mut Vec<i32>, u_idx: &mut Vec<u32>| -> u16 {
+            if u_of[i as usize] < 0 { u_of[i as usize] = u_idx.len() as i32; u_idx.push(i); }
+            u_of[i as usize] as u16
+        };
+        for (i, &r) in reads.iter().enumerate() { if r { coord(i as u32, &mut u_of, &mut u_idx); } }
+        let mut chains = Vec::new();
+        for (e, eff) in d.var_effects.iter().enumerate() {
+            let outs: Vec<u16> = eff.out_slots.iter()
+                .map(|(slot, _)| d.var_slots[*slot])
+                .filter(|&o| reads.get(o as usize).copied().unwrap_or(false))
+                .map(|o| u_of[o as usize] as u16).collect();
+            if outs.is_empty() { continue; }
+            let mut inputs = Vec::new();
+            for t in &eff.terms {
+                if let DTerm::Const(slot, f) = t {
+                    let Some(&i) = dd.term_capture.get(*slot) else { continue };
+                    inputs.push((*slot, coord(i, &mut u_of, &mut u_idx), *f));
+                }
+            }
+            if inputs.is_empty() { continue; }
+            chains.push(ChainPlan { eff: e, outs, inputs });
+        }
+        let crit_u = u_of[d.s_crit_dam_pct as usize];
+        let crit_is_var_output = crit_u >= 0 && chains.iter().any(|c| c.outs.contains(&(crit_u as u16)));
+        let mut slot_rows = Vec::with_capacity(item_vecs.len());
+        let mut slot_forbid_from = Vec::with_capacity(item_vecs.len());
+        for items in item_vecs {
+            let mut rows_out = Vec::with_capacity(items.len());
+            let mut forbid_from = usize::MAX;
+            for (o, it) in items.iter().enumerate() {
+                let mut row = Vec::new();
+                for &(i, v) in it {
+                    if forbidden.get(i as usize).copied().unwrap_or(false) && v > 0.0 && forbid_from == usize::MAX {
+                        forbid_from = o;
+                    }
+                    let u = u_of.get(i as usize).copied().unwrap_or(-1);
+                    if u >= 0 { row.push((u as u16, v)); }
+                }
+                rows_out.push(row);
+            }
+            slot_rows.push(rows_out);
+            slot_forbid_from.push(forbid_from);
+        }
+        Some(TanPlan { u_of, u_idx, slot_rows, slot_forbid_from, chains, crit_is_var_output })
+    }
+
+    pub fn n_coords(&self) -> usize { self.u_idx.len() }
+}
+
+/// Reused buffers for `fast_bound`.
+#[derive(Default)]
+pub struct TanWork {
+    p: Vec<f64>,
+    lift: Vec<f64>,
+    chain_c: Vec<Vec<(u16, f64)>>,
+    /// Per tag: summed value at P and the sparse componentwise-min gradient
+    /// (sorted by coordinate; a coordinate missing from a term is 0 there).
+    gsum: Vec<f64>,
+    gsp: Vec<Vec<(u16, f64)>>,
+    gtag: Vec<u16>,
+    term_g: Vec<(u16, f64)>,
+    merge: Vec<(u16, f64)>,
+    dense_g: Vec<f64>,
+    mult: Vec<f64>,
+    journal: Vec<DenseUndo>,
+    kbuf: Vec<(u16, f64)>,
+    bbuf: Vec<(u16, f64)>,
+    dbuf: Vec<(u16, f64)>,
+    rbuf: Vec<(u16, f64)>,
+    sbuf: Vec<(u16, f64)>,
+}
+
+/// A factor at P: value, coefficients, and its value at x = 0.
+struct Fac<'a> { at_p: f64, c: &'a [(u16, f64)] }
+
+/// The grouped tangent bound for completions within `slots` (per relaxed
+/// depth, the highest offset h), given the scratch assembled at P = prefix
+/// + `delta` (crit floor applied) and the leaf at P. None when a gate
+/// refuses.
+#[allow(clippy::too_many_arguments)]
+pub fn fast_bound(
+    plan: &TanPlan, w: &mut TanWork, d: &DenseCtx, s: &mut DScratch, leaf: &DenseLeaf,
+    rows: &[Row], compiled: &[CompiledRow], tables: &Tables, sp: &[f64; 5],
+    delta: &[(u32, f64)], slots: &[(usize, usize)],
+) -> Option<f64> {
+    if plan.crit_is_var_output { return None; }
+    for &(j, h) in slots {
+        if h >= plan.slot_forbid_from[j] { return None; }
+    }
+    let n_u = plan.u_idx.len();
+    // P on the coordinates.
+    w.p.clear(); w.p.resize(n_u, 0.0);
+    for &(i, v) in delta {
+        let u = plan.u_of.get(i as usize).copied().unwrap_or(-1);
+        if u >= 0 { w.p[u as usize] += v; }
+    }
+    // Var chains at P: lift each read output from out(P) to the affine
+    // bound u(P), and collect the input coefficients per output coordinate.
+    w.lift.clear(); w.lift.resize(n_u, 0.0);
+    if w.chain_c.len() < n_u { w.chain_c.resize_with(n_u, Vec::new); }
+    for c in w.chain_c.iter_mut() { c.clear(); }
+    if !plan.chains.is_empty() {
+        let mut skp_pre = [0.0f64; 5];
+        for i in 0..5 {
+            let mut v = sp[i];
+            for a in &d.skp_atree_adds[i] { v += a; }
+            skp_pre[i] = v;
+        }
+        for ch in &plan.chains {
+            let eff = &d.var_effects[ch.eff];
+            let mut t = eff.const_add;
+            for term in &eff.terms {
+                t += match term {
+                    DTerm::Skp(i, f) => skp_pre[*i] * f,
+                    DTerm::Const(slot, f) => leaf.const_term_vals[*slot] * f,
+                };
+            }
+            let mut o = t;
+            if eff.round { o = crate::scoring::round_near(o).floor(); }
+            if eff.positive && o < 0.0 { o = 0.0; }
+            if let Some(mx) = eff.max {
+                if mx > 0.0 && o > mx { o = mx; }
+                if mx < 0.0 && o < mx { o = mx; }
+            }
+            let margin = if eff.round { 1e-6 } else { 0.0 };
+            // t at x = 0, and the affine bound u(x) = t0 + margin + sum_{f>0} f x.
+            let mut t0 = t;
+            let mut pos_at_p = 0.0;
+            for &(_, u, f) in &ch.inputs {
+                t0 -= f * w.p[u as usize];
+                if f > 0.0 { pos_at_p += f * w.p[u as usize]; }
+            }
+            let u0 = t0 + margin;
+            if !u0.is_finite() || !o.is_finite() { return None; }
+            if eff.positive && u0 < 0.0 { return None; }
+            if let Some(mx) = eff.max { if mx < 0.0 && u0 < mx { return None; } }
+            let u_p = u0 + pos_at_p;
+            for &ou in &ch.outs {
+                w.lift[ou as usize] += u_p - o;
+                for &(_, iu, f) in &ch.inputs {
+                    if f > 0.0 { w.chain_c[ou as usize].push((iu, f)); }
+                }
+            }
+        }
+    }
+
+    if !matches!(d.obj, DObjective::Damage) { return None; }
+    let dex = s.num(d.dex_idx);
+    let crit = tables.sp_to_pct(if dex.is_nan() || dex == 0.0 { 0.0 } else { dex });
+    if !ok(crit) { return None; }
+    // Groups: 2 specs x (6 elements x 2 + raw) tags.
+    const N_TAGS: usize = 32;
+    w.gsum.clear(); w.gsum.resize(N_TAGS, 0.0);
+    if w.gsp.len() < N_TAGS { w.gsp.resize_with(N_TAGS, Vec::new); }
+    w.gtag.clear();
+    w.dense_g.clear(); w.dense_g.resize(n_u, 0.0);
+    let no_extra = DenseRowExtra::default();
+
+    for ((row, comp), drow) in rows.iter().zip(compiled).zip(&d.rows) {
+        if comp.mod_spell.is_none() { continue; }
+        if row.qty <= 0.0 || row.pseudo || row.dmg_excl { continue; }
+        let Some(plan_s) = comp.plan.as_ref() else { continue };
+        let mut eff_dps = row.dps_per_hit_name.is_some();
+        let mut eff_dps_hits = row.dps_hits;
+        let mut chain_root = false;
+        if !eff_dps {
+            if let Some((_, hits, _)) = &comp.dps {
+                eff_dps = true;
+                eff_dps_hits = row.dps_hits_override.unwrap_or(*hits);
+                chain_root = true;
+            }
+        }
+        let has_final_root = chain_root || comp.fallback_root.is_some();
+        // The melee rate at P's tier: no completion's tier is higher.
+        let eff_qty = if row.is_melee_time {
+            let period = match row.melee_cd_override {
+                Some(p) => p,
+                None => {
+                    let tier = s.num_or0(d.atk_tier_idx);
+                    let adj = (leaf.atk_spd_idx as f64 + tier).clamp(0.0, 6.0);
+                    1.0 / tables.base_damage_multiplier[adj as usize]
+                }
+            };
+            row.qty / period.max(SPELL_CAST_DELAY)
+        } else { row.qty };
+        let n = plan_s.parts.len();
+        w.mult.clear(); w.mult.resize(n, 0.0);
+        fn add(i: usize, m: f64, plan: &crate::scoring::SpellPlan, mult: &mut [f64]) -> bool {
+            match &plan.parts[i].kind {
+                PartKindPlan::Damage(_) => { mult[i] += m; true }
+                PartKindPlan::Heal => true,
+                PartKindPlan::Total(edges) => {
+                    for (j, hits, tick) in edges {
+                        if plan.parts[*j].static_kind != Some("damage") { continue; }
+                        let eff = if *tick { 1.0 / ((1.0 / hits * 20.0).floor() * 0.05) } else { *hits };
+                        if !ok(eff) { return false; }
+                        if !add(*j, m * eff, plan, mult) { return false; }
+                    }
+                    true
+                }
+            }
+        }
+        let display = if eff_dps { plan_s.dps_display_idx } else { plan_s.display_idx };
+        if let Some(i) = display {
+            if plan_s.parts[i].static_kind == Some("damage") {
+                let m = eff_qty * if eff_dps { eff_dps_hits } else { 1.0 };
+                if !ok(m) || !add(i, m, plan_s, &mut w.mult) { return None; }
+            }
+        }
+        if has_final_root {
+            for &i in &plan_s.flat_idxs {
+                if !add(i, 1.0, plan_s, &mut w.mult) { return None; }
+            }
+        }
+        if w.mult.iter().all(|&m| m == 0.0) { continue; }
+        for &(i, _, use_max) in &drow.stat_ops {
+            if use_max && plan.u_of.get(i as usize).copied().unwrap_or(-1) >= 0 { return None; }
+        }
+        dense_apply_row(s, drow, &no_extra, &mut w.journal);
+        let mut res = Some(());
+        for j in 0..n {
+            let m = w.mult[j];
+            if m == 0.0 { continue; }
+            let PartKindPlan::Damage(dp) = &plan_s.parts[j].kind else { continue };
+            let Some(conv_idx) = drow.parts_conv[j].as_ref() else { res = None; break };
+            if fast_part(plan, w, d, s, &dp.multipliers, plan_s.use_spell, !plan_s.use_speed,
+                         Some(&dp.part_id), !dp.use_str, &dp.ignored_mults, conv_idx, tables,
+                         crit, m).is_none() {
+                res = None;
+                break;
+            }
+        }
+        dense_undo_row(s, &mut w.journal);
+        res?;
+    }
+
+    // Per group: sum_s max_i g . x_i - g . P.
+    let mut total = 0.0;
+    for &tag in &w.gtag {
+        for &(u, v) in &w.gsp[tag as usize] { w.dense_g[u as usize] = v; }
+        let g = &w.dense_g;
+        let mut expo = -w.gsp[tag as usize].iter().map(|&(u, v)| v * w.p[u as usize]).sum::<f64>();
+        for &(j, h) in slots {
+            let rows_j = &plan.slot_rows[j];
+            if rows_j.is_empty() { continue; }
+            let mut best = f64::NEG_INFINITY;
+            for r in &rows_j[..=h.min(rows_j.len() - 1)] {
+                let v: f64 = r.iter().map(|&(u, x)| g[u as usize] * x).sum();
+                if v > best { best = v; }
+            }
+            expo += best;
+        }
+        for &(u, _) in &w.gsp[tag as usize] { w.dense_g[u as usize] = 0.0; }
+        // expo <= 0 by construction (x <= P, g >= 0); no clamp, so an
+        // unexpected positive value loosens the bound instead of breaking it.
+        total += w.gsum[tag as usize] * expo.exp();
+    }
+    Some(total)
+}
+
+/// Folds one term (weight, factors at P) into its tag group: the value
+/// adds, the gradient takes the componentwise minimum (sparse).
+fn fold_term(
+    gsum: &mut [f64], gsp: &mut [Vec<(u16, f64)>], gtag: &mut Vec<u16>,
+    term_g: &mut Vec<(u16, f64)>, merge: &mut Vec<(u16, f64)>,
+    tag: u16, weight: f64, facs: &[Fac],
+) {
+    let mut tp = weight;
+    for f in facs { tp *= f.at_p; }
+    if !(tp > 0.0) { return; }
+    term_g.clear();
+    for f in facs {
+        if f.at_p <= 0.0 { return; }
+        for &(u, c) in f.c { term_g.push((u, c / f.at_p)); }
+    }
+    term_g.sort_unstable_by_key(|x| x.0);
+    // Merge duplicate coordinates (sum).
+    let mut k = 0;
+    for i in 0..term_g.len() {
+        if k > 0 && term_g[k - 1].0 == term_g[i].0 { term_g[k - 1].1 += term_g[i].1; }
+        else { term_g[k] = term_g[i]; k += 1; }
+    }
+    term_g.truncate(k);
+    let t = tag as usize;
+    if gsum[t] == 0.0 {
+        gtag.push(tag);
+        gsp[t].clear();
+        gsp[t].extend_from_slice(term_g);
+    } else {
+        // Intersection with min: a coordinate absent on either side is 0.
+        merge.clear();
+        let (g, h) = (&gsp[t], &*term_g);
+        let (mut a, mut b) = (0, 0);
+        while a < g.len() && b < h.len() {
+            match g[a].0.cmp(&h[b].0) {
+                std::cmp::Ordering::Less => a += 1,
+                std::cmp::Ordering::Greater => b += 1,
+                std::cmp::Ordering::Equal => { merge.push((g[a].0, g[a].1.min(h[b].1))); a += 1; b += 1; }
+            }
+        }
+        std::mem::swap(&mut gsp[t], merge);
+    }
+    gsum[t] += tp;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fast_part(
+    plan: &TanPlan, w: &mut TanWork, d: &DenseCtx, s: &DScratch, mults: &[f64], use_spell: bool,
+    ignore_speed: bool, part_filter: Option<&str>, ignore_str: bool, ignored: &[String],
+    conv_idx: &[u32; 6], tables: &Tables, crit: f64, weight: f64,
+) -> Option<()> {
+    let uo = |i: u32| -> Option<u16> {
+        let u = plan.u_of.get(i as usize).copied().unwrap_or(-1);
+        (u >= 0).then_some(u as u16)
+    };
+    // Builds a factor's coefficient list (with chain expansion) into `buf`
+    // and returns (value at P lifted by the chains, value at x = 0).
+    let factor = |coefs: &[(u32, f64)], at_p_raw: f64, lift: &[f64], chain_c: &[Vec<(u16, f64)>],
+                  p: &[f64], buf: &mut Vec<(u16, f64)>| -> (f64, f64) {
+        buf.clear();
+        let mut at_p = at_p_raw;
+        for &(i, c) in coefs {
+            let Some(u) = uo(i) else { continue };
+            buf.push((u, c));
+            at_p += c * lift[u as usize];
+            for &(iu, f) in &chain_c[u as usize] { buf.push((iu, c * f)); }
+        }
+        let cp: f64 = buf.iter().map(|&(u, c)| c * p[u as usize]).sum();
+        (at_p, at_p - cp)
+    };
+    let TanWork { p, lift, chain_c, gsum, gsp, gtag, term_g, merge, kbuf, bbuf, dbuf, rbuf, sbuf, .. } = w;
+    let (p, lift, chain_c) = (&p[..], &lift[..], &chain_c[..]);
+
+    // Conversions and base damages (constant on the box; same arithmetic as
+    // dense_spell_damage).
+    let mut present = d.w_present;
+    let mut conversions = [0.0f64; 6];
+    for i in 0..mults.len().min(6) { conversions[i] = mults[i]; }
+    for i in 0..6 { let ci = conv_idx[i]; if s.has(ci) { conversions[i] += s.num(ci); } }
+    for i in 0..6 { let ci = d.conv_base_idx[i]; if s.has(ci) { conversions[i] += s.num(ci); } }
+    let neutral_convert = conversions[0] / 100.0;
+    if neutral_convert == 0.0 { present = [false; 6]; }
+    let mut base = [[0.0f64; 2]; 6];
+    let (mut weapon_min, mut weapon_max) = (0.0, 0.0);
+    for i in 0..6 {
+        base[i] = [d.w_damages[i][0] * neutral_convert, d.w_damages[i][1] * neutral_convert];
+        weapon_min += d.w_damages[i][0];
+        weapon_max += d.w_damages[i][1];
+    }
+    let mut total_convert = 0.0;
+    for i in 1..=5 {
+        if conversions[i] > 0.0 {
+            let f = conversions[i] / 100.0;
+            base[i][0] += f * weapon_min;
+            base[i][1] += f * weapon_max;
+            present[i] = true;
+            total_convert += f;
+        }
+    }
+    total_convert += conversions[0] / 100.0;
+    if !ignore_speed {
+        let m = d.w_spd_mult;
+        for b in base.iter_mut() { b[0] *= m; b[1] *= m; }
+    }
+    let (spec_pct, spec_raw, spec_pct_s, spec_raw_s, r_pct_s, r_raw_s) = if use_spell {
+        (&d.sd_pct_idx, &d.sd_raw_idx, d.s_sd_pct, d.s_sd_raw, d.s_r_sd_pct, d.s_r_sd_raw)
+    } else {
+        (&d.md_pct_idx, &d.md_raw_idx, d.s_md_pct, d.s_md_raw, d.s_r_md_pct, d.s_r_md_raw)
+    };
+    let mut skill_boost = [0.0f64; 6];
+    for i in 0..5 {
+        skill_boost[i + 1] = tables.sp_to_pct(s.num(d.skp_idx[i])) * tables.skillpoint_damage_mult[i];
+    }
+    let str_boost = if ignore_str { 1.0 } else { 1.0 + skill_boost[1] };
+    let mut damage_mult = 1.0f64;
+    let mut em = [1.0f64; 6];
+    for (e, v) in s.dam_entries.iter().zip(&s.dam_vals) {
+        if let Some(sm) = &e.spell_match { if Some(&**sm) != part_filter { continue; } }
+        if ignored.iter().any(|m| m.as_str() == &*e.key) { continue; }
+        match e.target {
+            MultTarget::All => damage_mult *= 1.0 + v / 100.0,
+            MultTarget::MeleeOnly => { if !use_spell { damage_mult *= 1.0 + v / 100.0; } }
+            MultTarget::Ele(i) => em[i] *= 1.0 + v / 100.0,
+            MultTarget::Inert => {}
+        }
+    }
+    if !ok(damage_mult) || !ok(str_boost) || !ok(total_convert) || !em.iter().all(|&m| ok(m)) {
+        return None;
+    }
+    let spec_tag: u16 = if use_spell { 16 } else { 0 };
+
+    // K = str + crit * (1 + critDamPct/100), anchored at x = 0 with the
+    // -100 floor (see CRIT_CEILING_FLOOR).
+    kbuf.clear();
+    let k_at_p = if ignore_str { 1.0 } else {
+        let cu = uo(d.s_crit_dam_pct);
+        let pc = cu.map(|u| p[u as usize]).unwrap_or(0.0);
+        let v = s.num(d.s_crit_dam_pct);
+        if !v.is_finite() { return None; }
+        if let Some(u) = cu { kbuf.push((u, crit / 100.0)); }
+        str_boost + crit * (1.0 + ((v - pc).max(crate::scoring::CRIT_CEILING_FLOOR) + pc) / 100.0)
+    };
+    if !ok(k_at_p) { return None; }
+
+    let static_boost = (s.num(spec_pct_s) + s.num(d.s_dam_pct)) / 100.0;
+    let r_pct = (s.num(r_pct_s) + s.num(d.s_r_dam_pct)) / 100.0;
+    for i in 0..6 {
+        // An element with no damage and no add an item can raise is zero.
+        let can_add = present[i];
+        if !can_add && base[i][0] == 0.0 && base[i][1] == 0.0 { continue; }
+        let mut bc: [(u32, f64); 6] = [(spec_pct_s, 0.01), (d.s_dam_pct, 0.01),
+                                       (spec_pct[i], 0.01), (d.dam_pct_idx[i], 0.01),
+                                       (r_pct_s, 0.0), (d.s_r_dam_pct, 0.0)];
+        let mut b_raw = 1.0 + skill_boost[i] + static_boost
+            + (s.num(spec_pct[i]) + s.num(d.dam_pct_idx[i])) / 100.0;
+        if i > 0 { b_raw += r_pct; bc[4].1 = 0.01; bc[5].1 = 0.01; }
+        if !b_raw.is_finite() { return None; }
+        let (b_p, b_0) = factor(&bc, b_raw, lift, chain_c, p, bbuf);
+        // max(0, a + c.x) <= max(0, a) + c.x, anchored at x = 0.
+        let b_at_p = b_p - b_0 + b_0.max(0.0);
+        for mm in 0..2 {
+            let add_idx = if mm == 0 { d.dam_add_min_idx[i] } else { d.dam_add_max_idx[i] };
+            let (d_p, d_0) = if can_add {
+                factor(&[(add_idx, 1.0)], base[i][mm] + s.num(add_idx), lift, chain_c, p, dbuf)
+            } else {
+                dbuf.clear();
+                (base[i][mm], base[i][mm])
+            };
+            if !d_p.is_finite() || !(d_0 >= 0.0) { return None; }
+            let wt = weight * 0.5 * damage_mult * em[i];
+            if wt > 0.0 {
+                let facs = [Fac { at_p: k_at_p, c: kbuf }, Fac { at_p: d_p, c: dbuf },
+                            Fac { at_p: b_at_p, c: bbuf }];
+                fold_term(gsum, gsp, gtag, term_g, merge, spec_tag + (i * 2 + mm) as u16, wt, &facs);
+            }
+        }
+    }
+
+    // Raw: each summand at its positive part at x = 0.
+    let e0 = em.iter().cloned().fold(0.0f64, f64::max);
+    let e1 = em[1..].iter().cloned().fold(0.0f64, f64::max);
+    let tc = total_convert;
+    rbuf.clear();
+    let mut r_at_p = 0.0;
+    let mut summand = |coefs: &[(u32, f64)], at_p_raw: f64, scale: f64,
+                       rbuf: &mut Vec<(u16, f64)>, sbuf: &mut Vec<(u16, f64)>| -> Option<f64> {
+        if scale == 0.0 { return Some(0.0); }
+        if !at_p_raw.is_finite() { return None; }
+        let (vp, z) = factor(coefs, at_p_raw, lift, chain_c, p, sbuf);
+        for &(u, c) in sbuf.iter() { rbuf.push((u, c * scale)); }
+        Some(scale * (vp - z + z.max(0.0)))
+    };
+    r_at_p += summand(&[(spec_raw_s, 1.0), (d.s_dam_raw, 1.0)],
+                      s.num(spec_raw_s) + s.num(d.s_dam_raw), tc * e0, rbuf, sbuf)?;
+    r_at_p += summand(&[(r_raw_s, 1.0), (d.s_r_dam_raw, 1.0)],
+                      s.num(r_raw_s) + s.num(d.s_r_dam_raw), tc * e1, rbuf, sbuf)?;
+    for i in 0..6 {
+        if !present[i] { continue; }
+        r_at_p += summand(&[(spec_raw[i], 1.0), (d.dam_raw_idx[i], 1.0)],
+                          s.num(spec_raw[i]) + s.num(d.dam_raw_idx[i]), tc * em[i], rbuf, sbuf)?;
+    }
+    let wt = weight * damage_mult;
+    if wt > 0.0 && r_at_p > 0.0 {
+        let facs = [Fac { at_p: k_at_p, c: kbuf }, Fac { at_p: r_at_p, c: rbuf }];
+        fold_term(gsum, gsp, gtag, term_g, merge, spec_tag + 12, wt, &facs);
+    }
+    Some(())
+}
