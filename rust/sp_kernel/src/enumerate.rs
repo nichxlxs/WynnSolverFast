@@ -107,6 +107,9 @@ pub mod bound_observe {
     static TAN: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
     /// U(x) / f(x) at the best leaf's own items (must be >= 1).
     static ENV: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    /// (ceiling, min(tangent, ceiling), true best) per covered subtree, for
+    /// the prune counts at the final cutoff.
+    static TAN_ABS: Mutex<Vec<(f64, f64, f64)>> = Mutex::new(Vec::new());
     /// [refused: objective, use_max, negative, forbidden, no dense; tangent
     /// below the true best; envelope below the exact value]
     static TAN_COUNTS: Mutex<[u64; 7]> = Mutex::new([0; 7]);
@@ -121,6 +124,7 @@ pub mod bound_observe {
         if !(best.is_finite() && best > 0.0 && tangent.is_finite()) { return; }
         if tangent < best * (1.0 - 1e-9) { tan_count(5); }
         TAN.lock().unwrap_or_else(|e| e.into_inner()).push((tangent / best, tangent.min(ceiling) / best));
+        TAN_ABS.lock().unwrap_or_else(|e| e.into_inner()).push((ceiling, tangent.min(ceiling), best));
     }
     pub fn record_envelope(u: f64, f: f64) {
         if !(f.is_finite() && f > 0.0 && u.is_finite()) { return; }
@@ -201,6 +205,13 @@ pub mod bound_observe {
                 q(t.clone(), 0.1), q(t.clone(), 0.5), q(t.clone(), 0.9), t.len(), q(m, 0.5),
                 counts[0], counts[1], counts[2], counts[3], counts[4], counts[5],
                 q(env.clone(), 0.5), q(env, 1.0), counts[6]);
+            if let Some(cut) = final_cutoff {
+                let abs = TAN_ABS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let by_c = abs.iter().filter(|(c, _, _)| *c < cut).count();
+                let by_t = abs.iter().filter(|(_, t, _)| *t < cut).count();
+                let need = abs.iter().filter(|(_, _, b)| *b < cut).count();
+                line += &format!(" | covered subtrees pruned at the final cutoff: ceiling {by_c}, min(tangent, ceiling) {by_t}, perfect {need} of {}", abs.len());
+            }
             let mut rs = REASONS.lock().unwrap_or_else(|e| e.into_inner()).clone();
             rs.sort_by(|a, b| b.1.cmp(&a.1));
             let top: Vec<String> = rs.iter().take(8).map(|(k, c)| format!("{k}={c}")).collect();
@@ -1136,9 +1147,18 @@ impl<'a> Search<'a> {
             crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
             crate::scoring::ceiling_crit_floor_dense(d, scratch);
         }
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        // Largest attack-tier bonus the relaxed slots can add (per slot max).
+        let tier_extra: f64 = (depth + 1..self.n_free).map(|j| {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { return 0.0; }
+            v[..=h_child.min(v.len() - 1)].iter()
+                .filter_map(|it| it.iter().find(|(i, _)| *i == d.atk_tier_idx).map(|(_, x)| *x))
+                .fold(0.0f64, f64::max)
+        }).sum();
         let env = match crate::tangent::build_envelope(
             d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables,
-            &self.bound_work.leaf, &sp_cap) {
+            &self.bound_work.leaf, &sp_cap, tier_extra) {
             Ok(e) => e,
             Err(r) => {
                 bound_observe::tan_count(match r {
@@ -1149,7 +1169,6 @@ impl<'a> Search<'a> {
             }
         };
         let forbidden = crate::tangent::forbidden_indices(d, &sc.rows);
-        let h_child = (hi_rem - offset as i64).max(0) as usize;
         let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
         for j in depth + 1..self.n_free {
             let v = &db.item_vecs[j];

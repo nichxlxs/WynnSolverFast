@@ -49,7 +49,9 @@
 //!
 //! - damage objective, no injected per-leaf rows;
 //! - no relaxed item touches an index the envelope treats as constant:
-//!   conversions, attack-speed tier, var-effect inputs, damMobs/defMobs;
+//!   conversions, damMobs/defMobs, var-effect inputs feeding those (the
+//!   attack-speed tier is bounded instead: melee rows take the rate at the
+//!   prefix tier plus the relaxed slots' largest tier bonus);
 //! - no row overlay takes a `max` on an index the envelope reads;
 //! - every factor, multiplier and multiplicity is finite and >= 0 at the
 //!   prefix point.
@@ -106,19 +108,15 @@ pub enum Refuse {
 
 /// Indices a relaxed item must not touch for the envelope to hold.
 ///
-/// The attack-speed tier is read only by melee-rate rows without a fixed
-/// cooldown (their hits per second), so it is forbidden only when such a
-/// row deals damage.
-pub fn forbidden_indices(d: &DenseCtx, rows: &[Row]) -> Vec<bool> {
+/// The attack-speed tier is not among them: it only sets melee-rate rows'
+/// hits per second, which is nondecreasing in it, and `build_envelope` takes
+/// that rate at the prefix tier plus the relaxed slots' largest tier bonus.
+pub fn forbidden_indices(d: &DenseCtx, _rows: &[Row]) -> Vec<bool> {
     let mut f = vec![false; d.n];
     let mark = |f: &mut Vec<bool>, i: u32| { if (i as usize) < f.len() { f[i as usize] = true; } };
     for &i in &d.conv_base_idx { mark(&mut f, i); }
     for r in &d.rows {
         for c in r.parts_conv.iter().flatten() { for &i in c { mark(&mut f, i); } }
-    }
-    if rows.iter().any(|r| r.is_melee_time && r.melee_cd_override.is_none()
-        && r.qty > 0.0 && !r.pseudo && !r.dmg_excl) {
-        mark(&mut f, d.atk_tier_idx);
     }
     if let Some(dd) = d.direct.as_ref() {
         mark(&mut f, dd.dam_mobs_idx);
@@ -169,6 +167,7 @@ struct Chain { lift: f64, coeffs: Vec<(u32, f64)> }
 fn var_chains(d: &DenseCtx, leaf: &DenseLeaf, sp: &[f64; 5]) -> Result<HashMap<u32, Chain>, Refuse> {
     let mut out: HashMap<u32, Chain> = HashMap::new();
     let Some(dd) = d.direct.as_ref() else { return Ok(out) };
+    let reads = read_indices(d);
     let mut skp_pre = [0.0f64; 5];
     for i in 0..5 {
         let mut v = sp[i];
@@ -176,6 +175,11 @@ fn var_chains(d: &DenseCtx, leaf: &DenseLeaf, sp: &[f64; 5]) -> Result<HashMap<u
         skp_pre[i] = v;
     }
     for eff in &d.var_effects {
+        // Effects writing only stats the envelope does not read (poison, say)
+        // cannot change it.
+        if !eff.out_slots.iter().any(|(slot, _)| reads.get(d.var_slots[*slot] as usize).copied().unwrap_or(false)) {
+            continue;
+        }
         let mut t = eff.const_add;
         let mut coeffs: Vec<(u32, f64)> = Vec::new();
         for term in &eff.terms {
@@ -234,7 +238,7 @@ fn chained(f: Factor, chains: &HashMap<u32, Chain>) -> Factor {
 /// CRIT_CEILING_FLOOR). Row overlays are applied and undone here.
 pub fn build_envelope(
     d: &DenseCtx, s: &mut DScratch, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
-    leaf: &DenseLeaf, sp: &[f64; 5],
+    leaf: &DenseLeaf, sp: &[f64; 5], tier_extra: f64,
 ) -> Result<Envelope, Refuse> {
     if !matches!(d.obj, DObjective::Damage) { return Err(Refuse::Objective); }
     let atk_spd_idx = leaf.atk_spd_idx;
@@ -269,7 +273,9 @@ pub fn build_envelope(
             let period = match row.melee_cd_override {
                 Some(p) => p,
                 None => {
-                    let tier = s.num_or0(d.atk_tier_idx);
+                    // Highest tier any completion reaches: the rate only
+                    // rises with it (base_damage_multiplier is increasing).
+                    let tier = s.num_or0(d.atk_tier_idx) + tier_extra.max(0.0);
                     let adj = (atk_spd_idx as f64 + tier).clamp(0.0, 6.0);
                     1.0 / tables.base_damage_multiplier[adj as usize]
                 }
