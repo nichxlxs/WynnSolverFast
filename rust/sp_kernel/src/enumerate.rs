@@ -546,6 +546,11 @@ pub struct Search<'a> {
     reach_cap_on: bool,
     /// Last-slot ranges R9 rejected with one solve.
     pub sp_node_reject: u64,
+    /// Per slot, per set id: the sorted pool offsets of that slot's items in
+    /// the set (any item with that set id, as R9 always counted). For R9.
+    slot_set_offsets: Vec<Vec<Vec<u32>>>,
+    /// Per slot: the set ids its pool stocks.
+    slot_set_ids: Vec<Vec<u32>>,
     /// BOUND_OBSERVE=1 diagnostic: best real score seen inside the subtree
     /// currently being observed (see `bound_observe`).
     observe_max: f64,
@@ -847,6 +852,23 @@ impl<'a> Search<'a> {
             }).collect(),
             sp_node_reject: 0,
             r9_done: false,
+            slot_set_offsets: fx.slots.iter().map(|sl| {
+                let mut v = vec![Vec::new(); fx.set_table.len()];
+                for (o, it) in sl.pool.iter().enumerate() {
+                    if it.set_id >= 0 && (it.set_id as usize) < v.len() {
+                        v[it.set_id as usize].push(o as u32);
+                    }
+                }
+                v
+            }).collect(),
+            slot_set_ids: fx.slots.iter().map(|sl| {
+                let mut ids: Vec<u32> = sl.pool.iter()
+                    .filter(|it| it.set_id >= 0 && (it.set_id as usize) < fx.set_table.len())
+                    .map(|it| it.set_id as u32).collect();
+                ids.sort_unstable();
+                ids.dedup();
+                ids
+            }).collect(),
             observe_max: f64::NEG_INFINITY,
             observe_sp: [0; 5],
             observe_names: Default::default(),
@@ -1302,12 +1324,20 @@ impl<'a> Search<'a> {
             first = false;
         }
         if first { skp = [0; 5]; }   // only crafted candidates: none adds SP
+        // Set term. Only sets that are worn, or stocked by this slot within
+        // [from, to], contribute; `slot_set_offsets` answers "stocked in the
+        // range" by binary search, where this used to scan the whole range
+        // once per set in the game (O(sets x range) per call, about a
+        // quarter of all instructions early in a search). Integer sums, so
+        // the visiting order does not change the result.
+        let offs = &self.slot_set_offsets[depth];
+        let in_range = |sid: usize| -> usize {
+            let v = &offs[sid];
+            let i = v.partition_point(|&x| (x as usize) < from);
+            usize::from(i < v.len() && (v[i] as usize) <= to)
+        };
         let mut set_free = [0i32; 5];
-        for (sid, rows) in self.fx.set_table.iter().enumerate() {
-            if rows.is_empty() { continue; }
-            let worn = self.set_counts[sid].max(0) as usize;
-            let reach = usize::from(slot.pool[from..=to].iter().any(|it| it.set_id == sid as i32));
-            if worn + reach == 0 { continue; }
+        let mut add = |rows: &Vec<[i32; 5]>, worn: usize, reach: usize| {
             let lo = worn.max(1).min(rows.len());
             let hi = rows.len().min(worn + reach).max(lo);
             for j in 0..5 {
@@ -1315,6 +1345,19 @@ impl<'a> Search<'a> {
                 for t in lo..=hi { best = best.max(rows[t - 1][j]); }
                 set_free[j] += best;
             }
+        };
+        for (sid, &cnt) in self.set_counts.iter().enumerate() {
+            if cnt <= 0 { continue; }
+            let rows = &self.fx.set_table[sid];
+            if rows.is_empty() { continue; }
+            add(rows, cnt as usize, in_range(sid));
+        }
+        for &sid in &self.slot_set_ids[depth] {
+            let sid = sid as usize;
+            if self.set_counts[sid] > 0 { continue; }   // counted above
+            let rows = &self.fx.set_table[sid];
+            if rows.is_empty() || in_range(sid) == 0 { continue; }
+            add(rows, 0, 1);
         }
         let mut equipment = self.equips;
         equipment[slot.pos] = Unit { crafted: false, reqs: [0; 5], skp };
