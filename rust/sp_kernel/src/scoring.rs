@@ -6709,6 +6709,10 @@ pub struct DenseBound {
     /// the per-item terms the maxima above are taken over. The R2 tangent
     /// bound (`tangent`) maximizes a linear function over these per slot.
     pub item_vecs: Vec<Vec<Vec<(u32, f64)>>>,
+    /// slot_max[slot]: that slot's per-stat maxima over its whole pool plus
+    /// its largest set transitions (one slot's share of table[0][h_max]).
+    /// R3 relaxes every slot but one with these.
+    pub slot_max: Vec<Vec<(u32, f64)>>,
 }
 
 impl DenseBound {
@@ -6802,6 +6806,14 @@ impl DenseBound {
             item_vecs.push(slot_vecs);
         }
 
+        let slot_max: Vec<Vec<(u32, f64)>> = (0..n).map(|j| {
+            let mut acc: HashMap<u32, f64> = HashMap::new();
+            if let Some(m) = per_slot[j].last() { for (&i, &v) in m { *acc.entry(i).or_insert(0.0) += v; } }
+            if let Some(m) = per_slot_set[j].last() { for (&i, &v) in m { *acc.entry(i).or_insert(0.0) += v; } }
+            let mut v: Vec<(u32, f64)> = acc.into_iter().filter(|(_, v)| *v != 0.0).collect();
+            v.sort_by_key(|(i, _)| *i);
+            v
+        }).collect();
         let mut table = Vec::with_capacity(n + 1);
         let mut term_table = Vec::with_capacity(n + 1);
         for depth in 0..=n {
@@ -6884,7 +6896,7 @@ impl DenseBound {
         let super_size = if cluster_size > 0 { cluster_size * 4 } else { 0 };
         let (super_clusters, super_cluster_terms) = build_clusters(super_size)?;
         Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size,
-                          super_clusters, super_cluster_terms, super_size, item_vecs })
+                          super_clusters, super_cluster_terms, super_size, item_vecs, slot_max })
     }
 }
 

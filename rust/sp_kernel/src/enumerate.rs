@@ -147,6 +147,49 @@ impl R5Frontier {
     }
 }
 
+/// R3_REPORT=1: how many items each free slot could drop before the search.
+/// UB(slot j, item i) is the dense ceiling with slot j holding i, every other
+/// free slot relaxed to its whole-pool maxima (slot_max) and all skill points
+/// at 150; an item whose UB is strictly below the warm cutoff (the 15th best
+/// of real builds) cannot reach the top 15. Diagnostic only.
+fn r3_report(fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
+             db: Option<&crate::scoring::DenseBound>, cutoff: f64) {
+    let (Some(sc), Some(db)) = (scoring, db) else { eprintln!("r3: no dense bound"); return };
+    let Some(d) = sc.dense.as_ref() else { return };
+    if !(cutoff > 0.0) { eprintln!("r3: no warm cutoff"); return; }
+    let mut base: [&str; 8] = [""; 8];
+    for p in 0..8 { base[p] = &fx.none_names[p]; }
+    for (p, n) in &fx.fixed_names { base[*p] = n; }
+    let mut work = crate::scoring::DenseWork::default();
+    let mut kept_frac = 1.0f64;
+    let mut line = String::new();
+    for j in 0..fx.slots.len() {
+        let mut acc: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+        for (k, m) in db.slot_max.iter().enumerate() {
+            if k == j { continue; }
+            for &(i, v) in m { *acc.entry(i).or_insert(0.0) += v; }
+        }
+        let adds: Vec<(u32, f64)> = acc.into_iter().collect();
+        let terms: Vec<(usize, f64)> = d.const_term_keys.iter().enumerate().filter_map(|(slot, key)| {
+            let &i = d.idx.get(key.as_str())?;
+            adds.iter().find(|(k, _)| *k == i).map(|(_, v)| (slot, *v))
+        }).collect();
+        let slot = &fx.slots[j];
+        let mut names = base;
+        let mut drop = 0usize;
+        for i in 0..slot.item_names.len() {
+            names[slot.pos] = &slot.item_names[i];
+            let ub = crate::scoring::dense_ceiling_with(d, &adds, &terms, &names, &mut work,
+                &sc.rows, &sc.compiled_rows, &sc.tables, &[150.0; 5]).unwrap_or(f64::INFINITY);
+            if ub < cutoff - cutoff.abs() * 1e-9 { drop += 1; }
+        }
+        let n = slot.item_names.len().max(1);
+        kept_frac *= (n - drop) as f64 / n as f64;
+        line += &format!(" slot{} {}/{}", j, drop, n);
+    }
+    eprintln!("r3: warm cutoff {cutoff:.6e} | droppable{line} | space kept {:.3e}x", kept_frac);
+}
+
 /// R9_STATS=1 diagnostic counters (single process, all threads).
 pub mod r9_stats {
     use std::collections::HashSet;
@@ -3382,6 +3425,12 @@ pub fn cli_main() {
     let warm = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster,
         true, options.result_count, overall_started, quality_trace.as_ref());
     let warm_seconds = warm_started.elapsed().as_secs_f64();
+
+    if std::env::var("R3_REPORT").as_deref() == Ok("1") {
+        let cut = std::env::var("R3_CUTOFF").ok().and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(shared_cutoff.load(Ordering::Relaxed) as f64);
+        r3_report(&fx, scoring, dense_bound, cut);
+    }
 
     let start = Instant::now();
 
