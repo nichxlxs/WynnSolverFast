@@ -190,6 +190,49 @@ fn r3_report(fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
     eprintln!("r3: warm cutoff {cutoff:.6e} | droppable{line} | space kept {:.3e}x", kept_frac);
 }
 
+/// R28_REPORT=1: Pareto front sizes of the last one and two free slots'
+/// real items and item pairs, over the stats the damage objective reads
+/// (R2's coordinates), maximizing every coordinate. Diagnostic only.
+fn r28_report(fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
+              db: Option<&crate::scoring::DenseBound>) {
+    let (Some(sc), Some(db)) = (scoring, db) else { eprintln!("r28: no dense bound"); return };
+    let Some(d) = sc.dense.as_ref() else { return };
+    let Some(plan) = crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows) else {
+        eprintln!("r28: objective not damage"); return
+    };
+    let nu = plan.n_coords();
+    let n = fx.slots.len();
+    if n < 2 { return; }
+    let dense = |row: &[(u16, f64)]| -> Vec<f64> {
+        let mut v = vec![0.0; nu];
+        for &(u, x) in row { v[u as usize] += x; }
+        v
+    };
+    let front = |pts: &[Vec<f64>]| -> usize {
+        // Maximal points (no other point >= on every coordinate and > on one).
+        let mut keep = 0usize;
+        'outer: for (i, p) in pts.iter().enumerate() {
+            for (j, q) in pts.iter().enumerate() {
+                if i == j { continue; }
+                let ge = q.iter().zip(p).all(|(a, b)| a >= b);
+                let gt = q.iter().zip(p).any(|(a, b)| a > b);
+                if ge && (gt || j < i) { continue 'outer; }
+            }
+            keep += 1;
+        }
+        keep
+    };
+    let last: Vec<Vec<f64>> = plan.slot_rows(n - 1).iter().map(|r| dense(r)).collect();
+    let prev: Vec<Vec<f64>> = plan.slot_rows(n - 2).iter().map(|r| dense(r)).collect();
+    let used = |pts: &[Vec<f64>]| (0..nu).filter(|&u| pts.iter().any(|p| p[u] != 0.0)).count();
+    let mut pairs: Vec<Vec<f64>> = Vec::with_capacity(last.len() * prev.len());
+    for a in &prev { for b in &last { pairs.push(a.iter().zip(b).map(|(x, y)| x + y).collect()); } }
+    let f1 = front(&last);
+    let f2 = front(&pairs);
+    eprintln!("r28: coords {nu} (used by the last slot {}, by pairs {}) | last slot front {f1} of {} | last two slots front {f2} of {} pairs",
+              used(&last), used(&pairs), last.len(), pairs.len());
+}
+
 /// R9_STATS=1 diagnostic counters (single process, all threads).
 pub mod r9_stats {
     use std::collections::HashSet;
@@ -3426,6 +3469,9 @@ pub fn cli_main() {
         true, options.result_count, overall_started, quality_trace.as_ref());
     let warm_seconds = warm_started.elapsed().as_secs_f64();
 
+    if std::env::var("R28_REPORT").as_deref() == Ok("1") {
+        r28_report(&fx, scoring, dense_bound);
+    }
     if std::env::var("R3_REPORT").as_deref() == Ok("1") {
         let cut = std::env::var("R3_CUTOFF").ok().and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(shared_cutoff.load(Ordering::Relaxed) as f64);

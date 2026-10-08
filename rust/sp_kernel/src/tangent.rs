@@ -736,6 +736,8 @@ impl TanPlan {
     }
 
     pub fn n_coords(&self) -> usize { self.u_idx.len() }
+    /// Item rows of a slot on the relevant coordinates (R28 diagnostic).
+    pub fn slot_rows(&self, slot: usize) -> &[Vec<(u16, f64)>] { &self.slot_rows[slot] }
 }
 
 /// Reused buffers for `fast_bound`.
