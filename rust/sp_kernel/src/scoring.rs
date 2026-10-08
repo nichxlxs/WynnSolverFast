@@ -7384,9 +7384,23 @@ mod healing_schema_tests {
 /// `mana_delta` is end minus start mana over one combo from the fast sim
 /// (negative means the combo drains mana); it is omitted when the scenario
 /// has no timed combo.
-pub fn explain_build(sc: &ScoringCtx, items: &[&str], total_sp: &[i32; 5]) -> Option<Vec<(&'static str, f64)>> {
+/// With tome optimisation the chosen weapon/armour bundle is merged last, as
+/// the leaf does; a guild candidate only changes skill points, which
+/// `total_sp` already holds.
+pub fn explain_build(
+    sc: &ScoringCtx, items: &[&str], total_sp: &[i32; 5], tome: Option<&TomeChoice>,
+) -> Option<Vec<(&'static str, f64)>> {
     let sp: Vec<f64> = total_sp.iter().map(|&v| v as f64).collect();
-    let combo_base = sc.layer2.assemble(items, &sp, &sc.weapon).ok()?;
+    let extra = match tome {
+        None => None,
+        Some(t) if t.weapon_names.is_empty() && t.armor_names.is_empty() => None,
+        // A choice the bundle list cannot reproduce: no stats rather than
+        // stats for a different build.
+        Some(t) => Some(&sc.layer2.tome_wa_bundles.iter()
+            .find(|b| b.weapon_names == t.weapon_names && b.armor_names == t.armor_names)?.stats),
+    };
+    let base = sc.layer2.build_base(items, &sc.weapon).ok()?;
+    let combo_base = sc.layer2.assemble_from_base_extra(&base, &sp, &sc.weapon, extra);
     let view = StatsView::Borrowed(&combo_base);
     let (total_hp, ehp, ehp_no_agi, hpr, _ehpr) = defense_stats(&view, &sc.tables);
     let mut out = vec![
@@ -7428,7 +7442,7 @@ mod tome_rescue_tests {
                      "Diamond Static Bracelet", "Achromatic Gloom"];
         let mut kernel = crate::Kernel::new();
         let mut work = DenseWork::default();
-        let (out, _tome) = leaf_pipeline_tome(
+        let (out, tome) = leaf_pipeline_tome(
             &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(), &mut kernel,
             &sc.rows, &sc.registry, &sc.hit_refs, &sc.tables, &sc.consts, &sc.objective,
             Some(&sc.compiled_rows), None, sc.dense.as_ref().map(|d| (d, &mut work)),
@@ -7436,5 +7450,11 @@ mod tome_rescue_tests {
         let LeafOutcome::Scored(r) = out else { panic!("build not scored") };
         assert!((r.score - 49_223.325520909995).abs() < 1e-6,
                 "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
+        // And the score must be what the explain pass computes for the same
+        // build with its tome choice (how the bug was found).
+        let stats = explain_build(&sc, &names, &r.total_sp, tome.as_ref()).unwrap();
+        let ehp = stats.iter().find(|(k, _)| *k == "ehp").unwrap().1;
+        assert!((ehp - r.score).abs() <= 1e-9 * r.score.abs(),
+                "score {} != EHP of the same build with its tomes {}", r.score, ehp);
     }
 }

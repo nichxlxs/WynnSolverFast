@@ -2306,12 +2306,11 @@ pub fn solve_json_full(
 }
 
 /// R20: `,"stats":{...}` for an archived build in a windowed run (empty
-/// otherwise, and for a build whose tome choice was optimised, since the
-/// explain pass assembles with the fixture's tomes).
+/// otherwise, or when the build cannot be re-assembled).
 fn stats_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, e: &TopEntry) -> String {
-    let (true, Some(sc), None) = (fx.window > 0.0, ctx, e.tome.as_ref()) else { return String::new() };
+    let (true, Some(sc)) = (fx.window > 0.0, ctx) else { return String::new() };
     let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
-    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.total_sp) else { return String::new() };
+    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.total_sp, e.tome.as_ref()) else { return String::new() };
     let body: Vec<String> = stats.iter().filter(|(_, v)| v.is_finite())
         .map(|(k, v)| format!("\"{k}\":{v}")).collect();
     format!(",\"stats\":{{{}}}", body.join(","))
@@ -2811,9 +2810,11 @@ pub fn cli_main() {
         if fx.window > 0.0 {
             for (rank, e) in totals.top_n.iter().enumerate() {
                 let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
-                if let (None, Some(st)) = (e.tome.as_ref(), crate::scoring::explain_build(scoring.unwrap(), &names, &e.total_sp)) {
-                    println!("stats: {} {}", rank + 1, st.iter().map(|(k, v)| format!("{k}={v}"))
-                        .collect::<Vec<_>>().join(" "));
+                if let Some(st) = crate::scoring::explain_build(scoring.unwrap(), &names, &e.total_sp, e.tome.as_ref()) {
+                    let tome = e.tome.as_ref().map(|t| format!(" guild_idx={} tomes={}", t.guild_idx,
+                        t.weapon_names.len() + t.armor_names.len())).unwrap_or_default();
+                    println!("stats: {} {}{} total_sp={:?}", rank + 1, st.iter().map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>().join(" "), tome, e.total_sp);
                 }
             }
         }
