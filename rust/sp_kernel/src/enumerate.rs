@@ -110,6 +110,11 @@ pub mod bound_observe {
     /// (ceiling, min(tangent, ceiling), true best) per covered subtree, for
     /// the prune counts at the final cutoff.
     static TAN_ABS: Mutex<Vec<(f64, f64, f64)>> = Mutex::new(Vec::new());
+    /// min(grouped tangent, ceiling) for (by tag, one group), same order.
+    static TAN_GROUPED: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    pub fn record_grouped(by_tag: f64, one: f64, ceiling: f64) {
+        TAN_GROUPED.lock().unwrap_or_else(|e| e.into_inner()).push((by_tag.min(ceiling), one.min(ceiling)));
+    }
     /// [refused: objective, use_max, negative, forbidden, no dense; tangent
     /// below the true best; envelope below the exact value]
     static TAN_COUNTS: Mutex<[u64; 7]> = Mutex::new([0; 7]);
@@ -210,7 +215,10 @@ pub mod bound_observe {
                 let by_c = abs.iter().filter(|(c, _, _)| *c < cut).count();
                 let by_t = abs.iter().filter(|(_, t, _)| *t < cut).count();
                 let need = abs.iter().filter(|(_, _, b)| *b < cut).count();
-                line += &format!(" | covered subtrees pruned at the final cutoff: ceiling {by_c}, min(tangent, ceiling) {by_t}, perfect {need} of {}", abs.len());
+                let grp = TAN_GROUPED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let by_tag = grp.iter().filter(|(t, _)| *t < cut).count();
+                let by_one = grp.iter().filter(|(_, o)| *o < cut).count();
+                line += &format!(" | covered subtrees pruned at the final cutoff: ceiling {by_c}, min(tangent, ceiling) {by_t} (grouped by tag {by_tag}, one group {by_one}), perfect {need} of {}", abs.len());
             }
             let mut rs = REASONS.lock().unwrap_or_else(|e| e.into_inner()).clone();
             rs.sort_by(|a, b| b.1.cmp(&a.1));
@@ -1176,7 +1184,7 @@ impl<'a> Search<'a> {
             slots.push(&v[..=h_child.min(v.len() - 1)]);
         }
         let mut dense = vec![0.0f64; d.n];
-        let (tan, _u_at_i) = match env.tangent(&slots, &forbidden, &mut dense) {
+        let (tan, _u_at_i) = match env.tangent(&slots, &forbidden, &mut dense, crate::tangent::Grouping::PerTerm) {
             Ok(v) => v,
             Err(i) => {
                 bound_observe::tan_count(3);
@@ -1186,6 +1194,15 @@ impl<'a> Search<'a> {
             }
         };
         bound_observe::record_tangent(tan, ceiling, self.observe_max);
+        if self.observe_max.is_finite() {
+            let g = |m| env.tangent(&slots, &forbidden, &mut vec![0.0f64; d.n], m).map(|v| v.0).unwrap_or(f64::INFINITY);
+            let by_tag = g(crate::tangent::Grouping::ByTag);
+            let one = g(crate::tangent::Grouping::One);
+            if by_tag < self.observe_max * (1.0 - 1e-9) || one < self.observe_max * (1.0 - 1e-9) {
+                bound_observe::tan_count(5);
+            }
+            bound_observe::record_grouped(by_tag, one, ceiling);
+        }
         // Envelope check at the best leaf's own relaxed items.
         if self.observe_max.is_finite() {
             let mut x: Vec<(u32, f64)> = Vec::new();

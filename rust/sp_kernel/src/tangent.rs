@@ -89,7 +89,18 @@ pub struct Factor {
 pub struct Term {
     pub w: f64,
     pub f: Vec<Factor>,
+    /// Structure tag for grouping: spell parts +16; damage terms
+    /// element * 2 + (0 min, 1 max); the raw term 12.
+    pub tag: u16,
 }
+
+/// How `Envelope::tangent` groups terms. A group is bounded by its summed
+/// value at I times exp(g_min . delta), g_min the componentwise minimum of
+/// its terms' gradients: every delta = x - I is <= 0 and every gradient
+/// >= 0, so g_t . delta <= g_min . delta for each term. Fewer groups is
+/// cheaper (one max over items per group per slot) and never tighter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grouping { PerTerm, ByTag, One }
 
 #[derive(Debug, Default)]
 pub struct Envelope {
@@ -472,12 +483,13 @@ fn part_terms(
         // Chain first (the lift is part of the prefix value), then clamp.
         let boost = chained(Factor { a: boost_a, c: merged(boost_c) }, chains);
         let boost = Factor { a: boost.a.max(0.0), c: boost.c };
-        for (a, c) in ds {
+        for (mm, (a, c)) in ds.into_iter().enumerate() {
             let w = weight * 0.5 * damage_mult * em[i];
             if w > 0.0 {
                 let dfac = chained(Factor { a, c }, chains);
                 if !ok(dfac.a) { return Err(Refuse::Negative("base_damage")); }
-                out.push(Term { w, f: vec![k.clone(), dfac, boost.clone()] });
+                let tag = if use_spell { 16 } else { 0 } + (i * 2 + mm) as u16;
+                out.push(Term { w, f: vec![k.clone(), dfac, boost.clone()], tag });
             }
         }
     }
@@ -507,7 +519,8 @@ fn part_terms(
     let w = weight * damage_mult;
     if w > 0.0 {
         let r = chained(Factor { a: ra, c: merged(rc) }, chains);
-        out.push(Term { w, f: vec![k, Factor { a: r.a.max(0.0), c: r.c }] });
+        let tag = if use_spell { 16 } else { 0 } + 12;
+        out.push(Term { w, f: vec![k, Factor { a: r.a.max(0.0), c: r.c }], tag });
     }
     Ok(())
 }
@@ -533,6 +546,7 @@ impl Envelope {
     /// (tangent bound, U(I)); None when an item touches a forbidden index.
     pub fn tangent(
         &self, slots: &[&[Vec<(u32, f64)>]], forbidden: &[bool], dense: &mut Vec<f64>,
+        grouping: Grouping,
     ) -> Result<(f64, f64), u32> {
         // Per-slot maxima, and their sum p = I.
         let mut supers: Vec<Vec<(u32, f64)>> = Vec::with_capacity(slots.len());
@@ -551,7 +565,7 @@ impl Envelope {
         }
         let p: Vec<(u32, f64)> = merged(supers.iter().flatten().cloned().collect());
         scatter(&p, dense);
-        let mut grads: Vec<(f64, Vec<(u32, f64)>)> = Vec::with_capacity(self.terms.len());
+        let mut grads: Vec<(u16, f64, Vec<(u32, f64)>)> = Vec::with_capacity(self.terms.len());
         let mut u_at_i = 0.0;
         for t in &self.terms {
             let mut tp = t.w;
@@ -565,9 +579,39 @@ impl Envelope {
             }
             u_at_i += tp;
             if zero || tp <= 0.0 { continue; }
-            grads.push((tp, merged(g)));
+            let key = match grouping { Grouping::PerTerm => 0, Grouping::ByTag => t.tag, Grouping::One => 0 };
+            grads.push((key, tp, merged(g)));
         }
         gather_clear(&p, dense);
+        let grads: Vec<(f64, Vec<(u32, f64)>)> = match grouping {
+            Grouping::PerTerm => grads.into_iter().map(|(_, tp, g)| (tp, g)).collect(),
+            _ => {
+                // Sum values, componentwise-min gradients (absent = 0).
+                let mut groups: Vec<(u16, f64, Vec<(u32, f64)>)> = Vec::new();
+                for (key, tp, g) in grads {
+                    match groups.iter_mut().find(|(k, _, _)| *k == key) {
+                        None => groups.push((key, tp, g)),
+                        Some((_, sum, gm)) => {
+                            *sum += tp;
+                            let mut out = Vec::with_capacity(gm.len());
+                            let (mut a, mut b) = (0, 0);
+                            while a < gm.len() && b < g.len() {
+                                match gm[a].0.cmp(&g[b].0) {
+                                    std::cmp::Ordering::Less => a += 1,
+                                    std::cmp::Ordering::Greater => b += 1,
+                                    std::cmp::Ordering::Equal => {
+                                        out.push((gm[a].0, gm[a].1.min(g[b].1)));
+                                        a += 1; b += 1;
+                                    }
+                                }
+                            }
+                            *gm = out;
+                        }
+                    }
+                }
+                groups.into_iter().map(|(_, tp, g)| (tp, g)).collect()
+            }
+        };
         let mut total = 0.0;
         for (tp, g) in &grads {
             scatter(g, dense);
