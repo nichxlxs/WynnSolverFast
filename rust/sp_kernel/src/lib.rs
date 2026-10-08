@@ -402,6 +402,7 @@ pub mod wasm_api;
 mod bound_memo;
 pub mod enumerate;
 pub mod scoring;
+pub mod tangent;
 pub mod mana_sim;
 #[cfg(feature = "gpu")]
 pub mod gpu;

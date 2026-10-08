@@ -5936,7 +5936,7 @@ fn dense_spell_plan(
     (per_cast, flat)
 }
 
-enum DenseUndo {
+pub(crate) enum DenseUndo {
     Val(u32, f64, bool),           // idx, old val, old present bit
     DamVal(usize, f64),
     DamAppend,
@@ -5947,7 +5947,7 @@ enum DenseUndo {
 /// with_row_overlay over the dense scratch. `extra_row` carries bonuses for
 /// tokens injected after the lowering was built; they apply after the row's
 /// own ops, matching the Obj path's `comp.bonuses.chain(extra)` order.
-fn dense_apply_row(
+pub(crate) fn dense_apply_row(
     s: &mut DScratch, drow: &DRow, extra_row: &DenseRowExtra,
     journal: &mut Vec<DenseUndo>,
 ) {
@@ -5991,7 +5991,7 @@ fn dense_apply_row(
     }
 }
 
-fn dense_undo_row(s: &mut DScratch, journal: &mut Vec<DenseUndo>) {
+pub(crate) fn dense_undo_row(s: &mut DScratch, journal: &mut Vec<DenseUndo>) {
     while let Some(u) = journal.pop() {
         match u {
             DenseUndo::Val(i, old, was) => {
@@ -6690,6 +6690,11 @@ pub struct DenseBound {
     pub super_clusters: Vec<Vec<(u32, f64)>>,
     pub super_cluster_terms: Vec<Vec<(usize, f64)>>,
     pub super_size: usize,
+    /// item_vecs[slot][offset]: that item's own deltas on the read universe,
+    /// clamped >= 0 with its set's max positive transition added, exactly
+    /// the per-item terms the maxima above are taken over. The R2 tangent
+    /// bound (`tangent`) maximizes a linear function over these per slot.
+    pub item_vecs: Vec<Vec<Vec<(u32, f64)>>>,
 }
 
 impl DenseBound {
@@ -6742,7 +6747,9 @@ impl DenseBound {
         // offset (read-universe keys only).
         let mut per_slot: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
         let mut per_slot_set: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
+        let mut item_vecs: Vec<Vec<Vec<(u32, f64)>>> = Vec::with_capacity(n);
         for pool in slot_pools {
+            let mut slot_vecs: Vec<Vec<(u32, f64)>> = Vec::with_capacity(pool.len());
             let mut running: HashMap<u32, f64> = HashMap::new();
             let mut running_set: HashMap<u32, f64> = HashMap::new();
             let mut by_offset = Vec::with_capacity(pool.len());
@@ -6751,12 +6758,14 @@ impl DenseBound {
                 let item = l2.item_registry.get(name)?;
                 let mut item_stats: HashMap<String, f64> = HashMap::new();
                 l2.additive_item_stats(item, &mut item_stats);
+                let mut own: HashMap<u32, f64> = HashMap::new();
                 for (k, v) in item_stats {
                     let v = if v == f64::NEG_INFINITY { 0.0 } else { v };
                     let v = if v < 0.0 { 0.0 } else { v };
                     let Some(&i) = d.idx.get(&k) else { continue };
                     let e = running.entry(i).or_insert(0.0);
                     if v > *e { *e = v; }
+                    *own.entry(i).or_insert(0.0) += v;
                 }
                 let crafted = item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
                 if !crafted {
@@ -6764,14 +6773,19 @@ impl DenseBound {
                         for (i, v) in set_delta(sn) {
                             let e = running_set.entry(i).or_insert(0.0);
                             if v > *e { *e = v; }
+                            *own.entry(i).or_insert(0.0) += v;
                         }
                     }
                 }
+                let mut own: Vec<(u32, f64)> = own.into_iter().filter(|(_, v)| *v != 0.0).collect();
+                own.sort_by_key(|(i, _)| *i);
+                slot_vecs.push(own);
                 by_offset.push(running.clone());
                 by_offset_set.push(running_set.clone());
             }
             per_slot.push(by_offset);
             per_slot_set.push(by_offset_set);
+            item_vecs.push(slot_vecs);
         }
 
         let mut table = Vec::with_capacity(n + 1);
@@ -6856,7 +6870,7 @@ impl DenseBound {
         let super_size = if cluster_size > 0 { cluster_size * 4 } else { 0 };
         let (super_clusters, super_cluster_terms) = build_clusters(super_size)?;
         Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size,
-                          super_clusters, super_cluster_terms, super_size })
+                          super_clusters, super_cluster_terms, super_size, item_vecs })
     }
 }
 

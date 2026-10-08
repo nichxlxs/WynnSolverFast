@@ -103,6 +103,30 @@ pub mod bound_observe {
     static AT_SP: Mutex<Vec<f64>> = Mutex::new(Vec::new());
     static FULL: Mutex<Vec<f64>> = Mutex::new(Vec::new());
     static SINGLE: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    /// R2 tangent diagnostics: (tangent, min(tangent, ceiling)) / true best.
+    static TAN: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    /// U(x) / f(x) at the best leaf's own items (must be >= 1).
+    static ENV: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    /// [refused: objective, use_max, negative, forbidden, no dense; tangent
+    /// below the true best; envelope below the exact value]
+    static TAN_COUNTS: Mutex<[u64; 7]> = Mutex::new([0; 7]);
+    pub fn tan_count(k: usize) { TAN_COUNTS.lock().unwrap_or_else(|e| e.into_inner())[k] += 1; }
+    static REASONS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+    /// Refusal detail (which factor, which forbidden key).
+    pub fn tan_reason(r: String) {
+        let mut v = REASONS.lock().unwrap_or_else(|e| e.into_inner());
+        match v.iter_mut().find(|(k, _)| *k == r) { Some((_, c)) => *c += 1, None => v.push((r, 1)) }
+    }
+    pub fn record_tangent(tangent: f64, ceiling: f64, best: f64) {
+        if !(best.is_finite() && best > 0.0 && tangent.is_finite()) { return; }
+        if tangent < best * (1.0 - 1e-9) { tan_count(5); }
+        TAN.lock().unwrap_or_else(|e| e.into_inner()).push((tangent / best, tangent.min(ceiling) / best));
+    }
+    pub fn record_envelope(u: f64, f: f64) {
+        if !(f.is_finite() && f > 0.0 && u.is_finite()) { return; }
+        if u < f * (1.0 - 1e-9) { tan_count(6); }
+        ENV.lock().unwrap_or_else(|e| e.into_inner()).push(u / f);
+    }
     pub fn record_single(single: Option<f64>, best: f64) {
         if let (Some(v), true) = (single, best.is_finite() && best > 0.0) {
             SINGLE.lock().unwrap_or_else(|e| e.into_inner()).push(v / best);
@@ -156,6 +180,29 @@ pub mod bound_observe {
             let qg = |p: f64| g[((g.len() - 1) as f64 * p) as usize];
             line += &format!(" | best single item, feasibility ignored, at the best leaf's SP/true best p10 {:.3} p50 {:.3} p90 {:.3}",
                 qg(0.1), qg(0.5), qg(0.9));
+        }
+        let tan = TAN.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let counts = *TAN_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+        if !tan.is_empty() || counts.iter().any(|&c| c > 0) {
+            let q = |mut v: Vec<f64>, p: f64| -> f64 {
+                if v.is_empty() { return f64::NAN; }
+                v.sort_by(|a, b| a.total_cmp(b));
+                v[((v.len() - 1) as f64 * p) as usize]
+            };
+            let t: Vec<f64> = tan.iter().map(|x| x.0).collect();
+            let m: Vec<f64> = tan.iter().map(|x| x.1).collect();
+            let env = ENV.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            line += &format!(
+                " | R2 tangent/true best p10 {:.3} p50 {:.3} p90 {:.3} on {} subtrees, min(tangent, ceiling) p50 {:.3}; \
+                 refused objective {} use_max {} negative {} forbidden {} no_dense {}; \
+                 tangent below true best {}; envelope U/f p50 {:.4} max {:.4}, below exact {}",
+                q(t.clone(), 0.1), q(t.clone(), 0.5), q(t.clone(), 0.9), t.len(), q(m, 0.5),
+                counts[0], counts[1], counts[2], counts[3], counts[4], counts[5],
+                q(env.clone(), 0.5), q(env, 1.0), counts[6]);
+            let mut rs = REASONS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            rs.sort_by(|a, b| b.1.cmp(&a.1));
+            let top: Vec<String> = rs.iter().take(8).map(|(k, c)| format!("{k}={c}")).collect();
+            if !top.is_empty() { line += &format!(" | refusals: {}", top.join(" ")); }
         }
         let mut f = FULL.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if !f.is_empty() {
@@ -1063,6 +1110,77 @@ impl<'a> Search<'a> {
         crate::scoring::dense_ceiling_with(
             d, &[], &[], &names, &mut self.bound_work,
             &sc.rows, &sc.compiled_rows, &sc.tables, sp)
+    }
+
+    /// BOUND_OBSERVE only: the R2 tangent bound (see `tangent`) for the
+    /// subtree under (depth, offset), and the envelope check at the observed
+    /// best leaf's own items. Records into `bound_observe`; never prunes.
+    fn observe_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64, ceiling: f64) {
+        use crate::tangent::Refuse;
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { bound_observe::tan_count(4); return };
+        let Some(d) = sc.dense.as_ref() else { bound_observe::tan_count(4); return };
+        let Some(dd) = d.direct.as_ref() else { bound_observe::tan_count(4); return };
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        if !self.bound_work.leaf.fill_direct(d, dd, &names) { bound_observe::tan_count(4); return; }
+        {
+            let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+            scratch.reset(leaf, d);
+            crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
+        }
+        let atk = self.bound_work.leaf.atk_spd_idx;
+        let env = match crate::tangent::build_envelope(
+            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables, atk) {
+            Ok(e) => e,
+            Err(r) => {
+                bound_observe::tan_count(match r {
+                    Refuse::Objective => 0, Refuse::UseMax => 1, Refuse::Negative(_) => 2, Refuse::Forbidden => 3,
+                });
+                if let Refuse::Negative(why) = r { bound_observe::tan_reason(format!("negative:{why}")); }
+                return;
+            }
+        };
+        let forbidden = crate::tangent::forbidden_indices(d);
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
+        for j in depth + 1..self.n_free {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { continue; }
+            slots.push(&v[..=h_child.min(v.len() - 1)]);
+        }
+        let mut dense = vec![0.0f64; d.n];
+        let (tan, _u_at_i) = match env.tangent(&slots, &forbidden, &mut dense) {
+            Ok(v) => v,
+            Err(i) => {
+                bound_observe::tan_count(3);
+                let key = d.idx.iter().find(|(_, &v)| v == i).map(|(k, _)| k.as_str()).unwrap_or("?");
+                bound_observe::tan_reason(format!("forbidden:{key}"));
+                return;
+            }
+        };
+        bound_observe::record_tangent(tan, ceiling, self.observe_max);
+        // Envelope check at the best leaf's own relaxed items.
+        if self.observe_max.is_finite() {
+            let mut x: Vec<(u32, f64)> = Vec::new();
+            for j in depth + 1..self.n_free {
+                let slot = &fx.slots[j];
+                let name = self.observe_names[slot.pos];
+                let Some(o) = slot.item_names.iter().position(|n| n.as_str() == name) else { return };
+                x.extend(db.item_vecs[j][o].iter().cloned());
+            }
+            x.sort_by_key(|(i, _)| *i);
+            let mut merged: Vec<(u32, f64)> = Vec::new();
+            for (i, v) in x {
+                match merged.last_mut() { Some((j, w)) if *j == i => *w += v, _ => merged.push((i, v)) }
+            }
+            let u = env.value(&merged, &mut dense);
+            // fill_direct above left the prefix in bound_work.leaf.
+            let f = crate::scoring::dense_ceiling_cached(
+                d, &mut self.bound_work, &merged, &[], &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap);
+            bound_observe::record_envelope(u, f);
+        }
     }
 
     /// The memoized subtree ceiling behind `bound_prunes` (None without
@@ -2012,6 +2130,7 @@ impl<'a> Search<'a> {
                 } else { None };
                 bound_observe::record(c, self.observe_max, at_sp, full);
                 bound_observe::record_single(single, self.observe_max);
+                self.observe_tangent(depth, o, hi_rem, c);
             }
             if outer_max > self.observe_max {
                 self.observe_max = outer_max; self.observe_sp = outer_sp; self.observe_names = outer_names;
