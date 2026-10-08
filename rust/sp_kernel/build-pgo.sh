@@ -23,10 +23,12 @@ PROF_DIR="$PWD/target/pgo-profiles"
 # RUSTFLAGS replaces .cargo/config.toml's rustflags, so restate target-cpu.
 BASE_FLAGS="-C target-cpu=native"
 
-PROFDATA="$(command -v llvm-profdata || true)"
+# The rustup llvm-tools copy first: it matches rustc's LLVM, and a system
+# llvm-profdata of another version rejects the raw profiles.
+SYSROOT="$(rustc --print sysroot)"
+PROFDATA="$(find "$SYSROOT" -name llvm-profdata -type f 2>/dev/null | head -1)"
 if [ -z "$PROFDATA" ]; then
-    SYSROOT="$(rustc --print sysroot)"
-    PROFDATA="$(find "$SYSROOT" -name llvm-profdata -type f 2>/dev/null | head -1)"
+    PROFDATA="$(command -v llvm-profdata || true)"
 fi
 if [ -z "$PROFDATA" ]; then
     echo "llvm-profdata not found: rustup component add llvm-tools" >&2
@@ -74,7 +76,7 @@ for s in "${TRAIN[@]}"; do
     # One thread: the profile then reflects the per-worker hot path without
     # scheduler noise, and runs are reproducible.
     ENUM_TIME_CAP_SECS="$TRAIN_SECS" "$GEN" "fixtures/enum_$s.txt" 1 \
-        "fixtures/score_$s.json" > /dev/null
+        "fixtures/score_$s.json" > /dev/null 2>&1
     echo "   $s"
 done
 
