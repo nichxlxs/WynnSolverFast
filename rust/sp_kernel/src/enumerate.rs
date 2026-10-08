@@ -87,8 +87,18 @@ pub mod anytime_trace {
 /// understated. The CLI prints quantiles of ceiling / true best and how many
 /// subtrees a perfect bound would prune at the final cutoff that this one
 /// does not. Diagnostic only: slow, and never on by default.
+///
+/// BOUND_OBSERVE_SLOTS=k (default 1) moves the observation up so that k
+/// slots are relaxed under the ceiling. The single-item and at-SP
+/// diagnostics are one-slot measures and are recorded only for k = 1.
 pub mod bound_observe {
     use std::sync::{Mutex, OnceLock};
+    /// Number of relaxed slots under an observed ceiling (>= 1).
+    pub fn slots() -> usize {
+        static V: OnceLock<usize> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("BOUND_OBSERVE_SLOTS").ok()
+            .and_then(|v| v.parse::<usize>().ok()).filter(|&k| k >= 1).unwrap_or(1))
+    }
     static PAIRS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
     static AT_SP: Mutex<Vec<f64>> = Mutex::new(Vec::new());
     static FULL: Mutex<Vec<f64>> = Mutex::new(Vec::new());
@@ -1980,21 +1990,23 @@ impl<'a> Search<'a> {
             // so their leaves are missing from this subtree's best. Ring-2
             // children start at ring 1's offset, which the ceiling ignores.
             let child_ring2 = (depth + 1) as isize == self.ring2_depth;
-            let observe = bound_observe::on() && depth + 2 == self.n_free
+            let observe = bound_observe::on() && depth + 1 + bound_observe::slots() == self.n_free
                 && lo_rem - offset <= 0 && !child_ring2;
             let observed_ceiling = if observe { self.subtree_ceiling_value(depth, o, hi_rem) } else { None };
             let outer_max = std::mem::replace(&mut self.observe_max, f64::NEG_INFINITY);
             let outer_sp = self.observe_sp;
             let outer_names = self.observe_names;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
-            if let Some(c) = observed_ceiling {
+            // A subtree the time cap cut short understates its best.
+            if let Some(c) = observed_ceiling.filter(|_| !self.stop) {
                 // The same ceiling at the best leaf's own skill points: not a
                 // bound (diagnostic only), it isolates the item relaxation.
-                let (at_sp, full) = if self.observe_max.is_finite() {
+                let one_slot = bound_observe::slots() == 1;
+                let (at_sp, full) = if one_slot && self.observe_max.is_finite() {
                     let sp = self.observe_sp.map(|v| v as f64);
                     (self.ceiling_at_sp(depth, o, hi_rem, &sp), self.ceiling_of_build(&sp))
                 } else { (None, None) };
-                let single = if self.observe_max.is_finite() {
+                let single = if one_slot && self.observe_max.is_finite() {
                     let sp = self.observe_sp.map(|v| v as f64);
                     self.best_single_item(depth, o, hi_rem, &sp)
                 } else { None };
