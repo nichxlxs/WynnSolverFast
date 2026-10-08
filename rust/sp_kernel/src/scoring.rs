@@ -3330,7 +3330,8 @@ pub fn leaf_pipeline_gated(
                 let mut b2 = saved_rescue_base;
                 let mut t2 = saved_rescue_total;
                 let o = mana_rescue(bb, l2, weapon, &mut b2, &mut t2, &orig_base_sp,
-                                    rows, registry, hit_refs, tables, consts, compiled)?.is_some();
+                                    rows, registry, hit_refs, tables, consts, compiled,
+                                    tome_extra)?.is_some();
                 assert_eq!(ok, o, "dense/obj rescue mismatch");
                 assert_eq!((b2, t2), (base_sp, total_sp), "dense/obj rescue SP mismatch");
             }
@@ -3370,7 +3371,8 @@ pub fn leaf_pipeline_gated(
     }
     if phase!(MANA, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
-                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
+                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled,
+                          tome_extra)? {
             Some(rescued) => {
                 combo_base = rescued;
                 if !thresholds.is_empty()
@@ -3537,6 +3539,11 @@ pub fn mana_rescue(
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>,
+    // The leaf's tome bundle (tome optimisation), merged into every trial
+    // assembly exactly as the leaf does. Without it a rescued build was
+    // mana-checked and scored with no weapon/armour tomes, while the JS
+    // worker's rescue (through `_leaf_extra_stats`) includes them.
+    tome_extra: Option<&Obj>,
 ) -> Result<Option<Obj>, String> {
     let _ = hit_refs;
     if consts.hp_casting { return Ok(None); }
@@ -3585,7 +3592,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
+        let combo_base = l2.assemble_from_base_extra(build_base, &sp_f, weapon, tome_extra);
         if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
@@ -7364,5 +7371,36 @@ mod healing_schema_tests {
             assert_eq!(eval_spell_plan(&StatsView::Borrowed(&stats), &Obj::new(), &compiled,
                 0.0, &tables(), false), (0.0, 0.0));
         }
+    }
+}
+
+#[cfg(test)]
+mod tome_rescue_tests {
+    //! The mana rescue must assemble with the leaf's tome bundle. It did not:
+    //! `mana_rescue` used `assemble_from_base`, so with tome optimisation a
+    //! rescued build was mana-checked and scored without its weapon/armour
+    //! tomes (the JS worker's rescue includes them). On the ehp tome scenario
+    //! 43 of the 2,000 builds within 5% of the best were affected; this one
+    //! scored 45,998.45 without its tomes and 49,223.33 with them (its EHP
+    //! recomputed from items, final skill points and tomes).
+    use super::*;
+
+    #[test]
+    fn rescued_build_is_scored_with_its_tomes() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_ehp_tome_all.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        let names = ["Shimmersight", "Adamantite", "Empty Joy", "Statue", "Summa", "Summa",
+                     "Diamond Static Bracelet", "Achromatic Gloom"];
+        let mut kernel = crate::Kernel::new();
+        let mut work = DenseWork::default();
+        let (out, _tome) = leaf_pipeline_tome(
+            &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(), &mut kernel,
+            &sc.rows, &sc.registry, &sc.hit_refs, &sc.tables, &sc.consts, &sc.objective,
+            Some(&sc.compiled_rows), None, sc.dense.as_ref().map(|d| (d, &mut work)),
+            &sc.thresholds, &sc.spell_base_costs).unwrap();
+        let LeafOutcome::Scored(r) = out else { panic!("build not scored") };
+        assert!((r.score - 49_223.325520909995).abs() < 1e-6,
+                "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
     }
 }
