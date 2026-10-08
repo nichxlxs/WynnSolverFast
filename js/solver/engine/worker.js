@@ -1141,10 +1141,15 @@ function _run_level_enum() {
     // candidate has requirements and at most those provisions, so if even
     // this relaxation is infeasible no candidate is, and the whole range is
     // credited as SP-rejected. Mirrors the Rust engine's sp_node_feasible;
-    // results are unchanged (admissible), only the work. sp_node_bound: false
-    // in the init message disables it; it switches itself off where it
-    // rarely rejects, like the Rust AdaptiveBound.
-    const _r9_on = _cfg.sp_node_bound !== false && N_free > 0;
+    // results are unchanged (admissible), only the work.
+    //
+    // Opt-in (sp_node_bound: true in the init message). Measured on the six
+    // small family snapshots (2 workers, interleaved): it does not pay here,
+    // unlike in the Rust engine. With a one-leaf-per-solve gate every family
+    // ran slower (heavy melee 19.2 to 24.7 s, hybrid 10.4 to 12.0 s, the
+    // capped ones 6 to 11% fewer leaves per second); with the gate at 8 or 32
+    // leaves per solve it switches itself off and lands within 1 to 3% of off.
+    const _r9_on = _cfg.sp_node_bound === true && N_free > 0;
     const _r9_slot = N_free > 0 ? free_slots[N_free - 1] : null;
     const _r9_pool = N_free > 0 ? (_get_pool(_r9_slot) ?? []) : [];
     // Sparse table over the leaf pool: level k holds per-attribute maxima of
@@ -1197,11 +1202,14 @@ function _run_level_enum() {
         }
         return _r9_enabled;
     }
+    // A JS solve costs several leaves' worth of the per-offset bound, so the
+    // gate asks for more than the Rust engine's one leaf per solve.
+    const _r9_min_rate = Number(_cfg.sp_node_min_rate ?? 8);
     function _r9_record(skipped) {
         _r9_window_evals++;
         _r9_window_skipped += skipped;
         if (_r9_window_evals >= 4096) {
-            if (_r9_window_skipped < _r9_window_evals) {
+            if (_r9_window_skipped < _r9_min_rate * _r9_window_evals) {
                 _r9_enabled = false;
                 _r9_retry_at = _checked + 20e6;
             }

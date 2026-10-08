@@ -1194,9 +1194,10 @@ async function runSolverTest(snapName) {
         type: 'init',
         // R1 reachable-SP ceiling: on unless SOLVER_REACH_SP=0 (A/B runs).
         reach_sp_ceiling: process.env.SOLVER_REACH_SP !== '0',
-        // R9 in the JS engine: one exact SP solve per last-slot range
-        // (SOLVER_SP_NODE=0 disables it for A/B runs).
-        sp_node_bound: process.env.SOLVER_SP_NODE !== '0',
+        // R9 in the JS engine: one exact SP solve per last-slot range. Opt-in
+        // (measured slower in JS); SOLVER_SP_NODE=1 turns it on for A/B runs.
+        sp_node_bound: process.env.SOLVER_SP_NODE === '1',
+        ...(process.env.SOLVER_SP_NODE_RATE ? { sp_node_min_rate: Number(process.env.SOLVER_SP_NODE_RATE) } : {}),
         // R12 polish phase: on unless SOLVER_SP_POLISH=0 (A/B runs).
         sp_polish: process.env.SOLVER_SP_POLISH !== '0',
         pools: poolsSer,
