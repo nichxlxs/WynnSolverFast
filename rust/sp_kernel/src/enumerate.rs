@@ -79,6 +79,85 @@ pub mod anytime_trace {
     }
 }
 
+/// BOUND_OBSERVE=1: measure how loose the tail ceiling is. For every
+/// subtree under the last two slots, compute the ceiling without pruning on
+/// it and record it beside the best score any leaf in that subtree really
+/// reached. Run with the other prunes that hide scored leaves off
+/// (BOUND_CLUSTER=0 SCORE_CEILING_GATE=0), or the subtree's best is
+/// understated. The CLI prints quantiles of ceiling / true best and how many
+/// subtrees a perfect bound would prune at the final cutoff that this one
+/// does not. Diagnostic only: slow, and never on by default.
+pub mod bound_observe {
+    use std::sync::{Mutex, OnceLock};
+    static PAIRS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    static AT_SP: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    static FULL: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    static SINGLE: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    pub fn record_single(single: Option<f64>, best: f64) {
+        if let (Some(v), true) = (single, best.is_finite() && best > 0.0) {
+            SINGLE.lock().unwrap_or_else(|e| e.into_inner()).push(v / best);
+        }
+    }
+    #[inline]
+    pub fn on() -> bool {
+        static V: OnceLock<bool> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("BOUND_OBSERVE").as_deref() == Ok("1"))
+    }
+    pub fn record(ceiling: f64, best: f64, at_best_sp: Option<f64>, full_build: Option<f64>) {
+        if best.is_finite() && best > 0.0 && ceiling.is_finite() {
+            if let Some(f) = full_build.filter(|f| f.is_finite()) {
+                FULL.lock().unwrap_or_else(|e| e.into_inner()).push(f / best);
+            }
+            PAIRS.lock().unwrap_or_else(|e| e.into_inner()).push((ceiling, best));
+            if let Some(a) = at_best_sp.filter(|a| a.is_finite()) {
+                AT_SP.lock().unwrap_or_else(|e| e.into_inner()).push(a / best);
+            }
+        }
+    }
+    /// Summary line for the CLI (None when nothing was recorded).
+    pub fn report(final_cutoff: Option<f64>) -> Option<String> {
+        let pairs = PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+        if pairs.is_empty() { return None; }
+        let mut r: Vec<f64> = pairs.iter().map(|(c, b)| c / b).collect();
+        r.sort_by(|a, b| a.total_cmp(b));
+        let q = |p: f64| r[((r.len() - 1) as f64 * p) as usize];
+        let frac = |t: f64| r.iter().filter(|&&x| x >= t).count() as f64 / r.len() as f64;
+        let mut line = format!(
+            "bound_observe: {} subtrees | ceiling/true best p10 {:.3} p50 {:.3} p90 {:.3} max {:.3} | >=1.05x {:.1}% >=1.2x {:.1}% >=1.5x {:.1}%",
+            r.len(), q(0.1), q(0.5), q(0.9), r[r.len() - 1],
+            100.0 * frac(1.05), 100.0 * frac(1.2), 100.0 * frac(1.5));
+        if let Some(cut) = final_cutoff {
+            let missed = pairs.iter().filter(|(c, b)| *b < cut && *c >= cut).count();
+            let pruned = pairs.iter().filter(|(c, _)| *c < cut).count();
+            line += &format!(" | at the final cutoff: current prunes {} ({:.1}%), a perfect bound would also prune {} more ({:.1}%)",
+                pruned, 100.0 * pruned as f64 / pairs.len() as f64,
+                missed, 100.0 * missed as f64 / pairs.len() as f64);
+        }
+        let mut a = AT_SP.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !a.is_empty() {
+            a.sort_by(|x, y| x.total_cmp(y));
+            let qa = |p: f64| a[((a.len() - 1) as f64 * p) as usize];
+            line += &format!(" | item relaxation alone (ceiling at the best leaf's SP)/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qa(0.1), qa(0.5), qa(0.9));
+        }
+        let mut g = SINGLE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !g.is_empty() {
+            g.sort_by(|x, y| x.total_cmp(y));
+            let qg = |p: f64| g[((g.len() - 1) as f64 * p) as usize];
+            line += &format!(" | best single item, feasibility ignored, at the best leaf's SP/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qg(0.1), qg(0.5), qg(0.9));
+        }
+        let mut f = FULL.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !f.is_empty() {
+            f.sort_by(|x, y| x.total_cmp(y));
+            let qf = |p: f64| f[((f.len() - 1) as f64 * p) as usize];
+            line += &format!(" | no relaxation (ceiling of the best build itself)/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qf(0.1), qf(0.5), qf(0.9));
+        }
+        Some(line)
+    }
+}
+
 /// Self-tuning switch for a bound layer.
 ///
 /// Ablation shows the coarse bound layers are scenario-dependent: the tail
@@ -467,6 +546,12 @@ pub struct Search<'a> {
     reach_cap_on: bool,
     /// Last-slot ranges R9 rejected with one solve.
     pub sp_node_reject: u64,
+    /// BOUND_OBSERVE=1 diagnostic: best real score seen inside the subtree
+    /// currently being observed (see `bound_observe`).
+    observe_max: f64,
+    /// total_sp of the leaf that set `observe_max`.
+    observe_sp: [i32; 5],
+    observe_names: [&'a str; 8],
     /// R9 ran early for the current last-slot node (from its parent, before
     /// the tail ceiling; see `r9_early`) and passed, so the node skips it.
     r9_done: bool,
@@ -762,6 +847,9 @@ impl<'a> Search<'a> {
             }).collect(),
             sp_node_reject: 0,
             r9_done: false,
+            observe_max: f64::NEG_INFINITY,
+            observe_sp: [0; 5],
+            observe_names: Default::default(),
             r9_early_skips: 0,
             checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
@@ -885,7 +973,70 @@ impl<'a> Search<'a> {
     /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
     /// the complete prefix and band budget. Returns true if it cannot beat `cutoff`.
     fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
-        let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
+        let Some(ceiling) = self.subtree_ceiling_value(depth, offset, hi_rem) else { return false };
+        if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
+            use std::sync::atomic::AtomicU64 as A;
+            static N: A = A::new(0);
+            if N.fetch_add(1, Ordering::Relaxed) < 30 {
+                eprintln!("bound_debug: depth {} ceiling {:.4e} cutoff {:.4e}", depth, ceiling, cutoff);
+            }
+        }
+        ceiling < cutoff - cutoff.abs() * 1e-9
+    }
+
+    /// BOUND_OBSERVE only: the subtree ceiling with the SP lanes set to `sp`
+    /// instead of the reachable caps. Not memoized, not a bound.
+    fn ceiling_at_sp(&mut self, depth: usize, offset: usize, hi_rem: i64, sp: &[f64; 5]) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let h_child = hi_rem - offset as i64;
+        let slot = &self.fx.slots[depth];
+        let mut names = self.equip_names;
+        names[slot.pos] = &slot.item_names[offset];
+        crate::scoring::dense_subtree_ceiling(
+            d, db, depth + 1, h_child, &names, &mut self.bound_work,
+            &sc.rows, &sc.compiled_rows, &sc.tables, sp)
+    }
+
+    /// BOUND_OBSERVE only: max over the last slot's items (offsets the
+    /// ceiling covers) of the complete build's ceiling at `sp`, with the
+    /// prefix placed: no super-item, and no SP or mana feasibility.
+    fn best_single_item(&mut self, depth: usize, offset: usize, hi_rem: i64, sp: &[f64; 5]) -> Option<f64> {
+        let sc = self.scoring?;
+        let d = sc.dense.as_ref()?;
+        let child = depth + 1;
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        let cslot = &fx.slots[child];
+        let mut best = f64::NEG_INFINITY;
+        for i in 0..=h_child.min(cslot.pool.len().saturating_sub(1)) {
+            names[cslot.pos] = &cslot.item_names[i];
+            if let Some(v) = crate::scoring::dense_ceiling_with(
+                d, &[], &[], &names, &mut self.bound_work,
+                &sc.rows, &sc.compiled_rows, &sc.tables, sp) {
+                if v > best { best = v; }
+            }
+        }
+        best.is_finite().then_some(best)
+    }
+
+    /// BOUND_OBSERVE only: the dense ceiling of the observed best leaf itself
+    /// (all items fixed) at its own skill points; ideally its score.
+    fn ceiling_of_build(&mut self, sp: &[f64; 5]) -> Option<f64> {
+        let sc = self.scoring?;
+        let d = sc.dense.as_ref()?;
+        let names = self.observe_names;
+        crate::scoring::dense_ceiling_with(
+            d, &[], &[], &names, &mut self.bound_work,
+            &sc.rows, &sc.compiled_rows, &sc.tables, sp)
+    }
+
+    /// The memoized subtree ceiling behind `bound_prunes` (None without
+    /// bound tables).
+    fn subtree_ceiling_value(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return None };
         let h_child = hi_rem - offset as i64;
         let key = self.bound_memo.key(
             CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
@@ -914,14 +1065,7 @@ impl<'a> Search<'a> {
                 c
             }
         };
-        if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
-            use std::sync::atomic::AtomicU64 as A;
-            static N: A = A::new(0);
-            if N.fetch_add(1, Ordering::Relaxed) < 30 {
-                eprintln!("bound_debug: depth {} ceiling {:.4e} cutoff {:.4e}", depth, ceiling, cutoff);
-            }
-        }
-        ceiling < cutoff - cutoff.abs() * 1e-9
+        Some(ceiling)
     }
 
     /// Initialize equip names: none-item names per position, overridden by
@@ -1387,6 +1531,9 @@ impl<'a> Search<'a> {
                 LeafOutcome::Scored(r) => {
                     self.feasible += 1;
                     self.scored += 1;
+                    if r.score > self.observe_max {
+                        self.observe_max = r.score; self.observe_sp = r.total_sp; self.observe_names = names;
+                    }
                     // Allocate result strings only when the score can enter the archive.
                     if self.top_n.len() < self.result_count
                         || r.score >= self.top_n[self.result_count - 1].score {
@@ -1716,7 +1863,7 @@ impl<'a> Search<'a> {
                 && depth + 1 < self.n_free
                 && self.n_free - (depth + 1) <= self.bound_tail
                 && self.adapt_tail.armed(self.checked);
-            let bound_here = depth < self.bound_max_depth || tail_here;
+            let bound_here = (depth < self.bound_max_depth || tail_here) && !bound_observe::on();
             let mut r9_pre_ok = false;
             // R9 before the tail ceiling. When the child is the last slot, the
             // child's first act is R9's one SP solve over its in-band range,
@@ -1784,7 +1931,36 @@ impl<'a> Search<'a> {
             let saved_base = self.sp_bound_base;
             // Set only here, so an offset the ceiling prunes cannot leak it.
             self.r9_done = r9_pre_ok;
+            // Record only visits whose band covers every child offset the
+            // ceiling covers (0..=h_child): under the level-band sweep the
+            // lower offsets of a later band were visited in an earlier pass,
+            // so their leaves are missing from this subtree's best. Ring-2
+            // children start at ring 1's offset, which the ceiling ignores.
+            let child_ring2 = (depth + 1) as isize == self.ring2_depth;
+            let observe = bound_observe::on() && depth + 2 == self.n_free
+                && lo_rem - offset <= 0 && !child_ring2;
+            let observed_ceiling = if observe { self.subtree_ceiling_value(depth, o, hi_rem) } else { None };
+            let outer_max = std::mem::replace(&mut self.observe_max, f64::NEG_INFINITY);
+            let outer_sp = self.observe_sp;
+            let outer_names = self.observe_names;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
+            if let Some(c) = observed_ceiling {
+                // The same ceiling at the best leaf's own skill points: not a
+                // bound (diagnostic only), it isolates the item relaxation.
+                let (at_sp, full) = if self.observe_max.is_finite() {
+                    let sp = self.observe_sp.map(|v| v as f64);
+                    (self.ceiling_at_sp(depth, o, hi_rem, &sp), self.ceiling_of_build(&sp))
+                } else { (None, None) };
+                let single = if self.observe_max.is_finite() {
+                    let sp = self.observe_sp.map(|v| v as f64);
+                    self.best_single_item(depth, o, hi_rem, &sp)
+                } else { None };
+                bound_observe::record(c, self.observe_max, at_sp, full);
+                bound_observe::record_single(single, self.observe_max);
+            }
+            if outer_max > self.observe_max {
+                self.observe_max = outer_max; self.observe_sp = outer_sp; self.observe_names = outer_names;
+            }
             self.sp_bound_base = saved_base;
             self.unplace(depth, o);
             offset += 1;
@@ -2823,6 +2999,8 @@ pub fn cli_main() {
     // Whether the space was exhausted (a proof) or a budget or time cap
     // stopped it first. anytime.py keys proven optima on this.
     println!("search: complete {}", if totals.stopped_early { "no" } else { "yes" });
+    let final_cut = totals.top_n.get(14).map(|e| e.score);
+    if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
     if fx.window > 0.0 {
         let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
         let inside = totals.top_n.iter().filter(|e| e.score >= best * (1.0 - fx.window)).count();
