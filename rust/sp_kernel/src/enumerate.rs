@@ -1194,7 +1194,8 @@ impl<'a> Search<'a> {
             }
         };
         bound_observe::record_tangent(tan, ceiling, self.observe_max);
-        if self.observe_max.is_finite() {
+        // Same subtree set as record_tangent, so the prune counts compare.
+        if self.observe_max.is_finite() && self.observe_max > 0.0 && tan.is_finite() {
             let g = |m| env.tangent(&slots, &forbidden, &mut vec![0.0f64; d.n], m).map(|v| v.0).unwrap_or(f64::INFINITY);
             let by_tag = g(crate::tangent::Grouping::ByTag);
             let one = g(crate::tangent::Grouping::One);
