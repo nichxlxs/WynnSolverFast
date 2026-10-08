@@ -1772,7 +1772,7 @@ impl<'a> Search<'a> {
         let mut equipment = self.equips;
         equipment[slot.pos] = Unit { crafted: false, reqs: [0; 5], skp };
         let case = Case { budget: self.fx.budget, equipment, weapon: self.fx.weapon, set_free, expected: None };
-        self.kernel.calculate_with_extra(&case, guild.as_ref()).is_some()
+        self.kernel.feasible_with_extra(&case, guild.as_ref())
     }
 
     /// R1 at the last-slot cluster bounds: per lane, the highest total a
@@ -2009,7 +2009,7 @@ impl<'a> Search<'a> {
             expected: None,
         };
         let guild_unit = self.fx.guild.as_ref().map(|(g, _)| *g);
-        if self.kernel.calculate_with_extra(&case, guild_unit.as_ref()).is_some() {
+        if self.kernel.feasible_with_extra(&case, guild_unit.as_ref()) {
             self.feasible += 1;
         }
     }
