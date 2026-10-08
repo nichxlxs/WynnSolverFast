@@ -91,6 +91,13 @@ pub mod anytime_trace {
 /// BOUND_OBSERVE_SLOTS=k (default 1) moves the observation up so that k
 /// slots are relaxed under the ceiling. The single-item and at-SP
 /// diagnostics are one-slot measures and are recorded only for k = 1.
+/// R2_SKIP_RATIO (default 2): the tangent is tried only where the tail
+/// ceiling is below this multiple of the cutoff.
+fn r2_skip_ratio() -> f64 {
+    static V: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("R2_SKIP_RATIO").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0))
+}
+
 /// R2_TANGENT=1 counters across threads, printed with the run summary.
 pub mod r2_stats {
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -732,6 +739,8 @@ pub struct Search<'a> {
     tan_work: crate::tangent::TanWork,
     tan_memo: BoundMemo,
     ceiling_fresh: bool,
+    /// The value `bound_prunes` last computed (infinite when none).
+    last_ceiling: f64,
     adapt_node: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
@@ -1017,7 +1026,7 @@ impl<'a> Search<'a> {
             adapt_tail: AdaptiveBound::new(),
             r2_on: !cfg!(target_arch = "wasm32") && std::env::var("R2_TANGENT").as_deref() == Ok("1"),
             adapt_tan: AdaptiveBound::with_rate(std::env::var("R2_MIN_RATE").ok()
-                .and_then(|v| v.parse::<f64>().ok()).unwrap_or(8.0)),
+                .and_then(|v| v.parse::<f64>().ok()).unwrap_or(27.0)),
             r2_evals: 0,
             r2_pruned: 0.0,
             tan_forbidden: None,
@@ -1026,6 +1035,7 @@ impl<'a> Search<'a> {
             tan_work: Default::default(),
             tan_memo: BoundMemo::new(fx.slots.iter().any(|s| s.pool.len() >= 128)),
             ceiling_fresh: false,
+            last_ceiling: f64::INFINITY,
             bound_work: Default::default(),
             checked_flushed: 0.0,
             progress: None,
@@ -1124,7 +1134,11 @@ impl<'a> Search<'a> {
     /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
     /// the complete prefix and band budget. Returns true if it cannot beat `cutoff`.
     fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
-        let Some(ceiling) = self.subtree_ceiling_value(depth, offset, hi_rem) else { return false };
+        let Some(ceiling) = self.subtree_ceiling_value(depth, offset, hi_rem) else {
+            self.last_ceiling = f64::INFINITY;
+            return false;
+        };
+        self.last_ceiling = ceiling;
         if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
             use std::sync::atomic::AtomicU64 as A;
             static N: A = A::new(0);
@@ -2271,7 +2285,12 @@ impl<'a> Search<'a> {
                     // unchanged; its own adaptive gate keeps it off where it
                     // does not pay (a tangent eval costs several leaves).
                     #[cfg(not(target_arch = "wasm32"))]
-                    if self.r2_on && tail_here && self.adapt_tan.armed(self.checked) {
+                    // Only near the cutoff: the tangent tightens today's
+                    // ceiling by about 1.3x to 1.8x (BOUND_OBSERVE), so a
+                    // ceiling far above it is not worth the eval. Speed only.
+                    if self.r2_on && tail_here
+                        && self.last_ceiling < cutoff * r2_skip_ratio()
+                        && self.adapt_tan.armed(self.checked) {
                         self.r2_evals += 1;
                         let t0 = std::time::Instant::now();
                         let tv = if crate::scoring::env_once!("R2_SLOW" == "1") {
