@@ -748,10 +748,6 @@ pub struct Search<'a> {
     slot_set_offsets: Vec<Vec<Vec<u32>>>,
     /// Per slot: the set ids its pool stocks.
     slot_set_ids: Vec<Vec<u32>>,
-    /// R9 dead-prefix cache (see sp_node_feasible): key -> alive over the
-    /// whole pool. R9_CACHE=0 disables it.
-    r9_cache: std::collections::HashMap<u128, bool, crate::scoring::FastBuild>,
-    r9_cache_on: bool,
     /// Per slot: sparse table of per-lane skill-point provision maxima over
     /// non-crafted items, level k covering [i, i + 2^k) (i32::MIN where the
     /// window holds only crafted items). R9 reads its range maxima in O(1).
@@ -1081,9 +1077,6 @@ impl<'a> Search<'a> {
                 }
                 v
             }).collect(),
-            r9_cache: Default::default(),
-            r9_cache_on: std::env::var("R9_CACHE").as_deref() != Ok("0")
-                && fx.slots.len() <= 8 && fx.slots.iter().all(|sl| sl.pool.len() < 1 << 16),
             slot_skp_sparse: fx.slots.iter().map(|sl| {
                 let base: Vec<[i32; 5]> = sl.pool.iter()
                     .map(|it| if it.crafted { [i32::MIN; 5] } else { it.skp })
@@ -1739,36 +1732,15 @@ impl<'a> Search<'a> {
     /// candidates, or when SP_NODE_BOUND=0.
     fn sp_node_feasible(&mut self, depth: usize, from: usize, to: usize) -> bool {
         if r9_stats::on() { return self.sp_node_feasible_counted(depth, from, to); }
-        if !self.r9_cache_on { return self.sp_node_feasible_inner(depth, from, to); }
-        // Dead-prefix cache. The band sweep revisits a prefix once per band
-        // with a disjoint offset range; if the relaxation is infeasible over
-        // the slot's whole pool it is infeasible over every range (a smaller
-        // range only lowers the provision maxima and the stocked sets), so
-        // later visits need no solve. On hybrid medium 89% of node checks
-        // were such repeats. Keyed by the placed prefix offsets, which fully
-        // determine the solve's inputs.
-        let key = self.r9_key(depth);
-        if let Some(&alive) = self.r9_cache.get(&key) {
-            if !alive {
-                debug_assert!(!self.sp_node_feasible_inner(depth, from, to),
-                    "R9 cache says dead, the range solve disagrees");
-                return false;
-            }
-            return self.sp_node_feasible_inner(depth, from, to);
-        }
-        let ok = self.sp_node_feasible_inner(depth, from, to);
-        if !ok {
-            // Learn whether the whole prefix is dead (one solve, once).
-            let full = self.fx.slots[depth].pool.len().saturating_sub(1);
-            let whole = (from == 0 && to == full) || self.sp_node_feasible_inner(depth, 0, full);
-            if self.r9_cache.len() >= BOUND_MEMO_CAP { self.r9_cache.clear(); }
-            self.r9_cache.insert(key, whole);
-        }
-        ok
+        self.sp_node_feasible_inner(depth, from, to)
     }
 
-    /// Cache key: depth and the placed offsets of slots 0..depth, 16 bits
-    /// each (the cache is off when a pool has 65,536 items or more).
+    /// Prefix key for R9_STATS: depth and the placed offsets of slots
+    /// 0..depth. (A dead-prefix cache on this key was tried and removed:
+    /// only 7.7% of node checks on hybrid medium, 1.9% on cancelstack
+    /// medium, repeat a prefix already dead over its whole pool, and the
+    /// extra whole-pool solve per reject made it 0.82x.)
+    #[allow(dead_code)]
     fn r9_key(&self, depth: usize) -> u128 {
         let mut k = depth as u128;
         for &o in &self.prefix_offsets[..depth] { k = (k << 16) | o as u128; }
@@ -2426,7 +2398,7 @@ impl<'a> Search<'a> {
                 let to = (self.fx.slots[child].pool.len() as i64 - 1).min(hi_rem - offset);
                 if from <= to {
                     self.place(depth, o);
-                    // The node check keys its cache on prefix_offsets[..child].
+                    // R9_STATS keys on prefix_offsets[..child].
                     self.prefix_offsets[depth] = o;
                     let ok = self.sp_node_feasible(child, from as usize, to as usize);
                     self.unplace(depth, o);
