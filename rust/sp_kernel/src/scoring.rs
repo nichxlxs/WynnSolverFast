@@ -3055,7 +3055,7 @@ pub fn leaf_pipeline_gated(
         let gate_env_off = env_once!("SCORE_CEILING_GATE" == "0")
             || (env_once!("SCORE_HPCAST_GATE" == "0") && consts.hp_casting);
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
-            && !gate_env_off {
+            && !gate_env_off && rows_crit_ceiling_ok(compiled_rows) {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
@@ -3085,9 +3085,17 @@ pub fn leaf_pipeline_gated(
                     let DenseWork { leaf, scratch, .. } = &mut **w;
                     let neg = if two_sided {
                         dense_assemble(d, leaf, scratch, &low_sp);
-                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        // The low-SP point is a lower bound only while a crit
+                        // hit is at least a normal one; below that, more Dex
+                        // lowers damage (see CRIT_CEILING_FLOOR). No gate.
+                        if scratch.num(d.s_crit_dam_pct) < CRIT_CEILING_FLOOR {
+                            f64::INFINITY
+                        } else {
+                            dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        }
                     } else { 0.0 };
                     dense_assemble(d, leaf, scratch, &ceiling_sp);
+                    ceiling_crit_floor_dense(d, scratch);
                     let v = if two_sided {
                         dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, false) + neg
                     } else {
@@ -3095,6 +3103,7 @@ pub fn leaf_pipeline_gated(
                     };
                     if dense_check && !two_sided {
                         let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                        ceiling_crit_floor_obj(&mut cb150);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
@@ -3103,13 +3112,17 @@ pub fn leaf_pipeline_gated(
                 } else if two_sided {
                     let base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
                     let cb_lo = asm(base, &low_sp);
-                    let neg = objective.score_signed(
-                        &cb_lo, weapon, rows, registry, hit_refs, tables, true);
-                    let cb150 = asm(base, &ceiling_sp);
+                    let lo_crit = cb_lo.get("critDamPct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let neg = if lo_crit < CRIT_CEILING_FLOOR { f64::INFINITY } else {
+                        objective.score_signed(&cb_lo, weapon, rows, registry, hit_refs, tables, true)
+                    };
+                    let mut cb150 = asm(base, &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     objective.score_signed(
                         &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
                     let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     obj_score(&mut cb150)
                 };
                 gate_ceiling = Some(ceiling);
@@ -3860,6 +3873,7 @@ impl Layer2 {
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
         let mut cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
+        ceiling_crit_floor_obj(&mut cb);
         Ok(match compiled {
             Some(c) => objective.score_compiled(&mut cb, weapon, rows, c, tables),
             None => objective.score(&cb, weapon, rows, registry, hit_refs, tables),
@@ -7094,6 +7108,42 @@ pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
     o
 }
 
+/// Crit damage below -100% makes a crit hit weaker than a normal one, so a
+/// part's crit-mixed damage `d * dm * (str + crit * (1 + critDamPct / 100))`
+/// FALLS as Dex (crit chance) rises, and an assemble at high skill points
+/// stops bounding it (Ruinous rolls -372% to -286%; found by BOUND_OBSERVE on
+/// fam_spellsteal_small, where the all-max ceiling sat below the subtree's
+/// real best in 132 of 44,292 subtrees).
+///
+/// Every upper-bound evaluation raises critDamPct to at least -100 after its
+/// assemble. Proof: let v be critDamPct at the ceiling point (>= every
+/// completion's, the per-stat maxima) and r >= 0 a row's own bonus
+/// (`rows_crit_ceiling_ok`). With v' = max(v, -100), cm' = 1 + (v' + r)/100
+/// is >= 0 and >= every completion's cm, so for crit chances c <= c_ceiling:
+/// str + c * cm <= str + c * cm' <= str + c_ceiling * cm'. At v < -100 the
+/// floor gives crit = normal hit, i.e. the c = 0 value. Lower-bound uses (the
+/// two-sided blend's negative terms) do not get the floor; the leaf gate
+/// skips them on such leaves instead.
+pub const CRIT_CEILING_FLOOR: f64 = -100.0;
+
+pub fn ceiling_crit_floor_dense(d: &DenseCtx, s: &mut DScratch) {
+    let i = d.s_crit_dam_pct as usize;
+    if s.vals[i] < CRIT_CEILING_FLOOR { s.vals[i] = CRIT_CEILING_FLOOR; }
+}
+
+pub fn ceiling_crit_floor_obj(cb: &mut Obj) {
+    if let Some(v) = cb.get("critDamPct").and_then(|v| v.as_f64()) {
+        if v < CRIT_CEILING_FLOOR { cb.insert("critDamPct".into(), Value::from(CRIT_CEILING_FLOOR)); }
+    }
+}
+
+/// The floor's proof needs every per-row critDamPct bonus to be >= 0 (or a
+/// max-merge, which is monotone and only raises the value).
+pub fn rows_crit_ceiling_ok(compiled: &[CompiledRow]) -> bool {
+    compiled.iter().all(|r| r.bonuses.iter()
+        .all(|b| b.key != "critDamPct" || b.use_max || b.contrib >= 0.0))
+}
+
 /// Objective ceiling for bound deltas over an ALREADY-FILLED leaf in `work`
 /// (the last-slot cluster loop fills the prefix once and probes many delta
 /// sets against it). Deltas are journaled and rolled back.
@@ -7132,6 +7182,7 @@ pub fn dense_ceiling_cached(
             scratch.def_vals.extend_from_slice(&leaf.def_vals);
         }
         dense_assemble(d, leaf, scratch, ceiling_sp);
+        ceiling_crit_floor_dense(d, scratch);
     }
     let v = {
         let DenseWork { leaf, scratch, .. } = work;
@@ -7173,6 +7224,7 @@ pub fn dense_ceiling_with(
     work.scratch.reset(&work.leaf, d);
     let DenseWork { leaf, scratch, .. } = work;
     dense_assemble(d, leaf, scratch, ceiling_sp);
+    ceiling_crit_floor_dense(d, scratch);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))
 }
 
@@ -7470,5 +7522,55 @@ mod tome_rescue_tests {
         let ehp = stats.iter().find(|(k, _)| *k == "ehp").unwrap().1;
         assert!((ehp - r.score).abs() <= 1e-9 * r.score.abs(),
                 "score {} != EHP of the same build with its tomes {}", r.score, ehp);
+    }
+}
+
+#[cfg(test)]
+mod crit_floor_tests {
+    //! A crit damage below -100% (Ruinous: -286%) makes damage fall as Dex
+    //! rises, so the high-SP ceiling must floor critDamPct at -100 to stay an
+    //! upper bound (CRIT_CEILING_FLOOR). Without the floor the all-max
+    //! assemble scored this build about half of its low-Dex value.
+    use super::*;
+
+    fn score_at(sc: &ScoringCtx, names: &[&str; 8], sp: &[f64; 5], floor: bool) -> f64 {
+        let d = sc.dense.as_ref().expect("dense lowering");
+        let dd = d.direct.as_ref().expect("direct leaf build");
+        let mut work = DenseWork::default();
+        assert!(work.leaf.fill_direct(d, dd, names));
+        let DenseWork { leaf, scratch, .. } = &mut work;
+        scratch.reset(leaf, d);
+        dense_assemble(d, leaf, scratch, sp);
+        if floor { ceiling_crit_floor_dense(d, scratch); }
+        dense_score(d, leaf, scratch, &sc.rows, &sc.compiled_rows, &sc.tables)
+    }
+
+    #[test]
+    fn high_sp_ceiling_bounds_a_build_with_crit_below_minus_100() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_fam_tierstack_small.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        assert!(rows_crit_ceiling_ok(&sc.compiled_rows));
+        let names = ["No Helmet", "Ruinous", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        let low_dex = [150.0, 0.0, 150.0, 150.0, 150.0];
+        let all_max = [150.0; 5];
+        let real = score_at(&sc, &names, &low_dex, false);
+        let unfloored = score_at(&sc, &names, &all_max, false);
+        assert!(real > 0.0);
+        // The adversarial shape: more Dex, less damage.
+        assert!(unfloored < real, "expected Dex to lower damage here: {unfloored} vs {real}");
+        // The floored ceiling bounds it, through the public ceiling path too.
+        let floored = score_at(&sc, &names, &all_max, true);
+        assert!(floored >= real, "floored ceiling {floored} below the real score {real}");
+        let d = sc.dense.as_ref().unwrap();
+        let mut work = DenseWork::default();
+        let via = dense_ceiling_with(d, &[], &[], &names, &mut work, &sc.rows, &sc.compiled_rows,
+                                     &sc.tables, &all_max).unwrap();
+        assert_eq!(via, floored);
+        // Above -100 the floor is a no-op: a build without Ruinous is unchanged.
+        let plain = ["No Helmet", "No Chestplate", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        assert_eq!(score_at(&sc, &plain, &all_max, true), score_at(&sc, &plain, &all_max, false));
     }
 }

@@ -570,8 +570,13 @@ function _atree_scaling_setup() {
 //
 // Combo damage is monotone non-decreasing in every total_sp dimension when:
 //   - skill boosts: skillPointsToPercentage is nondecreasing, damage mults >= 0;
-//   - crit: avg = normal + crit_chance * (crit - normal), crit >= normal, and
-//     crit_chance = skillPointsToPercentage(dex);
+//   - crit: avg = normal + crit_chance * (crit - normal), and
+//     crit_chance = skillPointsToPercentage(dex). crit >= normal needs
+//     critDamPct >= -100; below that (Ruinous rolls -286%) more Dex LOWERS
+//     damage, so the ceiling floors critDamPct at -100 (crit = normal hit,
+//     the zero-crit value), which bounds every allocation as long as no
+//     combo boost can add negative crit damage (checked in setup). Mirrors
+//     the Rust CRIT_CEILING_FLOOR.
 //   - atree stat-input effects: their outputs are monotone in the inputs when
 //     every resolved stat scaling factor is >= 0 (floor/clamp/cap steps are
 //     monotone), and the output keys feed damage non-negatively (plain
@@ -591,6 +596,7 @@ function _ceiling_gate_setup(analysis) {
     if ((_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage') return;
     if (_cfg.hp_casting || _cfg.has_dynamic_sliders) return;
     if (_cfg.custom_weights?.length) return;
+    if (_boosts_can_lower_crit_damage(_cfg.boost_registry)) return;
     if (analysis.stat_dependent) {
         // Only reason about stat-input effects through the split plan.
         if (!_atree_split) return;
@@ -613,6 +619,19 @@ function _ceiling_gate_setup(analysis) {
         }
     }
     _ceiling_gate_ok = true;
+}
+
+/** Floor for critDamPct in a ceiling assemble; see the gate comment above. */
+const _CRIT_CEILING_FLOOR = -100;
+
+/** True when a combo boost could add negative crit damage to a row. */
+function _boosts_can_lower_crit_damage(registry) {
+    for (const entry of registry ?? []) {
+        for (const b of entry.stat_bonuses ?? []) {
+            if (b.key === 'critDamPct' && !(b.value >= 0)) return true;
+        }
+    }
+    return false;
 }
 
 // extra_stats defaults to the current tome bundle so every reassembly inside
@@ -1712,6 +1731,7 @@ function _run_level_enum() {
                 ? _reachable_sp_ceiling(base_sp, total_sp, assigned_sp)
                 : _SP_CEILING;
             const cb150 = _assemble_combo_stats(build_sm, ceiling_sp, weapon_sm, _tome_wa_optimistic);
+            if (cb150.get('critDamPct') < _CRIT_CEILING_FLOOR) cb150.set('critDamPct', _CRIT_CEILING_FLOOR);
             _cached_hp_sim = null;
             const ceiling = _eval_combo_damage(cb150);
             _trace_end('ceiling', ceiling_t0);

@@ -141,7 +141,9 @@ fn ok(v: f64) -> bool { v.is_finite() && v >= 0.0 }
 /// Builds the envelope at the assembled prefix point in `s`.
 ///
 /// `s` must hold the prefix (relaxed slots at their none-items) assembled at
-/// the ceiling's skill points. Row overlays are applied and undone here.
+/// the ceiling's skill points, with `ceiling_crit_floor_dense` applied (the
+/// crit factor K is only an upper bound with that floor; see
+/// CRIT_CEILING_FLOOR). Row overlays are applied and undone here.
 pub fn build_envelope(
     d: &DenseCtx, s: &mut DScratch, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
     atk_spd_idx: i64,

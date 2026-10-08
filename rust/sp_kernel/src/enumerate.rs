@@ -160,6 +160,8 @@ pub mod bound_observe {
             "bound_observe: {} subtrees | ceiling/true best p10 {:.3} p50 {:.3} p90 {:.3} max {:.3} | >=1.05x {:.1}% >=1.2x {:.1}% >=1.5x {:.1}%",
             r.len(), q(0.1), q(0.5), q(0.9), r[r.len() - 1],
             100.0 * frac(1.05), 100.0 * frac(1.2), 100.0 * frac(1.5));
+        let below = pairs.iter().filter(|(c, b)| *c < *b * (1.0 - 1e-9)).count();
+        line += &format!(" | ceiling below true best: {below}");
         if let Some(cut) = final_cutoff {
             let missed = pairs.iter().filter(|(c, b)| *b < cut && *c >= cut).count();
             let pruned = pairs.iter().filter(|(c, _)| *c < cut).count();
@@ -1115,7 +1117,8 @@ impl<'a> Search<'a> {
     /// BOUND_OBSERVE only: the R2 tangent bound (see `tangent`) for the
     /// subtree under (depth, offset), and the envelope check at the observed
     /// best leaf's own items. Records into `bound_observe`; never prunes.
-    fn observe_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64, ceiling: f64) {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn observe_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64, ceiling: f64, sp_cap: [f64; 5]) {
         use crate::tangent::Refuse;
         let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { bound_observe::tan_count(4); return };
         let Some(d) = sc.dense.as_ref() else { bound_observe::tan_count(4); return };
@@ -1123,12 +1126,15 @@ impl<'a> Search<'a> {
         let fx: &'a Fixture = self.fx;
         let mut names = self.equip_names;
         names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
-        let sp_cap = self.subtree_sp_cap(depth, offset);
+        // sp_cap is taken before the child's recursion: sp_bound_base is only
+        // restored after this call, so recomputing it here would read a
+        // deeper level's state.
         if !self.bound_work.leaf.fill_direct(d, dd, &names) { bound_observe::tan_count(4); return; }
         {
             let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
             scratch.reset(leaf, d);
             crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
+            crate::scoring::ceiling_crit_floor_dense(d, scratch);
         }
         let atk = self.bound_work.leaf.atk_spd_idx;
         let env = match crate::tangent::build_envelope(
@@ -1180,6 +1186,10 @@ impl<'a> Search<'a> {
             let f = crate::scoring::dense_ceiling_cached(
                 d, &mut self.bound_work, &merged, &[], &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap);
             bound_observe::record_envelope(u, f);
+            if tan < self.observe_max * (1.0 - 1e-9) && std::env::var("TANGENT_DEBUG").is_ok() {
+                eprintln!("tangent_violation: depth {depth} best {:.6e} tangent {:.6e} U(x) {:.6e} f_sigma(x+) {:.6e} ceiling {:.6e} sigma {:?} best_sp {:?} names {:?}",
+                    self.observe_max, tan, u, f, ceiling, sp_cap, self.observe_sp, self.observe_names);
+            }
         }
     }
 
@@ -2110,12 +2120,17 @@ impl<'a> Search<'a> {
             let child_ring2 = (depth + 1) as isize == self.ring2_depth;
             let observe = bound_observe::on() && depth + 1 + bound_observe::slots() == self.n_free
                 && lo_rem - offset <= 0 && !child_ring2;
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
             let observed_ceiling = if observe { self.subtree_ceiling_value(depth, o, hi_rem) } else { None };
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+            let observed_sp_cap = if observe { Some(self.subtree_sp_cap(depth, o)) } else { None };
             let outer_max = std::mem::replace(&mut self.observe_max, f64::NEG_INFINITY);
             let outer_sp = self.observe_sp;
             let outer_names = self.observe_names;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
             // A subtree the time cap cut short understates its best.
+            // Diagnostic only, so the browser build leaves it out.
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(c) = observed_ceiling.filter(|_| !self.stop) {
                 // The same ceiling at the best leaf's own skill points: not a
                 // bound (diagnostic only), it isolates the item relaxation.
@@ -2130,7 +2145,33 @@ impl<'a> Search<'a> {
                 } else { None };
                 bound_observe::record(c, self.observe_max, at_sp, full);
                 bound_observe::record_single(single, self.observe_max);
-                self.observe_tangent(depth, o, hi_rem, c);
+                if c < self.observe_max * (1.0 - 1e-9) && std::env::var("TANGENT_DEBUG").is_ok() {
+                    let own = self.observe_sp.map(|v| v as f64);
+                    let at_own = self.ceiling_of_build(&own);
+                    let at_sigma = self.ceiling_of_build(&observed_sp_cap.unwrap());
+                    if let Some(d) = self.scoring.and_then(|sc| sc.dense.as_ref()) {
+                        let sc = &self.bound_work.scratch;
+                        eprintln!("state@sigma: critDamPct {} dex {} str {} crit {}",
+                            sc.num(d.s_crit_dam_pct), sc.num(d.dex_idx), sc.num(d.skp_idx[0]),
+                            self.scoring.unwrap().tables.sp_to_pct(sc.num(d.dex_idx)));
+                    }
+                    let _ = self.ceiling_of_build(&own);
+                    if let Some(d) = self.scoring.and_then(|sc| sc.dense.as_ref()) {
+                        let sc = &self.bound_work.scratch;
+                        eprintln!("state@own: critDamPct {} dex {} str {} crit {}",
+                            sc.num(d.s_crit_dam_pct), sc.num(d.dex_idx), sc.num(d.skp_idx[0]),
+                            self.scoring.unwrap().tables.sp_to_pct(sc.num(d.dex_idx)));
+                    }
+                    // One lane at a time raised from own to sigma.
+                    let mut lanes = Vec::new();
+                    for l in 0..5 {
+                        let mut sp = own; sp[l] = observed_sp_cap.unwrap()[l];
+                        lanes.push(self.ceiling_of_build(&sp).map(|v| (v / at_own.unwrap_or(1.0) * 1e4).round() / 1e4));
+                    }
+                    eprintln!("ceiling_violation: depth {depth} offset {o} best {:.6e} ceiling {:.6e} build@own {:?} build@sigma {:?} per-lane ratio {:?} sigma_pre {:?} best_sp {:?} names {:?}",
+                        self.observe_max, c, at_own, at_sigma, lanes, observed_sp_cap, self.observe_sp, self.observe_names);
+                }
+                self.observe_tangent(depth, o, hi_rem, c, observed_sp_cap.unwrap());
             }
             if outer_max > self.observe_max {
                 self.observe_max = outer_max; self.observe_sp = outer_sp; self.observe_names = outer_names;
@@ -2490,6 +2531,7 @@ pub fn run_single_with_options(
         // it cannot express a two-sided bound; leave it off there. The leaf
         // gate handles those objectives on its own.
         if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting || sc.consts.dynamic.is_some()
             || sc.objective.needs_two_sided_ceiling() {
             return None;
@@ -2937,6 +2979,7 @@ pub fn cli_main() {
         // and scored none of them.
         if !sc.objective.supports_ceiling()
             || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting
             || sc.consts.dynamic.is_some()
             // See run_single_with_progress: one assembled state cannot

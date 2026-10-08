@@ -1136,6 +1136,16 @@ async function runSolverTest(snapName) {
         }
     }
 
+    // pool_only replaces a free slot's pool with exactly the named items, so
+    // a fixture can make every leaf share a mechanic (e.g. negative crit).
+    for (const [slot, names] of Object.entries(snap.pool_only ?? {})) {
+        const full = allPools[slot === 'ring1' || slot === 'ring2' ? 'ring' : slot] ?? [];
+        const picked = names.map(name => full.find(it => it.statMap.get('displayName') === name
+            || it.statMap.get('name') === name));
+        t.assert(picked.every(Boolean), `${snapName}: pool_only ${names.join(', ')} found in the ${slot} pool`);
+        if (freePools[slot] && picked.every(Boolean)) freePools[slot] = picked;
+    }
+
     // Freshness check: locked item stats + compress hash (has free slots).
     const currentLockedStats = extractLockedItemStats(locked);
     const hasFreeSlots = Object.keys(freePools).length > 0;
