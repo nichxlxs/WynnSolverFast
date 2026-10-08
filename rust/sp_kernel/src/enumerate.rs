@@ -719,6 +719,10 @@ pub struct Search<'a> {
     slot_set_offsets: Vec<Vec<Vec<u32>>>,
     /// Per slot: the set ids its pool stocks.
     slot_set_ids: Vec<Vec<u32>>,
+    /// Per slot: sparse table of per-lane skill-point provision maxima over
+    /// non-crafted items, level k covering [i, i + 2^k) (i32::MIN where the
+    /// window holds only crafted items). R9 reads its range maxima in O(1).
+    slot_skp_sparse: Vec<Vec<Vec<[i32; 5]>>>,
     /// BOUND_OBSERVE=1 diagnostic: best real score seen inside the subtree
     /// currently being observed (see `bound_observe`).
     observe_max: f64,
@@ -1043,6 +1047,23 @@ impl<'a> Search<'a> {
                     }
                 }
                 v
+            }).collect(),
+            slot_skp_sparse: fx.slots.iter().map(|sl| {
+                let base: Vec<[i32; 5]> = sl.pool.iter()
+                    .map(|it| if it.crafted { [i32::MIN; 5] } else { it.skp })
+                    .collect();
+                let mut levels = vec![base];
+                let mut w = 1usize;
+                while 2 * w <= levels[0].len() {
+                    let prev = levels.last().unwrap();
+                    // Windows of 2w starting at 0..=len-2w.
+                    let next: Vec<[i32; 5]> = (0..levels[0].len() + 1 - 2 * w)
+                        .map(|i| std::array::from_fn(|j| prev[i][j].max(prev[i + w][j])))
+                        .collect();
+                    levels.push(next);
+                    w *= 2;
+                }
+                levels
             }).collect(),
             slot_set_ids: fx.slots.iter().map(|sl| {
                 let mut ids: Vec<u32> = sl.pool.iter()
@@ -1690,16 +1711,29 @@ impl<'a> Search<'a> {
             None => self.fx.guild.as_ref().map(|(g, _)| *g),
         };
         let slot = &self.fx.slots[depth];
-        let mut skp = [0i32; 5];
-        let mut first = true;
-        for it in &slot.pool[from..=to] {
-            if it.crafted { continue; }
-            for j in 0..5 {
-                if first || it.skp[j] > skp[j] { skp[j] = it.skp[j]; }
+        // Per-lane maxima of the non-crafted candidates in [from, to], by
+        // sparse-table lookup (two overlapping power-of-two windows; max is
+        // idempotent). The table holds i32::MIN for crafted items, so a
+        // range of only crafted candidates (none adds SP) reads as MIN.
+        let skp: [i32; 5] = {
+            let levels = &self.slot_skp_sparse[depth];
+            let len = to - from + 1;
+            let k = (usize::BITS - 1 - len.leading_zeros()) as usize;
+            let (a, b) = (&levels[k][from], &levels[k][to + 1 - (1 << k)]);
+            let m: [i32; 5] = std::array::from_fn(|j| a[j].max(b[j]));
+            if m[0] == i32::MIN { [0; 5] } else { m }
+        };
+        #[cfg(debug_assertions)]
+        {
+            let mut r = [0i32; 5];
+            let mut first = true;
+            for it in &slot.pool[from..=to] {
+                if it.crafted { continue; }
+                for j in 0..5 { if first || it.skp[j] > r[j] { r[j] = it.skp[j]; } }
+                first = false;
             }
-            first = false;
+            debug_assert_eq!(skp, r, "sparse-table range max differs on [{from}, {to}]");
         }
-        if first { skp = [0; 5]; }   // only crafted candidates: none adds SP
         // Set term. Only sets that are worn, or stocked by this slot within
         // [from, to], contribute; `slot_set_offsets` answers "stocked in the
         // range" by binary search, where this used to scan the whole range
