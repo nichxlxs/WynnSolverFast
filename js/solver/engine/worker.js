@@ -325,57 +325,87 @@ function _build_constraint_prechecks() {
     const thresholds = _cfg.restrictions?.stat_thresholds ?? [];
     if (thresholds.length === 0) return;
 
-    // Compute fixed stat contributions (constant across all candidates).
-    // atree_raw and static_boosts are both Maps.
-    const fixed = (stat) => {
-        // _cfg.tome_bound is the per-key maximum over every enabled tome bundle.
-        // Including it here keeps the precheck admissible when tome optimisation
-        // is on: a gearset is only rejected if it fails even with the best
-        // conceivable tomes. It is null (contributing 0) when optimisation is
-        // off, so the default path is unchanged.
-        return (_cfg.atree_raw?.get(stat) ?? 0) + (_cfg.static_boosts?.get(stat) ?? 0)
-            + (_cfg.tome_bound?.get(stat) ?? 0);
+    // Constant contributions, split by where assembly adds them: atree_raw
+    // before the Radiance scale, static boosts and the tome bound after it.
+    // _cfg.tome_bound is the per-key maximum over every enabled tome bundle,
+    // which keeps the precheck admissible when tome optimisation is on; it is
+    // null (contributing 0) when optimisation is off.
+    const pre_fixed = (stat) => _cfg.atree_raw?.get(stat) ?? 0;
+    const post_fixed = (stat) => (_cfg.static_boosts?.get(stat) ?? 0)
+        + (_cfg.tome_bound?.get(stat) ?? 0);
+    const env = precheck_envelope_context({
+        atree_merged: _cfg.atree_merged, button_states: _cfg.button_states,
+        slider_states: _cfg.slider_states, radiance_boost: _cfg.radiance_boost,
+        set_names: collect_set_names(_precheck_reachable_statmaps()), sets_map: sets,
+    });
+
+    // The HP prechecks compare hp + hpBonus. Expressed as the running sum they
+    // need, the fixture/worker form `raw_hp + fixed_hp` is kept by folding the
+    // envelope into fixed_hp: raw_hp >= need  <=>  raw_hp + (T - need) >= T.
+    const hp_fixed_for = (target) => {
+        const need = precheck_required_running(env, ['hp', 'hpBonus'], target,
+            pre_fixed('hp') + pre_fixed('hpBonus'), post_fixed('hp') + post_fixed('hpBonus'));
+        return need === null ? null : target - need;
     };
 
     for (const { stat, op, value } of thresholds) {
         if (op !== 'ge') continue;  // only ge constraints benefit from early rejection
 
         if (stat === 'ehp' || stat === 'ehp_no_agi') {
-            // Precompute fixed EHP constants
-            const fixed_hp = fixed('hpBonus');
-
-            const def_pct = skillPointsToPercentage(100) * skillpoint_final_mult[3];
+            // Total Def and Agi reach 150 with item provisions, and EHP is
+            // increasing in both percentages, so the optimistic divisor is the
+            // one at the 150 cap (evaluating at 100 was not an upper bound).
+            const def_pct = skillPointsToPercentage(SP_PERCENTAGE_INPUT_CAP) * skillpoint_final_mult[3];
             const weaponType = _cfg.weapon_sm?.get('type');
             const classDef = classDefenseMultipliers.get(weaponType) || 1.0;
             const defMult = (2 - classDef);
 
+            let ehp_divisor;
             if (stat === 'ehp') {
-                const agi_pct = skillPointsToPercentage(100) * skillpoint_final_mult[4];
+                const agi_pct = skillPointsToPercentage(SP_PERCENTAGE_INPUT_CAP) * skillpoint_final_mult[4];
                 const agi_reduction = (100 - 90) / 100;
-                const ehp_divisor = (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult;
-                _ehp_precheck = { threshold: value, fixed_hp, ehp_divisor };
+                ehp_divisor = (agi_reduction * agi_pct + (1 - agi_pct) * (1 - def_pct)) * defMult;
             } else {
                 // ehp_no_agi: no agility dodge factor, just def_pct
-                const ehp_divisor = (1 - def_pct) * defMult;
-                _ehp_no_agi_precheck = { threshold: value, fixed_hp, ehp_divisor };
+                ehp_divisor = (1 - def_pct) * defMult;
             }
+            const fixed_hp = hp_fixed_for(value * ehp_divisor);
+            if (fixed_hp === null) continue;
+            const pc = { threshold: value, fixed_hp, ehp_divisor };
+            if (stat === 'ehp') _ehp_precheck = pc; else _ehp_no_agi_precheck = pc;
             continue;
         }
 
         if (stat === 'total_hp') {
-            _total_hp_precheck = { threshold: value, fixed_hp: fixed('hpBonus') };
+            const fixed_hp = hp_fixed_for(value);
+            if (fixed_hp !== null) _total_hp_precheck = { threshold: value, fixed_hp };
             continue;
         }
 
         if (_PRECHECK_EXCLUDED.has(stat)) continue;
 
-        const fixed_contrib = fixed(stat);
+        const need = precheck_required_running(env, [stat], value, pre_fixed(stat), post_fixed(stat));
+        if (need === null) continue;   // no sound envelope: skip the precheck
         _constraint_prechecks.push({
             stat,
             stat_idx: -1,  // resolved by _vec_setup after the stat index exists
-            adjusted_threshold: value - fixed_contrib,
+            adjusted_threshold: need,
         });
     }
+}
+
+/** Every item statMap whose set a build in this search could wear. */
+function _precheck_reachable_statmaps() {
+    const out = [];
+    for (const slot of Object.keys(_cfg.pools ?? {})) {
+        for (const it of _cfg.pools[slot] ?? []) out.push(it.statMap);
+    }
+    for (const it of _cfg.ring_pool ?? []) out.push(it.statMap);
+    for (const item of Object.values(_cfg.locked ?? {})) if (item?.statMap) out.push(item.statMap);
+    if (_cfg.ring1_locked?.statMap) out.push(_cfg.ring1_locked.statMap);
+    if (_cfg.ring2_locked?.statMap) out.push(_cfg.ring2_locked.statMap);
+    if (_cfg.weapon_sm) out.push(_cfg.weapon_sm);
+    return out;
 }
 
 /**
@@ -859,6 +889,11 @@ function _run_level_enum() {
         const sm = item?.statMap;
         if (!sm || sm.has('NONE') || sm.get('crafted')) continue;
         const n = sm.get('set');
+        if (n) _sp_reachable_set_names.add(n);
+    }
+    // The weapon is a set piece too (calculate_skillpoints counts it).
+    if (_cfg.weapon_sm && !_cfg.weapon_sm.get('crafted')) {
+        const n = _cfg.weapon_sm.get('set');
         if (n) _sp_reachable_set_names.add(n);
     }
 
@@ -1507,6 +1542,55 @@ function _run_level_enum() {
         return { score, final_assigned };
     }
 
+    // ── Independent oracle: exhaustive integer SP allocation ────────────────
+    //
+    // Enabled by _cfg.oracle_exhaustive_sp (tests only; 'greedy' disables the
+    // prechecks and the gate but keeps the greedy). The production leaf
+    // spends unassigned skill points with a greedy and a mana rescue, and is
+    // guarded by prechecks and a ceiling gate. This replaces all four: every
+    // integer allocation of the remaining budget (sum <= remaining, within the
+    // 100-per-lane assign cap and the total caps) is assembled, threshold- and
+    // mana-checked in full, and scored; the best feasible one wins. It shares
+    // only assembly and scoring with production, so a pruning or allocation
+    // bug cannot hide in both. Cost is C(remaining + 5, 5) evaluations per
+    // leaf, so use it on small spaces with small remaining budgets.
+    function _score_leaf_exhaustive(build_sm, base_sp, total_sp, assigned_sp) {
+        const remaining = sp_budget - assigned_sp;
+        const cap_total = _sp_caps ?? _default_sp_caps;
+        const room = [0, 0, 0, 0, 0];
+        for (let i = 0; i < 5; i++) {
+            room[i] = Math.max(0, Math.min(100 - base_sp[i], cap_total[i] - total_sp[i]));
+        }
+        const base0 = base_sp.slice(), total0 = total_sp.slice();
+        const a = [0, 0, 0, 0, 0];
+        let best = null;
+        const tryAlloc = () => {
+            for (let i = 0; i < 5; i++) { total_sp[i] = total0[i] + a[i]; base_sp[i] = base0[i] + a[i]; }
+            const combo_base = _assemble_combo_stats(build_sm, total_sp, weapon_sm);
+            const need_thresh = restrictions.stat_thresholds.length > 0
+                || (_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage';
+            const thresh_stats = need_thresh ? _assemble_threshold_stats(combo_base) : null;
+            if (restrictions.stat_thresholds.length > 0
+                && !_check_thresholds(thresh_stats, restrictions.stat_thresholds)) return;
+            if (!_eval_combo_mana_check(combo_base)) return;
+            const score = _eval_score(combo_base, thresh_stats);
+            if (best === null || score > best.score) {
+                best = { score, total: total_sp.slice(), base: base_sp.slice(),
+                         final_assigned: assigned_sp + a[0] + a[1] + a[2] + a[3] + a[4] };
+            }
+        };
+        const walk = (lane, left) => {
+            if (lane === 5) { tryAlloc(); return; }
+            const hi = Math.min(left, room[lane]);
+            for (let v = 0; v <= hi; v++) { a[lane] = v; walk(lane + 1, left - v); }
+            a[lane] = 0;
+        };
+        walk(0, Math.max(0, remaining));
+        if (!best) return null;
+        for (let i = 0; i < 5; i++) { total_sp[i] = best.total[i]; base_sp[i] = best.base[i]; }
+        return { score: best.score, final_assigned: best.final_assigned };
+    }
+
     function _evaluate_leaf() {
         _checked++;
         if (_trace) { _trace.leaf_count++; _trace.leaf_evaluator_calls++; }
@@ -1516,7 +1600,8 @@ function _run_level_enum() {
         // additive stat thresholds, before expensive SP solver + stat assembly.
         // running_sm has all item stats accumulated; prechecks account for
         // fixed contributions (atree_raw + static_boosts).
-        if (_constraint_prechecks.length > 0 && !_fast_constraint_precheck(running_sm)) {
+        const oracle = !!_cfg.oracle_exhaustive_sp;
+        if (!oracle && _constraint_prechecks.length > 0 && !_fast_constraint_precheck(running_sm)) {
             _trace_end('precheck', precheck_t0);
             _dbg_precheck_reject++;
             _precheck_reject++;
@@ -1524,7 +1609,7 @@ function _run_level_enum() {
             _maybe_progress();
             return;
         }
-        if (!_fast_ehp_precheck(running_sm)) {
+        if (!oracle && !_fast_ehp_precheck(running_sm)) {
             _trace_end('precheck', precheck_t0);
             _dbg_ehp_reject++;
             _precheck_reject++;
@@ -1593,7 +1678,7 @@ function _run_level_enum() {
             if (sc !== _CUTOFF_SENTINEL && sc > _gate_cutoff) _gate_cutoff = sc;
         }
         if (_top5.length >= 15 && _top5[14].score > _gate_cutoff) _gate_cutoff = _top5[14].score;
-        if (_ceiling_gate_ok && _gate_cutoff > -Infinity) {
+        if (!oracle && _ceiling_gate_ok && _gate_cutoff > -Infinity) {
             const ceiling_t0 = _trace_start('ceiling');
             // In all-tomes mode the ceiling is evaluated with the per-key
             // optimistic bundle, which upper-bounds every real bundle; null
@@ -1617,7 +1702,11 @@ function _run_level_enum() {
         if (_tome_guild_candidates === null && _tome_wa_bundles === null) {
             // Default path — single SP solution, no tome loop. Pipeline,
             // counters, and inserted entries identical to the pre-tome code.
-            const res = _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
+            // 'greedy' keeps the production allocator, so comparing it with
+            // the exhaustive mode isolates what the greedy alone loses.
+            const res = (oracle && _cfg.oracle_exhaustive_sp !== 'greedy')
+                ? _score_leaf_exhaustive(build_sm, base_sp, total_sp, assigned_sp)
+                : _score_leaf_candidate(build_sm, base_sp, total_sp, assigned_sp);
             if (_dbg) _dbg_leaf_time += performance.now() - t0;
             if (!res) { _maybe_progress(); return; }
             _dbg_scored++;
@@ -1949,9 +2038,8 @@ function _run_level_enum() {
                 for (let i = 0; i < 5; i++) {
                     if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
                 }
-                // Pieces already worn by locked equipment. The weapon is not
-                // counted, matching calculate_skillpoints, which walks the
-                // eight equipment slots and takes the weapon separately.
+                // Pieces already worn by locked equipment. The weapon is
+                // counted after this loop, as calculate_skillpoints counts it.
                 const si = _sp_set_index.get(sm.get('set'));
                 if (si !== undefined) _sp_set_worn_fixed[si]++;
             }
@@ -1990,6 +2078,11 @@ function _run_level_enum() {
         for (let i = 0; i < 5; i++) {
             if (wep_req[i] > _sp_fixed_max_eff_req[i])
                 _sp_fixed_max_eff_req[i] = wep_req[i];
+        }
+        // ...but it is a worn set piece, as calculate_skillpoints counts it.
+        if (!weapon_sm.get('crafted')) {
+            const si = _sp_set_index.get(weapon_sm.get('set'));
+            if (si !== undefined) _sp_set_worn_fixed[si]++;
         }
     }
 

@@ -130,7 +130,31 @@ Item B is dominated by item A when:
 
 **Exclusive set guard**: an item from an exclusive set cannot dominate items outside that set (the dominator might not be available due to exclusive-set limits).
 
-NONE items are never pruned. Set-bonus interactions are not modelled. Typically reduces pool sizes by 20-40%.
+NONE items are never pruned. Items with set bonuses or Major IDs are preserved
+because standalone identification stats cannot prove their effects replaceable.
+
+### Candidate reduction policies (`reduce_candidate_pools`)
+
+The shared reducer wraps the sensitivity classifier with contract guards and
+returns active pools, deferred pools, and machine-readable dominance
+certificates. Each certificate names the surviving dominator and records the
+higher, lower, and equality dimensions used for the proof.
+
+- `certified`: uses a zero sensitivity threshold and requires equality on every
+  omitted modelled direct dimension, static HP, powder-slot capacity, and
+  attack tier for melee contracts. This remains available as the exact guarded
+  control.
+- `balanced`: uses the 0.5% threshold but makes every below-threshold nonzero
+  response, plus melee attack tier, an equality guard. This is the production
+  default.
+- `off`: retains the full eligible equipment pool.
+- `current`, `conservative`, and `aggressive`: legacy comparison policies. The
+  benchmark corpus contains confirmed optimum losses for the legacy policies.
+
+The UI also exposes `fast_verify`. It searches `balanced` first, carries the
+best result forward as the incumbent for score bounds, then searches `off`
+across the full pool. If the second stage completes, deferred candidates have
+received full coverage.
 
 ---
 

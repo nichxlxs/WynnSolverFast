@@ -1,0 +1,173 @@
+{
+  "name": "solver_meta_warrior_paladin_tank_remove_6",
+  "description": "warrior/paladin tank: remove_6; helmet, chestplate, leggings, boots, ring2, necklace equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "tank",
+  "benchmark_class": "warrior",
+  "benchmark_archetype": "paladin",
+  "benchmark_variant": "remove_6",
+  "benchmark_tier": "anytime",
+  "benchmark_checkpoints_seconds": [
+    60,
+    180,
+    300
+  ],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "4c4979a5c02b2a15ceef316de5fdcaf0027e4d5af8110a9e57cfd825f935907c",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CT00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0",
+  "designed_version": "2.2.0.21",
+  "version_role": "standardized_current_gap_fill",
+  "seed_quality": "historical_gap_fill",
+  "source_evidence": "Blue's Builds Warrior forum; historical Guardian Paladin tank family gap fill standardized to 2.2.3.0.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492886830029340762/1528592632186671244",
+  "core_weapon": "Guardian",
+  "seed_item_names": [
+    "Heretic",
+    "Firebird",
+    "Greaves of the Veneer",
+    "Signal Flare",
+    "Iron Will",
+    "Accelerando",
+    "Prowess",
+    "Diamond Solar Necklace"
+  ],
+  "elements": [
+    "fire"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          27,
+          20,
+          20
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "fire",
+      "water"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Uppercut under a tank contract",
+    "proxy_for": "Paladin playable damage while retaining tank durability",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; durability is the primary hard gate",
+    "restrictions": [
+      {
+        "stat": "ehp_no_agi",
+        "op": "ge",
+        "value": 40000
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": 500
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 7464.285140496257,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 6,
+    "removal_seed": "warrior_paladin_tank:6:0",
+    "removed_slots": [
+      "helmet",
+      "chestplate",
+      "leggings",
+      "boots",
+      "ring2",
+      "necklace"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Iron Will",
+    "Prowess",
+    "Guardian"
+  ],
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots",
+    "ring2",
+    "necklace"
+  ],
+  "free_mask": 175,
+  "url_hash": "CX00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0_ON40Poa9xLgX0640000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 85,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 300,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp_no_agi",
+      "op": "ge",
+      "value": 40000
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": 500
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Uppercut",
+      "damage_parts": 3,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "ring1": {
+      "name": "Iron Will",
+      "stat_hash": "f6ae5effd81dead0bbaa5b169d24a97d84b1333364b030cfcc1453fb48b7bf6c"
+    },
+    "bracelet": {
+      "name": "Prowess",
+      "stat_hash": "2e1716f299ca17a5d7f693b6ee853536ad4b2b3d71aa8d4db7851c340a12b553"
+    }
+  },
+  "created": "2026-08-16T05:26:11.245Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

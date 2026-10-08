@@ -1,0 +1,148 @@
+{
+  "name": "solver_meta_warrior_paladin_tank_known_good",
+  "description": "warrior/paladin tank: known_good; no equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "tank",
+  "benchmark_class": "warrior",
+  "benchmark_archetype": "paladin",
+  "benchmark_variant": "known_good",
+  "benchmark_tier": "anchor",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "4c4979a5c02b2a15ceef316de5fdcaf0027e4d5af8110a9e57cfd825f935907c",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CT00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0",
+  "designed_version": "2.2.0.21",
+  "version_role": "standardized_current_gap_fill",
+  "seed_quality": "historical_gap_fill",
+  "source_evidence": "Blue's Builds Warrior forum; historical Guardian Paladin tank family gap fill standardized to 2.2.3.0.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492886830029340762/1528592632186671244",
+  "core_weapon": "Guardian",
+  "seed_item_names": [
+    "Heretic",
+    "Firebird",
+    "Greaves of the Veneer",
+    "Signal Flare",
+    "Iron Will",
+    "Accelerando",
+    "Prowess",
+    "Diamond Solar Necklace"
+  ],
+  "elements": [
+    "fire"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          27,
+          20,
+          20
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "fire",
+      "water"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Uppercut under a tank contract",
+    "proxy_for": "Paladin playable damage while retaining tank durability",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; durability is the primary hard gate",
+    "restrictions": [
+      {
+        "stat": "ehp_no_agi",
+        "op": "ge",
+        "value": 40000
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": 500
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 7464.285140496257,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 0,
+    "removal_seed": "warrior_paladin_tank:0:0",
+    "removed_slots": [],
+    "contract_kind": "seed_calibration"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Heretic",
+    "Firebird",
+    "Greaves of the Veneer",
+    "Signal Flare",
+    "Iron Will",
+    "Accelerando",
+    "Prowess",
+    "Diamond Solar Necklace",
+    "Guardian"
+  ],
+  "free_equipment_slots": [],
+  "free_mask": 0,
+  "url_hash": "CX00EnOGOD1DlGTAeCI15qmWfcRj3iBWt3sxldvF0_OJ40Poa9ZQ8W11000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 85,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp_no_agi",
+      "op": "ge",
+      "value": 40000
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": 500
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Uppercut",
+      "damage_parts": 3,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ]
+}

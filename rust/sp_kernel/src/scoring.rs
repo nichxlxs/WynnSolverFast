@@ -5,7 +5,8 @@
 //! validated bit-exact by `bin/score_kernel.rs` against fixtures exported
 //! with SOLVER_EXPORT_SCORE. JS numeric semantics are mirrored throughout
 //! (missing-key NaN flow, insertion-order maps, NaN-propagating max,
-//! half-up rounding). Healing is not ported (never affects total_damage).
+//! half-up rounding). Damage-only paths omit healing amounts; healing
+//! objectives use the separate healing evaluator.
 
 use serde_json::Value;
 use std::borrow::Cow;
@@ -426,8 +427,8 @@ pub fn eval_spell_parts(
             result.kind = Some("damage");
             result.normal_total = norm;
             result.crit_total = crit;
-        } else if part.get("max_hp_heal_pct").is_some() {
-            // Healing not ported: heal parts never contribute to total_damage.
+        } else if part.get("power").or_else(|| part.get("max_hp_heal_pct")).is_some() {
+            // Heal parts never contribute to this damage-only result.
             result.kind = Some("heal");
         } else if let Some(hits) = part.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = part.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -1474,9 +1475,11 @@ impl Layer2 {
         for tome in &self.tome_sms { self.add_item(&mut sm, tome); }
         self.add_item(&mut sm, weapon);
 
-        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names.
+        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names,
+        // and the weapon's: a non-crafted weapon is a set piece too
+        // (calculate_skillpoints counts it).
         let mut set_counts: Vec<(String, i64)> = Vec::new();
-        for item in &equips {
+        for item in equips.iter().copied().chain(std::iter::once(weapon)) {
             if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
             let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
             match set_counts.iter_mut().find(|(n, _)| n == set_name) {
@@ -3201,7 +3204,8 @@ pub fn leaf_pipeline_gated(
                 let mut b2 = saved_rescue_base;
                 let mut t2 = saved_rescue_total;
                 let o = mana_rescue(bb, l2, weapon, &mut b2, &mut t2, &orig_base_sp,
-                                    rows, registry, hit_refs, tables, consts, compiled)?.is_some();
+                                    rows, registry, hit_refs, tables, consts, compiled,
+                                    tome_extra)?.is_some();
                 assert_eq!(ok, o, "dense/obj rescue mismatch");
                 assert_eq!((b2, t2), (base_sp, total_sp), "dense/obj rescue SP mismatch");
             }
@@ -3240,7 +3244,8 @@ pub fn leaf_pipeline_gated(
     }
     if phase!(MANA, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
-                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
+                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled,
+                          tome_extra)? {
             Some(rescued) => {
                 combo_base = rescued;
                 if !thresholds.is_empty()
@@ -3336,6 +3341,11 @@ pub fn mana_rescue(
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>,
+    // The leaf's tome bundle (tome optimisation), merged into every trial
+    // assembly exactly as the leaf does. Without it a rescued build was
+    // mana-checked and scored with no weapon/armour tomes, while the JS
+    // worker's rescue (through `_leaf_extra_stats`) includes them.
+    tome_extra: Option<&Obj>,
 ) -> Result<Option<Obj>, String> {
     let _ = hit_refs;
     if consts.hp_casting { return Ok(None); }
@@ -3384,7 +3394,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
+        let combo_base = l2.assemble_from_base_extra(build_base, &sp_f, weapon, tome_extra);
         if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
@@ -3717,7 +3727,10 @@ pub fn compute_spell_healing_total(stats: &StatsView, spell: &Value, tables: &Ta
             p.get("name").and_then(|n| n.as_str()) == Some(name)
         }) else { return 0.0 };
         let part_id = format!("{}.{}", base_spell, name);
-        let amount = if let Some(pct) = part.get("max_hp_heal_pct").and_then(|v| v.as_f64()) {
+        // Current spells use `power`; historical fixtures use the older
+        // alias. Match JS spell_part_heal_power, including power=0 precedence.
+        let amount = if let Some(pct) = part.get("power")
+            .or_else(|| part.get("max_hp_heal_pct")).and_then(|v| v.as_f64()) {
             let mut heal_mult = 1.0;
             if let Some(m) = heal_mult_map {
                 for (k, v) in m {
@@ -4366,7 +4379,7 @@ pub fn eval_combo_damage_compiled(
 // compile time: parts lowered to flat structs with precomputed multipliers,
 // part ids, and part-scoped ConvBase key names; hit edges resolved to part
 // indices; part KINDS resolved statically (multipliers → damage,
-// max_hp_heal_pct → heal, total → first sub's kind — the same inference the
+// power/max_hp_heal_pct → heal, total → first sub's kind — the same inference the
 // dynamic path performs); the display part index (find_display_result) and
 // the flat-damage contributor set (given the row's constant DPS chain root)
 // precomputed. Evaluation walks arrays with an indexed memo and computes
@@ -4428,7 +4441,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
         seen.push(i);
         let p = &parts[i];
         if p.get("multipliers").is_some() { return Some("damage"); }
-        if p.get("max_hp_heal_pct").is_some() { return Some("heal"); }
+        if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() { return Some("heal"); }
         if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             for sub in hits.keys() {
                 if let Some(j) = names.iter().position(|x| x == sub) {
@@ -4460,7 +4473,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
                 part_id,
                 conv_names,
             })
-        } else if p.get("max_hp_heal_pct").is_some() {
+        } else if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() {
             PartKindPlan::Heal
         } else if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = p.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -5236,6 +5249,11 @@ impl DenseCtx {
             scratch_arena.clear();
             DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
             let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
+            let weapon_set_id = if weapon.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) {
+                None
+            } else {
+                weapon.get("set").and_then(|v| v.as_str()).and_then(|n| l2.set_ids.get(n).copied())
+            };
             post_item_adds.extend(scratch_arena.iter().copied());
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
@@ -5282,7 +5300,7 @@ impl DenseCtx {
                 dam_tome_adds: dam_sim.tome_adds,
                 def_tome_adds: def_sim.tome_adds,
                 atk_spd_idx: tables.atk_spd_index(weapon.get("atkSpd").and_then(|v| v.as_str())),
-                template_zero_idxs, base_arcanes, hp_idx, agi_def_idx,
+                template_zero_idxs, base_arcanes, weapon_set_id, hp_idx, agi_def_idx,
                 hp_base: l2.hp_base,
                 class_def_idx: 0,               // filled below
                 class_def_val,
@@ -6231,6 +6249,9 @@ pub struct DenseDirect {
     pub template_zero_idxs: Vec<u32>,
     /// ARCANES present on tomes/weapon (leaf items OR onto this).
     pub base_arcanes: bool,
+    /// The weapon's set id when it is a non-crafted set piece; it seeds the
+    /// per-leaf set counts.
+    pub weapon_set_id: Option<u32>,
     pub hp_idx: u32,
     pub agi_def_idx: u32,
     pub hp_base: f64,
@@ -6334,7 +6355,8 @@ impl DenseLeaf {
             trace::add(trace::FD_DIFF_SLOTS, diff);
             if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
-        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        // Nine slots can hold a set piece: eight equips and the weapon.
+        let mut set_counts: [(u32, i64); 9] = [(u32::MAX, 0); 9];
         let mut n_sets = 0usize;
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
@@ -6349,6 +6371,15 @@ impl DenseLeaf {
                         None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
                     }
                 }
+            }
+        }
+        // The weapon counts after the equipment, in the order
+        // calculate_skillpoints builds its set map, so bonuses are summed in
+        // the same order as the JS engine.
+        if let Some(sid) = dd.weapon_set_id {
+            match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
+                Some((_, c)) => *c += 1,
+                None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
             }
         }
         add_item_ops!(&dd.post_item_adds);
@@ -7058,4 +7089,116 @@ pub fn dense_check_thresholds(
         if !*ge && v > *value { return false; }
     }
     true
+}
+
+
+#[cfg(test)]
+mod healing_schema_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn tables() -> Tables {
+        Tables {
+            skillpoint_damage_mult: Vec::new(), base_damage_multiplier: Vec::new(),
+            attack_speeds: Vec::new(), damage_keys: Vec::new(),
+            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0],
+            skillpoint_final_mult_3: 1.0, skillpoint_final_mult_4: 1.0,
+            names: ElemNames::build(),
+        }
+    }
+
+    fn stats(multipliers: Value) -> Obj {
+        json!({"hp": 8000.0, "hpBonus": 2000.0, "healMult": {"__m": multipliers}})
+            .as_object().unwrap().clone()
+    }
+
+    fn spell(heal_fields: Value) -> Value {
+        let mut heal = heal_fields.as_object().unwrap().clone();
+        heal.insert("name".into(), json!("Heal"));
+        json!({"base_spell": 1, "display": "Total", "parts": [
+            heal, {"name": "Total", "hits": {"Heal": 2}}
+        ]})
+    }
+
+    #[test]
+    fn current_healing_power_and_aggregate_are_both_counted() {
+        let stats = stats(json!({}));
+        let heal = spell(json!({"power": 0.15}));
+        // JS sums every part: 1500 direct + 2 * 1500 aggregate.
+        assert_eq!(compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables()), 4500.0);
+    }
+
+    #[test]
+    fn healing_multipliers_apply_globally_or_to_the_matching_leaf_part() {
+        let stats = stats(json!({
+            "global": 20, "selected:1.Heal": 50,
+            "other_spell:2.Heal": 900, "aggregate_only:1.Total": 900
+        }));
+        let heal = spell(json!({"power": 0.15}));
+        // Only global and the Heal-specific boost apply: 4500 * 1.2 * 1.5.
+        let result = compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables());
+        assert!((result - 8100.0).abs() < 1e-9, "{result}");
+    }
+
+    #[test]
+    fn historical_heal_alias_works_but_current_zero_power_takes_precedence() {
+        let stats = stats(json!({}));
+        let view = StatsView::Borrowed(&stats);
+        let tables = tables();
+        for (fields, expected) in [
+            (json!({"max_hp_heal_pct": 0.15}), 4500.0),
+            (json!({"power": 0, "max_hp_heal_pct": 0.15}), 0.0),
+            (json!({"power": 0.10, "max_hp_heal_pct": 0.15}), 3000.0),
+        ] {
+            assert_eq!(compute_spell_healing_total(&view, &spell(fields), &tables), expected);
+        }
+    }
+
+    #[test]
+    fn dynamic_and_compiled_kinds_recognize_current_and_legacy_heal_parts() {
+        let stats = stats(json!({}));
+        for fields in [json!({"power": 0.15}), json!({"power": 0}),
+            json!({"max_hp_heal_pct": 0.15})] {
+            let heal = spell(fields);
+            let dynamic = eval_spell_parts(&StatsView::Borrowed(&stats), &Obj::new(), &heal, &tables());
+            assert_eq!(dynamic.len(), 2);
+            assert!(dynamic.iter().all(|part| part.kind == Some("heal")));
+            let compiled = compile_spell_plan(&heal, &None, &None).unwrap();
+            assert!(matches!(compiled.parts[0].kind, PartKindPlan::Heal));
+            assert!(compiled.parts.iter().all(|part| part.static_kind == Some("heal")));
+            assert_eq!(eval_spell_plan(&StatsView::Borrowed(&stats), &Obj::new(), &compiled,
+                0.0, &tables(), false), (0.0, 0.0));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tome_rescue_tests {
+    //! The mana rescue must assemble with the leaf's tome bundle. It did not:
+    //! `mana_rescue` used `assemble_from_base`, so with tome optimisation a
+    //! rescued build was mana-checked and scored without its weapon/armour
+    //! tomes (the JS worker's rescue includes them). On the ehp tome scenario
+    //! 43 of the 2,000 builds within 5% of the best were affected; this one
+    //! scored 45,998.45 without its tomes and 49,223.33 with them (its EHP
+    //! recomputed from items, final skill points and tomes).
+    use super::*;
+
+    #[test]
+    fn rescued_build_is_scored_with_its_tomes() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_ehp_tome_all.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        let names = ["Shimmersight", "Adamantite", "Empty Joy", "Statue", "Summa", "Summa",
+                     "Diamond Static Bracelet", "Achromatic Gloom"];
+        let mut kernel = crate::Kernel::new();
+        let mut work = DenseWork::default();
+        let (out, _tome) = leaf_pipeline_tome(
+            &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(), &mut kernel,
+            &sc.rows, &sc.registry, &sc.hit_refs, &sc.tables, &sc.consts, &sc.objective,
+            Some(&sc.compiled_rows), None, sc.dense.as_ref().map(|d| (d, &mut work)),
+            &sc.thresholds, &sc.spell_base_costs).unwrap();
+        let LeafOutcome::Scored(r) = out else { panic!("build not scored") };
+        assert!((r.score - 49_223.325520909995).abs() < 1e-6,
+                "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
+    }
 }

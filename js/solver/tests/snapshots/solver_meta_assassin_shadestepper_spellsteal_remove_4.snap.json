@@ -1,0 +1,206 @@
+{
+  "name": "solver_meta_assassin_shadestepper_spellsteal_remove_4",
+  "description": "assassin/shadestepper spellsteal: remove_4; boots, ring1, bracelet, necklace equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "spellsteal",
+  "benchmark_class": "assassin",
+  "benchmark_archetype": "shadestepper",
+  "benchmark_variant": "remove_4",
+  "benchmark_tier": "anytime",
+  "benchmark_checkpoints_seconds": [
+    60,
+    180,
+    300
+  ],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "6de63022af217cea95399857bec17eaa1457c1851856c8bf8a50bc335c498f75",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0buW0HaE1yQWjH6eGhJml1GkKuy70u-m-mwllE4",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CW0buW0HaE1yQWjH6eGhJml1GkKuy70u-m-mwllE4",
+  "designed_version": "2.2.2.0",
+  "version_role": "standardized_current_gap_fill",
+  "seed_quality": "historical_gap_fill",
+  "source_evidence": "Blue's Builds current Assassin forum; Oblivion spellsteal gap fill standardized to 2.2.3.0.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1522228209469358270/1531612647403950190",
+  "core_weapon": "Oblivion",
+  "seed_item_names": [
+    "Prosencephalon",
+    "Decree",
+    "Chaos-Woven Greaves",
+    "Stardew",
+    "Cistern Circlet",
+    "Moon Pool Circlet",
+    "Shattershard",
+    "Metamorphosis"
+  ],
+  "elements": [
+    "thunder",
+    "water"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          20,
+          20,
+          20,
+          20
+        ],
+        "powders": [
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          },
+          {
+            "element": "water",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "water"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "two-second steal window plus two Multihits",
+    "proxy_for": "spellsteal delivered damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 118,
+        "qty": 2,
+        "mana_excl": false,
+        "dmg_excl": true
+      },
+      {
+        "spell_node_id": 3,
+        "qty": 2,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 10000
+      },
+      {
+        "stat": "ms",
+        "op": "ge",
+        "value": 20
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -500
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 43466.4360396053,
+    "required": false,
+    "enforcement": "report",
+    "relative_tolerance": 1e-9,
+    "removal_count": 4,
+    "removal_seed": "assassin_shadestepper_spellsteal:4:0",
+    "removed_slots": [
+      "boots",
+      "ring1",
+      "bracelet",
+      "necklace"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Prosencephalon",
+    "Decree",
+    "Chaos-Woven Greaves",
+    "Moon Pool Circlet",
+    "Oblivion"
+  ],
+  "free_equipment_slots": [
+    "boots",
+    "ring1",
+    "bracelet",
+    "necklace"
+  ],
+  "free_mask": 216,
+  "url_hash": "CX0buW0HaE1yQWjH6eGhJml1GkKuy70u-m-mwllE4_ON40Poa93xd11iBG0340000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 80,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 300,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -500
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 0,
+      "name": "Melee",
+      "damage_parts": 1,
+      "mana_excl": false,
+      "dmg_excl": true
+    },
+    {
+      "base_spell": 3,
+      "name": "Backstab",
+      "damage_parts": 1,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "helmet": {
+      "name": "Prosencephalon",
+      "stat_hash": "4b38ff396e202269acd5f20a5f0e762151f4711a5fe3355645a331e7fb958e5e"
+    },
+    "chestplate": {
+      "name": "Decree",
+      "stat_hash": "745bece598a7440c5cf9bccd3e3994a75b40f4402c5faca40e823bc776206fad"
+    },
+    "leggings": {
+      "name": "Chaos-Woven Greaves",
+      "stat_hash": "03c67150aa074066f25ec8ff8cd5204c5b9c2d6f7b420ee4109fd69baca829ed"
+    },
+    "ring2": {
+      "name": "Moon Pool Circlet",
+      "stat_hash": "aa2cc39e81d6d2e6bcd2a9c48018749b4ca87701ad1bda801cbab993f4acecb8"
+    }
+  },
+  "created": "2026-08-16T03:17:47.786Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

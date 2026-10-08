@@ -1,0 +1,191 @@
+{
+  "name": "solver_meta_shaman_acolyte_healing_known_good",
+  "description": "shaman/acolyte support_spell: known_good; no equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "support_spell",
+  "benchmark_class": "shaman",
+  "benchmark_archetype": "acolyte",
+  "benchmark_variant": "known_good",
+  "benchmark_tier": "anchor",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "05825d335b0e6875dea908452469ad59d2ab04db888a153f957539b22028a127",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0F3HuJ8tge3kcYE60WW75KuS2QJBsEc30+tDl7VVKG0",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0F3HuJ8tge3kcYE60WW75KuS2QJBsEc30+tDl7VVKG0",
+  "designed_version": "2.2.3.0",
+  "version_role": "authored_current",
+  "seed_quality": "current_unreviewed",
+  "source_evidence": "Blue's Builds current Shaman forum; Olympic Acolyte current reply with incomplete play contract.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1513322771785060514/1537436125550092348",
+  "core_weapon": "Masterwork Olympic",
+  "seed_item_names": [
+    "Bleeding Mind",
+    "Flexibility",
+    "Sagittarius",
+    "Revenant",
+    "Summa",
+    "Bloodborne",
+    "Prowess",
+    "Bottled Thunderstorm"
+  ],
+  "elements": [
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 2,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 3,
+        "powder_ids": [
+          34,
+          34
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          34,
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "air",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "air",
+      "fire"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "total_healing",
+    "label": "one Aura cast healing",
+    "proxy_for": "Acolyte healing; Blood Sorrow timing remains unmodelled",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 18000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 15
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -200
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 5280.1875,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 0,
+    "removal_seed": "shaman_acolyte_healing:0:0",
+    "removed_slots": [],
+    "contract_kind": "seed_calibration"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Bleeding Mind",
+    "Flexibility",
+    "Sagittarius",
+    "Revenant",
+    "Summa",
+    "Bloodborne",
+    "Prowess",
+    "Bottled Thunderstorm",
+    "Masterwork Olympic"
+  ],
+  "free_equipment_slots": [],
+  "free_mask": 0,
+  "url_hash": "CX0F3HuJ8tge3kcYE60WW75KuS2QJBsEc30+tDl7VVKG0_OJ40Poa93Q8W11000",
+  "scoring_target": "total_healing",
+  "lvl_min": 81,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 18000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 15
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -200
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Aura",
+      "damage_parts": 6,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ]
+}

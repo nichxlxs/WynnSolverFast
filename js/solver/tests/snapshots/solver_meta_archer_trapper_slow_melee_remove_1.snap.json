@@ -1,0 +1,278 @@
+{
+  "name": "solver_meta_archer_trapper_slow_melee_remove_1",
+  "description": "archer/trapper slow_heavy_melee: remove_1; helmet equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "slow_heavy_melee",
+  "benchmark_class": "archer",
+  "benchmark_archetype": "trapper",
+  "benchmark_variant": "remove_1",
+  "benchmark_tier": "exact",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "f9cf56652059fe3d0da4d624e0da3cc4be19886b38fdc21d17c454ebcd78a4e9",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0+2l9Fe3l9Fa0l9EXQk9F1Kun1AD919XykvuB0uzPg63TupJW3",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CW0+2l9Fe3l9Fa0l9EXQk9F1Kun1AD919XykvuB0uzPg63TupJW3",
+  "designed_version": "2.2.2.0",
+  "version_role": "standardized_current_gap_fill",
+  "seed_quality": "historical_gap_fill",
+  "source_evidence": "Blue's Builds Archer forum; Labyrinth slow-melee family example with positive HPR compensating negative life steal.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1492896149135163473/1526495219720257567",
+  "core_weapon": "Labyrinth",
+  "seed_item_names": [
+    "Firemoss Veil",
+    "Heart of the Forest",
+    "Doomsday Omen",
+    "Crusade Sabatons",
+    "Intensity",
+    "Downfall",
+    "Firemoss Band",
+    "Aberrant's Amulet"
+  ],
+  "elements": [
+    "earth",
+    "fire"
+  ],
+  "powder_profile": {
+    "by_slot": [
+      {
+        "slot_index": 0,
+        "powder_ids": [
+          27,
+          27,
+          13
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "thunder",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 1,
+        "powder_ids": [
+          27,
+          27,
+          13
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "thunder",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 2,
+        "powder_ids": [
+          27,
+          27,
+          34
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "air",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 3,
+        "powder_ids": [
+          27,
+          27,
+          13
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "thunder",
+            "tier": 7
+          }
+        ]
+      },
+      {
+        "slot_index": 4,
+        "powder_ids": [
+          27,
+          27
+        ],
+        "powders": [
+          {
+            "element": "fire",
+            "tier": 7
+          },
+          {
+            "element": "fire",
+            "tier": 7
+          }
+        ]
+      }
+    ],
+    "elements": [
+      "fire",
+      "thunder",
+      "air"
+    ]
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "three-second main-attack window",
+    "proxy_for": "very-slow heavy-melee DPS",
+    "combo_rows": [
+      {
+        "spell_node_id": 118,
+        "qty": 3,
+        "mana_excl": true,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": true,
+    "allow_downtime": false,
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 30000
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": 500
+      },
+      {
+        "stat": "ls",
+        "op": "ge",
+        "value": -400
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 10612.493887458633,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 1,
+    "removal_seed": "archer_trapper_slow_melee:1:0",
+    "removed_slots": [
+      "helmet"
+    ],
+    "contract_kind": "rediscovery_same_or_better"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Heart of the Forest",
+    "Doomsday Omen",
+    "Crusade Sabatons",
+    "Intensity",
+    "Downfall",
+    "Firemoss Band",
+    "Aberrant's Amulet",
+    "Labyrinth"
+  ],
+  "free_equipment_slots": [
+    "helmet"
+  ],
+  "free_mask": 1,
+  "url_hash": "CX0+2l9Fe3l9Fa0l9EXQk9F1Kun1AD919XykvuB0uzPg63TupJW3_ON80Poa9BWiG0s74000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 90,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 60,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 30000
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": 500
+    },
+    {
+      "stat": "ls",
+      "op": "ge",
+      "value": -400
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 0,
+      "name": "Bow Shot",
+      "damage_parts": 2,
+      "mana_excl": true,
+      "dmg_excl": false
+    }
+  ],
+  "locked_items": {
+    "chestplate": {
+      "name": "Heart of the Forest",
+      "stat_hash": "6a0b9b0e8c0443223cb9e7940a4ffbba3f81bb7517c339720118f1c6f249004f"
+    },
+    "leggings": {
+      "name": "Doomsday Omen",
+      "stat_hash": "90f42561ba2e061a236515872515aff67485714718489a980ef08a751c356c56"
+    },
+    "boots": {
+      "name": "Crusade Sabatons",
+      "stat_hash": "3b6ad57dbf115e3e30c2c449140d23c035f679537c327a2f71ef888eade5c806"
+    },
+    "ring1": {
+      "name": "Intensity",
+      "stat_hash": "85a8a37c0d9cf62554aa87cef650e5eec02d1394472d0e0d7791a3319d4bd3cb"
+    },
+    "ring2": {
+      "name": "Downfall",
+      "stat_hash": "220c51c87174502f5eeb7040211a4f9512c44be70a28a90d73cc09f95e225155"
+    },
+    "bracelet": {
+      "name": "Firemoss Band",
+      "stat_hash": "47f956cd3cea81b178a4d8a64b0d14fdef516bbb921b56a256c3e494f0f439ab"
+    },
+    "necklace": {
+      "name": "Aberrant's Amulet",
+      "stat_hash": "a05f7aef4f96a189b7fdbc279c6236d8c3f10f53873bdf952e84934adcb01ede"
+    }
+  },
+  "created": "2026-08-16T02:31:50.977Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9"
+}

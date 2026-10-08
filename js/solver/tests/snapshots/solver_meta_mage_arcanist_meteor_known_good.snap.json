@@ -1,0 +1,135 @@
+{
+  "name": "solver_meta_mage_arcanist_meteor_known_good",
+  "description": "mage/arcanist rawstack_spell: known_good; no equipment slots free.",
+  "benchmark_only": true,
+  "benchmark_suite": "current_meta",
+  "benchmark_family": "rawstack_spell",
+  "benchmark_class": "mage",
+  "benchmark_archetype": "arcanist",
+  "benchmark_variant": "known_good",
+  "benchmark_tier": "anchor",
+  "benchmark_checkpoints_seconds": [],
+  "benchmark_version": "2.2.3.0",
+  "seed_build_id": "3862bb63a40f5d3ddbd202afca4515af9a1987479e53b2a8f0e8040b8b32b6c4",
+  "seed_build_url": "https://wynnbuilder.github.io/builder/#CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3",
+  "authored_build_url": "https://wynnbuilder.github.io/builder/#CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3",
+  "designed_version": "2.2.3",
+  "version_role": "authored_current",
+  "seed_quality": "current_author_tested",
+  "source_evidence": "Blue's Builds current Mage forum; Brushfire Arcanist lootrun cycle. Budget anchor, not a maximum-damage meta claim.",
+  "source_message_url": "https://discord.com/channels/696616686928920598/1535072909360627862/1535072909360627862",
+  "core_weapon": "Brushfire",
+  "seed_item_names": [
+    "Liffmail Coif",
+    "Flexibility",
+    "Liffmail Chausses",
+    "Liffmail Sollerets",
+    "Diamond Fusion Ring",
+    "Old Keeper's Ring",
+    "Vortex Bracer",
+    "Contrast"
+  ],
+  "elements": [
+    "earth",
+    "water",
+    "fire",
+    "air"
+  ],
+  "powder_profile": {
+    "by_slot": [],
+    "elements": []
+  },
+  "objective_contract": {
+    "scoring_target": "combo_damage",
+    "label": "one Meteor",
+    "proxy_for": "Arcanist spell damage",
+    "combo_rows": [
+      {
+        "spell_node_id": 3,
+        "qty": 1,
+        "mana_excl": false,
+        "dmg_excl": false
+      }
+    ]
+  },
+  "playability_contract": {
+    "mana_disabled": false,
+    "allow_downtime": true,
+    "mana_contract": "downtime allowed; MR floor retained; Mana Bank charge is not simulated",
+    "restrictions": [
+      {
+        "stat": "ehp",
+        "op": "ge",
+        "value": 20000
+      },
+      {
+        "stat": "mr",
+        "op": "ge",
+        "value": 15
+      },
+      {
+        "stat": "hpr",
+        "op": "ge",
+        "value": -300
+      }
+    ]
+  },
+  "recovery_contract": {
+    "target_score": 33110.76308374393,
+    "required": true,
+    "enforcement": "fail",
+    "relative_tolerance": 1e-9,
+    "removal_count": 0,
+    "removal_seed": "mage_arcanist_meteor:0:0",
+    "removed_slots": [],
+    "contract_kind": "seed_calibration"
+  },
+  "disable_seed_incumbent": true,
+  "supplied_seed_items": [
+    "Liffmail Coif",
+    "Flexibility",
+    "Liffmail Chausses",
+    "Liffmail Sollerets",
+    "Diamond Fusion Ring",
+    "Old Keeper's Ring",
+    "Vortex Bracer",
+    "Contrast",
+    "Brushfire"
+  ],
+  "free_equipment_slots": [],
+  "free_mask": 0,
+  "url_hash": "CX0X3HuJGL4D6146G0n45QdGeIGP0uzulcM-d3_OJ40Poa9BQ8W11000",
+  "scoring_target": "combo_damage",
+  "lvl_min": 82,
+  "lvl_max": 121,
+  "level_floor_contract": "The floor is the lower of level 100 and the minimum seed-equipment level, so every unlocked seed item remains eligible for recovery.",
+  "time_limit_seconds": 10,
+  "num_workers": 1,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 20000
+    },
+    {
+      "stat": "mr",
+      "op": "ge",
+      "value": 15
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -300
+    }
+  ],
+  "roll_profile_note": "All roll groups use the midpoint of each displayed ID range. This is deterministic and is not a claim that a whole build is jointly 50th percentile.",
+  "expected_resolved_combo_rows": [
+    {
+      "base_spell": 3,
+      "name": "Meteor",
+      "damage_parts": 4,
+      "mana_excl": false,
+      "dmg_excl": false
+    }
+  ]
+}
