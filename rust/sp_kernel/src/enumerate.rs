@@ -91,6 +91,62 @@ pub mod anytime_trace {
 /// BOUND_OBSERVE_SLOTS=k (default 1) moves the observation up so that k
 /// slots are relaxed under the ceiling. The single-item and at-SP
 /// diagnostics are one-slot measures and are recorded only for k = 1.
+/// R5: optimality-gap reporting over whole first-slot offsets (the
+/// threaded path claims and finishes offsets whole). `ceiling[o]` bounds
+/// every build under first-slot offset o, so while some offsets are
+/// unfinished, max(best, their ceilings) bounds the optimum; once all are
+/// finished the search is complete and the gap is 0.
+pub(crate) struct R5Frontier {
+    pub ceiling: Vec<f64>,
+    done: Vec<std::sync::atomic::AtomicBool>,
+}
+
+impl R5Frontier {
+    fn new(
+        fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>, bounds: Option<&crate::scoring::BoundTables>,
+        dense_bound: Option<&crate::scoring::DenseBound>, bound_tail: usize, first_pool_len: usize,
+    ) -> Option<R5Frontier> {
+        let (Some(sc), Some(bt)) = (scoring, bounds) else { return None };
+        if fx.slots.len() < 2 { return None; }
+        let mut s = Search::new(fx);
+        s.scoring = Some(sc);
+        s.bound_tables = Some(bt);
+        s.dense_bound = dense_bound;
+        s.bound_tail = bound_tail;
+        s.init_equip_names();
+        s.refresh_sp_bound_base(0);
+        let hi = i64::MAX / 4;
+        let use_tangent = std::env::var("R5_TANGENT").as_deref() == Ok("1");
+        let ceiling: Vec<f64> = (0..first_pool_len)
+            .map(|o| {
+                let c = s.subtree_ceiling_value(0, o, hi).unwrap_or(f64::INFINITY);
+                // R2's tangent is admissible too: the tighter of the two.
+                #[cfg(not(target_arch = "wasm32"))]
+                if use_tangent {
+                    if let Some(t) = s.tangent_bound(0, o, hi) { return c.min(t); }
+                }
+                c
+            })
+            .collect();
+        let done = (0..first_pool_len).map(|_| std::sync::atomic::AtomicBool::new(false)).collect();
+        Some(R5Frontier { ceiling, done })
+    }
+    fn finish(&self, o: usize) { self.done[o].store(true, Ordering::Relaxed); }
+    /// (dual bound, best). The bound is never below the best.
+    fn bound(&self, shared_best: &AtomicU64) -> (f64, f64) {
+        let best = f64::from_bits(shared_best.load(Ordering::Relaxed));
+        let open = self.ceiling.iter().zip(&self.done)
+            .filter(|(_, d)| !d.load(Ordering::Relaxed))
+            .map(|(c, _)| *c)
+            .fold(f64::NEG_INFINITY, f64::max);
+        (open.max(best), best)
+    }
+    fn gap(bound: f64, best: f64) -> f64 {
+        if !(bound > 0.0) || !best.is_finite() { return 1.0; }
+        ((bound - best) / bound).max(0.0)
+    }
+}
+
 /// R2_SKIP_RATIO (default 2): the tangent is tried only where the tail
 /// ceiling is below this multiple of the cutoff.
 fn r2_skip_ratio() -> f64 {
@@ -1114,7 +1170,9 @@ impl<'a> Search<'a> {
         // A new local best: report it (R8) and publish it for the R21 line.
         if self.top_n[0].score == score {
             if anytime_trace::on() { anytime_trace::best(score); }
-            if let (true, Some(sb)) = ((self.eps > 0.0 || self.window > 0.0) && score > 0.0, self.shared_best) {
+            // Also read by the R5 gap report, so published whenever positive
+            // (bit order matches value order for positive floats).
+            if let (true, Some(sb)) = (score > 0.0, self.shared_best) {
                 sb.fetch_max(score.to_bits(), Ordering::Relaxed);
             }
         }
@@ -3303,6 +3361,30 @@ pub fn cli_main() {
             total.max(1.0)
         };
 
+        // R5: the depth-0 ceiling of every first-slot offset. Offsets are
+        // claimed whole and finished whole, so the best any unfinished
+        // offset can still hold is bounded by its ceiling, and
+        // max(best, max over unfinished ceilings) bounds the optimum.
+        // R22_ORDER=1 claims offsets in descending ceiling order (an exact
+        // reorder: every offset is still searched in full).
+        // Diagnostic only (R5_GAP=1, R5_TRACE=1 or R22_ORDER=1): measured
+        // uninformative, the depth-0 ceilings are about 6x the best (3.4x
+        // with R5_TANGENT=1), so the gap stays above 70% until the end.
+        let r5_on = ["R5_GAP", "R5_TRACE", "R22_ORDER"].iter()
+            .any(|k| std::env::var(k).as_deref() == Ok("1"));
+        let r5 = if r5_on {
+            R5Frontier::new(&fx, scoring, bounds, dense_bound, bound_tail, first_pool_len)
+        } else { None };
+        let claim_order: Vec<usize> = match (&r5, std::env::var("R22_ORDER").as_deref() == Ok("1")) {
+            (Some(f), true) => {
+                let mut v: Vec<usize> = (0..first_pool_len).collect();
+                v.sort_by(|&a, &b| f.ceiling[b].total_cmp(&f.ceiling[a]).then(a.cmp(&b)));
+                v
+            }
+            _ => (0..first_pool_len).collect(),
+        };
+        let r5_trace = std::env::var("R5_TRACE").as_deref() == Ok("1");
+
         let totals = std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for _ in 0..n_threads.min(first_pool_len) {
@@ -3333,8 +3415,9 @@ pub fn cli_main() {
                             search.stop = true;
                         }
                         if search.stop { break; }
-                        let o = next_offset.fetch_add(1, Ordering::Relaxed);
-                        if o >= first_pool_len { break; }
+                        let claim = next_offset.fetch_add(1, Ordering::Relaxed);
+                        if claim >= first_pool_len { break; }
+                        let o = claim_order[claim];
                         search.part_lo = o as i64;
                         search.part_hi = o as i64;
                         let mut band_lo: i64 = 0;
@@ -3344,6 +3427,16 @@ pub fn cli_main() {
                             search.enumerate(0, band_lo, band_hi);
                             band_lo = band_hi + 1;
                             band_width *= 2;
+                        }
+                        if !search.stop {
+                            if let Some(f) = &r5 {
+                                f.finish(o);
+                                if r5_trace {
+                                    let (bound, best) = f.bound(&shared_best);
+                                    eprintln!("r5: t={:.3} offset {o} bound {bound:.6e} best {best:.6e}",
+                                              overall_started.elapsed().as_secs_f64());
+                                }
+                            }
                         }
                     }
                     search.flush_checked();
@@ -3390,8 +3483,15 @@ pub fn cli_main() {
                     if checked == 0.0 { continue; }
                     let rate = checked / elapsed;
                     let remaining = (total_space - checked).max(0.0);
+                    let gap = match &r5 {
+                        Some(f) => {
+                            let (bound, best) = f.bound(&shared_best);
+                            format!(" | bound {bound:.4e} gap {:.2}%", R5Frontier::gap(bound, best) * 100.0)
+                        }
+                        None => String::new(),
+                    };
                     eprintln!(
-                        "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s",
+                        "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s{gap}",
                         checked / total_space * 100.0, checked, total_space,
                         rate, elapsed, remaining / rate,
                     );
