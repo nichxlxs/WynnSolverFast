@@ -36,6 +36,9 @@ measured, and every pruning change passed the oracles before landing.
 | R20 windowed archive | done: engine (step 1), page "Shortlist" mode with QoL weights (step 2), one-slot variant grouping (step 3), stats for tome-optimised builds | `e996265`, `75ad6a6`, `f86d5ba`, `9d88008` | window sets identical to a bounds-off reference on five families at 2% and 10% (2 to 252 builds); completeness withdrawn when an archive fills inside the window; explain-pass stats equal the score on `total_hp`, `ehp` and the ehp tome scenario (2,000 of 2,000 each) |
 | Rust mana rescue dropped the tome bundle | fixed (on the correctness PR) | `352b572` | found by the R20 explain pass: with tome optimisation, a build that needed the mana rescue was mana-checked and scored without its weapon/armour tomes (the JS engine includes them); 43 of 2,000 archived builds under-scored by up to 7%; regression test pins a corrected score |
 | R9 before the tail ceiling | done, Rust (`R9_EARLY=0` disables) | `0e4ec50` | runs the one SP solve before the ceiling evaluation it can make unnecessary; exact (full-space top-15 and `checked` identical); fixed-work A/B 1.27x geometric mean, 13/18 faster, up to 4.59x (hybrid large); full proofs 1.37x cancelstack, 1.13x hybrid, 1.08x spell sustained (medium) |
+| R9 set term by binary search | done, Rust | `9be683d` | the node SP solve's set rows read each slot's per-set sorted offsets with `partition_point` instead of scanning the range; exact; 1.055x geometric mean, 15/18 faster, up to 1.20x (hybrid large) |
+| R25 native PGO | done, opt-in (`build-pgo.sh`) | `e768760` | profile regenerated from current source each build, never committed; families 1.149x geometric mean, 18/18 faster (1.04x to 1.32x), results and every counter identical; held-out `spell_wide` 1.19x. An objective missing from training runs slower (`total_healing` 0.92x untrained), so heal and the tome fixtures are in the training set; the script's own build then measured 1.140x, 20/21 faster (heal 1.29x, `tome_all` 1.27x, held-out `spell_wide` 1.17x, heavy melee large 0.98x), results identical (`d0bd897` makes it use the rustup `llvm-profdata`). Native only: the enum_kernel binary is the benchmark and research tool, the page runs wasm |
+| R25 wasm build flags | done: `wasm-opt -O3` replaces `-Oz` | `70ef635` | fixed leaf budget through `solve` in Node, 5 interleaved repeats, families plus `spell_wide` and `heal`, top-15 identical: `-O3` 1.051x geometric mean, 18/20 faster, module +0.5%; no `wasm-opt` 0.998x; `-O3` + simd128 1.069x, 20/20, not enabled (browsers without simd128, Safari before 16.4, could not load it, and a fallback build is not worth 1.6%); the native PGO profile applied to wasm 0.993x, +8.6% size |
 
 Found while doing this, not yet fixed:
 
@@ -100,7 +103,7 @@ Measurement note: the container moved hosts mid-session (the old
 absolute times before and after that point are not comparable; every A/B
 above ran both sides on one host.
 
-Not done yet, in order: R5 (see its correction below), R23 (incremental leaf fill), the JS
+Not done yet, in order: R2 (next, per the measurement above), R5 (see its correction below), R23 (incremental leaf fill), the JS
 mirror of R9, R10 (parked), then the rest of section 7. Open questions for
 the author: the 400 start-mana cap (needs checking in game) and Radiance
 item-SP scaling (above).
