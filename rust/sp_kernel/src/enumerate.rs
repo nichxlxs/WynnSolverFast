@@ -147,6 +147,35 @@ impl R5Frontier {
     }
 }
 
+/// R9_STATS=1 diagnostic counters (single process, all threads).
+pub mod r9_stats {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static S: Mutex<(u64, u64, u64)> = Mutex::new((0, 0, 0));
+    static DEAD: OnceLock<Mutex<HashSet<(usize, [usize; 8])>>> = OnceLock::new();
+    pub fn on() -> bool {
+        static V: OnceLock<bool> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("R9_STATS").as_deref() == Ok("1"))
+    }
+    fn dead() -> &'static Mutex<HashSet<(usize, [usize; 8])>> { DEAD.get_or_init(|| Mutex::new(HashSet::new())) }
+    pub fn is_dead(depth: usize, key: &[usize; 8]) -> bool {
+        dead().lock().unwrap().contains(&(depth, *key))
+    }
+    pub fn record(ok: bool, known_dead: bool, newly_dead: Option<(usize, [usize; 8])>) {
+        let mut s = S.lock().unwrap();
+        s.0 += 1;
+        if !ok { s.1 += 1; }
+        if known_dead { s.2 += 1; }
+        if let Some(k) = newly_dead { dead().lock().unwrap().insert(k); }
+    }
+    pub fn line() -> Option<String> {
+        if !on() { return None; }
+        let s = S.lock().unwrap();
+        Some(format!("r9_stats: calls {} | rejects {} | calls on a prefix already dead over its whole pool {} | dead prefixes {}",
+            s.0, s.1, s.2, dead().lock().unwrap().len()))
+    }
+}
+
 /// R2_SKIP_RATIO (default 2): the tangent is tried only where the tail
 /// ceiling is below this multiple of the cutoff.
 fn r2_skip_ratio() -> f64 {
@@ -719,6 +748,10 @@ pub struct Search<'a> {
     slot_set_offsets: Vec<Vec<Vec<u32>>>,
     /// Per slot: the set ids its pool stocks.
     slot_set_ids: Vec<Vec<u32>>,
+    /// R9 dead-prefix cache (see sp_node_feasible): key -> alive over the
+    /// whole pool. R9_CACHE=0 disables it.
+    r9_cache: std::collections::HashMap<u128, bool, crate::scoring::FastBuild>,
+    r9_cache_on: bool,
     /// Per slot: sparse table of per-lane skill-point provision maxima over
     /// non-crafted items, level k covering [i, i + 2^k) (i32::MIN where the
     /// window holds only crafted items). R9 reads its range maxima in O(1).
@@ -1048,6 +1081,9 @@ impl<'a> Search<'a> {
                 }
                 v
             }).collect(),
+            r9_cache: Default::default(),
+            r9_cache_on: std::env::var("R9_CACHE").as_deref() != Ok("0")
+                && fx.slots.len() <= 8 && fx.slots.iter().all(|sl| sl.pool.len() < 1 << 16),
             slot_skp_sparse: fx.slots.iter().map(|sl| {
                 let base: Vec<[i32; 5]> = sl.pool.iter()
                     .map(|it| if it.crafted { [i32::MIN; 5] } else { it.skp })
@@ -1702,6 +1738,57 @@ impl<'a> Search<'a> {
     /// Skipped (returns true) when the scored path chooses among guild tome
     /// candidates, or when SP_NODE_BOUND=0.
     fn sp_node_feasible(&mut self, depth: usize, from: usize, to: usize) -> bool {
+        if r9_stats::on() { return self.sp_node_feasible_counted(depth, from, to); }
+        if !self.r9_cache_on { return self.sp_node_feasible_inner(depth, from, to); }
+        // Dead-prefix cache. The band sweep revisits a prefix once per band
+        // with a disjoint offset range; if the relaxation is infeasible over
+        // the slot's whole pool it is infeasible over every range (a smaller
+        // range only lowers the provision maxima and the stocked sets), so
+        // later visits need no solve. On hybrid medium 89% of node checks
+        // were such repeats. Keyed by the placed prefix offsets, which fully
+        // determine the solve's inputs.
+        let key = self.r9_key(depth);
+        if let Some(&alive) = self.r9_cache.get(&key) {
+            if !alive {
+                debug_assert!(!self.sp_node_feasible_inner(depth, from, to),
+                    "R9 cache says dead, the range solve disagrees");
+                return false;
+            }
+            return self.sp_node_feasible_inner(depth, from, to);
+        }
+        let ok = self.sp_node_feasible_inner(depth, from, to);
+        if !ok {
+            // Learn whether the whole prefix is dead (one solve, once).
+            let full = self.fx.slots[depth].pool.len().saturating_sub(1);
+            let whole = (from == 0 && to == full) || self.sp_node_feasible_inner(depth, 0, full);
+            if self.r9_cache.len() >= BOUND_MEMO_CAP { self.r9_cache.clear(); }
+            self.r9_cache.insert(key, whole);
+        }
+        ok
+    }
+
+    /// Cache key: depth and the placed offsets of slots 0..depth, 16 bits
+    /// each (the cache is off when a pool has 65,536 items or more).
+    fn r9_key(&self, depth: usize) -> u128 {
+        let mut k = depth as u128;
+        for &o in &self.prefix_offsets[..depth] { k = (k << 16) | o as u128; }
+        k
+    }
+
+    /// R9_STATS=1: count calls, rejects, and calls whose prefix was already
+    /// shown infeasible over the slot's whole pool (a cache would skip them).
+    fn sp_node_feasible_counted(&mut self, depth: usize, from: usize, to: usize) -> bool {
+        let mut key = [usize::MAX; 8];
+        key[..depth].copy_from_slice(&self.prefix_offsets[..depth]);
+        let known_dead = r9_stats::is_dead(depth, &key);
+        let full = self.fx.slots[depth].pool.len().saturating_sub(1);
+        let ok = self.sp_node_feasible_inner(depth, from, to);
+        let dead_whole = !known_dead && !self.sp_node_feasible_inner(depth, 0, full);
+        r9_stats::record(ok, known_dead, dead_whole.then_some((depth, key)));
+        ok
+    }
+
+    fn sp_node_feasible_inner(&mut self, depth: usize, from: usize, to: usize) -> bool {
         if self.sp_bound_off || !self.sp_node_on { return true; }
         let guild: Option<crate::Unit> = match self.scoring {
             Some(sc) => {
@@ -2339,6 +2426,8 @@ impl<'a> Search<'a> {
                 let to = (self.fx.slots[child].pool.len() as i64 - 1).min(hi_rem - offset);
                 if from <= to {
                     self.place(depth, o);
+                    // The node check keys its cache on prefix_offsets[..child].
+                    self.prefix_offsets[depth] = o;
                     let ok = self.sp_node_feasible(child, from as usize, to as usize);
                     self.unplace(depth, o);
                     let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
@@ -3574,6 +3663,7 @@ pub fn cli_main() {
     let final_cut = totals.top_n.get(14).map(|e| e.score);
     if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
     if let Some(line) = r2_stats::line() { println!("{line}"); }
+    if let Some(line) = r9_stats::line() { println!("{line}"); }
     if fx.window > 0.0 {
         let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
         let inside = totals.top_n.iter().filter(|e| e.score >= best * (1.0 - fx.window)).count();
