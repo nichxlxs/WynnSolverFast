@@ -1130,6 +1130,147 @@ function _run_level_enum() {
         _col_prov[d] = provs;
     }
 
+    // ── R9: one exact SP solve per last-slot range ─────────────────────────
+    //
+    // Before scanning the leaf slot's in-band offsets [from, to], solve the
+    // skill points once with the slot holding a synthetic, requirement-free
+    // item that carries, per attribute, the largest provision any
+    // non-crafted candidate in the range has, plus for every set the range
+    // stocks the largest gain one more piece could bring
+    // (max(0, bonus(c + 1) - bonus(c)), c the pieces already worn). The real
+    // candidate has requirements and at most those provisions, so if even
+    // this relaxation is infeasible no candidate is, and the whole range is
+    // credited as SP-rejected. Mirrors the Rust engine's sp_node_feasible;
+    // results are unchanged (admissible), only the work. sp_node_bound: false
+    // in the init message disables it; it switches itself off where it
+    // rarely rejects, like the Rust AdaptiveBound.
+    const _r9_on = _cfg.sp_node_bound !== false && N_free > 0;
+    const _r9_slot = N_free > 0 ? free_slots[N_free - 1] : null;
+    const _r9_pool = N_free > 0 ? (_get_pool(_r9_slot) ?? []) : [];
+    // Sparse table over the leaf pool: level k holds per-attribute maxima of
+    // non-crafted provisions over [i, i + 2^k); crafted entries are -2^31.
+    const _r9_sparse = [];
+    const _r9_set_offsets = new Map();   // set name -> sorted offsets in the leaf pool
+    if (_r9_on) {
+        const n = _r9_pool.length;
+        const base = new Int32Array(n * 5);
+        for (let o = 0; o < n; o++) {
+            const sm = _r9_pool[o].statMap;
+            const skp = sm.get('skillpoints');
+            const crafted = sm.get('crafted');
+            for (let j = 0; j < 5; j++) base[o * 5 + j] = crafted ? -2147483648 : skp[j];
+            if (!crafted) {
+                const set_name = sm.get('set');
+                if (set_name) {
+                    if (!_r9_set_offsets.has(set_name)) _r9_set_offsets.set(set_name, []);
+                    _r9_set_offsets.get(set_name).push(o);
+                }
+            }
+        }
+        _r9_sparse.push(base);
+        for (let w = 1; 2 * w <= n; w *= 2) {
+            const prev = _r9_sparse[_r9_sparse.length - 1];
+            const len = n + 1 - 2 * w;
+            const next = new Int32Array(len * 5);
+            for (let i = 0; i < len; i++) {
+                for (let j = 0; j < 5; j++) {
+                    const a = prev[i * 5 + j], b = prev[(i + w) * 5 + j];
+                    next[i * 5 + j] = a > b ? a : b;
+                }
+            }
+            _r9_sparse.push(next);
+        }
+    }
+    const _r9_skp = [0, 0, 0, 0, 0];
+    const _r9_item = { statMap: new Map([
+        ['crafted', false], ['reqs', [0, 0, 0, 0, 0]], ['skillpoints', _r9_skp], ['set', null],
+    ]) };
+    const _r9_set_counts = new Map();
+    // Adaptive gate: off when it averages under one rejected leaf per solve
+    // over a 4096-solve window, re-sampled after 20M more checked leaves.
+    let _r9_enabled = true, _r9_window_evals = 0, _r9_window_skipped = 0, _r9_retry_at = 0;
+    let _r9_rejects = 0;
+
+    function _r9_armed() {
+        if (!_r9_enabled && _checked >= _r9_retry_at) {
+            _r9_enabled = true; _r9_window_evals = 0; _r9_window_skipped = 0;
+        }
+        return _r9_enabled;
+    }
+    function _r9_record(skipped) {
+        _r9_window_evals++;
+        _r9_window_skipped += skipped;
+        if (_r9_window_evals >= 4096) {
+            if (_r9_window_skipped < _r9_window_evals) {
+                _r9_enabled = false;
+                _r9_retry_at = _checked + 20e6;
+            }
+            _r9_window_evals = 0; _r9_window_skipped = 0;
+        }
+    }
+
+    /** False when no candidate of the leaf slot in [from, to] can be SP-feasible. */
+    function _r9_range_feasible(from, to) {
+        // Provisions: two overlapping power-of-two windows.
+        const len = to - from + 1;
+        const k = 31 - Math.clz32(len);
+        const lv = _r9_sparse[k];
+        const a = from * 5, b = (to + 1 - (1 << k)) * 5;
+        for (let j = 0; j < 5; j++) {
+            const x = lv[a + j], y = lv[b + j];
+            _r9_skp[j] = x > y ? x : y;
+        }
+        if (_r9_skp[0] === -2147483648) {   // only crafted candidates: none adds SP
+            for (let j = 0; j < 5; j++) _r9_skp[j] = 0;
+        }
+        // Set gains: pieces worn now (equipment and a non-crafted weapon,
+        // counted as calculate_skillpoints counts them), one more from the
+        // range where it stocks the set.
+        _r9_set_counts.clear();
+        for (const key of ['helmet', 'chestplate', 'leggings', 'boots', 'ring1', 'ring2', 'bracelet', 'necklace']) {
+            if (key === _r9_slot) continue;
+            const sm = partial[key]?.statMap;
+            if (!sm || sm.get('crafted')) continue;
+            const set_name = sm.get('set');
+            if (set_name) _r9_set_counts.set(set_name, (_r9_set_counts.get(set_name) ?? 0) + 1);
+        }
+        if (weapon_sm && !weapon_sm.get('crafted')) {
+            const set_name = weapon_sm.get('set');
+            if (set_name) _r9_set_counts.set(set_name, (_r9_set_counts.get(set_name) ?? 0) + 1);
+        }
+        for (const [set_name, offs] of _r9_set_offsets) {
+            // Stocked in [from, to]? (sorted offsets, binary search)
+            let lo = 0, hi = offs.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (offs[mid] < from) lo = mid + 1; else hi = mid; }
+            if (lo >= offs.length || offs[lo] > to) continue;
+            const bonuses = sets.get(set_name)?.bonuses;
+            if (!Array.isArray(bonuses)) continue;
+            const c = _r9_set_counts.get(set_name) ?? 0;
+            const now = c > 0 ? bonuses[c - 1] : null;
+            const next = bonuses[c];
+            if (!next) continue;
+            for (let j = 0; j < 5; j++) {
+                const gain = (next[skp_order[j]] || 0) - ((now && now[skp_order[j]]) || 0);
+                if (gain > 0) _r9_skp[j] += gain;
+            }
+        }
+        const saved = partial[_r9_slot];
+        partial[_r9_slot] = _r9_item;
+        _scratch_sp_input[0] = partial.helmet.statMap;
+        _scratch_sp_input[1] = partial.chestplate.statMap;
+        _scratch_sp_input[2] = partial.leggings.statMap;
+        _scratch_sp_input[3] = partial.boots.statMap;
+        _scratch_sp_input[4] = partial.ring1.statMap;
+        _scratch_sp_input[5] = partial.ring2.statMap;
+        _scratch_sp_input[6] = partial.bracelet.statMap;
+        _scratch_sp_input[7] = partial.necklace.statMap;
+        _scratch_sp_input[8] = _tome_guild_optimistic ?? guild_tome_sm;
+        const ok = calculate_skillpoints(_scratch_sp_input, weapon_sm, sp_budget,
+            _scratch_sp_set_counts, _scratch_sp) !== null;
+        partial[_r9_slot] = saved;
+        return ok;
+    }
+
     // Per-depth hoist buffers (recursion-safe: one set per depth).
     const _hoist_prov_sfx = [];   // Int32Array(5): fixed+free prov + suffix at child depth
     const _hoist_pc_base = [];    // Float64Array(_n_pc): running pc + suffix at child depth
@@ -2318,6 +2459,19 @@ function _run_level_enum() {
         if (is_leaf_slot) {
             const from = Math.max(min_offset, lo_rem);
             const to = Math.min(pool_max, hi_rem);
+            if (_r9_on && from <= to && !_cfg.oracle_exhaustive_sp && _r9_armed()) {
+                const ok = _r9_range_feasible(from, to);
+                const skipped = ok ? 0 : to - from + 1;
+                _r9_record(skipped);
+                if (!ok) {
+                    _checked += skipped;
+                    _dbg_sp_leaf_reject += skipped;
+                    _r9_rejects++;
+                    if (_trace) _trace.sp_bound_rejects += skipped;
+                    _maybe_progress();
+                    return;
+                }
+            }
             for (let offset = from; offset <= to; offset++) {
                 if (_cancelled) return;
                 const item = pool[offset];
