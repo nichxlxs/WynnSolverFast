@@ -54,12 +54,27 @@
 //! - every factor, multiplier and multiplicity is finite and >= 0 at the
 //!   prefix point.
 //!
+//! ## Var effects (atree stat-scaling)
+//!
+//! An effect writes `out = clamp(t)` into its output stats, with
+//! `t = const + sum f_k * input_k` (skill-point inputs are constant at the
+//! ceiling SP). `round` then `floor` gives at most `t + 1e-8`, `positive` is
+//! the identity once that is >= 0, and a positive `max` only lowers it, so
+//! `out <= u_pre + sum_{f_k > 0} f_k * dx_k` on the box (inputs only grow;
+//! negative-factor inputs only lower `out` and are dropped). A factor that
+//! reads an output stat therefore gets `c_out * f_k` on each input and its
+//! prefix value lifted by `c_out * (u_pre - out_pre)`. Refused when
+//! `u_pre < 0` with a `positive` clamp, or below a negative `max` floor (both
+//! convex there).
+//!
 //! `check` mode (the observe pass) verifies `U(x) >= f(x)` at real points.
 
 use crate::scoring::{
-    dense_apply_row, dense_undo_row, DObjective, DScratch, DenseCtx, DenseRowExtra, DenseUndo,
-    CompiledRow, MultTarget, PartKindPlan, Row, Tables, SPELL_CAST_DELAY,
+    dense_apply_row, dense_undo_row, DObjective, DScratch, DTerm, DenseCtx, DenseLeaf,
+    DenseRowExtra, DenseUndo, CompiledRow, MultTarget, PartKindPlan, Row, Tables,
+    SPELL_CAST_DELAY,
 };
+use std::collections::HashMap;
 
 /// `a + c . x` over dense stat indices.
 #[derive(Clone, Debug)]
@@ -90,25 +105,33 @@ pub enum Refuse {
 }
 
 /// Indices a relaxed item must not touch for the envelope to hold.
-pub fn forbidden_indices(d: &DenseCtx) -> Vec<bool> {
+///
+/// The attack-speed tier is read only by melee-rate rows without a fixed
+/// cooldown (their hits per second), so it is forbidden only when such a
+/// row deals damage.
+pub fn forbidden_indices(d: &DenseCtx, rows: &[Row]) -> Vec<bool> {
     let mut f = vec![false; d.n];
     let mark = |f: &mut Vec<bool>, i: u32| { if (i as usize) < f.len() { f[i as usize] = true; } };
     for &i in &d.conv_base_idx { mark(&mut f, i); }
     for r in &d.rows {
         for c in r.parts_conv.iter().flatten() { for &i in c { mark(&mut f, i); } }
     }
-    mark(&mut f, d.atk_tier_idx);
+    if rows.iter().any(|r| r.is_melee_time && r.melee_cd_override.is_none()
+        && r.qty > 0.0 && !r.pseudo && !r.dmg_excl) {
+        mark(&mut f, d.atk_tier_idx);
+    }
     if let Some(dd) = d.direct.as_ref() {
         mark(&mut f, dd.dam_mobs_idx);
         mark(&mut f, dd.def_mobs_idx);
-        // A var effect's captured inputs matter only when one of its outputs
-        // lands on an index the envelope reads or treats as constant. (Var
-        // outputs never feed var inputs: inputs are captured at fill time.)
-        let reads = read_indices(d);
+        // A var effect whose output lands on an index the envelope treats as
+        // constant (conversion, attack tier) cannot be chained, so its
+        // captured inputs are forbidden. Outputs the envelope reads are
+        // chained (see the module comment). Var outputs never feed var
+        // inputs: inputs are captured at fill time.
         for eff in &d.var_effects {
             let feeds = eff.out_slots.iter().any(|(slot, _)| {
                 let o = d.var_slots[*slot] as usize;
-                reads.get(o).copied().unwrap_or(false) || f.get(o).copied().unwrap_or(false)
+                f.get(o).copied().unwrap_or(false)
             });
             if !feeds { continue; }
             for t in &eff.terms {
@@ -138,6 +161,71 @@ fn merged(mut c: Vec<(u32, f64)>) -> Vec<(u32, f64)> {
 
 fn ok(v: f64) -> bool { v.is_finite() && v >= 0.0 }
 
+/// Per output stat index: the lift of the prefix value and the input
+/// coefficients (see "Var effects" in the module comment).
+#[derive(Default)]
+struct Chain { lift: f64, coeffs: Vec<(u32, f64)> }
+
+fn var_chains(d: &DenseCtx, leaf: &DenseLeaf, sp: &[f64; 5]) -> Result<HashMap<u32, Chain>, Refuse> {
+    let mut out: HashMap<u32, Chain> = HashMap::new();
+    let Some(dd) = d.direct.as_ref() else { return Ok(out) };
+    let mut skp_pre = [0.0f64; 5];
+    for i in 0..5 {
+        let mut v = sp[i];
+        for a in &d.skp_atree_adds[i] { v += a; }
+        skp_pre[i] = v;
+    }
+    for eff in &d.var_effects {
+        let mut t = eff.const_add;
+        let mut coeffs: Vec<(u32, f64)> = Vec::new();
+        for term in &eff.terms {
+            match term {
+                DTerm::Skp(i, f) => t += skp_pre[*i] * f,
+                DTerm::Const(slot, f) => {
+                    t += leaf.const_term_vals[*slot] * f;
+                    if *f > 0.0 {
+                        if let Some(&i) = dd.term_capture.get(*slot) { coeffs.push((i, *f)); }
+                    }
+                }
+            }
+        }
+        if coeffs.is_empty() { continue; } // constant on the box: already in the prefix
+        // The engine's own clamp at the prefix (dense_assemble).
+        let mut o = t;
+        if eff.round { o = crate::scoring::round_near(o).floor(); }
+        if eff.positive && o < 0.0 { o = 0.0; }
+        if let Some(mx) = eff.max {
+            if mx > 0.0 && o > mx { o = mx; }
+            if mx < 0.0 && o < mx { o = mx; }
+        }
+        let u = t + if eff.round { 1e-6 } else { 0.0 };
+        if !u.is_finite() || !o.is_finite() { return Err(Refuse::Negative("var_effect")); }
+        if eff.positive && u < 0.0 { return Err(Refuse::Negative("var_effect")); }
+        if let Some(mx) = eff.max { if mx < 0.0 && u < mx { return Err(Refuse::Negative("var_effect")); } }
+        for (slot, _) in &eff.out_slots {
+            let e = out.entry(d.var_slots[*slot]).or_default();
+            e.lift += u - o;
+            e.coeffs.extend(coeffs.iter().cloned());
+        }
+    }
+    Ok(out)
+}
+
+/// Rewrites a factor through the var chains: each coefficient on an output
+/// stat also lands on that effect's inputs, and the prefix value is lifted.
+fn chained(f: Factor, chains: &HashMap<u32, Chain>) -> Factor {
+    if chains.is_empty() { return f; }
+    let mut a = f.a;
+    let mut c = f.c.clone();
+    for &(k, ck) in &f.c {
+        if let Some(ch) = chains.get(&k) {
+            a += ck * ch.lift;
+            for &(i, fi) in &ch.coeffs { c.push((i, ck * fi)); }
+        }
+    }
+    Factor { a, c: merged(c) }
+}
+
 /// Builds the envelope at the assembled prefix point in `s`.
 ///
 /// `s` must hold the prefix (relaxed slots at their none-items) assembled at
@@ -146,9 +234,11 @@ fn ok(v: f64) -> bool { v.is_finite() && v >= 0.0 }
 /// CRIT_CEILING_FLOOR). Row overlays are applied and undone here.
 pub fn build_envelope(
     d: &DenseCtx, s: &mut DScratch, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
-    atk_spd_idx: i64,
+    leaf: &DenseLeaf, sp: &[f64; 5],
 ) -> Result<Envelope, Refuse> {
     if !matches!(d.obj, DObjective::Damage) { return Err(Refuse::Objective); }
+    let atk_spd_idx = leaf.atk_spd_idx;
+    let chains = var_chains(d, leaf, sp)?;
     let reads = read_indices(d);
     let crit = {
         let dex = s.num(d.dex_idx);
@@ -230,7 +320,7 @@ pub fn build_envelope(
             let Some(conv_idx) = drow.parts_conv[j].as_ref() else { res = Err(Refuse::Negative("conv")); break };
             if let Err(e) = part_terms(d, s, &dp.multipliers, plan.use_spell, !plan.use_speed,
                                        Some(&dp.part_id), !dp.use_str, &dp.ignored_mults, conv_idx,
-                                       tables, crit, m, &mut env.terms) {
+                                       tables, crit, m, &chains, &mut env.terms) {
                 res = Err(e);
                 break;
             }
@@ -261,7 +351,7 @@ fn read_indices(d: &DenseCtx) -> Vec<bool> {
 fn part_terms(
     d: &DenseCtx, s: &DScratch, mults: &[f64], use_spell: bool, ignore_speed: bool,
     part_filter: Option<&str>, ignore_str: bool, ignored: &[String], conv_idx: &[u32; 6],
-    tables: &Tables, crit: f64, weight: f64, out: &mut Vec<Term>,
+    tables: &Tables, crit: f64, weight: f64, chains: &HashMap<u32, Chain>, out: &mut Vec<Term>,
 ) -> Result<(), Refuse> {
     // Conversions, base damages, total conversion: constant under the gates
     // (no relaxed item touches a conversion index). Same arithmetic as
@@ -341,6 +431,7 @@ fn part_terms(
             c: merged(vec![(d.s_crit_dam_pct, crit / 100.0)]),
         }
     };
+    let k = chained(k, chains);
     if !ok(k.a) { return Err(Refuse::Negative("crit_factor")); }
 
     let static_boost = (s.num(spec_pct_s) + s.num(d.s_dam_pct)) / 100.0;
@@ -372,11 +463,15 @@ fn part_terms(
         if !boost_a.is_finite() { return Err(Refuse::Negative("boost")); }
         // D >= 0 and B >= 0 below, so max(0, D*boost + B) <= D*max(0, boost)
         // + B, and max(0, a + c.x) <= max(0, a) + c.x for c >= 0, x >= 0.
-        let boost = Factor { a: boost_a.max(0.0), c: merged(boost_c) };
+        // Chain first (the lift is part of the prefix value), then clamp.
+        let boost = chained(Factor { a: boost_a, c: merged(boost_c) }, chains);
+        let boost = Factor { a: boost.a.max(0.0), c: boost.c };
         for (a, c) in ds {
             let w = weight * 0.5 * damage_mult * em[i];
             if w > 0.0 {
-                out.push(Term { w, f: vec![k.clone(), Factor { a, c }, boost.clone()] });
+                let dfac = chained(Factor { a, c }, chains);
+                if !ok(dfac.a) { return Err(Refuse::Negative("base_damage")); }
+                out.push(Term { w, f: vec![k.clone(), dfac, boost.clone()] });
             }
         }
     }
@@ -405,7 +500,8 @@ fn part_terms(
     }
     let w = weight * damage_mult;
     if w > 0.0 {
-        out.push(Term { w, f: vec![k, Factor { a: ra, c: merged(rc) }] });
+        let r = chained(Factor { a: ra, c: merged(rc) }, chains);
+        out.push(Term { w, f: vec![k, Factor { a: r.a.max(0.0), c: r.c }] });
     }
     Ok(())
 }

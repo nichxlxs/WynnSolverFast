@@ -1136,9 +1136,9 @@ impl<'a> Search<'a> {
             crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
             crate::scoring::ceiling_crit_floor_dense(d, scratch);
         }
-        let atk = self.bound_work.leaf.atk_spd_idx;
         let env = match crate::tangent::build_envelope(
-            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables, atk) {
+            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &self.bound_work.leaf, &sp_cap) {
             Ok(e) => e,
             Err(r) => {
                 bound_observe::tan_count(match r {
@@ -1148,7 +1148,7 @@ impl<'a> Search<'a> {
                 return;
             }
         };
-        let forbidden = crate::tangent::forbidden_indices(d);
+        let forbidden = crate::tangent::forbidden_indices(d, &sc.rows);
         let h_child = (hi_rem - offset as i64).max(0) as usize;
         let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
         for j in depth + 1..self.n_free {
