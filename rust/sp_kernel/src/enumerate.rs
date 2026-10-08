@@ -91,6 +91,27 @@ pub mod anytime_trace {
 /// BOUND_OBSERVE_SLOTS=k (default 1) moves the observation up so that k
 /// slots are relaxed under the ceiling. The single-item and at-SP
 /// diagnostics are one-slot measures and are recorded only for k = 1.
+/// R2_TANGENT=1 counters across threads, printed with the run summary.
+pub mod r2_stats {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static EVALS: AtomicU64 = AtomicU64::new(0);
+    pub static NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static PRUNES: AtomicU64 = AtomicU64::new(0);
+    pub static LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub fn add(nanos: u64, pruned_leaves: f64) {
+        EVALS.fetch_add(1, Relaxed);
+        NANOS.fetch_add(nanos, Relaxed);
+        if pruned_leaves > 0.0 { PRUNES.fetch_add(1, Relaxed); LEAVES.fetch_add(pruned_leaves as u64, Relaxed); }
+    }
+    pub fn line() -> Option<String> {
+        let e = EVALS.load(Relaxed);
+        if e == 0 { return None; }
+        let ns = NANOS.load(Relaxed);
+        Some(format!("r2_tangent: evals {} | {:.2} us/eval | pruning evals {} | pruned leaves {}",
+            e, ns as f64 / e as f64 / 1e3, PRUNES.load(Relaxed), LEAVES.load(Relaxed)))
+    }
+}
+
 pub mod bound_observe {
     use std::sync::{Mutex, OnceLock};
     /// Number of relaxed slots under an observed ceiling (>= 1).
@@ -255,6 +276,9 @@ struct AdaptiveBound {
     pruned: f64,
     window: u64,
     retry_at: f64,
+    /// Pruned leaves per eval below which the layer switches off (1 for the
+    /// ceilings, whose eval costs about one leaf; more for dearer bounds).
+    min_rate: f64,
 }
 
 /// Entry cap for the subtree/cluster ceiling memo.
@@ -273,7 +297,10 @@ const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
 
 impl AdaptiveBound {
     fn new() -> Self {
-        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0 }
+        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0, min_rate: 1.0 }
+    }
+    fn with_rate(min_rate: f64) -> Self {
+        AdaptiveBound { min_rate, ..AdaptiveBound::new() }
     }
     #[inline]
     fn armed(&mut self, checked: f64) -> bool {
@@ -290,7 +317,7 @@ impl AdaptiveBound {
         self.evals += 1;
         self.pruned += pruned_leaves;
         if self.evals >= self.window {
-            if self.pruned < self.evals as f64 {
+            if self.pruned < self.min_rate * self.evals as f64 {
                 self.enabled = false;
                 self.retry_at = checked + ADAPT_RETRY_LEAVES;
             }
@@ -692,6 +719,13 @@ pub struct Search<'a> {
     cluster_memo_hits: u64,
     adapt_super: AdaptiveBound,
     adapt_tail: AdaptiveBound,
+    /// R2 tangent prune at the tail sites (R2_TANGENT=1; native only).
+    r2_on: bool,
+    adapt_tan: AdaptiveBound,
+    r2_evals: u64,
+    r2_pruned: f64,
+    tan_forbidden: Option<Vec<bool>>,
+    tan_dense: Vec<f64>,
     adapt_node: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
@@ -975,6 +1009,13 @@ impl<'a> Search<'a> {
             adapt_super: AdaptiveBound::new(),
             adapt_node: AdaptiveBound::new(),
             adapt_tail: AdaptiveBound::new(),
+            r2_on: !cfg!(target_arch = "wasm32") && std::env::var("R2_TANGENT").as_deref() == Ok("1"),
+            adapt_tan: AdaptiveBound::with_rate(std::env::var("R2_MIN_RATE").ok()
+                .and_then(|v| v.parse::<f64>().ok()).unwrap_or(8.0)),
+            r2_evals: 0,
+            r2_pruned: 0.0,
+            tan_forbidden: None,
+            tan_dense: Vec::new(),
             bound_work: Default::default(),
             checked_flushed: 0.0,
             progress: None,
@@ -1136,6 +1177,51 @@ impl<'a> Search<'a> {
     /// BOUND_OBSERVE only: the R2 tangent bound (see `tangent`) for the
     /// subtree under (depth, offset), and the envelope check at the observed
     /// best leaf's own items. Records into `bound_observe`; never prunes.
+    /// R2: the tag-grouped tangent bound for the subtree under (depth,
+    /// offset), or None when the envelope's gates refuse it. Must be called
+    /// before `offset` is placed (it reads the hoisted SP state for depth).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn tangent_bound(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let dd = d.direct.as_ref()?;
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        if !self.bound_work.leaf.fill_direct(d, dd, &names) { return None; }
+        {
+            let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+            scratch.reset(leaf, d);
+            crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
+            crate::scoring::ceiling_crit_floor_dense(d, scratch);
+        }
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        let tier_extra: f64 = (depth + 1..self.n_free).map(|j| {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { return 0.0; }
+            v[..=h_child.min(v.len() - 1)].iter()
+                .filter_map(|it| it.iter().find(|(i, _)| *i == d.atk_tier_idx).map(|(_, x)| *x))
+                .fold(0.0f64, f64::max)
+        }).sum();
+        let env = crate::tangent::build_envelope(
+            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &self.bound_work.leaf, &sp_cap, tier_extra).ok()?;
+        if self.tan_forbidden.is_none() {
+            self.tan_forbidden = Some(crate::tangent::forbidden_indices(d, &sc.rows));
+        }
+        if self.tan_dense.len() < d.n { self.tan_dense.resize(d.n, 0.0); }
+        let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
+        for j in depth + 1..self.n_free {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { continue; }
+            slots.push(&v[..=h_child.min(v.len() - 1)]);
+        }
+        let forbidden = self.tan_forbidden.as_ref().unwrap();
+        env.tangent(&slots, forbidden, &mut self.tan_dense, crate::tangent::Grouping::ByTag)
+            .ok().map(|v| v.0).filter(|v| v.is_finite())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn observe_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64, ceiling: f64, sp_cap: [f64; 5]) {
         use crate::tangent::Refuse;
@@ -2136,6 +2222,34 @@ impl<'a> Search<'a> {
                         continue;
                     }
                     if tail_here { self.adapt_tail.record(0.0, self.checked); }
+                    // R2: the ceiling did not prune; try the tangent bound
+                    // (tighter where no single item holds every maximum). An
+                    // admissible bound like the ceiling, so results are
+                    // unchanged; its own adaptive gate keeps it off where it
+                    // does not pay (a tangent eval costs several leaves).
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if self.r2_on && tail_here && self.adapt_tan.armed(self.checked) {
+                        self.r2_evals += 1;
+                        let t0 = std::time::Instant::now();
+                        let pruned = match self.tangent_bound(depth, o, hi_rem) {
+                            Some(t) if t < cutoff - cutoff.abs() * 1e-9 =>
+                                self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset),
+                            _ => 0.0,
+                        };
+                        r2_stats::add(t0.elapsed().as_nanos() as u64, pruned);
+                        self.adapt_tan.record(pruned, self.checked);
+                        if pruned > 0.0 {
+                            if slot_is_ring1 && self.rings_contiguous {
+                                self.rebuild_ring2_subtree(o);
+                            }
+                            self.checked += pruned;
+                            self.bound_pruned += pruned;
+                            self.r2_pruned += pruned;
+                            self.maybe_report();
+                            offset += 1;
+                            continue;
+                        }
+                    }
                 }
             }
             self.place(depth, o);
@@ -3169,6 +3283,9 @@ pub fn cli_main() {
                     if std::env::var("CLUSTER_STATS").as_deref() == Ok("1") {
                         eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {}",
                                   search.cluster_evals, search.cluster_memo_hits, search.bound_memo.len());
+                        if search.r2_on {
+                            eprintln!("r2_stats: evals {} | pruned leaves {:.4e}", search.r2_evals, search.r2_pruned);
+                        }
                     }
                     Totals {
                         checked: search.checked,
@@ -3255,6 +3372,7 @@ pub fn cli_main() {
     println!("search: complete {}", if totals.stopped_early { "no" } else { "yes" });
     let final_cut = totals.top_n.get(14).map(|e| e.score);
     if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
+    if let Some(line) = r2_stats::line() { println!("{line}"); }
     if fx.window > 0.0 {
         let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
         let inside = totals.top_n.iter().filter(|e| e.score >= best * (1.0 - fx.window)).count();
