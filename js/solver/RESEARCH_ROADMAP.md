@@ -71,6 +71,30 @@ deficit bound and R9 already reject, and the leaf pipeline is about 1% of
 wall. Pairwise conflicts can only remove the kernel rejects, so R10 is
 parked until a profile shows SP kernel time again.
 
+**Where the bound time goes, and why R2 is next** (`6da842d`,
+`BOUND_OBSERVE=1`). After the passes above, ceiling evaluations are the
+largest cost (9.6 of 20 s on hybrid medium, 7.0 of 20 s on cancelstack
+medium; the leaf pipeline is 0.3 to 2 s), almost all of them last-slot
+cluster ceilings (about 9.7M per thread in 20 s). Measured on the small
+families, p50 of bound / best real score in the subtree, with one slot
+relaxed:
+
+| Bound | p50 |
+|---|---|
+| tail ceiling (super-item at the reachable SP caps) | 2.0 to 2.9x |
+| same, at the best leaf's own skill points | 1.7 to 2.3x |
+| best single item, feasibility ignored | 1.02 to 1.09x |
+| ceiling of the best build itself | 1.000 |
+
+The machinery is exact and feasibility costs little: the looseness is
+the super-item (one fictitious item holding the best of every stat in
+the slot) plus 10 to 30% from the SP caps. That is what R2's per-item
+tangent targets, and also what makes the 4-item cluster ceilings fire so
+often. Changing the cluster size does not help on average (size 2:
+0.94x, size 8: 0.98x geometric mean on the medium families), though it
+is strongly scenario-dependent (heavy melee 1.89x at size 2, spell
+sustained 1.29x at size 8).
+
 Measurement note: the container moved hosts mid-session (the old
 `target-cpu=native` binaries now fault with an illegal instruction), so
 absolute times before and after that point are not comparable; every A/B
