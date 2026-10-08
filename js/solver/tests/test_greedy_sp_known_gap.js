@@ -1,4 +1,4 @@
-// Known failure C6: the greedy skill-point allocator is not globally optimal.
+// C6: the greedy skill-point allocator was not globally optimal on this case.
 // Run: node js/solver/tests/test_greedy_sp_known_gap.js
 //
 // The leaf scorer spends the unassigned skill points with greedy_sp_allocate:
@@ -9,10 +9,11 @@
 // best build. Reported on PR #19 (reproduced: greedy 20/0 scores
 // 1.18176053024, the feasible 10/10 split 1.19015423825, 0.71% better).
 //
-// This file records the gap rather than hiding it. While the gap exists it
-// emits a WARN, not a FAIL, so the suite stays usable; when a certified
-// allocator lands (roadmap R12) the gap closes and the file says so, at which
-// point the WARN branch should become a hard assertion.
+// The polish phase (roadmap R12, greedy_sp_polish) closes this case: it
+// moves greedy-placed points between lanes while the score improves. This
+// is now a hard assertion. It is not a proof of optimality in general (the
+// polish finds a local optimum); the independent oracle measures any
+// remaining gap on real leaves.
 
 'use strict';
 
@@ -50,19 +51,14 @@ for (let s = 0; s <= remaining; s++) {
 }
 
 t.assert(bestScore >= greedyScore,
-    'the exhaustive split is never worse than greedy (oracle sanity)');
-t.assertClose(greedyScore, 1.1817605302407017, 1e-12,
-    'greedy result reproduces the reported 20/0 score');
-
-const gap = (bestScore - greedyScore) / greedyScore;
-if (gap > 1e-12) {
-    t.warn(`KNOWN FAILURE C6: greedy allocates [${gTotal[0]}, ${gTotal[1]}] `
-        + `scoring ${greedyScore}; best split ${JSON.stringify(bestSplit)} scores `
-        + `${bestScore} (${(gap * 100).toFixed(4)}% better). See roadmap R12.`);
-} else {
-    console.log('  C6 appears fixed: greedy now matches the exhaustive split. '
-        + 'Turn the WARN branch of this test into a hard assertion.');
-}
+    'the exhaustive split is never worse than the allocator (oracle sanity)');
+// Before the polish phase the allocator stopped at [20, 0] scoring
+// 1.1817605302407017. It must now reach the exhaustive optimum, the even
+// split, scoring 1.1901542382489017.
+t.assert(Math.abs(greedyScore - bestScore) <= 1e-15,
+    `the allocator reaches the exhaustive optimum on the C6 case `
+    + `(allocates [${gTotal[0]}, ${gTotal[1]}], ${greedyScore}; best ${JSON.stringify(bestSplit)}, ${bestScore})`);
+t.assertClose(bestScore, 1.1901542382489017, 1e-12, 'the optimum is the reported 10/10 score');
 
 const result = t.summary();
 if (require.main === module && result.fail > 0) process.exit(1);

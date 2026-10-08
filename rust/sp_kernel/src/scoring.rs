@@ -2235,6 +2235,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
 ) -> i32 {
     let mut allocated = 0;
     let mut cur = trial_score(total_sp);
+    let mut placed = [0i32; 5];   // points this loop added, per lane
 
     for step in [20, 4, 1] {
         let mut progress = true;
@@ -2257,6 +2258,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
                 let a = step.min(remaining).min(100 - base_sp[i]).min(cap_total[i] - total_sp[i]);
                 base_sp[i] += a;
                 total_sp[i] += a;
+                placed[i] += a;
                 remaining -= a;
                 allocated += a;
                 cur = best_s;
@@ -2264,7 +2266,42 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
             }
         }
     }
+    // On by default; SCORE_SP_POLISH=0 restores the bare greedy.
+    if env_once!("SCORE_SP_POLISH" != "0") {
+        greedy_sp_polish(base_sp, total_sp, &mut placed, cap_total, cur, &mut trial_score);
+    }
     allocated
+}
+
+/// Polish phase (roadmap R12), mirroring the JS greedy_sp_polish exactly:
+/// hill-climb from the greedy result by moving greedy-placed points between
+/// lanes, keeping only strict improvements. Never worse than the greedy, and
+/// the total assigned is unchanged.
+fn greedy_sp_polish<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], placed: &mut [i32; 5],
+    cap_total: &[i32; 5], mut cur: f64, trial_score: &mut F,
+) -> f64 {
+    let mut improved = true;
+    while improved {
+        improved = false;
+        for &k in &[10, 5, 2, 1] {
+            for i in 0..5 {
+                if placed[i] < k { continue; }
+                for j in 0..5 {
+                    if i == j || base_sp[j] + k > 100 || total_sp[j] + k > cap_total[j] { continue; }
+                    base_sp[i] -= k; total_sp[i] -= k; base_sp[j] += k; total_sp[j] += k;
+                    let s = trial_score(total_sp);
+                    if s > cur {
+                        cur = s; placed[i] -= k; placed[j] += k; improved = true;
+                        if placed[i] < k { break; }
+                    } else {
+                        base_sp[i] += k; total_sp[i] += k; base_sp[j] -= k; total_sp[j] -= k;
+                    }
+                }
+            }
+        }
+    }
+    cur
 }
 
 /// greedy_sp_allocate without sp_floors (score fixtures are exported with
@@ -2508,6 +2545,67 @@ pub mod trace {
 ///
 /// Each expansion gets its own static, so the value is resolved on first use
 /// and read as a plain bool thereafter.
+/// Hasher for maps probed on the hot path (item names in `fill_direct`, the
+/// enumerator's packed-offset bound memo). Keys are item names and packed
+/// slot offsets, never adversarial, so std's DoS-resistant SipHash buys
+/// nothing there and cost more than the lookup's other work. FAST_HASH=0
+/// restores SipHash; the maps' contents and every result are the same.
+#[derive(Clone, Copy)]
+pub struct FastBuild { fast: bool }
+impl Default for FastBuild {
+    fn default() -> Self { FastBuild { fast: env_once!("FAST_HASH" != "0") } }
+}
+pub enum FastHasher { Fast(u64), Sip(std::collections::hash_map::DefaultHasher) }
+const FAST_K: u64 = 0x9E37_79B9_7F4A_7C15;
+impl std::hash::BuildHasher for FastBuild {
+    type Hasher = FastHasher;
+    fn build_hasher(&self) -> FastHasher {
+        if self.fast { FastHasher::Fast(0) } else { FastHasher::Sip(Default::default()) }
+    }
+}
+impl std::hash::Hasher for FastHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        match self {
+            FastHasher::Fast(h) => {
+                let mut chunks = bytes.chunks_exact(8);
+                for c in &mut chunks {
+                    let w = u64::from_le_bytes(c.try_into().unwrap());
+                    *h = (h.rotate_left(23) ^ w).wrapping_mul(FAST_K);
+                }
+                let r = chunks.remainder();
+                if !r.is_empty() {
+                    let mut buf = [0u8; 8];
+                    buf[..r.len()].copy_from_slice(r);
+                    *h = (h.rotate_left(23) ^ u64::from_le_bytes(buf)).wrapping_mul(FAST_K);
+                }
+            }
+            FastHasher::Sip(s) => s.write(bytes),
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, v: u8) {
+        match self {
+            FastHasher::Fast(h) => *h = (h.rotate_left(23) ^ v as u64).wrapping_mul(FAST_K),
+            FastHasher::Sip(s) => s.write_u8(v),
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, v: u64) {
+        match self {
+            FastHasher::Fast(h) => *h = (h.rotate_left(23) ^ v).wrapping_mul(FAST_K),
+            FastHasher::Sip(s) => s.write_u64(v),
+        }
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        match self {
+            FastHasher::Fast(h) => h ^ (h >> 29),
+            FastHasher::Sip(s) => s.finish(),
+        }
+    }
+}
+
 macro_rules! env_once {
     ($name:literal == $val:literal) => {{
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -2926,6 +3024,16 @@ pub fn leaf_pipeline_gated(
     // Score-ceiling gate (mirrors the JS worker): one damage eval at
     // all-150 SP upper-bounds anything greedy can reach. Strict margin so
     // a float-ulp monotonicity wobble never gates a genuine candidate.
+    //
+    // R1 (on by default; SCORE_REACH_SP=0 restores all-150): all-150 in every lane is far above anything a
+    // 200-point budget can buy. The greedy and the mana rescue only ever add
+    // points to a lane under its 100-per-lane assign cap and the 150 total
+    // cap, and together they add at most `remaining`, so lane i can reach
+    // at most total_sp[i] + min(remaining, 100 - base_sp[i], 150 - total_sp[i]).
+    // That is the doom precheck's reachable-Int argument applied to all five
+    // lanes. Each lane's cap is individually reachable; jointly they are a
+    // superset of what the budget allows, so the bound stays admissible.
+    let mut gate_ceiling: Option<f64> = None;
     if let Some(cutoff) = gate_cutoff {
         let two_sided_off = objective.needs_two_sided_ceiling() && !Objective::two_sided_enabled();
         // The JS excludes `hp_casting` here, describing it as sim-coupled
@@ -2961,7 +3069,15 @@ pub fn leaf_pipeline_gated(
                 base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
             let gated = phase!(GATE, {
-                let ceiling_sp = [150f64; 5];
+                let ceiling_sp: [f64; 5] = if env_once!("SCORE_REACH_SP" != "0") {
+                    let rem = (consts.sp_budget - assigned_sp).max(0);
+                    std::array::from_fn(|i| {
+                        let room = rem.min(100 - base_sp[i]).min(150 - total_sp[i]).max(0);
+                        (total_sp[i] + room) as f64
+                    })
+                } else {
+                    [150f64; 5]
+                };
                 let low_sp: [f64; 5] = std::array::from_fn(|i| total_sp[i] as f64);
                 let ceiling = if let Some((d, w)) = dwork.as_mut() {
                     let DenseWork { leaf, scratch, .. } = &mut **w;
@@ -2994,6 +3110,7 @@ pub fn leaf_pipeline_gated(
                     let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
                     obj_score(&mut cb150)
                 };
+                gate_ceiling = Some(ceiling);
                 ceiling < cutoff - cutoff.abs() * 1e-9
             });
             if gated { return Ok(LeafOutcome::Gated); }
@@ -3128,6 +3245,14 @@ pub fn leaf_pipeline_gated(
         phase!(fine DMG, obj_score(&mut cb))
     };
     assigned_sp += phase!(GREEDY, greedy_sp_allocate(&mut base_sp, &mut total_sp, remaining, &cap_total, &mut trial));
+    // R12 audit (SCORE_GREEDY_AUDIT=1, measurement only): hill-climb from
+    // the greedy result with pairwise transfers of greedy-placed points and
+    // record whether the trial objective improves. Any improvement proves the
+    // greedy left score on the table at this leaf. The greedy result is then
+    // restored, so nothing downstream changes.
+    if env_once!("SCORE_GREEDY_AUDIT" == "1") {
+        greedy_audit(&mut base_sp, &mut total_sp, &orig_base_sp, &cap_total, &mut trial);
+    }
 
     // Final assemble + mana check (+ rescue).
     let mut sp_f5 = [0f64; 5];
@@ -3189,6 +3314,7 @@ pub fn leaf_pipeline_gated(
                 }
                 v
             });
+            ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
         // Rescue on the dense path (identical shift logic and checks).
@@ -3231,6 +3357,7 @@ pub fn leaf_pipeline_gated(
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 }
             });
+            ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
         return Ok(LeafOutcome::ManaReject);
@@ -3259,7 +3386,78 @@ pub fn leaf_pipeline_gated(
 
     assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
     let score = phase!(FINAL, obj_score(&mut combo_base));
+    ceiling_tripwire(dense_check, gate_ceiling, score);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
+}
+
+static AUDIT_LEAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AUDIT_IMPROVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Sum and max of relative gains, in parts per billion.
+static AUDIT_GAIN_PPB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AUDIT_MAX_PPB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn greedy_audit<F: FnMut(&[i32; 5]) -> f64>(
+    base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], orig_base_sp: &[i32; 5],
+    cap_total: &[i32; 5], trial: &mut F,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (b0, t0) = (*base_sp, *total_sp);
+    let start = trial(total_sp);
+    let mut best = start;
+    let mut improved = true;
+    while improved {
+        improved = false;
+        for &k in &[20, 10, 5, 2, 1] {
+            for i in 0..5 {
+                // Only points the greedy placed can move.
+                if base_sp[i] - orig_base_sp[i] < k { continue; }
+                for j in 0..5 {
+                    if i == j || base_sp[j] + k > 100 || total_sp[j] + k > cap_total[j] { continue; }
+                    base_sp[i] -= k; total_sp[i] -= k; base_sp[j] += k; total_sp[j] += k;
+                    let v = trial(total_sp);
+                    if v > best * (1.0 + 1e-12) {
+                        best = v; improved = true;
+                    } else {
+                        base_sp[i] += k; total_sp[i] += k; base_sp[j] -= k; total_sp[j] -= k;
+                    }
+                }
+            }
+        }
+    }
+    AUDIT_LEAVES.fetch_add(1, Relaxed);
+    if best > start && start > 0.0 {
+        AUDIT_IMPROVED.fetch_add(1, Relaxed);
+        let ppb = ((best - start) / start * 1e9) as u64;
+        AUDIT_GAIN_PPB.fetch_add(ppb, Relaxed);
+        AUDIT_MAX_PPB.fetch_max(ppb, Relaxed);
+    }
+    *base_sp = b0;
+    *total_sp = t0;
+}
+
+/// The R12 audit summary, when SCORE_GREEDY_AUDIT=1 ran.
+pub fn greedy_audit_report() -> Option<String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let n = AUDIT_LEAVES.load(Relaxed);
+    if n == 0 { return None; }
+    let k = AUDIT_IMPROVED.load(Relaxed);
+    let mean = if k > 0 { AUDIT_GAIN_PPB.load(Relaxed) as f64 / k as f64 / 1e7 } else { 0.0 };
+    Some(format!(
+        "greedy_audit: {n} leaves | {k} improvable by pairwise transfer ({:.3}%) | \
+         mean gain where improvable {mean:.4}% | max gain {:.4}%",
+        100.0 * k as f64 / n as f64, AUDIT_MAX_PPB.load(Relaxed) as f64 / 1e7))
+}
+
+/// Check mode (SCORE_DENSE_CHECK=1): a leaf that passed the score-ceiling
+/// gate must not score above the ceiling it was gated against, or the gate is
+/// not an upper bound and would prune genuine candidates. This is the
+/// admissibility test for every change to how the ceiling is computed (R1).
+fn ceiling_tripwire(dense_check: bool, gate_ceiling: Option<f64>, score: f64) {
+    if !dense_check { return; }
+    if let Some(c) = gate_ceiling {
+        assert!(score <= c + c.abs() * 1e-9 || score.is_nan() || c.is_nan(),
+                "score-ceiling gate is not an upper bound: leaf scored {score:?} above ceiling {c:?}");
+    }
 }
 
 /// `eval_combo_damage_with_bp` (engine.js:332) for the dynamic-rows path.
@@ -5228,7 +5426,7 @@ impl DenseCtx {
             }
 
             // Items, tomes, weapon lowered to indexed adds (read keys only).
-            let mut items = HashMap::new();
+            let mut items: HashMap<String, DItem, FastBuild> = HashMap::default();
             let mut add_arena: Vec<(u32, f64)> = Vec::new();
             for (name, item) in &l2.item_registry {
                 let mut di = DenseDirect::lower_item(
@@ -5292,7 +5490,8 @@ impl DenseCtx {
             Some(DenseDirect {
                 template_vals: Vec::new(),      // sized after interning settles
                 template_present: Vec::new(),
-                items, add_arena, post_item_adds, sets, sets_by_id,
+                items, tome_entry: parse_mult_entry("tome"),
+                add_arena, post_item_adds, sets, sets_by_id,
                 atree_prog, const_prog, static_prog,
                 term_capture, dam_mobs_idx, def_mobs_idx,
                 dam_tail: parse_tail(&dam_sim),
@@ -6222,7 +6421,10 @@ fn item_has_arcanes(item: &Obj) -> bool {
 pub struct DenseDirect {
     pub template_vals: Vec<f64>,
     pub template_present: Vec<u64>,
-    pub items: HashMap<String, DItem>,
+    pub items: HashMap<String, DItem, FastBuild>,
+    /// The damMult/defMult "tome" entry, parsed once (fill_direct used to
+    /// parse it, allocating two Arc<str>, on every call).
+    pub tome_entry: DMultEntry,
     /// All items' stat adds, back to back.
     pub add_arena: Vec<(u32, f64)>,
     /// tome sums + weapon sums, applied after the per-leaf items (add_item order).
@@ -6429,12 +6631,12 @@ impl DenseLeaf {
 
         // Mult entry lists: tome first, then the constant tail.
         self.dam_entries.clear();
-        self.dam_entries.push(parse_mult_entry("tome"));
+        self.dam_entries.push(dd.tome_entry.clone());
         self.dam_vals.clear();
         self.dam_vals.push(dam_tome);
         for (e, v) in &dd.dam_tail { self.dam_entries.push(e.clone()); self.dam_vals.push(*v); }
         self.def_entries.clear();
-        self.def_entries.push(parse_mult_entry("tome"));
+        self.def_entries.push(dd.tome_entry.clone());
         self.def_vals.clear();
         self.def_vals.push(def_tome);
         for (e, v) in &dd.def_tail { self.def_entries.push(e.clone()); self.def_vals.push(*v); }
@@ -6881,7 +7083,7 @@ pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
 /// sets against it). Deltas are journaled and rolled back.
 pub fn dense_ceiling_cached(
     d: &DenseCtx, work: &mut DenseWork, adds: &[(u32, f64)], term_adds: &[(usize, f64)],
-    rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    rows: &[Row], compiled: &[CompiledRow], tables: &Tables, ceiling_sp: &[f64; 5],
 ) -> f64 {
     let leaf = &mut work.leaf;
     let mut journal: Vec<(u32, f64, bool)> = Vec::with_capacity(adds.len());
@@ -6913,8 +7115,7 @@ pub fn dense_ceiling_cached(
             scratch.def_vals.clear();
             scratch.def_vals.extend_from_slice(&leaf.def_vals);
         }
-        let ceiling_sp = [150f64; 5];
-        dense_assemble(d, leaf, scratch, &ceiling_sp);
+        dense_assemble(d, leaf, scratch, ceiling_sp);
     }
     let v = {
         let DenseWork { leaf, scratch, .. } = work;
@@ -6936,6 +7137,7 @@ pub fn dense_ceiling_cached(
 pub fn dense_ceiling_with(
     d: &DenseCtx, adds: &[(u32, f64)], term_adds: &[(usize, f64)], prefix_names: &[&str],
     work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let dd = d.direct.as_ref()?;
     if !work.leaf.fill_direct(d, dd, prefix_names) { return None; }
@@ -6954,8 +7156,7 @@ pub fn dense_ceiling_with(
     }
     work.scratch.reset(&work.leaf, d);
     let DenseWork { leaf, scratch, .. } = work;
-    let ceiling_sp = [150f64; 5];
-    dense_assemble(d, leaf, scratch, &ceiling_sp);
+    dense_assemble(d, leaf, scratch, ceiling_sp);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))
 }
 
@@ -6967,10 +7168,11 @@ pub fn dense_ceiling_with(
 pub fn dense_subtree_ceiling(
     d: &DenseCtx, db: &DenseBound, next_depth: usize, hi_rem: i64, prefix_names: &[&str],
     work: &mut DenseWork, rows: &[Row], compiled: &[CompiledRow], tables: &Tables,
+    ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let h = hi_rem.clamp(0, db.h_max) as usize;
     dense_ceiling_with(d, &db.table[next_depth][h], &db.term_table[next_depth][h],
-                       prefix_names, work, rows, compiled, tables)
+                       prefix_names, work, rows, compiled, tables, ceiling_sp)
 }
 
 // ── check_thresholds (pure/engine.js) ────────────────────────────────────────

@@ -619,6 +619,28 @@ function _ceiling_gate_setup(analysis) {
 // greedy trials and mana rescue sees it without parameter threading. It is
 // null outside a tome candidate iteration, i.e. always null when tome
 // optimisation is off.
+/**
+ * R1: the highest total each skill-point lane can reach from a leaf's SP solve.
+ *
+ * The greedy and the mana rescue only add points to a lane while its base is
+ * under the 100-per-lane assign cap and its total under the lane's cap, and
+ * together they spend at most the remaining budget. So lane i reaches at most
+ * total_sp[i] + min(remaining, 100 - base_sp[i], cap[i] - total_sp[i]).
+ * Each cap is reachable on its own; jointly they over-cover the budget, which
+ * keeps the ceiling an upper bound while sitting far below 150 in most lanes.
+ */
+const _scratch_reach_sp = new Int32Array(5);
+function _reachable_sp_ceiling(base_sp, total_sp, assigned_sp) {
+    const remaining = Math.max(0, sp_budget_for_ceiling() - assigned_sp);
+    const cap = _sp_caps ?? _default_sp_caps;
+    for (let i = 0; i < 5; i++) {
+        const room = Math.max(0, Math.min(remaining, 100 - base_sp[i], cap[i] - total_sp[i]));
+        _scratch_reach_sp[i] = total_sp[i] + room;
+    }
+    return _scratch_reach_sp;
+}
+function sp_budget_for_ceiling() { return _cfg.sp_budget ?? 200; }
+
 function _assemble_combo_stats(build_sm, total_sp, weapon_sm, extra_stats = _leaf_extra_stats) {
     return assemble_combo_stats(build_sm, total_sp, weapon_sm,
         _cfg.atree_raw, _cfg.radiance_boost, _cfg.atree_merged,
@@ -1683,7 +1705,13 @@ function _run_level_enum() {
             // In all-tomes mode the ceiling is evaluated with the per-key
             // optimistic bundle, which upper-bounds every real bundle; null
             // otherwise, giving the unchanged pre-tome gate.
-            const cb150 = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm, _tome_wa_optimistic);
+            // R1: with the reachable-SP ceiling on, each lane is capped at
+            // what the greedy and the mana rescue can actually reach from
+            // this leaf (see _reachable_sp_ceiling) instead of 150.
+            const ceiling_sp = (_cfg.reach_sp_ceiling !== false && _tome_guild_candidates === null)
+                ? _reachable_sp_ceiling(base_sp, total_sp, assigned_sp)
+                : _SP_CEILING;
+            const cb150 = _assemble_combo_stats(build_sm, ceiling_sp, weapon_sm, _tome_wa_optimistic);
             _cached_hp_sim = null;
             const ceiling = _eval_combo_damage(cb150);
             _trace_end('ceiling', ceiling_t0);
@@ -2456,6 +2484,7 @@ self.onmessage = function (e) {
         const _sn = extract_slider_names(_cfg.health_config);
         _cfg.bp_slider_name = _sn.bp_slider_name;
         _cfg.state_slider_names = _sn.state_slider_names;
+        SP_POLISH_ENABLED = _cfg.sp_polish !== false;
         try {
             _tome_setup(msg);
             _build_constraint_prechecks();

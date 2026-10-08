@@ -1,0 +1,641 @@
+BUDGET 200
+PRECHECKS 1
+PC ls -565 0
+EHP 1 18000 1500 0.14629491412605977
+EHPNA 0 0 0 0
+THP 0 0 0
+HPSTART 3360
+WEAPON 60 60 0 50 0 0 0 0 0 0 -1
+GUILD 1 0 0 0 0 0 0 0 0 0 0 0 -1
+NFIXED 4
+FIXED 1 0 90 0 0 0 0 15 0 0 0 0 -1 -1
+FIXED 4 0 50 0 0 0 0 4 0 0 0 0 -1 -1
+FIXED 5 0 50 0 0 0 0 4 0 0 0 0 -1 -1
+FIXED 7 0 0 65 0 0 0 0 5 0 0 0 -1 -1
+NSLOTS 4
+SLOT bracelet 6 0 0 46
+ITEM 0 55 0 0 55 0 3 0 0 3 0 -1 -1 1000 0
+ITEM 0 60 0 0 40 40 6 0 0 0 3 -1 -1 900 -250
+ITEM 0 25 25 25 35 35 0 0 0 5 5 -1 -1 850 0
+ITEM 0 0 0 0 60 0 0 0 0 5 0 -1 -1 800 0
+ITEM 0 0 0 0 55 55 0 0 0 0 0 -1 -1 800 0
+ITEM 0 45 0 0 50 0 0 0 0 7 0 -1 -1 700 0
+ITEM 0 0 0 0 75 0 0 0 0 6 0 -1 -1 700 0
+ITEM 0 50 0 0 0 0 6 0 0 0 0 -1 -1 700 0
+ITEM 0 0 40 0 40 0 0 0 -5 0 0 -1 -1 700 0
+ITEM 0 0 40 60 40 0 0 1 3 1 0 -1 -1 650 0
+ITEM 0 0 0 70 0 0 0 0 6 0 0 -1 -1 650 0
+ITEM 0 40 0 40 45 0 0 0 0 0 0 0 -1 650 0
+ITEM 0 45 0 45 0 0 0 0 8 0 0 -1 -1 600 0
+ITEM 0 30 0 45 35 0 0 0 0 0 0 -1 -1 550 0
+ITEM 0 60 0 0 0 0 4 0 0 3 3 1 -1 475 0
+ITEM 0 0 0 45 0 0 0 0 4 0 0 -1 -1 450 0
+ITEM 0 0 0 0 0 50 0 0 0 0 6 -1 -1 325 0
+ITEM 0 0 0 60 40 0 0 0 0 7 0 -1 -1 0 104
+ITEM 0 0 30 0 0 45 0 0 0 0 6 -1 -1 0 0
+ITEM 0 20 20 20 20 20 2 2 2 2 2 -1 -1 0 0
+ITEM 0 0 0 0 50 0 0 0 0 0 5 -1 -1 0 0
+ITEM 0 0 0 40 0 35 0 0 0 0 5 -1 -1 0 0
+ITEM 0 0 45 0 55 0 0 4 0 4 0 -1 -1 0 216
+ITEM 0 40 25 0 25 40 2 1 0 1 2 -1 -1 0 0
+ITEM 0 40 0 0 0 40 3 0 0 0 2 -1 -1 0 0
+ITEM 0 0 0 40 0 40 -1 -1 3 -1 3 -1 -1 0 0
+ITEM 0 0 45 0 0 0 0 7 0 0 0 -1 -1 0 0
+ITEM 0 0 50 0 0 0 0 0 0 0 0 -1 -1 0 0
+ITEM 0 0 40 0 0 40 0 0 0 0 0 -1 -1 0 0
+ITEM 0 0 0 55 0 0 0 0 7 0 0 -1 -1 0 0
+ITEM 0 0 0 30 45 0 0 3 0 0 0 -1 -1 0 0
+ITEM 0 0 0 0 0 55 0 0 5 0 0 -1 -1 0 0
+ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 0 0
+ITEM 0 0 0 70 0 0 0 0 0 0 0 -1 -1 0 160
+ITEM 0 40 0 40 0 45 0 0 0 0 0 2 -1 0 0
+ITEM 0 0 0 40 0 50 0 0 0 0 0 -1 -1 0 0
+ITEM 0 45 0 0 40 0 5 0 0 0 0 -1 -1 -333 105
+ITEM 0 0 60 0 0 0 0 5 0 0 0 1 -1 -475 0
+ITEM 0 45 40 0 0 40 0 0 0 0 0 3 -1 -550 165
+ITEM 0 0 75 0 0 0 0 0 0 0 0 -1 -1 -625 160
+ITEM 0 0 0 65 0 0 0 4 0 0 0 -1 -1 -650 0
+ITEM 0 0 40 0 40 0 3 2 -5 2 0 -1 -1 -650 0
+ITEM 0 0 60 0 50 0 5 0 0 0 0 -1 -1 -650 0
+ITEM 0 40 0 0 0 55 0 5 0 0 0 -1 -1 -750 0
+ITEM 0 0 55 0 0 40 0 2 -10 0 2 -1 -1 -850 0
+ITEM 0 50 40 50 0 0 0 0 0 -7 0 -1 -1 -850 0
+SLOT boots 3 0 0 79
+ITEM 0 50 0 0 55 0 10 -10 0 10 0 -1 -1 6000 0
+ITEM 0 0 40 0 55 0 0 16 0 0 -18 -1 -1 5400 0
+ITEM 0 45 0 0 50 0 8 0 0 6 0 -1 -1 5100 0
+ITEM 0 30 30 30 30 30 0 0 0 0 0 -1 -1 5040 0
+ITEM 0 50 0 0 40 0 8 0 0 6 -12 -1 -1 5000 0
+ITEM 0 0 0 0 70 0 0 0 0 8 0 -1 -1 4900 -350
+ITEM 0 0 0 50 50 0 0 0 8 8 0 -1 -1 4800 0
+ITEM 0 0 0 65 50 50 0 0 12 0 0 -1 -1 4800 0
+ITEM 0 0 0 0 60 50 0 0 -8 0 0 -1 -1 4800 293
+ITEM 0 50 0 55 55 0 0 0 5 5 0 -1 -1 4700 0
+ITEM 0 0 0 0 45 45 0 0 0 0 0 -1 -1 4700 240
+ITEM 0 0 0 0 0 0 -2 -2 -2 -2 -2 -1 -1 4700 0
+ITEM 0 60 0 60 0 60 0 0 0 0 10 -1 -1 4650 -174
+ITEM 0 40 0 0 50 0 3 0 0 7 5 -1 -1 4600 0
+ITEM 0 60 0 60 0 0 0 0 0 8 0 -1 -1 4600 0
+ITEM 0 0 0 55 0 55 0 0 0 0 11 -1 -1 4555 0
+ITEM 0 50 50 0 0 0 5 5 0 0 0 -1 -1 4500 253
+ITEM 0 0 75 0 0 0 0 5 0 0 0 -1 -1 4400 -3077
+ITEM 0 0 55 40 55 0 0 0 0 0 0 -1 -1 4400 0
+ITEM 0 0 60 0 60 60 -15 0 0 0 0 -1 -1 4400 277
+ITEM 0 0 50 0 55 0 0 5 0 15 0 -1 -1 4300 246
+ITEM 0 30 0 0 50 0 6 0 0 6 0 -1 -1 4300 0
+ITEM 0 30 30 30 30 0 0 0 0 0 -15 -1 -1 4300 0
+ITEM 0 0 0 55 50 0 0 0 0 12 0 -1 -1 4200 0
+ITEM 0 0 65 0 55 0 0 7 0 10 0 -1 -1 4200 352
+ITEM 0 0 60 0 0 0 0 8 0 0 0 -1 -1 4200 320
+ITEM 0 65 0 0 0 0 8 0 0 0 0 -1 -1 4200 0
+ITEM 0 60 55 0 60 0 0 0 0 0 0 -1 -1 4100 0
+ITEM 0 0 0 0 0 60 7 0 0 0 7 -1 -1 4100 0
+ITEM 0 0 55 0 0 55 0 0 0 0 0 -1 -1 4100 0
+ITEM 0 0 0 85 0 0 0 0 15 0 0 -1 -1 4100 -290
+ITEM 0 0 0 60 0 0 0 0 5 0 0 -1 -1 4100 0
+ITEM 0 40 0 55 0 0 0 0 0 0 0 -1 -1 4050 0
+ITEM 0 0 0 0 55 55 0 0 0 8 8 -1 -1 4000 0
+ITEM 0 0 0 0 55 0 0 0 -10 10 0 -1 -1 4000 285
+ITEM 0 0 55 60 0 0 0 5 5 0 0 -1 -1 4000 277
+ITEM 0 0 0 0 80 0 0 0 0 10 0 -1 -1 3900 0
+ITEM 0 0 0 0 70 0 0 0 0 8 0 -1 -1 3900 0
+ITEM 0 25 45 35 40 30 4 6 3 2 5 -1 -1 3900 246
+ITEM 0 0 0 0 75 0 0 0 0 15 0 4 -1 3800 0
+ITEM 0 0 0 65 0 50 0 0 0 0 15 -1 -1 3800 0
+ITEM 0 60 0 0 0 0 8 0 0 0 0 -1 -1 3800 0
+ITEM 0 0 50 50 0 0 0 6 6 0 0 -1 -1 3800 0
+ITEM 0 0 0 60 0 45 0 0 0 0 5 -1 -1 3700 0
+ITEM 0 0 80 0 0 0 0 12 -10 0 0 -1 -1 3700 256
+ITEM 0 0 55 0 0 55 0 0 0 0 0 -1 -1 3700 0
+ITEM 0 45 20 0 20 45 0 0 0 0 0 -1 -1 3700 0
+ITEM 0 50 0 50 0 0 8 0 0 0 0 -1 -1 3700 0
+ITEM 0 45 45 0 0 0 7 7 0 -7 0 -1 -1 3700 317
+ITEM 0 25 25 25 25 25 5 5 5 5 5 -1 -1 3600 0
+ITEM 0 65 0 0 0 0 0 0 0 0 6 5 -1 3600 0
+ITEM 0 60 0 0 0 0 8 0 0 0 0 -1 -1 3600 0
+ITEM 0 0 0 45 0 0 0 0 15 0 0 -1 -1 3600 0
+ITEM 0 45 45 0 0 0 0 0 -8 0 0 -1 -1 3550 350
+ITEM 0 65 40 0 0 0 10 0 0 5 0 -1 -1 3500 246
+ITEM 0 55 0 0 0 50 10 0 -12 0 10 -1 -1 3500 0
+ITEM 0 0 0 0 0 55 0 0 0 0 15 -1 -1 3500 0
+ITEM 0 70 70 70 0 0 10 10 10 0 0 -1 -1 3500 283
+ITEM 0 30 0 0 0 45 8 0 0 0 6 -1 -1 3475 0
+ITEM 0 0 0 55 55 0 0 0 6 6 0 -1 -1 3450 0
+ITEM 0 0 0 45 0 45 0 0 0 0 15 -1 -1 3400 0
+ITEM 0 0 0 85 0 0 0 0 10 0 0 -1 -1 3400 0
+ITEM 0 40 40 0 0 0 0 0 0 0 0 -1 -1 3400 0
+ITEM 0 35 30 0 0 35 0 8 0 0 0 -1 -1 3350 0
+ITEM 0 55 30 0 0 0 6 6 0 -6 0 -1 -1 3333 0
+ITEM 0 65 65 0 0 60 8 8 0 0 0 -1 -1 3200 264
+ITEM 0 50 0 0 0 50 12 0 0 0 0 -1 -1 3200 -200
+ITEM 0 50 0 45 0 0 3 0 3 0 0 -1 -1 3200 240
+ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 3200 0
+ITEM 0 35 0 35 0 50 3 0 3 0 7 2 -1 3185 0
+ITEM 0 0 50 0 0 45 3 4 0 0 3 -1 -1 3160 246
+ITEM 0 0 45 0 0 35 0 0 0 0 8 -1 -1 3100 253
+ITEM 0 0 60 60 0 60 0 5 5 0 5 -1 -1 3100 0
+ITEM 0 55 0 0 0 0 10 -10 0 0 0 6 -1 3100 0
+ITEM 0 0 45 45 0 0 0 6 8 0 0 -1 -1 3100 0
+ITEM 0 35 0 0 0 45 5 0 0 -10 10 -1 -1 3100 0
+ITEM 0 50 50 60 0 0 5 5 0 0 0 -1 -1 2700 0
+ITEM 0 70 70 0 0 0 0 15 0 0 0 -1 -1 2700 0
+ITEM 0 30 35 35 0 30 0 0 0 -35 0 -1 -1 2700 -300
+SLOT leggings 2 0 0 81
+ITEM 0 45 0 0 45 0 0 0 0 10 0 -1 -1 5650 0
+ITEM 0 0 0 0 85 0 0 0 0 0 -25 -1 -1 5500 0
+ITEM 0 0 60 0 60 0 0 5 0 10 0 -1 -1 5400 385
+ITEM 0 0 0 60 65 0 0 0 5 10 0 -1 -1 5300 0
+ITEM 0 85 0 0 0 0 12 0 0 0 0 -1 -1 5200 0
+ITEM 0 0 60 0 65 65 0 0 -20 0 0 -1 -1 5200 354
+ITEM 0 60 0 0 55 55 0 0 0 8 6 -1 -1 5100 0
+ITEM 0 50 0 0 50 50 10 0 0 0 0 -1 -1 5100 0
+ITEM 0 0 0 60 60 0 -15 -15 15 15 0 -1 -1 4900 0
+ITEM 0 50 0 0 60 0 6 0 0 6 0 -1 -1 4900 0
+ITEM 0 0 0 0 50 50 0 0 0 7 7 -1 -1 4800 0
+ITEM 0 37 30 30 30 37 5 0 0 0 5 -1 -1 4800 0
+ITEM 0 0 0 0 85 0 0 0 0 15 0 -1 -1 4750 0
+ITEM 0 45 55 0 55 0 0 8 0 0 0 -1 -1 4700 -319
+ITEM 0 0 0 50 50 45 0 0 0 10 0 -1 -1 4625 0
+ITEM 0 0 0 0 40 40 -10 0 0 5 5 -1 -1 4600 265
+ITEM 0 60 0 0 20 0 0 0 0 0 -8 -1 -1 4550 405
+ITEM 0 0 0 0 50 50 0 0 0 9 0 -1 -1 4400 0
+ITEM 0 0 0 60 60 0 0 0 0 0 0 -1 -1 4400 0
+ITEM 0 65 80 0 0 0 0 0 12 0 0 -1 -1 4300 0
+ITEM 0 45 0 0 55 0 15 0 -10 0 0 -1 -1 4300 0
+ITEM 0 65 0 0 0 65 0 0 0 0 0 -1 -1 4300 400
+ITEM 0 65 0 0 0 0 8 0 0 0 0 -1 -1 4300 0
+ITEM 0 0 0 80 0 0 0 0 10 0 0 -1 -1 4300 0
+ITEM 0 41 0 39 42 38 0 0 0 0 0 -1 -1 4300 0
+ITEM 0 0 0 0 50 0 0 0 0 5 -5 -1 -1 4100 232
+ITEM 0 0 50 0 50 0 0 7 0 7 0 -1 -1 4000 0
+ITEM 0 65 0 0 0 40 10 0 0 0 5 -1 -1 4000 0
+ITEM 0 50 0 80 0 0 0 0 0 0 0 -1 -1 4000 0
+ITEM 0 45 0 65 0 0 0 0 15 0 0 -1 -1 4000 0
+ITEM 0 50 0 0 50 50 20 -100 0 0 0 -1 -1 4000 0
+ITEM 0 75 0 0 0 0 0 0 0 0 0 -1 -1 3900 200
+ITEM 0 60 0 0 0 60 0 0 0 0 0 -1 -1 3850 0
+ITEM 0 0 0 0 60 0 0 0 0 0 0 -1 -1 3800 0
+ITEM 0 50 0 0 0 0 15 0 0 0 0 -1 -1 3800 0
+ITEM 0 35 0 45 0 0 0 0 0 0 0 -1 -1 3800 0
+ITEM 0 0 50 50 50 0 0 0 8 0 0 -1 -1 3800 0
+ITEM 0 0 40 0 0 55 0 0 0 0 0 -1 -1 3800 0
+ITEM 0 0 0 0 65 0 0 0 0 10 0 -1 -1 3700 277
+ITEM 0 0 45 0 0 55 0 6 0 0 8 -1 -1 3700 0
+ITEM 0 0 55 0 0 55 -5 11 0 -5 11 -1 -1 3700 0
+ITEM 0 0 0 0 0 60 0 0 0 0 8 -1 -1 3700 0
+ITEM 0 23 23 23 23 23 3 3 3 3 3 -1 -1 3700 0
+ITEM 0 65 0 0 0 0 0 0 0 0 0 -1 -1 3700 0
+ITEM 0 0 0 55 0 0 3 0 14 0 3 -1 -1 3700 0
+ITEM 0 30 0 30 0 30 6 0 0 0 0 -1 -1 3700 0
+ITEM 0 0 40 0 45 0 0 4 0 6 0 -1 -1 3650 400
+ITEM 0 0 45 50 0 0 0 4 4 0 0 -1 -1 3650 0
+ITEM 0 0 0 0 85 0 0 0 0 5 0 4 -1 3600 0
+ITEM 0 60 50 0 0 0 10 0 -15 0 0 -1 -1 3600 0
+ITEM 0 65 0 0 0 0 0 6 0 0 0 5 -1 3600 500
+ITEM 0 50 55 0 0 0 6 9 0 0 0 -1 -1 3600 -346
+ITEM 0 20 45 45 20 0 0 0 0 0 0 -1 -1 4216 0
+ITEM 0 0 45 45 0 0 0 8 8 0 0 -1 -1 3600 0
+ITEM 0 0 0 50 0 35 0 0 10 0 0 -1 -1 3525 460
+ITEM 0 40 40 20 0 20 0 0 10 0 10 -1 -1 3500 0
+ITEM 0 0 0 65 0 50 0 0 7 0 7 -1 -1 3500 0
+ITEM 0 0 50 55 0 50 0 6 4 0 6 -1 -1 3500 0
+ITEM 0 0 0 50 0 50 0 0 7 0 5 -1 -1 3500 -308
+ITEM 0 0 0 0 0 0 0 0 0 0 0 -1 -1 3500 0
+ITEM 0 65 0 0 0 50 10 0 0 0 0 -1 -1 3450 0
+ITEM 0 0 45 0 0 45 0 0 0 0 8 -1 -1 3400 224
+ITEM 0 0 50 50 0 0 0 10 0 0 0 -1 -1 3300 0
+ITEM 0 0 50 0 40 0 -8 8 0 0 0 -1 -1 3300 0
+ITEM 0 0 0 0 0 65 0 4 0 0 0 -1 -1 3300 0
+ITEM 0 50 0 0 0 65 0 -8 0 0 0 -1 -1 3300 0
+ITEM 0 0 55 0 0 0 0 5 0 0 0 -1 -1 3200 0
+ITEM 0 50 45 0 0 45 0 0 0 0 0 -1 -1 3200 0
+ITEM 0 0 55 55 0 0 0 0 0 0 0 -1 -1 3200 264
+ITEM 0 45 45 0 0 0 8 8 -8 0 0 -1 -1 3195 246
+ITEM 0 0 0 0 0 55 0 -10 0 0 10 6 -1 3100 265
+ITEM 0 0 65 0 0 0 0 0 0 0 0 -1 -1 3100 0
+ITEM 0 0 50 0 35 35 0 7 0 3 3 7 -1 4621 0
+ITEM 0 0 0 0 0 80 0 0 0 0 15 -1 -1 3000 0
+ITEM 0 0 55 0 0 0 0 8 0 0 0 -1 -1 2800 0
+ITEM 0 60 0 0 0 60 5 0 -15 0 0 -1 -1 2700 0
+ITEM 0 0 30 60 0 0 5 0 0 5 5 8 -1 2000 0
+ITEM 0 60 0 0 60 0 5 0 10 5 0 -1 -1 0 384
+ITEM 0 0 0 0 0 70 0 0 0 0 15 -1 -1 0 0
+ITEM 0 60 60 60 0 0 6 4 6 0 0 -1 -1 0 0
+ITEM 0 60 0 0 0 60 8 0 0 0 12 -1 -1 -1100 320
+SLOT helmet 0 0 0 90
+ITEM 0 0 0 0 85 85 0 0 0 0 0 -1 -1 6550 382
+ITEM 0 60 0 0 0 0 10 0 0 -8 0 -1 -1 5675 0
+ITEM 0 45 0 45 45 45 0 0 0 0 0 -1 -1 5600 0
+ITEM 0 45 0 0 50 45 0 0 0 0 0 -1 -1 4900 0
+ITEM 0 35 0 0 30 0 0 -3 0 0 0 -1 -1 4900 0
+ITEM 0 0 55 0 55 0 0 0 -30 0 0 -1 -1 4900 -434
+ITEM 0 0 0 0 50 0 0 0 -10 0 0 -1 -1 4850 277
+ITEM 0 0 0 0 80 0 0 0 0 10 0 -1 -1 4800 -271
+ITEM 0 60 60 0 0 0 8 8 0 0 0 -1 -1 4800 -250
+ITEM 0 0 0 60 0 60 -15 0 8 0 8 -1 -1 4800 0
+ITEM 0 0 60 30 0 0 0 0 0 0 0 8 -1 4800 280
+ITEM 0 0 0 50 50 0 0 0 3 3 2 -1 -1 4700 0
+ITEM 0 0 85 0 0 0 0 5 0 0 0 -1 -1 4600 -400
+ITEM 0 0 50 0 50 50 0 0 0 8 8 -1 -1 4500 274
+ITEM 0 0 0 0 100 0 0 0 0 12 0 -1 -1 4500 0
+ITEM 0 50 0 0 60 0 0 0 0 0 0 -1 -1 4500 0
+ITEM 0 0 0 0 60 0 0 0 0 10 0 -1 -1 4500 246
+ITEM 0 60 0 45 50 0 0 0 0 10 0 -1 -1 4500 0
+ITEM 0 60 0 0 50 0 5 0 0 5 0 -1 -1 4500 0
+ITEM 0 30 30 30 30 30 0 0 0 0 0 -1 -1 4500 0
+ITEM 0 55 55 0 0 0 5 5 0 0 0 -1 -1 4500 339
+ITEM 0 0 0 40 40 0 0 10 10 0 0 -1 -1 4450 0
+ITEM 0 33 25 33 33 25 5 2 5 5 2 -1 -1 4400 0
+ITEM 0 45 0 0 50 0 8 0 0 0 0 -1 -1 4400 0
+ITEM 0 45 0 55 0 0 0 0 0 0 0 -1 -1 4400 0
+ITEM 0 55 0 0 45 0 0 0 0 10 0 -1 -1 4300 0
+ITEM 0 0 0 0 75 0 0 0 0 8 0 -1 -1 4300 0
+ITEM 0 0 45 0 45 0 0 0 0 0 0 -1 -1 4300 246
+ITEM 0 45 45 0 0 0 3 3 0 0 0 -1 -1 4275 0
+ITEM 0 0 0 0 55 45 -10 0 0 0 0 -1 -1 4250 0
+ITEM 0 0 0 0 0 80 0 0 0 0 10 -1 -1 4200 0
+ITEM 0 0 0 0 50 0 0 5 -10 10 0 -1 -1 4120 0
+ITEM 0 42 42 42 42 42 4 4 4 4 4 -1 -1 4100 0
+ITEM 0 35 0 35 50 0 3 0 3 7 0 0 -1 4100 0
+ITEM 0 55 0 45 0 0 0 0 8 0 0 -1 -1 4100 0
+ITEM 0 50 50 0 0 50 0 0 0 0 15 -1 -1 4000 326
+ITEM 0 0 40 0 0 40 0 7 0 0 7 -1 -1 4000 0
+ITEM 0 65 0 0 0 0 10 0 0 0 -5 -1 -1 4000 0
+ITEM 0 0 0 40 55 0 0 0 10 0 0 -1 -1 4000 246
+ITEM 0 0 40 40 40 0 0 0 6 0 0 -1 -1 4000 0
+ITEM 0 0 55 35 55 0 0 0 5 0 0 -1 -1 4000 0
+ITEM 0 0 0 50 0 60 -40 -40 20 0 0 -1 -1 4000 0
+ITEM 0 0 120 0 0 0 -50 25 0 0 0 -1 -1 3950 0
+ITEM 0 0 45 0 45 0 0 6 0 6 0 -1 -1 3900 265
+ITEM 0 0 75 0 0 0 0 12 0 0 0 -1 -1 3900 0
+ITEM 0 50 0 40 0 0 0 0 10 0 0 -1 -1 3800 216
+ITEM 0 0 0 75 0 0 0 0 15 0 0 -1 -1 3800 0
+ITEM 0 0 50 50 0 0 0 0 10 0 0 -1 -1 3800 0
+ITEM 0 45 45 0 0 0 8 0 0 0 0 -1 -1 3800 333
+ITEM 0 0 0 45 45 0 0 0 0 0 0 -1 -1 3800 0
+ITEM 0 0 70 0 0 0 0 0 -30 0 0 -1 -1 3800 0
+ITEM 0 0 0 50 0 0 1 2 4 1 3 -1 -1 3750 0
+ITEM 0 0 40 55 0 0 -20 0 20 0 0 -1 -1 3725 0
+ITEM 0 55 0 0 0 0 0 0 -12 0 0 -1 -1 3700 0
+ITEM 0 0 0 40 0 40 0 0 0 0 0 -1 -1 3700 0
+ITEM 0 0 0 40 0 40 0 0 15 0 0 -1 -1 3700 0
+ITEM 0 40 0 0 0 45 0 0 0 0 8 -1 -1 3650 0
+ITEM 0 55 0 0 0 0 0 4 4 4 4 -1 -1 3600 0
+ITEM 0 0 0 45 45 45 0 0 0 8 0 -1 -1 3600 0
+ITEM 0 0 45 55 55 45 0 0 6 6 0 -1 -1 3600 246
+ITEM 0 65 0 0 0 0 0 0 6 0 0 5 -1 3600 0
+ITEM 0 0 45 55 0 0 0 8 8 0 0 -1 -1 3600 0
+ITEM 0 50 50 0 0 0 7 7 0 0 0 -1 -1 3525 0
+ITEM 0 0 0 0 0 0 3 3 3 3 3 -1 -1 3500 0
+ITEM 0 55 55 0 0 0 15 15 0 0 0 -1 -1 3500 0
+ITEM 0 0 60 0 0 60 0 7 -77 0 7 -1 -1 3500 0
+ITEM 0 0 0 55 0 0 0 -10 10 0 0 6 -1 3400 0
+ITEM 0 45 0 0 0 55 0 0 0 0 20 -1 -1 3300 0
+ITEM 0 35 45 0 0 50 0 0 0 0 15 -1 -1 3300 0
+ITEM 0 0 45 0 0 45 0 15 0 0 0 -1 -1 3300 288
+ITEM 0 0 0 60 0 0 0 0 8 0 0 -1 -1 3300 0
+ITEM 0 0 45 45 0 0 0 0 0 0 0 -1 -1 3300 200
+ITEM 0 0 0 0 0 60 0 0 0 0 10 -1 -1 3200 0
+ITEM 0 45 0 45 0 45 5 0 0 0 5 -1 -1 3200 0
+ITEM 0 0 50 50 0 0 0 5 5 -10 0 -1 -1 3200 0
+ITEM 0 50 0 0 0 50 8 0 0 0 8 -1 -1 3100 0
+ITEM 0 0 0 0 0 85 -10 0 0 0 5 4 -1 3100 0
+ITEM 0 45 50 40 0 0 0 0 10 0 0 -1 -1 3000 305
+ITEM 0 50 40 0 0 0 0 0 -15 0 0 -1 -1 3000 253
+ITEM 0 0 70 0 0 0 0 10 5 -7 0 -1 -1 3000 0
+ITEM 0 0 0 0 0 70 0 0 0 0 12 -1 -1 2900 219
+ITEM 0 50 0 70 0 70 0 0 8 0 8 -1 -1 2900 320
+ITEM 0 0 35 50 35 0 0 3 7 3 0 9 -1 2825 0
+ITEM 0 0 30 55 0 40 0 0 15 0 0 -1 -1 2800 0
+ITEM 0 40 45 40 0 45 0 0 0 -50 0 -1 -1 2800 341
+ITEM 0 0 0 0 0 55 0 0 0 0 15 -1 -1 2700 0
+ITEM 0 0 65 50 0 0 -25 0 10 0 0 -1 -1 2675 0
+ITEM 0 0 55 0 0 0 0 10 0 0 0 -1 -1 2600 246
+ITEM 0 0 0 0 0 55 0 0 0 0 10 -1 -1 1550 0
+ITEM 0 65 45 0 45 0 10 5 0 5 0 -1 -1 -2100 0
+NSETS 10
+SET 0 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 1 4 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 2 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 3 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 4 4 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -25 0 0 15 15
+SET 5 4 0 0 0 0 0  0 5 5 5 5  15 5 5 5 5  15 5 5 5 5
+SET 6 3 0 0 0 0 0  0 20 0 0 0  0 85 0 0 0
+SET 7 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 8 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+SET 9 3 0 0 0 0 0  0 0 0 0 0  0 0 0 0 0
+NAMES 1
+INAMES 0 46
+Eternal Toil
+Excision of Trust
+Polyhedra
+Ballistics Satchel
+Exhaust Plume
+Ironleaf Bangle
+Vestige of Persistence
+Buzzsaw Bracer
+Writer's Block
+Rewritten History
+Shattershard
+Firemoss Band
+Burgeon
+Deliberation
+Clandestine
+Waterwheel Bearing
+Freight Trainer
+The Haruspex
+Wind Scar
+Roots of Unity
+Morale
+Arctic Touch
+Cracked Crucible
+Mydium
+Climber's Wraps
+Dark Mirage
+Tension Spring
+Illicium
+Umbral Sharpener
+Threshold of Consciousness
+Solenoid
+Hoarfrost Clasp
+No Bracelet
+Mana Polarizer
+Petal Wristlet
+The Peak
+Depravity
+Palimpsest
+Toxic Shackles
+Amplifier
+Jinx
+Mechanical Augmentation
+Devil's Oath
+Frondescere
+Impatience
+Purple Prose
+INAMES 1 79
+Carcinization
+Defenestration
+Basaltic Rain
+Platonic Ideal
+Steadfast
+Mutiny
+Abundance
+Telo Pona
+Dehydrated
+Harbour
+Smoke Signal
+Null Space
+Ode to Nothing
+Soft Burn
+Mudstone Manacles
+Skyline Bliss
+Coercion
+Final Spark
+Symphonie Fantastique
+World Glass
+Hellstorm Striders
+Bunker
+Grandstand
+Garda
+Sepulchral Shackles
+Serene Storm
+Topsoil
+Latent Tremor
+Stalking Mist
+Liminal Strides
+Song of the Sea
+Morning Dew
+Irrigation
+Superstition
+Henchman's Mark
+Hydrocurrent
+Hadean
+Hotfoot
+Inequality
+Bleeding Soles
+Embrittlement
+Amberwalkers
+Diurnal
+Como
+Revision
+Ramping Current
+Alacrity
+Honeysuckle Heels
+Dimachaerus
+Unifier
+Liffmail Sollerets
+Razor Leaf
+Seaforce
+Lichengrowth
+Boulderstorm
+Fight-or-Flight
+Barometric
+Wysteria Glooms
+Sickle Claw
+Corpsman
+Euphonia
+Martingale
+Sludgescrapers
+Conviction
+Landscour
+Thundervine
+Pathogen
+Lily Pad
+Gleaming Titanium Boots
+Petal Gliders
+Sadist
+Scizor
+Diaspora
+Atropos
+Abyssal Demand
+Leafgliders
+Pomposity
+Static Cling
+Space Dust
+INAMES 2 81
+Regime Busters
+Last Sun
+Inhumanity
+Champion's Valiance
+Greaves of Purest Obsidian
+Confiscated
+Supersear
+Enshrouded Eruption
+Time Capsule
+Stalwart
+Skyline
+Dealbreaker
+Firewall
+Volt Tackle
+Assimilation
+Hot Air
+Basal Burl
+Aplomb
+Hydraulic
+Alstroemania
+Brute
+Arsene
+Bull Charge
+Archean
+Hypnagogia
+Flames of Wrath
+Mixed Signals
+Haze Striders
+Samsara
+Blue Grotto
+Xenolith
+Slagwrap
+Anaerobic
+Solidus
+Triceratops
+Wild Growth
+Warped Thought
+Sparking Breeze
+Inflammation
+Dissenter's Refuge
+Rebel Ethos
+Mistworn
+Omniverse
+Barkskin
+Raindrop Rally
+Estuary
+Radiator
+Conduit
+Bleeding Crura
+Primal Instinct
+Liffmail Chausses
+Shockstone Torrent
+Prudence
+Transistor
+Mist Unit Trousers
+Temerity
+Deep Blue
+Thunderhead
+Divine Grace
+Signature
+March Onwards
+Thunderous Gale
+Low Pressure
+Artificial
+Meliorism
+Black Blizzard
+Shock Therapy
+Asunder
+Hydrostatic Greaves
+Malintent
+Lachesis
+Havoc Focus
+Scrap Chausses
+Sugar Rush
+Glow Worm
+Reviled Saviour
+Aleph Null
+Rhyolitic Wrath
+Jounce
+Wilted Orchard
+Ravenous Hunger
+INAMES 3 90
+Last Stand
+Crash Helmet
+Phanerozoic
+Reparations
+Studhorn
+Autopilot
+Counterfeit Coronet
+Xiuhtecuhtli
+Ahriman
+Nexus
+Nonexistence
+Heavy Steam
+Panopticon
+Warmonger
+Heretic
+Bitumen
+Trial By Fire
+Bergentruckung
+Nuclear Emesis
+Crown of Jewels
+Deviance
+Pilfered Crown
+Utopia
+Fahrenheit
+Nutrient
+Rosebush
+Dragon's Breath
+Shockburn
+Fox Mask
+Survivor's Guilt
+Astrolabe
+Confinement
+Polyglot
+Firemoss Veil
+Breuil
+Nova
+Owl Mask
+Underground
+Bloodstone Crown
+Aureole
+Rhetoric
+Shattered Aurora
+Gleam
+Polydipsia
+Jailbroken
+Inosculation
+Fleeting Memories
+Stormfront
+Ravager
+Thermodynamic
+Placebo
+Deer Mask
+Hive Mind
+Rancid Effluvia
+Dreamscape
+Hollow Ice Brick
+Dust Goggles
+Omnistone
+Contradiction
+Persistence
+Liffmail Coif
+Threnody
+Sureshot
+Cibola
+Psilocybe
+Gambler's Ruin
+Clotho
+City Smog
+Flighter's Instinct
+Flicker
+Lagoon
+Hydroshock
+Albino
+Mesmerizing Madness
+Shock Factor
+Deciduous
+Bleeding Mind
+Avarice
+Impetus
+Arcane Parasite
+Windthrow
+Flower Crown
+Regal Crown
+Recalculator
+Fool's Errand
+Repurposed Drum
+False Amends
+Dearth
+Vertigo
+Crown of Vicious Leaves
+FNAMES 4
+1 Taurus
+4 Ad Terram
+5 Ad Terram
+7 Auxetic Capacitor
+NONENAMES 8
+No Helmet
+No Chestplate
+No Leggings
+No Boots
+No Ring 1
+No Ring 2
+No Bracelet
+No Necklace
