@@ -7,11 +7,17 @@ rollout is listed at the bottom.
 ## Build
 
 ```bash
-./rust/sp_kernel/build-wasm.sh        # cargo -> wasm-bindgen -> wasm-opt -Oz
+./rust/sp_kernel/build-wasm.sh        # cargo -> wasm-bindgen -> wasm-opt -O3
 ```
-Output lands in `js/solver/wasm/`. The `-Oz` pass takes the module from
-587 KB to **517 KB** (-12%) with no behavior change — verified in-browser
-afterwards (armor4 still 344 ms, scores still bit-identical).
+Output lands in `js/solver/wasm/`. The `wasm-opt` pass was `-Oz` (size)
+until R25 measured the speed preset: `-O3` is 1.051x geometric mean, 18/20
+faster on the 18 family fixtures plus `spell_wide` and `heal` (fixed leaf
+budget through `solve`, 5 interleaved repeats, top-15 identical) for a
+module 0.5% larger (776 KB to 780 KB). Skipping `wasm-opt` entirely is no
+faster than `-Oz` (0.998x) and 19% larger. `-C target-feature=+simd128`
+with `-O3` measured 1.069x, 20/20, but browsers without simd128 (Safari
+before 16.4) could not load the module, and a second fallback build is not
+worth the extra 1.6%.
 
 `-C target-cpu=native` is scoped to non-wasm targets in `.cargo/config.toml`,
 so cross-compilation is clean. The module is ~630 KB before `wasm-opt`.
@@ -318,4 +324,4 @@ a short search it would have made things worse.
    `{"error": "..."}` naming the unsupported mechanic, and `search.js`
    drops back to the JS workers on it. (Count loops, Radiance and
    `total_healing` are supported — see `SUPPORT_MATRIX.md` section A.)
-4. **Size**: `wasm-opt -Oz` runs as part of `build-wasm.sh` (587 KB -> 517 KB).
+4. **Size**: `wasm-opt -O3` runs as part of `build-wasm.sh` (speed over size; see Build).
