@@ -5,7 +5,7 @@
 
 const { TestRunner } = require('./harness');
 const {
-    SHORTLIST_DEFAULTS, shortlistUtilities, rankShortlist, mergeShortlistArchives,
+    SHORTLIST_DEFAULTS, shortlistUtilities, shortlistLexValue, rankShortlist, mergeShortlistArchives,
 } = require('../engine/shortlist.js');
 
 const t = new TestRunner('Shortlist (R20)');
@@ -80,6 +80,27 @@ const e = (score, name, stats = {}) => ({ score, item_names: [name], stats });
     t.assert(reps.length === 2 && reps[0].variants.length === 1 && reps[1].variants.length === 1,
         'one-slot variants fold under their best representative');
     t.assert(collapseShortlistVariants(ranked, 1).length === 4, 'k = 1 groups nothing');
+}
+
+// R14 lexicographic tier: rank by one stat's raw value, score breaks ties.
+{
+    const e = (score, stats, name) => ({ score, stats, item_names: [name] });
+    const list = [
+        e(100, { ehp_no_agi: 20000, mr: 5, spd: 10, hpr: 100, ls: 0 }, 'a'),
+        e(99, { ehp_no_agi: 26000, mr: 9, spd: 0, hpr: 50, ls: 300 }, 'b'),
+        e(98, { ehp_no_agi: 26000, mr: 2, spd: 40, hpr: 0, ls: 0 }, 'c'),
+        e(97, {}, 'd'),
+    ];
+    const order = (lex) => rankShortlist(list, { ...SHORTLIST_DEFAULTS, lex }).map(x => x.item_names[0]).join('');
+    t.assert(order('ehp') === 'bcad', `highest EHP first, score breaks the 26000 tie (got ${order('ehp')})`);
+    t.assert(order('mana') === 'bacd', `mana by regen without a timed combo (got ${order('mana')})`);
+    t.assert(order('speed') === 'cabd', `fastest first (got ${order('speed')})`);
+    t.assert(order('sustain') === 'bacd', `sustain = hpr + ls (got ${order('sustain')})`);
+    t.assert(order(null) === 'abcd', 'no lex: the blend with zero weights is score order');
+    t.assert(shortlistLexValue({}, 'ehp') === -Infinity, 'a build without stats ranks last');
+    const withMana = rankShortlist([e(10, { mana_delta: -5, mr: 50 }, 'x'), e(9, { mana_delta: 2, mr: 1 }, 'y')],
+        { ...SHORTLIST_DEFAULTS, lex: 'mana' });
+    t.assert(withMana[0].item_names[0] === 'y', 'mana per combo outranks regen when the combo is timed');
 }
 
 const result = t.summary();

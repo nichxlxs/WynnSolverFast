@@ -26,7 +26,27 @@ const SHORTLIST_DEFAULTS = Object.freeze({
     speed_tier: 20, speed_tiers: 5,
     // HP regen plus life steal per second, 1 at saturation.
     sustain_sat: 600,
+    // R14 lexicographic tier: rank by one stat's raw value instead of U
+    // ('ehp', 'mana', 'speed', 'sustain'), null for the blend.
+    lex: null,
 });
+
+/**
+ * A stat's raw value for lexicographic ranking (R14). The shortlist holds
+ * every build within the window (when complete), so the first build by this
+ * ranking is exactly "the best <stat> among builds within x% of the best
+ * score": the second tier of a lexicographic objective, with the first
+ * relaxed by the window.
+ */
+function shortlistLexValue(stats, key) {
+    const st = stats ?? {};
+    let v;
+    if (key === 'ehp') v = st.ehp_no_agi ?? st.ehp;
+    else if (key === 'mana') v = st.mana_delta !== undefined ? st.mana_delta : st.mr;
+    else if (key === 'speed') v = st.spd;
+    else if (key === 'sustain') v = (st.hpr ?? 0) + (st.ls ?? 0);
+    return Number.isFinite(v) ? v : -Infinity;
+}
 
 const clamp01 = v => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
 
@@ -52,14 +72,21 @@ function shortlistUtility(entry, best, s = SHORTLIST_DEFAULTS) {
         + s.w_ehp * u.ehp + s.w_mana * u.mana + s.w_speed * u.speed + s.w_sustain * u.sustain;
 }
 
-/** Entries sorted by U, best first; ties by score, then item names. */
+/**
+ * Entries sorted by U (or, with `s.lex`, by that stat's raw value), best
+ * first; ties by score, then item names.
+ */
 function rankShortlist(entries, s = SHORTLIST_DEFAULTS) {
     if (!entries.length) return [];
     const best = Math.max(...entries.map(e => e.score));
-    const scored = entries.map(e => ({ entry: e, u: shortlistUtility(e, best, s) }));
-    scored.sort((a, b) => (b.u - a.u) || (b.entry.score - a.entry.score)
+    const key = s.lex
+        ? (e) => shortlistLexValue(e.stats, s.lex)
+        : (e) => shortlistUtility(e, best, s);
+    const scored = entries.map(e => ({ entry: e, u: key(e) }));
+    scored.sort((a, b) => (b.u === a.u ? 0 : b.u > a.u ? 1 : -1) || (b.entry.score - a.entry.score)
         || String(a.entry.item_names ?? '').localeCompare(String(b.entry.item_names ?? '')));
-    return scored.map(x => ({ ...x.entry, utility: x.u, utilities: shortlistUtilities(x.entry.stats, s) }));
+    return scored.map(x => ({ ...x.entry, utility: s.lex ? shortlistUtility(x.entry, best, s) : x.u,
+        utilities: shortlistUtilities(x.entry.stats, s) }));
 }
 
 /**
@@ -129,7 +156,7 @@ function collapseShortlistVariants(ranked, k = 2) {
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        SHORTLIST_DEFAULTS, shortlistUtilities, shortlistUtility, rankShortlist,
+        SHORTLIST_DEFAULTS, shortlistUtilities, shortlistUtility, shortlistLexValue, rankShortlist,
         mergeShortlistArchives, shortlistSlotDistance, collapseShortlistVariants,
     };
 }

@@ -1056,6 +1056,12 @@ function _shortlist_set_weight(key, value) {
     _render_shortlist();
 }
 
+/** R14 lexicographic tier: rank the shortlist by one stat ('' = the blend). */
+function _shortlist_set_lex(value) {
+    _shortlist_settings.lex = value || null;
+    _render_shortlist();
+}
+
 function _shortlist_show_more() {
     _shortlist_rows_shown += 100;
     _render_shortlist();
@@ -1105,8 +1111,16 @@ function _render_shortlist() {
         `oninput="_shortlist_set_weight('${key}', this.value)"> ${_shortlist_settings[key].toFixed(2)}</label>`;
     let html = `<div class="text-secondary small mt-2 mb-1">Shortlist: ${sl.entries.length} ${claim}. `
         + 'Weights add up to the stated bonus over the score ratio; all at 0 is score order.</div>';
-    html += '<div class="mb-1">' + slider('w_ehp', 'EHP') + slider('w_mana', 'Mana')
-        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain')
+    const lex = _shortlist_settings.lex ?? '';
+    const lexOpt = (v, label) => `<option value="${v}"${lex === v ? ' selected' : ''}>${label}</option>`;
+    html += '<div class="mb-1"><label class="small text-secondary me-2">Rank by '
+        + '<select class="form-select form-select-sm d-inline-block bg-dark text-light" style="width:auto" '
+        + 'title="Rank every build in the margin by one stat (score breaks ties): the best of that stat among near-best builds" '
+        + 'onchange="_shortlist_set_lex(this.value)">'
+        + lexOpt('', 'score + weights') + lexOpt('ehp', 'highest EHP') + lexOpt('mana', 'best mana')
+        + lexOpt('speed', 'fastest') + lexOpt('sustain', 'most sustain') + '</select></label>'
+        + (lex ? '' : slider('w_ehp', 'EHP') + slider('w_mana', 'Mana')
+        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain'))
         + `<label class="small text-secondary ms-2"><input type="checkbox" id="solver-shortlist-group" ${_shortlist_group ? 'checked' : ''} `
         + `onchange="_shortlist_toggle_group(this.checked)"> group one-slot variants</label></div>`;
     html += '<table class="table table-sm table-dark small mb-1" id="solver-shortlist-table"><thead><tr>'
