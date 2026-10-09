@@ -71,6 +71,18 @@ const _eval_indirect_stat = eval_indirect_stat;
 // ── Item stat helpers ────────────────────────────────────────────────────────
 
 /**
+ * Hard thresholds plus R14 soft floors (as >= rows). Sensitivity weights,
+ * dominance classification and the constraint bonuses treat a soft floor
+ * like a hard one: the penalised score is non-decreasing in a floored stat,
+ * so an item higher on it is never worse (see apply_soft_floors).
+ */
+function _floor_constraints(restrictions) {
+    const hard = restrictions?.stat_thresholds ?? [];
+    const soft = restrictions?.soft_floors ?? [];
+    return soft.length ? [...hard, ...soft.map(f => ({ stat: f.stat, op: 'ge', value: f.value }))] : hard;
+}
+
+/**
  * Read a stat's contribution from an item statMap.
  * Checks maxRolls first (rolled stats), then falls back to direct properties (static stats).
  */
@@ -634,7 +646,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
         : 1;
 
     // ── Restriction thresholds (ge constraints on direct stats) ─────────
-    for (const { stat, op, value } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op, value } of _floor_constraints(restrictions)) {
         if (op !== 'ge' || _INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         const current = combo_base.get(stat) ?? 0;
         const deficit = value - current;
@@ -660,7 +672,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
     // These stats are computed from the full build via getDefenseStats(), so
     // we can't just read them from the statMap. Instead, perturb each
     // contributing direct stat and measure the indirect stat's response.
-    for (const { stat, op, value } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op, value } of _floor_constraints(restrictions)) {
         if (!_INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         if (op !== 'ge') continue;
         if (!_INDIRECT_CONTRIBUTORS[stat]) continue;  // e.g. finalSpellCost — handled separately
@@ -1085,7 +1097,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     }
 
     // ge/le restrictions on direct stats
-    for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op } of _floor_constraints(restrictions)) {
         if (_INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         if (op === 'ge') higher.add(stat);
         else if (op === 'le') lower.add(stat);
@@ -1096,7 +1108,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     // rather than in maxRolls, but _item_stat_val handles both locations.
     // We skip individual def stats — they interact non-monotonically with EHP
     // and adding all 5 would make dominance proofs nearly impossible.
-    for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op } of _floor_constraints(restrictions)) {
         if (op !== 'ge') continue;
         if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') {
             higher.add('hp');
@@ -1151,7 +1163,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     // atkTier special case: melee DPS + mana-tight/ls-constraint conflict —
     // faster attacks trade per-hit damage against mana/ls economy, so
     // direction is build-dependent. Still relevant, so demand equality.
-    const ls_constraint = (restrictions.stat_thresholds ?? []).some(t => t.stat === 'ls' && t.op === 'ge');
+    const ls_constraint = _floor_constraints(restrictions).some(t => t.stat === 'ls' && t.op === 'ge');
     if (has_melee && (mana_tight || ls_constraint)) {
         if (higher.delete('atkTier') || lower.delete('atkTier')) {
             equal.add('atkTier');

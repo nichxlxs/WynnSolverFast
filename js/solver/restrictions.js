@@ -387,6 +387,7 @@ function restriction_add_row() {
                 style="width:3.5em; flex-shrink:0; padding-left:0.3rem; padding-right:1.25rem;">
             <option value="ge">≥</option>
             <option value="le">≤</option>
+            <option value="soft" title="Soft floor: each 1% short of it costs 1% of the score">≥ soft</option>
         </select>
         <input type="text" inputmode="decimal" class="combo-row-input restr-value-input"
                placeholder="0" style="width:4.5em; text-align:center; flex-shrink:0;">
@@ -478,7 +479,8 @@ function _init_restriction_stat_autocomplete(input_id) {
  *   guild_tome: number,   // index into GUILD_TOMES (0 = off, 1-5 = +4 to one attr, 6 = rainbow)
  *   tome_roll: number,    // average roll % assumed for solver-chosen tomes
  *   tome_inventory: Set<number>|null,  // owned tome ids; null = owns everything
- *   stat_thresholds: Array<{stat: string, op: string, value: number}>
+ *   stat_thresholds: Array<{stat: string, op: string, value: number}>,
+ *   soft_floors: Array<{stat: string, value: number}>  // R14, positive floors only
  * }}
  */
 function get_restrictions() {
@@ -519,6 +521,9 @@ function get_restrictions() {
     const tome_inventory = inv_ids ? new Set(inv_ids) : null;
 
     const stat_thresholds = [];
+    // R14: rows set to "≥ soft" are penalties, not filters (apply_soft_floors).
+    // Only positive floors: the penalty is a fraction of the floor.
+    const soft_floors = [];
     for (const row of (document.getElementById('restriction-rows')?.children ?? [])) {
         if (!row.id?.startsWith('restr-row-')) continue;
         const stat_input = row.querySelector('.restr-stat-input');
@@ -530,6 +535,10 @@ function get_restrictions() {
         const raw = val_input.value.trim();
         const value = raw === '' ? 0 : parseFloat(raw);
         if ((!stat_key && !stat_label) || isNaN(value)) continue;
+        if (op_select.value === 'soft') {
+            if (value > 0) soft_floors.push({ stat: stat_key || stat_label, value });
+            continue;
+        }
         stat_thresholds.push({
             stat: stat_key || stat_label,
             op: op_select.value,   // 'ge' (≥) or 'le' (≤)
@@ -538,7 +547,7 @@ function get_restrictions() {
     }
 
     return { build_dir, lvl_min, lvl_max, lvl_overrides, no_major_id, guild_tome,
-             tome_opt, tome_roll, tome_inventory, stat_thresholds };
+             tome_opt, tome_roll, tome_inventory, stat_thresholds, soft_floors };
 }
 
 // ── Item Blacklist ──────────────────────────────────────────────────────────

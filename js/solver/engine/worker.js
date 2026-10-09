@@ -591,8 +591,38 @@ function _atree_scaling_setup() {
 let _ceiling_gate_ok = false;
 const _SP_CEILING = new Int32Array([150, 150, 150, 150, 150]);
 
+// R14: soft floors the gate may penalise its ceiling with. The gate's ceiling
+// differs from any allocation the greedy reaches only in skill points (items
+// fixed), so penalising it at its own stats is an upper bound exactly when
+// each floored stat is non-decreasing in skill points over the reachable
+// range: then the ceiling's stat is the highest any allocation reaches, and
+// apply_soft_floors is non-decreasing in score and stat. Without stat-
+// dependent ability-tree effects that holds for every stat no skill point
+// touches (direct stats, total_hp, hpr) and for ehp_no_agi (rises with def);
+// ehp also rises with agi while agi_reduction <= 1 - def_pct, checked per
+// leaf at the ceiling (the largest def_pct reachable). Anything else is left
+// out of the gate, which can only make the gate prune less.
+let _soft_gate_floors = null;
+const _SOFT_GATE_SP_STATS = new Set(['str', 'dex', 'int', 'def', 'agi', 'total_mana',
+    'finalSpellCost1', 'finalSpellCost2', 'finalSpellCost3', 'finalSpellCost4', 'ehpr']);
+
+function _soft_gate_ceiling(ceiling, stats) {
+    // Not with the optimistic tome bundle: it maximises each key separately,
+    // and hpr = rawToPct(hprRaw, hprPct) falls as hprPct rises when raw < 0.
+    if (!_soft_gate_floors || _tome_wa_optimistic) return ceiling;
+    let floors = _soft_gate_floors;
+    if (floors.some(f => f.stat === 'ehp')) {
+        const def_pct = skillPointsToPercentage(stats.get('def') ?? 0) * skillpoint_final_mult[3];
+        const agi_reduction = (100 - (stats.get('agiDef') ?? 0)) / 100;
+        if (!(agi_reduction <= 1 - def_pct)) floors = floors.filter(f => f.stat !== 'ehp');
+    }
+    return apply_soft_floors(ceiling, stats, floors, _cfg.spell_base_costs);
+}
+
 function _ceiling_gate_setup(analysis) {
     _ceiling_gate_ok = false;
+    const soft = (_cfg.restrictions?.soft_floors ?? []).filter(f => f.value > 0 && !_SOFT_GATE_SP_STATS.has(f.stat));
+    _soft_gate_floors = (!analysis.stat_dependent && soft.length && _cfg.soft_gate !== false) ? soft : null;
     if ((_cfg.scoring_target ?? 'combo_damage') !== 'combo_damage') return;
     if (_cfg.hp_casting || _cfg.has_dynamic_sliders) return;
     if (_cfg.custom_weights?.length) return;
@@ -740,6 +770,19 @@ function _eval_score(combo_base, thresh_stats) {
         () => _eval_combo_healing(combo_base),
         thresh_stats ?? _assemble_threshold_stats(combo_base),
         _cfg.custom_weights);
+}
+
+/**
+ * A leaf's final score: the objective, then the R14 soft-floor penalty.
+ * Only here, not in the greedy SP trials, so the Rust engine reproduces it
+ * by penalising its final score the same way (the greedy allocates by the
+ * raw objective, as it does under hard floors).
+ */
+function _eval_leaf_score(combo_base, thresh_stats) {
+    const stats = thresh_stats ?? _assemble_threshold_stats(combo_base);
+    const raw = _eval_score(combo_base, stats);
+    const soft = _cfg.restrictions?.soft_floors;
+    return soft?.length ? apply_soft_floors(raw, stats, soft, _cfg.spell_base_costs) : raw;
 }
 
 // get_item_display_name() — shared from pure/engine.js
@@ -1723,7 +1766,7 @@ function _run_level_enum() {
 
         // Score
         const score_t0 = _trace_start('score');
-        const score = _eval_score(combo_base, thresh_stats);
+        const score = _eval_leaf_score(combo_base, thresh_stats);
         _trace_end('score', score_t0);
         // Candidate-level, not leaf-level: the tome loop scores several
         // candidates inside one evaluator call, so this counter is not part of
@@ -1763,7 +1806,7 @@ function _run_level_enum() {
             if (restrictions.stat_thresholds.length > 0
                 && !_check_thresholds(thresh_stats, restrictions.stat_thresholds)) return;
             if (!_eval_combo_mana_check(combo_base)) return;
-            const score = _eval_score(combo_base, thresh_stats);
+            const score = _eval_leaf_score(combo_base, thresh_stats);
             if (best === null || score > best.score) {
                 best = { score, total: total_sp.slice(), base: base_sp.slice(),
                          final_assigned: assigned_sp + a[0] + a[1] + a[2] + a[3] + a[4] };
@@ -1882,7 +1925,7 @@ function _run_level_enum() {
             const cb150 = _assemble_combo_stats(build_sm, ceiling_sp, weapon_sm, _tome_wa_optimistic);
             if (cb150.get('critDamPct') < _CRIT_CEILING_FLOOR) cb150.set('critDamPct', _CRIT_CEILING_FLOOR);
             _cached_hp_sim = null;
-            const ceiling = _eval_combo_damage(cb150);
+            const ceiling = _soft_gate_ceiling(_eval_combo_damage(cb150), cb150);
             _trace_end('ceiling', ceiling_t0);
             const cutoff = _gate_cutoff;
             // Strict margin: a float-ulp monotonicity wobble must never gate

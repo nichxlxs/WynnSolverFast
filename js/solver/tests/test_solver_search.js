@@ -335,6 +335,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
     if (snap.extra_restrictions) {
         restrictions.stat_thresholds.push(...snap.extra_restrictions);
     }
+    // R14 soft floors: penalties, not filters.
+    if (snap.soft_floors) restrictions.soft_floors = snap.soft_floors.map(f => ({ ...f }));
 
     // ── 12. Spell base costs ────────────────────────────────────────────────
     const spellBaseCosts = {};
@@ -1158,6 +1160,11 @@ async function runSolverTest(snapName) {
         if (freePools[slot] && picked.every(Boolean)) freePools[slot] = picked;
     }
 
+    if (process.env.SOLVER_PRINT_POOLS === '1') {
+        console.log(`  [${snapName}] pools ${JSON.stringify(Object.fromEntries(Object.entries(freePools).map(
+            ([k, v]) => [k, v.map(it => it.statMap.get('displayName') ?? it.statMap.get('name'))])))}`);
+    }
+
     // Freshness check: locked item stats + compress hash (has free slots).
     const currentLockedStats = extractLockedItemStats(locked);
     const hasFreeSlots = Object.keys(freePools).length > 0;
@@ -1206,6 +1213,8 @@ async function runSolverTest(snapName) {
         type: 'init',
         // R1 reachable-SP ceiling: on unless SOLVER_REACH_SP=0 (A/B runs).
         reach_sp_ceiling: process.env.SOLVER_REACH_SP !== '0',
+        // R14: SOLVER_SOFT_GATE=0 keeps soft floors out of the ceiling gate.
+        soft_gate: process.env.SOLVER_SOFT_GATE !== '0',
         // R9 in the JS engine: one exact SP solve per last-slot range. Opt-in
         // (measured slower in JS); SOLVER_SP_NODE=1 turns it on for A/B runs.
         sp_node_bound: process.env.SOLVER_SP_NODE === '1',
@@ -1412,6 +1421,10 @@ async function runSolverTest(snapName) {
         if (best.item_names) {
             const items = best.item_names.map((n, i) => n || `(none@${SLOT_NAMES[i]})`);
             console.log(`  [${snapName}] best items: ${items.join(', ')}`);
+            // Engine-parity hook: the full list at full precision.
+            if (process.env.SOLVER_PRINT_TOP === '1') {
+                for (const r of result.top5) console.log(`  [${snapName}] top ${r.score.toExponential(17)}`);
+            }
         }
     } else {
         t.assert(false, `${snapName}: solver found no results`);

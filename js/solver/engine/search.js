@@ -519,8 +519,11 @@ function _eval_current_build(snap, restrictions, blacklist) {
         }
     }
 
-    // Score
-    const score = _sensitivity_eval_score(combo_base, snap);
+    // Score, with the R14 soft-floor penalty the workers apply.
+    const raw_score = _sensitivity_eval_score(combo_base, snap);
+    const score = restrictions.soft_floors?.length
+        ? apply_soft_floors(raw_score, _deep_clone_statmap(combo_base), restrictions.soft_floors, snap.spell_base_costs)
+        : raw_score;
 
     return {
         score,

@@ -429,7 +429,7 @@ function _restore_from_url(solver_params) {
                 stat_input.value = stat_obj.label;
                 stat_input.dataset.statKey = stat_obj.key;
             }
-            if (op_select) op_select.value = r.op === 1 ? 'le' : 'ge';
+            if (op_select) op_select.value = r.soft ? 'soft' : r.op === 1 ? 'le' : 'ge';
             if (val_input) val_input.value = r.value;
         }
         _validate_restriction_contradictions();

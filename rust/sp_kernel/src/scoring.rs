@@ -3277,6 +3277,10 @@ pub fn leaf_pipeline_gated(
     // Final assemble + mana check (+ rescue).
     let mut sp_f5 = [0f64; 5];
     for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
+    // R14: the soft floors' shortfall, read from the same final stats the
+    // threshold check reads (re-read after a mana rescue), applied to the
+    // final score only, as the JS worker's _eval_leaf_score does.
+    let mut soft_short = 0.0f64;
     if let Some((d, w)) = dwork.as_mut() {
         {
             let DenseWork { leaf, scratch, .. } = &mut **w;
@@ -3293,6 +3297,14 @@ pub fn leaf_pipeline_gated(
                 let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
                 assert!(ov, "dense/obj threshold mismatch (dense passes)");
+            }
+            if !d.soft_floors.is_empty() {
+                soft_short = dense_soft_shortfall(d, scratch, tables, consts);
+                if dense_check {
+                    let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
+                    let o = soft_shortfall_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
+                    assert!(o.to_bits() == soft_short.to_bits(), "dense/obj soft shortfall mismatch: {soft_short:?} vs {o:?}");
+                }
             }
         }
         let mana_ok = phase!(MANA, {
@@ -3334,6 +3346,7 @@ pub fn leaf_pipeline_gated(
                 }
                 v
             });
+            let score = apply_soft_shortfall(score, soft_short);
             ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -3365,6 +3378,9 @@ pub fn leaf_pipeline_gated(
                     && !dense_check_thresholds(d2, &w2.scratch, tables, consts) {
                     return Ok(LeafOutcome::ThresholdReject);
                 }
+                if !d2.soft_floors.is_empty() {
+                    soft_short = dense_soft_shortfall(d2, &w2.scratch, tables, consts);
+                }
             }
             let score = phase!(FINAL, {
                 let (d, w) = dwork.as_mut().unwrap();
@@ -3377,6 +3393,7 @@ pub fn leaf_pipeline_gated(
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 }
             });
+            let score = apply_soft_shortfall(score, soft_short);
             ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -3405,7 +3422,11 @@ pub fn leaf_pipeline_gated(
     }
 
     assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
+    if thresholds.iter().any(|t| t.soft) {
+        soft_short = soft_shortfall_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts);
+    }
     let score = phase!(FINAL, obj_score(&mut combo_base));
+    let score = apply_soft_shortfall(score, soft_short);
     ceiling_tripwire(dense_check, gate_ceiling, score);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
@@ -4937,6 +4958,8 @@ pub struct DenseCtx {
     pub doom_couples_tier: bool,
     /// Restriction thresholds lowered onto the read universe: (kind, ge, value).
     pub thresholds: Vec<(DThresh, bool, f64)>,
+    /// R14 soft floors lowered the same way: (kind, floor).
+    pub soft_floors: Vec<(DThresh, f64)>,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -5264,6 +5287,7 @@ impl DenseCtx {
         // Threshold lowering (read-universe interning happens here so item
         // writes to threshold stats survive the dead-write filter).
         let mut thresholds: Vec<(DThresh, bool, f64)> = Vec::new();
+        let mut soft_floors: Vec<(DThresh, f64)> = Vec::new();
         for t in raw_thresholds {
             let kind = match t.stat.as_str() {
                 "ehp" => DThresh::Ehp,
@@ -5286,7 +5310,7 @@ impl DenseCtx {
                 }
                 st => DThresh::Plain(intern(st, &mut idx, &mut keys)),
             };
-            thresholds.push((kind, t.ge, t.value));
+            if t.soft { soft_floors.push((kind, t.value)); } else { thresholds.push((kind, t.ge, t.value)); }
         }
 
         // Bounded-doom classification of var output slots.
@@ -5599,7 +5623,7 @@ impl DenseCtx {
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
             s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, mana_idx, atk_spd_str,
-            var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds,
+            var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds, soft_floors,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -7349,18 +7373,39 @@ pub struct Threshold {
     pub stat: String,
     pub ge: bool,
     pub value: f64,
+    /// R14 soft floor (`restrictions.soft_floors`): never rejects; its
+    /// shortfall lowers the final score (`soft_shortfall_obj`). Always ge.
+    pub soft: bool,
 }
 
 pub fn parse_thresholds(fixture: &Value) -> Vec<Threshold> {
-    fixture["layer2"]["restrictions"]["stat_thresholds"].as_array()
+    let r = &fixture["layer2"]["restrictions"];
+    let mut out: Vec<Threshold> = r["stat_thresholds"].as_array()
         .map(|a| a.iter().filter_map(|t| {
             Some(Threshold {
                 stat: t.get("stat")?.as_str()?.to_string(),
                 ge: t.get("op")?.as_str()? == "ge",
                 value: t.get("value")?.as_f64()?,
+                soft: false,
             })
         }).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Positive floors only, in order: apply_soft_floors skips the rest.
+    if let Some(a) = r["soft_floors"].as_array() {
+        out.extend(a.iter().filter_map(|t| {
+            let value = t.get("value")?.as_f64()?;
+            let stat = t.get("stat")?.as_str()?.to_string();
+            (value > 0.0).then_some(Threshold { stat, ge: true, value, soft: true })
+        }));
+    }
+    out
+}
+
+/// R14: apply_soft_floors (pure/engine.js) given the summed shortfall
+/// fraction, same operations in the same order.
+pub fn apply_soft_shortfall(score: f64, short: f64) -> f64 {
+    if !score.is_finite() || !(short > 0.0) { return score; }
+    score - score.abs() * short.min(1.0)
 }
 
 pub fn parse_spell_base_costs(fixture: &Value) -> HashMap<i64, f64> {
@@ -7391,7 +7436,37 @@ pub fn check_thresholds_obj(
 ) -> bool {
     let mut def: Option<(f64, f64, f64, f64, f64)> = None;
     for t in th {
-        let v = match t.stat.as_str() {
+        if t.soft { continue; }
+        let Some(v) = threshold_value_obj(stats, t, base_costs, tables, consts, &mut def) else { continue };
+        if t.ge && v < t.value { return false; }
+        if !t.ge && v > t.value { return false; }
+    }
+    true
+}
+
+/// R14: the summed shortfall fraction of the soft floors in `th`.
+pub fn soft_shortfall_obj(
+    stats: &StatsView, th: &[Threshold], base_costs: &HashMap<i64, f64>,
+    tables: &Tables, consts: &L2Consts,
+) -> f64 {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for t in th {
+        if !t.soft { continue; }
+        let Some(v) = threshold_value_obj(stats, t, base_costs, tables, consts, &mut def) else { continue };
+        if !(v < t.value) { continue; }
+        short += (t.value - v) / t.value;
+    }
+    short
+}
+
+/// threshold_stat_value (pure/engine.js): None for a spell cost without a
+/// configured base cost (JS `continue`s).
+fn threshold_value_obj(
+    stats: &StatsView, t: &Threshold, base_costs: &HashMap<i64, f64>,
+    tables: &Tables, consts: &L2Consts, def: &mut Option<(f64, f64, f64, f64, f64)>,
+) -> Option<f64> {
+        Some(match t.stat.as_str() {
             "ehp" => def.get_or_insert_with(|| defense_stats(stats, tables)).1,
             "ehp_no_agi" => def.get_or_insert_with(|| defense_stats(stats, tables)).2,
             "total_hp" => def.get_or_insert_with(|| defense_stats(stats, tables)).0,
@@ -7404,7 +7479,7 @@ pub fn check_thresholds_obj(
             }
             s if s.starts_with("finalSpellCost") => {
                 let n: i64 = s[s.len() - 1..].parse().unwrap_or(-1);
-                let Some(&base) = base_costs.get(&n) else { continue };
+                let &base = base_costs.get(&n)?;
                 spell_cost_capped(
                     stats.num_or0("int"),
                     stats.num_or0(&format!("spRaw{}", n)),
@@ -7413,11 +7488,7 @@ pub fn check_thresholds_obj(
                     base, tables, consts)
             }
             s => stats.num_or0(s),
-        };
-        if t.ge && v < t.value { return false; }
-        if !t.ge && v > t.value { return false; }
-    }
-    true
+        })
 }
 
 /// Threshold kinds lowered onto the dense read universe.
@@ -7434,7 +7505,30 @@ pub fn dense_check_thresholds(
 ) -> bool {
     let mut def: Option<(f64, f64, f64, f64, f64)> = None;
     for (kind, ge, value) in &d.thresholds {
-        let v = match kind {
+        let Some(v) = dense_threshold_value(d, s, kind, tables, consts, &mut def) else { continue };
+        if *ge && v < *value { return false; }
+        if !*ge && v > *value { return false; }
+    }
+    true
+}
+
+/// R14: soft_shortfall_obj on the dense scratch.
+pub fn dense_soft_shortfall(d: &DenseCtx, s: &DScratch, tables: &Tables, consts: &L2Consts) -> f64 {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for (kind, value) in &d.soft_floors {
+        let Some(v) = dense_threshold_value(d, s, kind, tables, consts, &mut def) else { continue };
+        if !(v < *value) { continue; }
+        short += (*value - v) / *value;
+    }
+    short
+}
+
+fn dense_threshold_value(
+    d: &DenseCtx, s: &DScratch, kind: &DThresh, tables: &Tables, consts: &L2Consts,
+    def: &mut Option<(f64, f64, f64, f64, f64)>,
+) -> Option<f64> {
+        Some(match kind {
             DThresh::Ehp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).1,
             DThresh::EhpNoAgi => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).2,
             DThresh::TotalHp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).0,
@@ -7449,12 +7543,8 @@ pub fn dense_check_thresholds(
                 s.num_or0(d.s_int), s.num_or0(*raw), s.num_or0(*pct), s.num_or0(*fin),
                 *base, tables, consts),
             DThresh::Plain(i) => s.num_or0(*i),
-            DThresh::Skip => continue,
-        };
-        if *ge && v < *value { return false; }
-        if !*ge && v > *value { return false; }
-    }
-    true
+            DThresh::Skip => return None,
+        })
 }
 
 
@@ -7668,5 +7758,68 @@ mod crit_floor_tests {
         let plain = ["No Helmet", "No Chestplate", "No Leggings", "No Boots",
                      "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
         assert_eq!(score_at(&sc, &plain, &all_max, true), score_at(&sc, &plain, &all_max, false));
+    }
+}
+
+#[cfg(test)]
+mod soft_floor_tests {
+    //! R14 soft floors: parsing keeps them apart from hard thresholds, and the
+    //! arithmetic matches apply_soft_floors (pure/engine.js) operation for
+    //! operation (cross-engine parity is checked on full searches; see the
+    //! roadmap row).
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_keeps_soft_floors_apart() {
+        let fx = json!({"layer2": {"restrictions": {
+            "stat_thresholds": [{"stat": "ehp", "op": "ge", "value": 10000}],
+            "soft_floors": [{"stat": "mr", "value": 10}, {"stat": "ms", "value": 0},
+                            {"stat": "ls", "value": -5}, {"stat": "hpr", "value": 50}],
+        }}});
+        let th = parse_thresholds(&fx);
+        let soft: Vec<_> = th.iter().filter(|t| t.soft).map(|t| (t.stat.as_str(), t.value)).collect();
+        assert_eq!(soft, vec![("mr", 10.0), ("hpr", 50.0)], "non-positive floors are dropped, order kept");
+        assert_eq!(th.iter().filter(|t| !t.soft).count(), 1);
+        assert!(th.iter().filter(|t| t.soft).all(|t| t.ge));
+    }
+
+    #[test]
+    fn shortfall_arithmetic() {
+        assert_eq!(apply_soft_shortfall(1000.0, 0.0), 1000.0);
+        assert_eq!(apply_soft_shortfall(1000.0, 0.1), 900.0);
+        assert_eq!(apply_soft_shortfall(1000.0, 3.0), 0.0, "capped at the whole score");
+        assert_eq!(apply_soft_shortfall(-200.0, 0.5), -300.0, "a negative score is lowered, never raised");
+        assert!(apply_soft_shortfall(f64::NAN, 0.5).is_nan());
+        assert_eq!(apply_soft_shortfall(f64::INFINITY, 0.5), f64::INFINITY);
+        // Never above the raw score, non-decreasing in it.
+        for s in [-50.0, -1.0, 0.0, 2.0, 70.0] {
+            for k in [0.0, 0.2, 0.9, 1.5] {
+                assert!(apply_soft_shortfall(s, k) <= s);
+                assert!(apply_soft_shortfall(s, k) <= apply_soft_shortfall(s + 1.0, k));
+            }
+        }
+    }
+
+    #[test]
+    fn soft_rows_never_reject() {
+        // Real tables and constants from a committed fixture.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_fam_tierstack_small.json");
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        v["layer2"]["restrictions"]["soft_floors"] = json!([{"stat": "mr", "value": 100.0}]);
+        let sc = ScoringCtx::load(&v).unwrap();
+        assert!(sc.thresholds.iter().any(|t| t.soft && t.stat == "mr"));
+        // The fixture's own hard floors aside: only the soft row.
+        let th = &[Threshold { stat: "mr".into(), ge: true, value: 100.0, soft: true }];
+        let mut m = Obj::new();
+        m.insert("mr".into(), json!(5.0));
+        let view = StatsView::Borrowed(&m);
+        assert!(check_thresholds_obj(&view, th, &sc.spell_base_costs, &sc.tables, &sc.consts),
+                "a soft floor never rejects");
+        let short = soft_shortfall_obj(&view, th, &sc.spell_base_costs, &sc.tables, &sc.consts);
+        assert_eq!(short, (100.0 - 5.0) / 100.0);
+        if let Some(d) = sc.dense.as_ref() {
+            assert_eq!(d.soft_floors.len(), 1, "lowered into the dense context, not its thresholds");
+        }
     }
 }

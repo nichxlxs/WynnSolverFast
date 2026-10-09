@@ -318,6 +318,7 @@ function _collect_solver_params() {
             stat_index,
             op: op_select.value === 'le' ? 1 : 0,
             value: parseInt(value) || 0,
+            soft: op_select.value === 'soft',   // R14, encoded as a trailing mask
         });
     }
 
