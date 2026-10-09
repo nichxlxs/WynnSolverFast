@@ -2308,7 +2308,7 @@ impl<'a> Search<'a> {
                                         if prefix_state == 0 {
                                             prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                                 Some((d, dd)) => {
-                                                    if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                    if self.bound_work.leaf.fill_direct_reuse(d, dd, &self.equip_names) { 1 } else { -1 }
                                                 }
                                                 None => -1,
                                             };
@@ -2356,7 +2356,7 @@ impl<'a> Search<'a> {
                                     if prefix_state == 0 {
                                         prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                             Some((d, dd)) => {
-                                                if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                if self.bound_work.leaf.fill_direct_reuse(d, dd, &self.equip_names) { 1 } else { -1 }
                                             }
                                             None => -1,
                                         };

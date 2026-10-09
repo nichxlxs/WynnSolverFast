@@ -2428,7 +2428,9 @@ pub mod trace {
     /// The existing subtree/cluster ceiling memo in the enumerator.
     pub const BM_HIT: usize = 29;
     pub const BM_MISS: usize = 30;
-    pub const N: usize = 31;
+    /// R23: cluster-loop fills skipped by `fill_direct_reuse`.
+    pub const FD_REUSED: usize = 31;
+    pub const N: usize = 32;
 
     pub static ENABLED: AtomicBool = AtomicBool::new(false);
     /// SCORE_TRACE=2: also time the per-trial sub-phases.
@@ -2521,6 +2523,9 @@ pub mod trace {
             eprintln!("score_trace: SP-solve key repeats — {:.1}% would hit a 4096-slot memo, \
                        {:.1}% identical to the previous leaf",
                       h as f64 / (h + m) as f64 * 100.0, p as f64 / (h + m) as f64 * 100.0);
+        }
+        if c(FD_REUSED) > 0 {
+            eprintln!("score_trace: fill_direct_reuse skipped {} cluster-loop fills", c(FD_REUSED));
         }
         if fine() && c(FD_CALLS) > 0 {
             eprintln!("score_trace: fill_direct slot churn — {:.2} of 8 item slots change \
@@ -4970,6 +4975,17 @@ pub struct DenseLeaf {
     pub has_arcanes: bool,
     /// Trace-only: previous call's item-name identities.
     pub probe_prev: [(usize, usize); 8],
+    /// R23: the item names (pointer, length) of the last `fill_direct_reuse`
+    /// build, valid while `reuse_ok`. Every plain `fill_direct` clears it,
+    /// because its callers add bound deltas to the state without rolling
+    /// them back.
+    pub reuse_key: Vec<(usize, usize)>,
+    pub reuse_ok: bool,
+    /// Old values of the deltas `dense_ceiling_with` left applied on a
+    /// reusable fill (callers such as R2's fast path read the state after
+    /// them). The next reuse hit restores them, newest first, bit for bit.
+    pub undo: Vec<(u32, f64, bool)>,
+    pub term_undo: Vec<(usize, f64)>,
 }
 
 /// Mutable trial state; dam/def lists are journaled per row and end each
@@ -5663,6 +5679,10 @@ impl DenseLeaf {
             lc_vals, present, var_out_absent, const_term_vals,
             dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx, has_arcanes,
             probe_prev: Default::default(),
+            reuse_key: Vec::new(),
+            reuse_ok: false,
+            undo: Vec::new(),
+            term_undo: Vec::new(),
         })
     }
 }
@@ -6519,11 +6539,68 @@ impl DenseLeaf {
         if leaf.fill_direct(d, dd, item_names) { Some(leaf) } else { None }
     }
 
+    /// R23: `fill_direct`, skipped when the state already holds exactly
+    /// these items from an earlier `fill_direct_reuse`. The tail ceiling
+    /// fills a prefix and the last-slot cluster loop then fills the same
+    /// prefix again (24 to 40% of all fills on cancelstack, tierstack and
+    /// hybrid medium repeat the previous one). Only for callers that leave
+    /// the state as they found it or journal what they change: the cluster
+    /// loop's `dense_ceiling_cached` rolls its deltas back itself, and
+    /// `dense_ceiling_with` leaves its deltas in `undo`, restored here.
+    /// `FILL_REUSE=0` disables. Debug builds rebuild on every hit and check
+    /// the reused state bit for bit.
+    pub fn fill_direct_reuse(
+        &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
+    ) -> bool {
+        let same = self.reuse_ok && self.reuse_key.len() == item_names.len()
+            && self.reuse_key.iter().zip(item_names)
+                .all(|(k, n)| *k == (n.as_ptr() as usize, n.len()));
+        if same && env_once!("FILL_REUSE" != "0") {
+            for (slot, old) in self.term_undo.drain(..).rev() {
+                self.const_term_vals[slot] = old;
+            }
+            for (i, old, was) in self.undo.drain(..).rev() {
+                self.lc_vals[i as usize] = old;
+                if !was { self.present[(i / 64) as usize] &= !(1u64 << (i % 64)); }
+            }
+            #[cfg(debug_assertions)]
+            {
+                let mut fresh = DenseLeaf::default();
+                assert!(fresh.fill_direct(d, dd, item_names));
+                assert!(self.same_state(&fresh), "fill_direct_reuse: reused state differs from a rebuild");
+            }
+            if trace::on() { trace::add(trace::FD_REUSED, 1); }
+            return true;
+        }
+        if !self.fill_direct(d, dd, item_names) { return false; }
+        self.reuse_key.clear();
+        self.reuse_key.extend(item_names.iter().map(|n| (n.as_ptr() as usize, n.len())));
+        self.reuse_ok = true;
+        true
+    }
+
+    #[cfg(debug_assertions)]
+    fn same_state(&self, o: &DenseLeaf) -> bool {
+        let bits = |a: &[f64], b: &[f64]| a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits());
+        let mults = |a: &[DMultEntry], b: &[DMultEntry]| a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| x.key == y.key && x.spell_match == y.spell_match);
+        bits(&self.lc_vals, &o.lc_vals) && self.present == o.present
+            && self.var_out_absent == o.var_out_absent
+            && bits(&self.const_term_vals, &o.const_term_vals)
+            && mults(&self.dam_entries, &o.dam_entries) && bits(&self.dam_vals, &o.dam_vals)
+            && mults(&self.def_entries, &o.def_entries) && bits(&self.def_vals, &o.def_vals)
+            && self.atk_spd_idx == o.atk_spd_idx && self.has_arcanes == o.has_arcanes
+    }
+
     /// build_direct into reused buffers; false → unknown item (caller falls
     /// back to the Obj path). Every field is fully overwritten.
     pub fn fill_direct(
         &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
     ) -> bool {
+        self.reuse_ok = false;
+        self.undo.clear();
+        self.term_undo.clear();
         if trace::on() {
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| eprintln!(
@@ -7219,18 +7296,25 @@ pub fn dense_ceiling_with(
     ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let dd = d.direct.as_ref()?;
-    if !work.leaf.fill_direct(d, dd, prefix_names) { return None; }
+    // Reusable: the deltas below are journaled into the leaf, so a later
+    // fill of the same prefix (the cluster loop) restores instead of
+    // rebuilding.
+    if !work.leaf.fill_direct_reuse(d, dd, prefix_names) { return None; }
     let leaf = &mut work.leaf;
     for &(i, dv) in adds {
         let iu = i as usize;
-        let cur = if bit_get(&leaf.present, i) {
-            let v = leaf.lc_vals[iu];
+        let was = bit_get(&leaf.present, i);
+        let old = leaf.lc_vals[iu];
+        let cur = if was {
+            let v = old;
             if v.is_nan() { 0.0 } else { v }
         } else { 0.0 };
         leaf.lc_vals[iu] = cur + dv;
         bit_set(&mut leaf.present, i);
+        leaf.undo.push((i, old, was));
     }
     for &(slot, dv) in term_adds {
+        leaf.term_undo.push((slot, leaf.const_term_vals[slot]));
         leaf.const_term_vals[slot] += dv;
     }
     work.scratch.reset(&work.leaf, d);
