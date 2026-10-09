@@ -1206,6 +1206,10 @@
                                 Requirement</button>
                             <button class="btn btn-sm btn-outline-secondary" onclick="blacklist_add_row()">+ Blacklist
                                 Item</button>
+                            <input id="restr-constraint-roll" type="number" min="0" max="99"
+                                class="form-control form-control-sm bg-dark text-light" style="width:6.5em"
+                                placeholder="Req. roll %"
+                                title="Roll-robust requirements: each stat a requirement (or the mana check) reads is taken at this roll toward its worse end, so results meet their requirements at that roll; damage keeps the normal roll. Blank = off.">
                             <select id="restriction-preset" class="solver-select form-select form-select-sm"
                                 style="width:auto"
                                 title="Replace the requirements above with a playstyle's starting floors (each family's validated seed build meets them)"

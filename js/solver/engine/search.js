@@ -2065,6 +2065,7 @@ async function _start_quick_solver_search() {
         if (!await _quick_search_checkpoint(run_id)) return;
         if (!_rust_engine_available()) throw new Error('Quick search requires Rust/WASM and browser worker support. Enable Rust/WASM or select Exhaustive search.');
         const restrictions = get_restrictions();
+        _apply_constraint_roll(restrictions);
         const snap = _build_solver_snapshot(restrictions);
         _quick_fixed_tomes(snap);
         if (!snap.weapon || snap.weapon.statMap.has('NONE')) throw new Error('Set a weapon before solving.');
@@ -2954,6 +2955,29 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
 // ── Top-level orchestrator ────────────────────────────────────────────────────
 
+// ── R15: roll-robust requirements ───────────────────────────────────────────
+//
+// "Requirement rolls %" (blank = off): every stat a requirement reads rolls
+// at that percentage toward its worse end (constraint_roll_dirs), so a
+// build is only accepted if it meets its requirements at that roll, while
+// the objective keeps the normal roll. Set before the snapshot: the item
+// nodes are re-rolled so locked items and the weapon match the pools.
+function _apply_constraint_roll(restrictions) {
+    if (typeof constraint_roll_dirs === 'undefined') return;   // constants.js not loaded (unit tests)
+    const raw = document.getElementById('restr-constraint-roll')?.value ?? '';
+    const pct = raw.trim() === '' ? NaN : parseInt(raw);
+    const mana_on = document.getElementById('combo-mana-btn')?.classList.contains('toggleOn') ?? true;
+    const next = Number.isFinite(pct) && pct < 100
+        ? { pct: Math.max(0, pct), dirs: constraint_roll_dirs(restrictions, mana_on) } : null;
+    const key = (c) => c ? `${c.pct}|${[...c.dirs].map(([k, d]) => k + d).sort().join(',')}` : '';
+    if (key(next) === key(current_constraint_roll)) return;
+    current_constraint_roll = next && next.dirs.size ? next : null;
+    if (typeof solver_equip_input_nodes !== 'undefined') {
+        for (const node of solver_equip_input_nodes) node.mark_dirty();
+        for (const node of solver_equip_input_nodes) node.update();
+    }
+}
+
 // ── R16: weapon as an outer group ───────────────────────────────────────────
 //
 // "Compare weapons" solves once per listed weapon, through the page's own
@@ -3340,6 +3364,7 @@ function start_solver_search() {
     _solver_state.complete = false;
     _solver_state.run_id += 1;
     const restrictions = get_restrictions();
+    _apply_constraint_roll(restrictions);
     const snap = _build_solver_snapshot(restrictions);
 
     // Validate pre-conditions

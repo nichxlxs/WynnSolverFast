@@ -400,6 +400,48 @@ async function weaponComparePhase(page, url, cfg) {
     ok(restored === info.name, `weapons: the original weapon is restored (${restored})`);
 }
 
+/**
+ * R15: with requirement rolls at 0%, every result meets a rolled-stat floor
+ * at minimum rolls; without it, some do not (so the check is not vacuous).
+ * Judged independently: items re-rolled from raw data at 0%, then the
+ * page's own evaluator with only the floor.
+ */
+async function constraintRollPhase(page, url, cfg) {
+    console.log('— roll-robust requirements —');
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const passAt = (F, pct) => page.evaluate(([F, pct]) => {
+        const saved = [current_roll_mode, current_constraint_roll];
+        current_constraint_roll = null;
+        current_roll_mode = { damage: pct, mana: pct, healing: pct, misc: pct };
+        try {
+            const restr = { ...get_restrictions(), stat_thresholds: [{ stat: 'mr', op: 'ge', value: F }], soft_floors: [] };
+            const snap = _build_solver_snapshot(restr);
+            return _solver_state.top5.map(r => {
+                const items = _reconstruct_result_items(r.items.map(i => get_item_display_name(i.statMap)));
+                return _eval_equip_build(snap, restr, items, items.map(i => i.statMap), false) !== null;
+            });
+        } finally { [current_roll_mode, current_constraint_roll] = saved; }
+    }, [F, pct]);
+    await runToCompletion(page);
+    let floor = 1;
+    for (let F = 1; F <= 60; F++) {
+        const p = await passAt(F, 85);
+        if (p.filter(Boolean).length <= p.length / 2) { floor = F; break; }
+    }
+    await page.evaluate((f) => { const r = restriction_add_row(); const i = r.querySelector('.restr-stat-input');
+        i.value = 'Mana Regen'; i.dataset.statKey = 'mr'; r.querySelector('.restr-value-input').value = String(f); }, floor);
+    await runToCompletion(page);
+    const plain = await passAt(floor, 0);
+    await page.evaluate(() => { document.getElementById('restr-constraint-roll').value = '0'; });
+    await runToCompletion(page);
+    const robust = await passAt(floor, 0);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+    ok(plain.some(x => !x), `rolls: without requirement rolls, ${plain.filter(x => !x).length} of ${plain.length} results miss mr >= ${floor} at minimum rolls`);
+    ok(robust.length > 0 && robust.every(Boolean), `rolls: at 0% requirement rolls all ${robust.length} results meet it at minimum rolls`);
+}
+
 /** Stop mid-search, then confirm the page is still usable. */
 async function cancelPhase(page, url, engine, cfg) {
     console.log(`— cancellation (${engine}) —`);
@@ -521,6 +563,11 @@ async function cancelPhase(page, url, engine, cfg) {
         // 3c. Weapon comparison (R16), on the same space.
         await weaponComparePhase(page, url, {
             target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3d. Roll-robust requirements (R15), damage target on the same space.
+        await constraintRollPhase(page, url, {
+            target: 'combo_damage', freeSlots: ARMOUR, manaOff: true,
         });
 
         // 4. Cancellation, on the wide space: freeing the accessories makes it

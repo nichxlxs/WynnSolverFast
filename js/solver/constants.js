@@ -210,7 +210,56 @@ function rollDisplayText() {
 
 /** Returns true if ALL groups are >= 100 (i.e. no rolling needed). */
 function _allRollsMax() {
-    return ROLL_GROUP_ORDER.every(g => current_roll_mode[g] >= 100);
+    return current_constraint_roll === null && ROLL_GROUP_ORDER.every(g => current_roll_mode[g] >= 100);
+}
+
+/**
+ * R15 roll-robust requirements: null, or { pct, dirs: Map(stat -> +1|-1) }.
+ * Every stat a requirement reads (see constraint_roll_dirs) rolls at `pct`
+ * toward its worse end for that requirement instead of its group's roll:
+ * +1 (higher is better) interpolates up from the lower extreme, -1 down
+ * from the higher one. Items are baked once (pools, locked items, weapon),
+ * so both engines see a build's requirements at the conservative roll and
+ * its objective at the objective roll; a stat read by both takes the
+ * conservative value everywhere.
+ */
+let current_constraint_roll = null;
+
+/**
+ * Stats each requirement reads and the direction that helps it: hard
+ * floors (+1 for >=, -1 for <=), soft floors (+1), and when the mana check
+ * is on, mana regen, mana steal, max mana and spell costs. Derived stats map
+ * to their rolled inputs (EHP and total HP to hpBonus, HP regen to hprRaw,
+ * total mana to maxMana, spell N's cost to spRawN and spPctN). A stat wanted
+ * in both directions is left out (it keeps its group's roll).
+ */
+function constraint_roll_dirs(restrictions, mana_on) {
+    const dirs = new Map(), conflict = new Set();
+    const add = (k, d) => {
+        if (conflict.has(k)) return;
+        if (dirs.has(k) && dirs.get(k) !== d) { dirs.delete(k); conflict.add(k); return; }
+        dirs.set(k, d);
+    };
+    const keys = (stat) => {
+        if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') return [['hpBonus', 1]];
+        if (stat === 'hpr' || stat === 'ehpr') return [['hprRaw', 1]];
+        if (stat === 'total_mana') return [['maxMana', 1]];
+        const m = /^finalSpellCost(\d)$/.exec(stat);
+        if (m) return [['spRaw' + m[1], 1], ['spPct' + m[1], 1]];   // higher raw cost = higher stat
+        return [[stat, 1]];
+    };
+    for (const { stat, op } of restrictions?.stat_thresholds ?? []) {
+        const sign = op === 'le' ? -1 : 1;
+        for (const [k, d] of keys(stat)) add(k, d * sign);
+    }
+    for (const { stat } of restrictions?.soft_floors ?? []) {
+        for (const [k, d] of keys(stat)) add(k, d);
+    }
+    if (mana_on) {
+        for (const k of ['mr', 'ms', 'maxMana']) add(k, 1);
+        for (const n of [1, 2, 3, 4]) { add('spRaw' + n, -1); add('spPct' + n, -1); }
+    }
+    return dirs;
 }
 
 /**
@@ -698,6 +747,12 @@ const RESTRICTION_STATS = [
  * @returns {number}
  */
 function getRolledValue(minVal, maxVal, statKey) {
+    const dir = current_constraint_roll?.dirs.get(statKey);
+    if (dir !== undefined) {
+        const p = Math.max(0, Math.min(100, current_constraint_roll.pct)) / 100;
+        const lo = Math.min(minVal, maxVal), hi = Math.max(minVal, maxVal);
+        return Math.round(dir > 0 ? lo + p * (hi - lo) : hi - p * (hi - lo));
+    }
     const pct = current_roll_mode[_get_roll_group(statKey)] ?? current_roll_mode.misc ?? 100;
     if (pct >= 100) return maxVal;
     if (pct <= 0) return minVal;
