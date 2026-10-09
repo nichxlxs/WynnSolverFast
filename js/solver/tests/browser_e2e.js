@@ -319,6 +319,42 @@ async function partitionPhase(page, url, cfg) {
        `partitioning: identical SP assignment (${sp.common}/${one.top.length} common)`);
 }
 
+/**
+ * R13: a re-run after tightening a requirement shows the previous run's
+ * still-valid builds at once (re-scored under the new requirement), and the
+ * final results are exactly those of a fresh page with the archive off.
+ */
+async function archivePhase(page, url, cfg) {
+    console.log('— result archive (re-run after tightening a requirement) —');
+    const addFloor = (v) => page.evaluate((v) => {
+        const r = restriction_add_row(); const i = r.querySelector('.restr-stat-input');
+        i.value = 'Total HP'; i.dataset.statKey = 'total_hp';
+        r.querySelector('.restr-value-input').value = String(v);
+    }, v);
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const first = await runToCompletion(page);
+    const floor = Math.ceil(first.top[3].score);
+    await addFloor(floor);
+    await clickRun(page);
+    const at_start = await page.evaluate(() => ({
+        seeds: (_solver_state.archive_seeds ?? []).length, shown: _solver_state.top5.length }));
+    await page.waitForFunction(() => !_solver_state.running, null, { timeout: 300000 });
+    const second = await readState(page);
+
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    await addFloor(floor);
+    const ref = await runToCompletion(page);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+
+    ok(at_start.seeds > 0 && at_start.shown > 0,
+       `archive: the re-run starts with ${at_start.seeds} re-scored builds from the previous run on screen`);
+    ok(second.top.length > 0 && scores(second) === scores(ref),
+       `archive: final results equal a fresh run's with the archive off (${second.top.length} builds)`);
+}
+
 /** Stop mid-search, then confirm the page is still usable. */
 async function cancelPhase(page, url, engine, cfg) {
     console.log(`— cancellation (${engine}) —`);
@@ -429,6 +465,11 @@ async function cancelPhase(page, url, engine, cfg) {
         // 3. Partitioning, on the four-armour space so the run completes; the
         //    threshold is lowered inside the phase (see its comment).
         await partitionPhase(page, url, {
+            target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3b. Result archive across runs (R13), on the same space.
+        await archivePhase(page, url, {
             target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
         });
 

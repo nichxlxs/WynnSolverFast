@@ -450,6 +450,16 @@ function _eval_current_build(snap, restrictions, blacklist) {
         }
     }
 
+    return _eval_equip_build(snap, restrictions, items, equip_sms, true);
+}
+
+/**
+ * Score one equipment set under the current snapshot the way the seed build
+ * is scored: SP solve (or the UI's SP override, when `use_sp_override`),
+ * thresholds, mana, objective and soft floors. Returns a top-5 entry, or
+ * null when the build is infeasible here.
+ */
+function _eval_equip_build(snap, restrictions, items, equip_sms, use_sp_override) {
     // Build statMap using worker_shims (same path as the search worker)
     const fixed_sms = [snap.weapon_sm];
     for (const tome of snap.tomes) {
@@ -477,7 +487,7 @@ function _eval_current_build(snap, restrictions, blacklist) {
     // with the same SPs the user sees in the stat display / mana panel.
     // Falling back to calculate_skillpoints only when no override exists.
     let base_sp, total_sp, assigned_sp;
-    if (_solver_sp_override?.total_sp) {
+    if (use_sp_override && _solver_sp_override?.total_sp) {
         base_sp = [..._solver_sp_override.base_sp];
         total_sp = [..._solver_sp_override.total_sp];
         assigned_sp = _solver_sp_override.assigned_sp ?? base_sp.reduce((a, b) => a + b, 0);
@@ -534,6 +544,63 @@ function _eval_current_build(snap, restrictions, blacklist) {
     };
 }
 
+// ── R13: result archive across runs ─────────────────────────────────────────
+//
+// The last finished run's results, as item names. When the next run starts
+// (typically after tightening a requirement), each archived build whose
+// items are all still in this run's pools is re-scored under the new
+// snapshot by _eval_equip_build. The survivors are real builds of the new
+// search, so they show at once and stay in the list like the seed build
+// until the search finds better; the JS workers also count them toward
+// their starting cutoff, admissible for the same reason as the seed's.
+// Display only for the Rust engine: the R6/R13 measurement bounds what an
+// incumbent can save there at 2 to 8%.
+let _solver_result_archive = [];
+const _ARCHIVE_SIZE = 15;
+
+function _archive_results(top5) {
+    _solver_result_archive = (top5 ?? []).slice(0, _ARCHIVE_SIZE)
+        .map(r => r.items.map(it => get_item_display_name(it.statMap)));
+}
+
+/** Archived builds valid in this run, re-scored; excludes `skip_names`. */
+function _archived_seed_builds(snap, restrictions, locked, pools, illegal_at_2, skip_names) {
+    if (!_solver_result_archive.length || snap.tome_opt) return [];
+    const slot_pool = (i) => {
+        const slot = equipment_fields[i];
+        if (locked[slot]) return null;
+        return pools[slot === 'ring1' || slot === 'ring2' ? 'ring' : slot] ?? null;
+    };
+    const out = [];
+    for (const names of _solver_result_archive) {
+        const key = names.join(',');
+        if (skip_names.has(key)) continue;
+        const items = _reconstruct_result_items(names);
+        let ok = true;
+        for (let i = 0; i < 8 && ok; i++) {
+            const slot = equipment_fields[i];
+            const name = names[i];
+            if (locked[slot]) {
+                ok = get_item_display_name(locked[slot].statMap) === name;
+            } else {
+                const pool = slot_pool(i);
+                ok = !!pool && pool.some(it => get_item_display_name(it.statMap) === name);
+            }
+        }
+        if (!ok) continue;
+        // An exclusive set may appear once per build.
+        const counts = new Map();
+        for (const it of items) {
+            const set = it.statMap.get('set');
+            if (set && illegal_at_2.has(set)) counts.set(set, (counts.get(set) ?? 0) + 1);
+        }
+        if ([...counts.values()].some(c => c > 1)) continue;
+        const r = _eval_equip_build(snap, restrictions, items, items.map(it => it.statMap), false);
+        if (r) { out.push(r); skip_names.add(key); }
+    }
+    return out;
+}
+
 /**
  * Merge top-5 results from all workers into _solver_state.top5.
  * When include_interim is true, also includes each worker's in-flight
@@ -544,6 +611,7 @@ function _merge_worker_top5(workers, include_interim) {
     _solver_state.top5 = [];
     // Re-insert the seed build so it competes with worker results
     if (_solver_state.search_mode !== 'quick' && _solver_state.seed_build) _insert_top5(_solver_state.seed_build);
+    if (_solver_state.search_mode !== 'quick') for (const b of _solver_state.archive_seeds ?? []) _insert_top5(b);
     for (const w of workers) {
         const sources = include_interim
             ? [w.top5 ?? [], w._cur_top5 ?? []]
@@ -1702,6 +1770,7 @@ function _on_all_workers_done(workers_snapshot) {
     }
 
     _merge_worker_top5(workers_snapshot, false);
+    _archive_results(_solver_state.top5);   // R13: seeds the next run
     // R20: merge the partitions' archives (every in-window build, with
     // stats) before the top-15 view, which keeps only 15, is displayed.
     if (_solver_state.search_mode === 'shortlist' && _solver_state.engine_used === 'rust'
@@ -2650,10 +2719,11 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     // names, so a worker rediscovering the same build must collapse to ONE
     // cutoff entry — a duplicate would make the shared cutoff the 14th
     // distinct score and let the ceiling gate discard a legitimate #15.
-    if (typeof _solver_state.seed_build?.score === 'number') {
-        const seed_names = _solver_state.seed_build.items
+    for (const seed of [_solver_state.seed_build, ...(_solver_state.archive_seeds ?? [])]) {
+        if (typeof seed?.score !== 'number') continue;
+        const seed_names = seed.items
             ?.map(i => i.statMap?.get?.('name') ?? '').join(' ');
-        cutoff_scores.set(seed_names || '\x00seed', _solver_state.seed_build.score);
+        cutoff_scores.set(seed_names || '\x00seed', Math.max(cutoff_scores.get(seed_names || '\x00seed') ?? -Infinity, seed.score));
     }
     function _update_shared_cutoff(entries) {
         if (!entries) return;
@@ -3239,6 +3309,14 @@ function start_solver_search() {
     if (_solver_state.seed_build) {
         console.log('[solver] seeded current build as baseline, score:', _solver_state.seed_build.score);
     }
+    // R13: the previous run's builds that are still valid here, re-scored.
+    const seed_key = _solver_state.seed_build?.items.map(it => get_item_display_name(it.statMap)).join(',');
+    _solver_state.archive_seeds = (typeof window !== 'undefined' && window.__SOLVER_NO_ARCHIVE) ? []
+        : _archived_seed_builds(snap, restrictions, locked, search_plan.original_pools, illegal_at_2,
+            new Set(seed_key ? [seed_key] : []));
+    if (_solver_state.archive_seeds.length) {
+        console.log('[solver] re-scored', _solver_state.archive_seeds.length, 'builds from the previous run');
+    }
 
     _solver_state.running = true;
     solver_engine_changed();
@@ -3249,6 +3327,7 @@ function start_solver_search() {
     _solver_state.engine_fallback_reason = '';
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
+    for (const b of _solver_state.archive_seeds) _insert_top5(b);
     _solver_state.checked = 0;
     _solver_state.feasible = 0;
     _solver_state.met_req = 0;
