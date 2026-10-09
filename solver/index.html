@@ -1206,6 +1206,18 @@
                                 Requirement</button>
                             <button class="btn btn-sm btn-outline-secondary" onclick="blacklist_add_row()">+ Blacklist
                                 Item</button>
+                            <select id="restriction-preset" class="solver-select form-select form-select-sm"
+                                style="width:auto"
+                                title="Replace the requirements above with a playstyle's starting floors (each family's validated seed build meets them)"
+                                onchange="solver_restriction_preset_changed(this)">
+                                <option value="" selected>Preset floors...</option>
+                                <option value="cancelstack">Cancelstack melee</option>
+                                <option value="heavy_melee">Heavy melee</option>
+                                <option value="tierstack">Attack-speed tierstack</option>
+                                <option value="spellsteal">Spellsteal</option>
+                                <option value="spell_sustained">Sustained spellspam</option>
+                                <option value="hybrid">Spell/melee hybrid</option>
+                            </select>
                         </div>
                     </div>
 

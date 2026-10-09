@@ -885,3 +885,59 @@ function read_custom_weights() {
     }
     return weights;
 }
+
+// ── Playstyle presets (roadmap R18) ───────────────────────────────────────────
+//
+// Restriction templates, one per family of the validated family suite. The
+// floors are the suite's `success_restrictions`, which each family's seed
+// build (a real, browser-validated build) meets, so a preset never starts
+// from an impossible requirement for that playstyle. They are starting
+// floors to edit, not official cutoffs (threshold-profiles.json says the
+// same). test_restriction_presets.js keeps this table equal to
+// js/solver/benchmarks/family_suite.json.
+
+const SOLVER_RESTRICTION_PRESETS = [
+    { id: 'cancelstack', label: 'Cancelstack melee', seed_weapon: 'Trance', restrictions: [{ stat: 'ehp', op: 'ge', value: 18000 }, { stat: 'ls', op: 'ge', value: 0 }, { stat: 'hpr', op: 'ge', value: -200 }, { stat: 'mainAttackRange', op: 'ge', value: -20 }] },
+    { id: 'heavy_melee', label: 'Heavy melee', seed_weapon: 'Vengeance', restrictions: [{ stat: 'ehp', op: 'ge', value: 18000 }, { stat: 'ls', op: 'ge', value: 0 }, { stat: 'hpr', op: 'ge', value: -100 }] },
+    { id: 'tierstack', label: 'Attack-speed tierstack', seed_weapon: 'Fate', restrictions: [{ stat: 'ehp_no_agi', op: 'ge', value: 12000 }, { stat: 'atkTier', op: 'ge', value: 3 }, { stat: 'hpr', op: 'ge', value: -100 }] },
+    { id: 'spellsteal', label: 'Spellsteal', seed_weapon: 'Oblivion', restrictions: [{ stat: 'ehp', op: 'ge', value: 10000 }, { stat: 'ms', op: 'ge', value: 20 }, { stat: 'hpr', op: 'ge', value: -250 }] },
+    { id: 'spell_sustained', label: 'Sustained spellspam', seed_weapon: 'Divzer', restrictions: [{ stat: 'ehp', op: 'ge', value: 8000 }, { stat: 'ms', op: 'ge', value: 20 }, { stat: 'hpr', op: 'ge', value: -300 }] },
+    { id: 'hybrid', label: 'Spell/melee hybrid', seed_weapon: 'Divzer', restrictions: [{ stat: 'ehp', op: 'ge', value: 10000 }, { stat: 'ms', op: 'ge', value: 10 }, { stat: 'hpr', op: 'ge', value: -250 }] },
+];
+
+/**
+ * Replace the stat threshold rows with a preset's. Blacklist rows, tomes and
+ * everything else are left alone. Returns the number of rows added.
+ */
+function solver_apply_restriction_preset(id) {
+    const preset = SOLVER_RESTRICTION_PRESETS.find(p => p.id === id);
+    const container = document.getElementById('restriction-rows');
+    if (!preset || !container) return 0;
+    for (const row of [...container.querySelectorAll('[id^="restr-row-"]')]) row.remove();
+    let added = 0;
+    for (const r of preset.restrictions) {
+        const stat_obj = RESTRICTION_STATS.find(s => s.key === r.stat);
+        if (!stat_obj) continue;
+        const row = restriction_add_row();
+        if (!row) break;
+        const stat_input = row.querySelector('.restr-stat-input');
+        stat_input.value = stat_obj.label;
+        stat_input.dataset.statKey = stat_obj.key;
+        row.querySelector('select').value = r.op;
+        row.querySelector('.restr-value-input').value = String(r.value);
+        added++;
+    }
+    _validate_restriction_contradictions();
+    _schedule_solver_hash_update();
+    return added;
+}
+
+/** The preset picker's change handler: apply, then reset to the prompt. */
+function solver_restriction_preset_changed(sel) {
+    if (sel?.value) solver_apply_restriction_preset(sel.value);
+    if (sel) sel.value = '';
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { ...(module.exports ?? {}), SOLVER_RESTRICTION_PRESETS };
+}
