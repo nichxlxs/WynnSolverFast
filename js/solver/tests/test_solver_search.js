@@ -1108,10 +1108,22 @@ async function runSolverTest(snapName) {
             // default policy.
             mode: process.env.SOLVER_DOMINANCE_MODE || pruningStrategy.name,
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
+            // R4 measurements: SOLVER_SET_DOMINANCE=1 or 0 overrides the policy.
+            ...(process.env.SOLVER_SET_DOMINANCE
+                ? { set_aware: process.env.SOLVER_SET_DOMINANCE === '1' } : {}),
         });
         freePools = reduction.active_pools;
         domStats = reduction.dominance_stats;
         ctx._prioritize_pools(freePools, dmgWeights);
+        // Benchmark hook: report the reduction and skip the search.
+        if (process.env.SOLVER_REDUCTION_ONLY === '1') {
+            const active = countCombinations(freePools);
+            console.log(`  [${snapName}] reduction ${reduction.mode}: input ${inputCombinations} `
+                + `active ${active} (${(active / inputCombinations).toFixed(4)}) removed ${reduction.removed_count} `
+                + `set_dominated ${ctx.SOLVER_DOMINANCE_REPORT?.set_dominated ?? 0} `
+                + `pools ${JSON.stringify(reduction.active_counts)}`);
+            return;
+        }
     }
 
     // Oracle snapshots truncate every free pool after prioritization so the

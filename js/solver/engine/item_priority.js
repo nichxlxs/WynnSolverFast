@@ -1347,6 +1347,48 @@ function _dedupe_identical_items(pools, report) {
 let _last_dominance_report = null;
 function _dominance_report() { return _last_dominance_report; }
 
+/**
+ * R4: the extreme changes to each stat when one piece of a set leaves a
+ * build, or null when a piece of this set must never be dominated.
+ *
+ * Swapping set item B for a setless item A at the same slot moves the set
+ * from c pieces to c - 1, for whatever c the build has. Every stat is
+ * additive (items and set rows sum into one stat map), so the swapped build
+ * is at least as good on a higher-is-better stat s for every c exactly when
+ * A_s >= B_s + max_c (row(c)_s - row(c - 1)_s), and symmetrically with the
+ * minimum for lower-is-better stats; a must-be-equal stat must not move at
+ * all. c runs over 1..max(rows, pieces), a missing row reading as no bonus,
+ * as applySetBonuses does.
+ *
+ * Refused (null): sets with an `illegal` row (exclusive sets keep their own
+ * guard) and sets granting skill points at any count. Set skill points are
+ * free provision in calculate_skillpoints, available before any item is
+ * equipped, while an item's own points arrive only once its requirements
+ * are met; no item stat can stand in for them, so their removal could make
+ * a build infeasible.
+ */
+function _set_transition_bounds(set_data) {
+    const rows = set_data?.bonuses;
+    if (!Array.isArray(rows)) return null;
+    const SKP = ['str', 'dex', 'int', 'def', 'agi'];
+    if (rows.some(r => r && (r.illegal || SKP.some(k => r[k])))) return null;
+    const n = Math.max(rows.length, (set_data.items ?? []).length);
+    const row = (c) => (c >= 1 && rows[c - 1]) || {};
+    const keys = new Set(rows.flatMap(r => Object.keys(r ?? {})));
+    const hi = new Map(), lo = new Map();
+    for (const key of keys) {
+        let mx = -Infinity, mn = Infinity;
+        for (let c = 1; c <= n; c++) {
+            const d = (row(c)[key] ?? 0) - (row(c - 1)[key] ?? 0);
+            if (d > mx) mx = d;
+            if (d < mn) mn = d;
+        }
+        if (!Number.isFinite(mx) || !Number.isFinite(mn)) return null;
+        hi.set(key, mx); lo.set(key, mn);
+    }
+    return { max: (stat) => hi.get(stat) ?? 0, min: (stat) => lo.get(stat) ?? 0 };
+}
+
 function _prune_dominated_items(pools, dominance_stats, options = {}) {
     const mode = _resolve_dominance_mode(options);
     const report = { mode, per_slot: {}, pruned: 0 };
@@ -1370,6 +1412,14 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
     const preserve_set_items = options.preserve_set_items !== false;
     const return_report = options.return_report === true;
+    // R4 (roadmap): set items become dominable when the caller passes the
+    // set table. Off unless asked for.
+    const set_aware = preserve_set_items && options.set_aware === true && options.sets instanceof Map;
+    const set_cache = new Map();
+    const set_bounds = (name) => {
+        if (!set_cache.has(name)) set_cache.set(name, _set_transition_bounds(options.sets.get(name)));
+        return set_cache.get(name);
+    };
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
     const equal_stats = [...(dominance_stats.equal ?? [])];
@@ -1408,6 +1458,20 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
         const vals = (stats) => real.map(it => stats.map(stat => _item_stat_val(it.statMap, stat)));
         const higher_v = vals(higher_stats), lower_v = vals(lower_stats), equal_v = vals(equal_stats);
 
+        // R4: a set item, compared as the item plus the most its set can
+        // change when it leaves the build (see _set_transition_bounds), or
+        // null when it cannot be dominated.
+        const set_adj = real.map((it, idx) => {
+            const set_name = it.statMap.get('set');
+            if (!set_name) return null;
+            const t = set_aware ? set_bounds(set_name) : null;
+            if (!t) return null;
+            const higher = higher_v[idx].map((v, k) => v + t.max(higher_stats[k]));
+            const lower = lower_v[idx].map((v, k) => v + t.min(lower_stats[k]));
+            if (!equal_stats.every(stat => t.max(stat) === 0 && t.min(stat) === 0)) return null;
+            return { higher, lower };
+        });
+
         for (let i = 0; i < real.length; i++) {
             if (dominated[i]) continue;
             const a_sm = real[i].statMap;
@@ -1424,7 +1488,10 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
             for (let j = 0; j < real.length; j++) {
                 if (i === j || dominated[j]) continue;
                 const b_sm = real[j].statMap;
-                if (preserve_set_items && b_sm.get('set')) continue;
+                // A set item only through R4, and only by a setless item:
+                // a dominator in a set would bring its own transitions.
+                const b_set = preserve_set_items && b_sm.get('set') ? set_adj[j] : undefined;
+                if (b_set === null || (b_set && a_sm.get('set'))) continue;
                 if ((b_sm.get('majorIds') ?? []).length > 0) continue;
 
                 // Exclusive set guard: an item from an exclusive set must not
@@ -1436,7 +1503,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 // 1. Higher-is-better stats: A >= B on all
                 let ok = true;
-                const b_higher = higher_v[j];
+                const b_higher = b_set ? b_set.higher : higher_v[j];
                 for (let k = 0; k < a_higher.length; k++) {
                     if (a_higher[k] < b_higher[k]) {
                         ok = false; break;
@@ -1445,7 +1512,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
                 if (!ok) continue;
 
                 // 2. Lower-is-better stats: A <= B on all
-                const b_lower = lower_v[j];
+                const b_lower = b_set ? b_set.lower : lower_v[j];
                 for (let k = 0; k < a_lower.length; k++) {
                     if (a_lower[k] > b_lower[k]) {
                         ok = false; break;
@@ -1479,6 +1546,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 dominated[j] = true;
                 if (dominated_by) dominated_by[j] = i;
+                if (b_set) report.set_dominated = (report.set_dominated ?? 0) + 1;
             }
         }
 
