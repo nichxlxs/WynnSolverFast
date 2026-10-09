@@ -316,6 +316,39 @@ pub mod r2_item_stats {
     }
 }
 
+/// R10_OBSERVE=1 (native, diagnostic): an upper bound on what SP conflict
+/// pairs with forward checking could save at the last slot. A last-slot loop
+/// that reaches leaves but yields no SP-feasible build is one perfect
+/// per-candidate SP knowledge would skip whole; its time is the ceiling.
+pub mod r10_observe {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static LOOPS: AtomicU64 = AtomicU64::new(0);
+    pub static LOOP_NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD_NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD_LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub fn on() -> bool {
+        !cfg!(target_arch = "wasm32") && crate::scoring::env_once!("R10_OBSERVE" == "1")
+    }
+    pub fn record(nanos: u64, leaves: u64, feasible: u64) {
+        if leaves == 0 { return; }
+        LOOPS.fetch_add(1, Relaxed);
+        LOOP_NANOS.fetch_add(nanos, Relaxed);
+        if feasible == 0 {
+            DEAD.fetch_add(1, Relaxed);
+            DEAD_NANOS.fetch_add(nanos, Relaxed);
+            DEAD_LEAVES.fetch_add(leaves, Relaxed);
+        }
+    }
+    pub fn line() -> Option<String> {
+        let l = LOOPS.load(Relaxed);
+        if l == 0 { return None; }
+        Some(format!("r10_observe: last-slot loops with leaves {} ({:.2} s) | with no SP-feasible leaf {} \
+                      ({:.2} s, {} leaves)", l, LOOP_NANOS.load(Relaxed) as f64 / 1e9, DEAD.load(Relaxed),
+                     DEAD_NANOS.load(Relaxed) as f64 / 1e9, DEAD_LEAVES.load(Relaxed)))
+    }
+}
+
 pub mod bound_observe {
     use std::sync::{Mutex, OnceLock};
     /// Number of relaxed slots under an observed ceiling (>= 1).
@@ -2331,6 +2364,8 @@ impl<'a> Search<'a> {
                     return;
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            let r10_t0 = r10_observe::on().then(|| (std::time::Instant::now(), self.leaf_calls, self.feasible));
             let mut offset = from;
             // R1 at the last-slot clusters: the highest total each lane can
             // reach from this prefix (see last_slot_sp_cap).
@@ -2485,6 +2520,11 @@ impl<'a> Search<'a> {
                     }
                 }
                 offset += 1;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some((t0, l0, f0)) = r10_t0 {
+                r10_observe::record(t0.elapsed().as_nanos() as u64, self.leaf_calls - l0,
+                                    (self.feasible - f0) as u64);
             }
             return;
         }
@@ -3997,6 +4037,7 @@ pub fn cli_main() {
     if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
     if let Some(line) = r2_stats::line() { println!("{line}"); }
     if let Some(line) = r2_item_stats::line() { println!("{line}"); }
+    if let Some(line) = r10_observe::line() { println!("{line}"); }
     if let Some(line) = r9_stats::line() { println!("{line}"); }
     if fx.window > 0.0 {
         let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
