@@ -129,7 +129,7 @@ Measurement note: the container moved hosts mid-session (the old
 absolute times before and after that point are not comparable; every A/B
 above ran both sides on one host.
 
-Not done yet: R10 (parked: most kernel calls succeed). Every other item has a row above: built, measured and not built, or bounded by another measurement.
+Not done yet: R10, still parked after a re-profile: on spell_wide (2e7 leaves) SP solves are 2.31 of 20.5 s and kernel rejects 692k of 4.52M leaf calls (15%), so conflict pairs, which can only remove rejected calls, save under 0.35 s (about 1.7%) at best. Every other item has a row above: built, measured and not built, or bounded by another measurement.
 the author: the 400 start-mana cap (needs checking in game) and Radiance
 item-SP scaling (above).
 
