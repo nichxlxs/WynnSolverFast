@@ -33,8 +33,170 @@ function loadModule(compiled) {
     return moduleReady;
 }
 
-self.onmessage = async (event) => {
-    const msg = event.data;
+// R24 session mode: one `Engine` per worker, kept across messages.
+let engine = null;
+let session_cutoff = null;
+
+// Messages are handled one at a time, in order: a `unit` posted right after
+// `session` must wait for the engine the `session` message builds.
+let chain = Promise.resolve();
+// Returns the promise so a caller (the tests) can await the handling.
+self.onmessage = (event) => (chain = chain.then(() => handle(event.data)));
+
+/**
+ * Progress callback for the exact engine: forwards the snapshot to the host
+ * and returns the shared cutoff floor when the page is cross-origin isolated.
+ * `cutoff` is `{ sab: Int32Array | null }`, cleared on the first failure.
+ */
+function exactProgress(post, cutoff) {
+    return (payload) => {
+        const p = JSON.parse(payload);
+        // Progress FIRST, unconditionally. The shared-cutoff work below
+        // is an optimisation; if it throws, the host must still get its
+        // funnel counters and interim results. Doing it the other way
+        // round cost the UI every progress message the moment Atomics
+        // misbehaved, and the engine swallows a throwing callback, so
+        // the search looked frozen while running perfectly.
+        post({
+            type: 'progress',
+            phase: 'searching',
+            checked: p.checked,
+            total: p.total,
+            precheck_pass: p.precheck_pass,
+            precheck_reject: p.precheck_reject,
+            feasible: p.feasible,
+            met_req: p.scored,
+            gated: p.gated,
+            mana_reject: p.mana_reject,
+            bound_pruned: p.bound_pruned,
+            top_n: p.top_n,
+        });
+
+        // Shared cutoff. When the page is cross-origin isolated the
+        // host passes a SharedArrayBuffer; every partition publishes
+        // its 15th-best score into it and reads back the maximum, so
+        // each prunes against what the others have already found
+        // rather than rediscovering a cutoff from scratch. A score one
+        // partition has already reached is a valid lower bound on the
+        // global top-N threshold, so this only ever skips leaves that
+        // could not have placed anyway.
+        //
+        // Returning undefined means "no floor", which is exactly the
+        // behaviour before any of this existed.
+        if (!cutoff.sab) return undefined;
+        try {
+            if (p.top_n && p.top_n.length >= 15) {
+                const mine = Math.floor(p.top_n[14].score);
+                if (Number.isFinite(mine) && mine > 0) {
+                    // i32 saturation: a score above 2^31-1 would wrap,
+                    // and a wrapped-negative floor is nonsense.
+                    Atomics.max(cutoff.sab, 0, Math.min(mine, 0x7fffffff));
+                }
+            }
+            const g = Atomics.load(cutoff.sab, 0);
+            return g > 0 ? g : undefined;
+        } catch (e) {
+            // One failure disables sharing for this worker, nothing more.
+            cutoff.sab = null;
+            return undefined;
+        }
+    };
+}
+
+/** The `done` body for an exact solve's JSON result. */
+function exactDone(result) {
+    return {
+        checked: result.checked,
+        precheck_pass: result.feasible,
+        precheck_reject: 0,
+        feasible: result.feasible,
+        met_req: result.scored,
+        gated: result.gated,
+        mana_reject: result.mana_reject,
+        bound_pruned: result.bound_pruned,
+        // `solve` reports `items`, the progress sink reports
+        // `item_names`; normalize so the host sees one shape.
+        top_n: (result.top ?? []).map((t) => ({
+            score: t.score, item_names: t.item_names ?? t.items,
+            // The greedy's SP assignment. The host installs this as the
+            // build's skill points, so dropping it here (as this
+            // normalizer used to) puts a zeroed allocation in the UI
+            // whose recomputed stats contradict the score.
+            base_sp: t.base_sp, total_sp: t.total_sp,
+            assigned_sp: t.assigned_sp,
+            // Which tome the engine chose, when tome optimisation is on.
+            // Same reasoning as the SP fields above: this normalizer is
+            // the last link before the host, and it is where the SP
+            // assignment was silently dropped before.
+            tome: t.tome ?? null,
+            // R20 explain-pass stats (windowed runs only).
+            ...(t.stats ? { stats: t.stats } : {}),
+        })),
+        complete: result.complete,
+        // R20 window fields, passed through for the host's merge rule.
+        ...(result.window ? {
+            window: result.window, archive_cap: result.archive_cap,
+            archive_full: result.archive_full, archive_last: result.archive_last,
+            window_complete: result.window_complete,
+        } : {}),
+    };
+}
+
+/**
+ * R24 work queue. `session` builds this worker's engine (parse, bound
+ * tables, warm start: once); each `unit` solves one first-slot range seeded
+ * with the host's merged cutoff and answers `unit_done` with everything
+ * this worker has solved so far, in the `done` shape. The host turns the
+ * last `unit_done` into the worker's result.
+ */
+async function handleSession(msg) {
+    const worker_id = msg.worker_id ?? 0;
+    const post = (body) => self.postMessage({ worker_id, ...body });
+    try {
+        if (msg.type === 'session') {
+            post({ type: 'progress', phase: 'loading engine', checked: 0, total: 0 });
+            await loadModule(msg.compiled_module);
+            if (typeof kernel.Engine !== 'function') {
+                post({ type: 'worker_error', code: 'session_engine_unavailable',
+                    message: 'The work-queue engine is unavailable. Reload the page to update it.' });
+                return;
+            }
+            post({ type: 'progress', phase: 'preparing search', checked: 0, total: 0 });
+            session_cutoff = { sab: msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null };
+            try {
+                engine = new kernel.Engine(msg.enum_fixture, msg.score_fixture);
+            } catch (e) {
+                // Same contract as `solve`: an unsupported scenario sends
+                // the host to the JS workers.
+                post({ type: 'worker_error', code: 'unsupported_scenario', message: String(e?.message ?? e) });
+                return;
+            }
+            let total = 0;
+            try { total = search_space(msg.enum_fixture); } catch (e) { /* progress-only */ }
+            post({ type: 'ready', result_count: engine.result_count(), total });
+            return;
+        }
+        if (!engine) return;   // the session failed and already reported it
+        const raw = engine.solve_unit(msg.index, msg.count, msg.seed_cutoff ?? 0, msg.seed_best ?? 0,
+            exactProgress(post, session_cutoff));
+        const result = JSON.parse(raw);
+        if (result.error) {
+            post({ type: 'worker_error', code: 'unsupported_scenario', message: result.error });
+            return;
+        }
+        post({ type: 'unit_done', index: msg.index, ...exactDone(result) });
+    } catch (error) {
+        post({
+            type: 'worker_error',
+            code: 'rust_worker_crash',
+            message: error?.message ?? String(error),
+            stack: error?.stack,
+        });
+    }
+}
+
+async function handle(msg) {
+    if (msg?.type === 'session' || msg?.type === 'unit') return handleSession(msg);
     if (!['solve', 'solve_anytime'].includes(msg?.type)) return;
     const quick = msg.type === 'solve_anytime';
     const started = performance.now();
@@ -43,7 +205,7 @@ self.onmessage = async (event) => {
     // Int32Array over the host's SharedArrayBuffer, or null when the page is
     // not cross-origin isolated. Atomics need a shared buffer; a plain one
     // would silently give each worker a private copy.
-    let cutoff = msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null;
+    const cutoff = { sab: msg.cutoff_sab ? new Int32Array(msg.cutoff_sab) : null };
 
     try {
         post({ type: 'progress', phase: 'loading engine', checked: 0, total: 0 });
@@ -103,58 +265,7 @@ self.onmessage = async (event) => {
         const raw = solve_partition(
             msg.enum_fixture, msg.score_fixture, msg.max_leaves ?? 0,
             msg.part_index ?? 0, msg.part_count ?? 1,
-            (payload) => {
-                const p = JSON.parse(payload);
-                // Progress FIRST, unconditionally. The shared-cutoff work below
-                // is an optimisation; if it throws, the host must still get its
-                // funnel counters and interim results. Doing it the other way
-                // round cost the UI every progress message the moment Atomics
-                // misbehaved, and the engine swallows a throwing callback, so
-                // the search looked frozen while running perfectly.
-                post({
-                    type: 'progress',
-                    phase: 'searching',
-                    checked: p.checked,
-                    total: p.total,
-                    precheck_pass: p.precheck_pass,
-                    precheck_reject: p.precheck_reject,
-                    feasible: p.feasible,
-                    met_req: p.scored,
-                    gated: p.gated,
-                    mana_reject: p.mana_reject,
-                    bound_pruned: p.bound_pruned,
-                    top_n: p.top_n,
-                });
-
-                // Shared cutoff. When the page is cross-origin isolated the
-                // host passes a SharedArrayBuffer; every partition publishes
-                // its 15th-best score into it and reads back the maximum, so
-                // each prunes against what the others have already found
-                // rather than rediscovering a cutoff from scratch. A score one
-                // partition has already reached is a valid lower bound on the
-                // global top-N threshold, so this only ever skips leaves that
-                // could not have placed anyway.
-                //
-                // Returning undefined means "no floor", which is exactly the
-                // behaviour before any of this existed.
-                if (!cutoff) return undefined;
-                try {
-                    if (p.top_n && p.top_n.length >= 15) {
-                        const mine = Math.floor(p.top_n[14].score);
-                        if (Number.isFinite(mine) && mine > 0) {
-                            // i32 saturation: a score above 2^31-1 would wrap,
-                            // and a wrapped-negative floor is nonsense.
-                            Atomics.max(cutoff, 0, Math.min(mine, 0x7fffffff));
-                        }
-                    }
-                    const g = Atomics.load(cutoff, 0);
-                    return g > 0 ? g : undefined;
-                } catch (e) {
-                    // One failure disables sharing for this worker, nothing more.
-                    cutoff = null;
-                    return undefined;
-                }
-            },
+            exactProgress(post, cutoff),
         );
         const result = JSON.parse(raw);
 
@@ -166,42 +277,7 @@ self.onmessage = async (event) => {
             return;
         }
 
-        post({
-            type: 'done',
-            checked: result.checked,
-            precheck_pass: result.feasible,
-            precheck_reject: 0,
-            feasible: result.feasible,
-            met_req: result.scored,
-            gated: result.gated,
-            mana_reject: result.mana_reject,
-            bound_pruned: result.bound_pruned,
-            // `solve` reports `items`, the progress sink reports
-            // `item_names`; normalize so the host sees one shape.
-            top_n: (result.top ?? []).map((t) => ({
-                score: t.score, item_names: t.item_names ?? t.items,
-                // The greedy's SP assignment. The host installs this as the
-                // build's skill points, so dropping it here (as this
-                // normalizer used to) puts a zeroed allocation in the UI
-                // whose recomputed stats contradict the score.
-                base_sp: t.base_sp, total_sp: t.total_sp,
-                assigned_sp: t.assigned_sp,
-                // Which tome the engine chose, when tome optimisation is on.
-                // Same reasoning as the SP fields above: this normalizer is
-                // the last link before the host, and it is where the SP
-                // assignment was silently dropped before.
-                tome: t.tome ?? null,
-                // R20 explain-pass stats (windowed runs only).
-                ...(t.stats ? { stats: t.stats } : {}),
-            })),
-            complete: result.complete,
-            // R20 window fields, passed through for the host's merge rule.
-            ...(result.window ? {
-                window: result.window, archive_cap: result.archive_cap,
-                archive_full: result.archive_full, archive_last: result.archive_last,
-                window_complete: result.window_complete,
-            } : {}),
-        });
+        post({ type: 'done', ...exactDone(result) });
     } catch (error) {
         post({
             type: 'worker_error',
@@ -210,4 +286,4 @@ self.onmessage = async (event) => {
             stack: error?.stack,
         });
     }
-};
+}

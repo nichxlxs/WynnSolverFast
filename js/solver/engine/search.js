@@ -2252,6 +2252,12 @@ function _rust_search_space_estimate(enum_fixture) {
 /// threshold keeps a 2x margin.
 const _RUST_PARTITION_MIN_SPACE = 8e6;
 
+/// R24: work-queue units per worker. Native simulation (4 workers, six
+/// families): 8 units per worker 3.25 to 3.90x over one worker, 4 per
+/// worker 3.04 to 3.50x, 2 per worker 2.46 to 3.40x. A unit costs one
+/// message round trip.
+const _RUST_UNITS_PER_WORKER = 8;
+
 /// Tests may lower the threshold via `window.__SOLVER_TEST_PARTITION_MIN_SPACE`.
 ///
 /// This guard is a PERFORMANCE cut-off, not a correctness one: partitioning is
@@ -2310,7 +2316,8 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     //
     // The one thing lost versus native threads is the shared score cutoff:
     // each partition discovers its own, so the gate prunes a little less.
-    // That costs work, never results.
+    // That costs work, never results. The R24 work queue below recovers most
+    // of it by passing the merged cutoff with every unit.
     const part_count = _rust_partition_count(enum_fixture);
     const states = [];
     let finished = 0;
@@ -2373,6 +2380,37 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         try { cutoff_sab = new SharedArrayBuffer(4); } catch (e) { cutoff_sab = null; }
     }
 
+    // R24 work queue. Instead of one fixed range per worker, the first
+    // slot's pool is cut into `unit_count` contiguous ranges handed out one
+    // at a time, and each unit carries the merged cutoff of everything every
+    // worker has reported so far. Without `SharedArrayBuffer` that is the
+    // only way partitions can share a cutoff (a running solve cannot receive
+    // messages), and the small grain also balances the load. Each worker
+    // keeps one engine (parse, bound tables, warm start once) and
+    // accumulates its units, so its last `unit_done` is its `done`. Seeds
+    // are admissible: the merged list holds scores of real builds, so its
+    // result_count-th entry bounds the final cutoff from below. Measured
+    // natively (partition_time queue, 4 workers, 32 units, six families):
+    // 3.25 to 3.90x over one worker, against 2.48 to 3.02x for 4 fixed
+    // partitions; exactness by partition_check's queue rows.
+    const use_queue = part_count > 1
+        && !(typeof window !== 'undefined' && window.__SOLVER_NO_QUEUE);   // test escape hatch
+    const unit_count = part_count * _RUST_UNITS_PER_WORKER;
+    let next_unit = 0;
+    let result_count = 15;
+    const latest_scores = [];   // per worker: its accumulated top-N scores
+    const unit_seed = () => {
+        const s = latest_scores.flat().filter(Number.isFinite).sort((a, b) => b - a);
+        const cut = s.length >= result_count ? Math.floor(s[result_count - 1]) : 0;
+        return { seed_cutoff: cut > 0 ? cut : 0, seed_best: s.length && s[0] > 0 ? s[0] : 0 };
+    };
+    const send_unit = (worker, worker_id) => {
+        if (next_unit >= unit_count) return false;
+        worker.postMessage({ type: 'unit', worker_id, index: next_unit++, count: unit_count, ...unit_seed() });
+        return true;
+    };
+    _solver_state.rust_units = use_queue ? unit_count : 0;
+
     for (let i = 0; i < part_count; i++) {
         let worker;
         try {
@@ -2389,6 +2427,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
             _cur_checked_since_top5: 0, _cur_L_progress: [0, 1],
         };
         states.push(state);
+        const part_index = i;
 
         worker.onmessage = (event) => {
             if (failed || !still_current()) return;
@@ -2408,7 +2447,25 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                 if (m.top_n) state._cur_top5 = m.top_n.map(_normalize_rust_result);
                 return;
             }
-            if (m.type !== 'done') return;
+            if (m.type === 'ready') {
+                if (Number.isFinite(m.result_count) && m.result_count > 0) result_count = m.result_count;
+                if (m.total > 0) _solver_state.total = m.total;
+                return;
+            }
+            if (m.type === 'unit_done') {
+                latest_scores[part_index] = (m.top_n || []).map(t => t.score);
+                if (send_unit(worker, part_index)) {
+                    // Cumulative over this worker's units, like its progress.
+                    state._cur_checked = m.checked ?? 0;
+                    state._cur_precheck_pass = m.precheck_pass ?? 0;
+                    state._cur_precheck_reject = m.precheck_reject ?? 0;
+                    state._cur_feasible = m.feasible ?? 0;
+                    state._cur_met_req = m.met_req ?? 0;
+                    state._cur_top5 = (m.top_n || []).map(_normalize_rust_result);
+                    return;
+                }
+                // No units left: this report is the worker's result.
+            } else if (m.type !== 'done') return;
             _solver_state.engine_phase = '';
             state.done = true;
             state.checked = m.checked ?? 0;
@@ -2460,9 +2517,19 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
 
-        const part_index = i;
         module_ready.then((compiled_module) => {
             if (failed || !still_current()) return;
+            if (use_queue) {
+                // The worker handles messages in order, so the first unit
+                // can follow the session without waiting for `ready`.
+                worker.postMessage({
+                    type: 'session', worker_id: part_index,
+                    enum_fixture, score_fixture: score_fixture_json,
+                    compiled_module, cutoff_sab,
+                });
+                if (!send_unit(worker, part_index)) finish_one();
+                return;
+            }
             worker.postMessage({
                 type: 'solve', worker_id: part_index,
                 enum_fixture, score_fixture: score_fixture_json,

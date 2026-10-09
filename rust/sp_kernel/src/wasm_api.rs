@@ -68,26 +68,76 @@ pub fn solve_partition(
     enum_fixture: &str, score_fixture: &str, max_leaves: f64,
     part_index: usize, part_count: usize, on_progress: &js_sys::Function,
 ) -> String {
-    let this = JsValue::NULL;
-    let mut sink = |p: crate::enumerate::ProgressSnapshot| -> Option<f64> {
-        let payload = crate::enumerate::progress_json(&p);
-        // A throwing callback must not abort the solve.
-        //
-        // Its RETURN value, when it is a finite positive number, is the best
-        // score any sibling partition has reached — the host keeps that in a
-        // SharedArrayBuffer when the page is cross-origin isolated. Feeding it
-        // back gives browser partitions the shared cutoff that native threads
-        // get, which is the one thing `solve_partition` loses to them. It is a
-        // pruning floor only: a score already achieved elsewhere bounds the
-        // global top-N threshold from below, so nothing reachable is skipped.
-        match on_progress.call1(&this, &JsValue::from_str(&payload)) {
-            Ok(v) => v.as_f64().filter(|x| x.is_finite() && *x > 0.0),
-            Err(_) => None,
-        }
-    };
+    let mut sink = progress_sink(on_progress);
     crate::enumerate::solve_json_full(
         enum_fixture, score_fixture, max_leaves, Some(&mut sink), part_index, part_count,
     )
+}
+
+/// R24: one worker's engine for the work-queue solve.
+///
+/// Browser workers cannot share a cutoff without `SharedArrayBuffer`, and a
+/// running solve cannot receive messages, so `solve_partition` workers each
+/// rediscover their own cutoff. An `Engine` instead parses the fixtures,
+/// builds the bound tables and runs the warm start once, then solves units
+/// (contiguous first-slot offset ranges) one call at a time. Between calls
+/// the host hands the worker its next unit together with the merged cutoff
+/// of everything every worker has finished, so later units prune against
+/// the best builds found anywhere. Results accumulate across a worker's
+/// units: each call returns the solve JSON of all of them so far, in the
+/// same shape `solve_partition` returns, and progress is cumulative too.
+#[wasm_bindgen]
+pub struct Engine {
+    inner: crate::enumerate::EngineSession,
+}
+
+#[wasm_bindgen]
+impl Engine {
+    #[wasm_bindgen(constructor)]
+    pub fn new(enum_fixture: &str, score_fixture: &str) -> Result<Engine, JsValue> {
+        crate::enumerate::EngineSession::new(enum_fixture, score_fixture)
+            .map(|inner| Engine { inner })
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// How many entries the merged cutoff counts down to: the result count,
+    /// or the archive cap under an R20 window.
+    pub fn result_count(&self) -> usize { self.inner.result_count() }
+
+    /// Solves unit `index` of `count`. `seed_cutoff` is the floor of the
+    /// `result_count()`-th best distinct score across every worker's latest
+    /// report (0 for none) and `seed_best` the best; both are admissible
+    /// because they are scores of real builds.
+    pub fn solve_unit(
+        &self, index: usize, count: usize, seed_cutoff: f64, seed_best: f64,
+        on_progress: &js_sys::Function,
+    ) -> String {
+        let mut sink = progress_sink(on_progress);
+        self.inner.solve_unit_json(index, count, seed_cutoff, seed_best, 0.0, Some(&mut sink))
+    }
+}
+
+/// The progress callback shared by the exact entry points: posts the JSON
+/// snapshot and returns the host's cutoff floor, when it gives one.
+///
+/// A throwing callback must not abort the solve.
+///
+/// Its RETURN value, when it is a finite positive number, is the best
+/// score any sibling partition has reached — the host keeps that in a
+/// SharedArrayBuffer when the page is cross-origin isolated. Feeding it
+/// back gives browser partitions the shared cutoff that native threads
+/// get, which is the one thing `solve_partition` loses to them. It is a
+/// pruning floor only: a score already achieved elsewhere bounds the
+/// global top-N threshold from below, so nothing reachable is skipped.
+fn progress_sink(on_progress: &js_sys::Function)
+    -> impl FnMut(crate::enumerate::ProgressSnapshot) -> Option<f64> + '_ {
+    move |p| {
+        let payload = crate::enumerate::progress_json(&p);
+        match on_progress.call1(&JsValue::NULL, &JsValue::from_str(&payload)) {
+            Ok(v) => v.as_f64().filter(|x| x.is_finite() && *x > 0.0),
+            Err(_) => None,
+        }
+    }
 }
 
 /// Search overlapping neighborhoods for strong builds within a time budget.

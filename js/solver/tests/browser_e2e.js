@@ -149,6 +149,7 @@ const readState = (page) => page.evaluate(() => ({
     engine_used: _solver_state.engine_used,
     engine_fallback_reason: _solver_state.engine_fallback_reason,
     partitions: _solver_state.partitions,
+    rust_units: _solver_state.rust_units,
     worker_count: _solver_state.workers.length,
     top: _solver_state.top5.slice(0, 15).map((r) => ({
         score: r.score,
@@ -276,7 +277,25 @@ async function partitionPhase(page, url, cfg) {
     await setup(page, { ...cfg, engine: 'rust', threads: 4 });
     const four = await runToCompletion(page);
     console.log(`  threads=4: checked=${four.checked} partitions=${four.partitions} `
-        + `wall=${four.elapsed_ms}ms`);
+        + `units=${four.rust_units} wall=${four.elapsed_ms}ms`);
+
+    // R24: the same split as fixed partitions (no work queue). Both shapes
+    // must reproduce the single-worker answer.
+    await page.addInitScript(() => { window.__SOLVER_NO_QUEUE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 4 });
+    const fixed = await runToCompletion(page);
+    await page.addInitScript(() => { window.__SOLVER_NO_QUEUE = false; });
+    console.log(`  threads=4, fixed partitions: checked=${fixed.checked} partitions=${fixed.partitions} `
+        + `units=${fixed.rust_units} wall=${fixed.elapsed_ms}ms`);
+    ok(four.rust_units > four.partitions && fixed.rust_units === 0,
+       `partitioning: the default run used the work queue (units=${four.rust_units}) `
+       + `and the escape hatch fixed partitions (units=${fixed.rust_units})`);
+    ok(fixed.engine_used === 'rust' && fixed.checked === one.checked && scores(fixed) === scores(one),
+       `partitioning: fixed partitions also match one worker (${fixed.checked} leaves)`);
+    const spf = spMatches(one, fixed);
+    ok(spf.common > 0 && spf.same,
+       `partitioning: fixed partitions, identical SP assignment (${spf.common}/${one.top.length} common)`);
 
     ok(one.engine_used === 'rust' && four.engine_used === 'rust',
        `partitioning: both runs used the Rust engine `

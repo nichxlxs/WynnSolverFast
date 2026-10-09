@@ -3174,6 +3174,11 @@ pub fn solve_json_full(
         Some(partition_bounds(pool_len, part_index, part_count))
     } else { None };
     let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress, part);
+    totals_json(&fx, ctx.as_ref(), &totals)
+}
+
+/// The solve JSON for a finished (or stopped) run's totals.
+fn totals_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, totals: &Totals) -> String {
     let complete = !totals.stopped_early;
     let mut top = String::from("[");
     for (i, e) in totals.top_n.iter().enumerate() {
@@ -3190,7 +3195,7 @@ pub fn solve_json_full(
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
         top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}{}}}",
                               sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
-                              tome_json(&e.tome), stats_json(&fx, ctx.as_ref(), e)));
+                              tome_json(&e.tome), stats_json(fx, ctx, e)));
     }
     top.push(']');
     format!(
@@ -3199,8 +3204,182 @@ pub fn solve_json_full(
          \"complete\":{},{}\"top\":{}}}",
         totals.checked, totals.feasible, totals.scored, totals.gated,
         totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
-        complete, window_json(&fx, complete, &totals.top_n), top,
+        complete, window_json(fx, complete, &totals.top_n), top,
     )
+}
+
+/// R24: a parsed scenario that solves first-slot offset ranges on demand.
+///
+/// The browser's workers cannot share a cutoff without SharedArrayBuffer
+/// (cross-origin isolation is off by default), and a running solve cannot
+/// receive messages. Splitting the search into units (first-slot offset
+/// ranges, finished whole, the native work-stealing grain) lets a host hand
+/// out units one at a time and pass each the best cutoff any worker has
+/// reached so far. Parsing, the bound tables and the warm start happen once
+/// per session, not per unit. Seeds are admissible for the same reason the
+/// warm cutoff is: the 15th-best distinct score among real builds bounds
+/// the final cutoff from below.
+pub struct EngineSession {
+    fx: Fixture,
+    ctx: Option<crate::scoring::ScoringCtx>,
+    bounds: Option<crate::scoring::BoundTables>,
+    dense: Option<crate::scoring::DenseBound>,
+    options: SearchOptions,
+    warm: Vec<TopEntry>,
+    warm_cutoff: u64,
+    warm_best: u64,
+    /// Everything this session's units have produced so far: counters
+    /// summed, top-N merged, `stopped_early` if any unit stopped. Each unit
+    /// starts from the merged top-N, so a worker's own earlier units raise
+    /// its cutoff, and its output is the union a single partition over all
+    /// its units would report.
+    acc: std::cell::RefCell<Totals>,
+}
+
+impl Totals {
+    fn add_counts(&mut self, o: &Totals) {
+        self.checked += o.checked; self.leaf_calls += o.leaf_calls;
+        self.precheck_reject += o.precheck_reject; self.precheck_pass += o.precheck_pass;
+        self.sp_leaf_reject += o.sp_leaf_reject; self.sp_kernel_reject += o.sp_kernel_reject;
+        self.feasible += o.feasible; self.scored += o.scored; self.gated += o.gated;
+        self.mana_reject += o.mana_reject; self.thresh_reject += o.thresh_reject;
+        self.bound_pruned += o.bound_pruned; self.stopped_early |= o.stopped_early;
+    }
+}
+
+impl EngineSession {
+    pub fn new(enum_fixture: &str, score_fixture: &str) -> Result<EngineSession, String> {
+        let fx = parse_fixture(enum_fixture);
+        let ctx = if score_fixture.trim().is_empty() { None } else {
+            Some(serde_json::from_str::<serde_json::Value>(score_fixture)
+                .map_err(|e| e.to_string())
+                .and_then(|v| crate::scoring::ScoringCtx::load(&v))?)
+        };
+        let options = SearchOptions::from_env();
+        let options = SearchOptions { result_count: effective_result_count(&fx, &options), ..options };
+        let scoring = ctx.as_ref();
+        let bounds = scoring.and_then(|sc| {
+            if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+                || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
+                || sc.consts.hp_casting || sc.consts.dynamic.is_some()
+                || sc.objective.needs_two_sided_ceiling() { return None; }
+            if !wide_pool_bounds_allowed(&fx) { return None; }
+            let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+            sc.layer2.build_bound_tables(&pools).ok()
+        });
+        let dense = match (scoring, bounds.as_ref()) {
+            (Some(sc), Some(_)) => sc.dense.as_ref().and_then(|d| {
+                let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+                crate::scoring::DenseBound::build(&sc.layer2, d, &pools, 4)
+            }),
+            _ => None,
+        };
+        let shared_cutoff = AtomicU64::new(0);
+        let shared_best = AtomicU64::new(0);
+        let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let warm = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, 4,
+            false, options.result_count, Instant::now(), None);
+        Ok(EngineSession {
+            warm_cutoff: shared_cutoff.load(Ordering::Relaxed),
+            warm_best: shared_best.load(Ordering::Relaxed),
+            fx, ctx, bounds, dense, options, warm, acc: Default::default(),
+        })
+    }
+
+    pub fn result_count(&self) -> usize { self.options.result_count }
+    pub fn warm_cutoff(&self) -> u64 { self.warm_cutoff }
+
+    pub fn first_pool_len(&self) -> usize { self.fx.slots.first().map_or(0, |s| s.pool.len()) }
+
+    /// `solve_range_json` over unit `index` of `count` equal contiguous
+    /// first-slot ranges (`partition_bounds`; a unit past the pool is empty).
+    pub fn solve_unit_json(
+        &self, index: usize, count: usize, seed_cutoff: f64, seed_best: f64, max_leaves: f64,
+        progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    ) -> String {
+        let (lo, hi) = partition_bounds(self.first_pool_len(), index, count.max(1));
+        self.solve_range_json(lo, hi, seed_cutoff, seed_best, max_leaves, progress)
+    }
+
+    /// Solves first-slot offsets [lo, hi] (inclusive) and returns the solve
+    /// JSON of everything this session has solved so far (see `acc`).
+    /// `seed_cutoff` is the host's current cutoff: the floor of the
+    /// result_count-th best distinct real score (0 for none), `seed_best`
+    /// its best (for the eps/window lines). Progress snapshots are
+    /// cumulative over the session's units too.
+    pub fn solve_range_json(
+        &self, lo: i64, hi: i64, seed_cutoff: f64, seed_best: f64, max_leaves: f64,
+        progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    ) -> String {
+        let fx = &self.fx;
+        let floor = if seed_cutoff.is_finite() && seed_cutoff > 0.0 { seed_cutoff.floor() as u64 } else { 0 };
+        let shared_cutoff = AtomicU64::new(self.warm_cutoff.max(floor));
+        let best_bits = if seed_best.is_finite() && seed_best > 0.0 { seed_best.to_bits() } else { 0 };
+        let shared_best = AtomicU64::new(self.warm_best.max(best_bits));
+        let mut search = Search::new(fx);
+        search.scoring = self.ctx.as_ref();
+        search.result_count = self.options.result_count;
+        search.global_started = Some(Instant::now());
+        search.shared_cutoff = Some(&shared_cutoff);
+        search.shared_best = Some(&shared_best);
+        search.bound_tables = self.bounds.as_ref();
+        search.bound_max_depth = 0;
+        search.bound_tail = 1;
+        search.dense_bound = self.dense.as_ref();
+        search.leaf_budget = (max_leaves > 0.0).then_some(max_leaves);
+        search.next_report = f64::INFINITY;
+        search.part_lo = lo;
+        search.part_hi = hi;
+        let base = std::mem::take(&mut *self.acc.borrow_mut());
+        let mut cumulative = progress.map(|p| {
+            let base = &base;
+            move |mut snap: ProgressSnapshot| {
+                snap.checked += base.checked; snap.leaf_calls += base.leaf_calls;
+                snap.precheck_reject += base.precheck_reject; snap.precheck_pass += base.precheck_pass;
+                snap.sp_leaf_reject += base.sp_leaf_reject; snap.sp_kernel_reject += base.sp_kernel_reject;
+                snap.feasible += base.feasible; snap.scored += base.scored; snap.gated += base.gated;
+                snap.mana_reject += base.mana_reject; snap.thresh_reject += base.thresh_reject;
+                snap.bound_pruned += base.bound_pruned;
+                p(snap)
+            }
+        });
+        if let Some(p) = cumulative.as_mut() {
+            search.progress = Some(p);
+            search.next_progress = search.progress_every;
+        }
+        search.init_equip_names();
+        for entry in base.top_n.iter().cloned() { search.insert_top(entry); }
+        // As run_single_with_options: each range publishes only the warm
+        // builds whose first-slot item it owns, so ranges stay disjoint.
+        if self.options.retain_warm || search.eps > 0.0 {
+            for entry in self.warm.iter().cloned() {
+                let owned = fx.slots.first().is_none_or(|slot| {
+                    slot.item_names.iter().position(|n| entry.items.get(slot.pos) == Some(n))
+                        .is_some_and(|offset| offset as i64 >= lo && offset as i64 <= hi)
+                });
+                if owned { search.insert_top(entry); }
+            }
+        }
+        search.run();
+        search.emit_progress();
+        let unit = Totals {
+            checked: search.checked, leaf_calls: search.leaf_calls,
+            precheck_reject: search.precheck_reject, precheck_pass: search.precheck_pass,
+            sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
+            feasible: search.feasible, scored: search.scored, gated: search.gated,
+            mana_reject: search.mana_reject, thresh_reject: search.thresh_reject,
+            bound_pruned: search.bound_pruned, stopped_early: search.stop, top_n: Vec::new(),
+        };
+        let top_n = std::mem::take(&mut search.top_n);
+        drop(search);
+        drop(cumulative);
+        let mut totals = base;
+        totals.add_counts(&unit);
+        totals.top_n = top_n;
+        let json = totals_json(fx, self.ctx.as_ref(), &totals);
+        *self.acc.borrow_mut() = totals;
+        json
+    }
 }
 
 /// R20: `,"stats":{...}` for an archived build in a windowed run (empty
@@ -4153,5 +4332,79 @@ mod window_tests {
         assert!((best - 2.20863848359218158e5).abs() < 1e-6, "top-1 {best}");
         let inside = scores.iter().filter(|&&s| s >= best * 0.98).count();
         assert_eq!(inside, 3, "builds within 2%: {scores:?}");
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    //! R24 `EngineSession`: units in any order and with admissible seeds
+    //! reproduce the whole run; an inadmissible seed shows the seed reaches
+    //! the pruning (so the exactness checks are not vacuous).
+    use super::*;
+    use serde_json::Value;
+
+    fn load() -> (String, String) {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        (std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap(),
+         std::fs::read_to_string(format!("{dir}score_fam_tierstack_small.json")).unwrap())
+    }
+
+    fn scores(json: &str) -> (Vec<f64>, f64, bool) {
+        let v: Value = serde_json::from_str(json).unwrap();
+        let s = v["top"].as_array().unwrap().iter().map(|t| t["score"].as_f64().unwrap()).collect();
+        (s, v["checked"].as_f64().unwrap(), v["complete"].as_bool().unwrap())
+    }
+
+    #[test]
+    fn units_reproduce_whole_run() {
+        let (e, sc) = load();
+        let (whole, checked, _) = scores(&solve_json_full(&e, &sc, 0.0, None, 0, 1));
+        // One session, units out of order, each seeded with the cutoff the
+        // whole run ends with (the strongest admissible seed).
+        let cut = whole[whole.len() - 1].floor();
+        let s = EngineSession::new(&e, &sc).unwrap();
+        let mut last = String::new();
+        for u in [5, 0, 9, 2, 7, 1, 3, 8, 4, 6] {
+            last = s.solve_unit_json(u, 10, cut, whole[0], 0.0, None);
+        }
+        let (got, got_checked, complete) = scores(&last);
+        assert!(complete);
+        assert_eq!(got_checked, checked);
+        assert_eq!(got.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                   whole.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn progress_is_cumulative() {
+        let (e, sc) = load();
+        let s = EngineSession::new(&e, &sc).unwrap();
+        let mut last_checked = 0.0;
+        for u in 0..3 {
+            let mut seen = Vec::new();
+            let mut sink = |p: ProgressSnapshot| { seen.push(p.checked); None };
+            let out = s.solve_unit_json(u, 3, 0.0, 0.0, 0.0, Some(&mut sink));
+            let (_, checked, _) = scores(&out);
+            assert!(seen.iter().all(|&c| c >= last_checked && c <= checked), "{seen:?}");
+            assert_eq!(*seen.last().unwrap(), checked);
+            last_checked = checked;
+        }
+    }
+
+    #[test]
+    fn inadmissible_seed_loses_builds() {
+        let (e, sc) = load();
+        let (whole, _, _) = scores(&solve_json_full(&e, &sc, 0.0, None, 0, 1));
+        let scored = |out: &str| serde_json::from_str::<Value>(out).unwrap()["scored"].as_u64().unwrap();
+        // A cutoff of the true best: everything else is pruned unvisited
+        // or scored without the gate's help, so far fewer leaves are scored
+        // and the top-N comes back short or wrong. Only possible if the
+        // seed is honored.
+        let honest = EngineSession::new(&e, &sc).unwrap().solve_unit_json(0, 1, 0.0, 0.0, 0.0, None);
+        let out = EngineSession::new(&e, &sc).unwrap()
+            .solve_unit_json(0, 1, whole[0].floor(), whole[0], 0.0, None);
+        let (got, _, _) = scores(&out);
+        assert!(scored(&out) < scored(&honest), "seed ignored: scored {} vs {}", scored(&out), scored(&honest));
+        assert_ne!(got.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                   whole.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
     }
 }
