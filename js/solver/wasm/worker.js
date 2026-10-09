@@ -174,6 +174,8 @@ async function handleSession(msg) {
             let total = 0;
             try { total = search_space(msg.enum_fixture); } catch (e) { /* progress-only */ }
             post({ type: 'ready', result_count: engine.result_count(), total });
+            // The first unit's own progress only comes after ~2M leaves.
+            post({ type: 'progress', phase: 'searching', checked: 0, total });
             return;
         }
         if (!engine) return;   // the session failed and already reported it

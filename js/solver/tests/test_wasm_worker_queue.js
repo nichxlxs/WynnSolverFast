@@ -68,6 +68,10 @@ const unitResult = (n) => JSON.stringify({
     assert.deepEqual([dones[1].checked, dones[1].met_req, dones[1].complete, dones[1].top_n[0].item_names, dones[1].index],
         [20, 2, true, ['a', 'b'], 5]); count++;
     assert.ok(w.messages.some(m => m.type === 'progress' && m.phase === 'searching' && m.checked === 5)); count++;
+    // The page leaves "preparing" as soon as the engine is built, not at the
+    // first unit's first progress snapshot.
+    const searching = w.messages.findIndex(m => m.type === 'progress' && m.phase === 'searching');
+    assert.ok(searching === w.messages.indexOf(ready) + 1 && w.messages[searching].checked === 0); count++;
 
     // A unit without a session (or after a failed one) does nothing.
     const orphan = worker({ Engine });
