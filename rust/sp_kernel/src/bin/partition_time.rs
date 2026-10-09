@@ -12,8 +12,13 @@
 //! before it started in simulated time; units run one after another for
 //! real, so the simulated wall time is the event-driven makespan.
 //!
+//! `oracle` mode bounds what any incumbent heuristic (R6) could save: one
+//! single-threaded solve seeded with the run's own final cutoff and best,
+//! against the same solve with only the warm start, best of `reps`.
+//!
 //! Usage: partition_time <enum fixture> <score fixture> [parts]
 //!        partition_time <enum fixture> <score fixture> queue <workers> <units>
+//!        partition_time <enum fixture> <score fixture> oracle [reps]
 use serde_json::Value;
 use sp_kernel::enumerate::EngineSession;
 use std::time::Instant;
@@ -96,10 +101,36 @@ fn queue(enum_f: &str, score_f: &str, workers: usize, units: usize) {
         cut == wcut && best == wbest, mine == top_scores(&whole));
 }
 
+fn oracle(enum_f: &str, score_f: &str, reps: usize) {
+    let solve = |cut: f64, best: f64| {
+        let s = EngineSession::new(enum_f, score_f).expect("session");
+        let t = Instant::now();
+        let v: Value = serde_json::from_str(&s.solve_unit_json(0, 1, cut, best, 0.0, None)).expect("json");
+        (t.elapsed().as_secs_f64(), v)
+    };
+    let (_, first) = solve(0.0, 0.0);
+    let rc = EngineSession::new(enum_f, score_f).expect("session").result_count();
+    let (cut, best) = merged(&top_scores(&first), rc);
+    let (mut plain, mut seeded) = (f64::INFINITY, f64::INFINITY);
+    let (mut sp, mut ss) = (0.0, 0.0);
+    for _ in 0..reps {
+        let (a, va) = solve(0.0, 0.0);
+        let (b, vb) = solve(cut, best);
+        assert_eq!(top_scores(&va), top_scores(&vb), "an admissible seed changed the result");
+        if a < plain { plain = a; sp = scored(&va); }
+        if b < seeded { seeded = b; ss = scored(&vb); }
+    }
+    println!("warm-only {plain:.2}s (scored {sp}) | seeded with the final cutoff {seeded:.2}s (scored {ss}) \
+              => an incumbent oracle saves at most {:.1}% ({:.3}x)", (1.0 - seeded / plain) * 100.0, plain / seeded);
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let enum_f = std::fs::read_to_string(&a[1]).expect("enum fixture");
     let score_f = std::fs::read_to_string(&a[2]).expect("score fixture");
+    if a.get(3).map(String::as_str) == Some("oracle") {
+        return oracle(&enum_f, &score_f, a.get(4).and_then(|s| s.parse().ok()).unwrap_or(2));
+    }
     if a.get(3).map(String::as_str) == Some("queue") {
         let workers = a.get(4).and_then(|s| s.parse().ok()).unwrap_or(4);
         let units = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(16);
