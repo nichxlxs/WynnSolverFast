@@ -1401,9 +1401,17 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
         const _name = (sm) => sm.get('displayName') ?? sm.get('name') ?? '?';
 
+        // Each item's compared stat values, read once instead of per pair
+        // (two Map lookups per stat per comparison were most of the prep
+        // phase on wide pools). Plain arrays keep the values as read, so the
+        // comparisons below see exactly what `_item_stat_val` returns.
+        const vals = (stats) => real.map(it => stats.map(stat => _item_stat_val(it.statMap, stat)));
+        const higher_v = vals(higher_stats), lower_v = vals(lower_stats), equal_v = vals(equal_stats);
+
         for (let i = 0; i < real.length; i++) {
             if (dominated[i]) continue;
             const a_sm = real[i].statMap;
+            const a_higher = higher_v[i], a_lower = lower_v[i], a_equal = equal_v[i];
             const a_reqs = a_sm.get('reqs') ?? [0, 0, 0, 0, 0];
             const a_skp = a_sm.get('skillpoints') ?? [0, 0, 0, 0, 0];
             const a_illegal = real[i]._illegalSet ?? null;
@@ -1428,16 +1436,18 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 // 1. Higher-is-better stats: A >= B on all
                 let ok = true;
-                for (const stat of higher_stats) {
-                    if (_item_stat_val(a_sm, stat) < _item_stat_val(b_sm, stat)) {
+                const b_higher = higher_v[j];
+                for (let k = 0; k < a_higher.length; k++) {
+                    if (a_higher[k] < b_higher[k]) {
                         ok = false; break;
                     }
                 }
                 if (!ok) continue;
 
                 // 2. Lower-is-better stats: A <= B on all
-                for (const stat of lower_stats) {
-                    if (_item_stat_val(a_sm, stat) > _item_stat_val(b_sm, stat)) {
+                const b_lower = lower_v[j];
+                for (let k = 0; k < a_lower.length; k++) {
+                    if (a_lower[k] > b_lower[k]) {
                         ok = false; break;
                     }
                 }
@@ -1445,8 +1455,9 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 // 2b. Non-monotonic relevant stats: A == B on all — a
                 // difference in either direction can matter to the build.
-                for (const stat of equal_stats) {
-                    if (_item_stat_val(a_sm, stat) !== _item_stat_val(b_sm, stat)) {
+                const b_equal = equal_v[j];
+                for (let k = 0; k < a_equal.length; k++) {
+                    if (a_equal[k] !== b_equal[k]) {
                         ok = false; break;
                     }
                 }

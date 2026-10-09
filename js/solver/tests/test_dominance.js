@@ -608,6 +608,83 @@ t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
     'Test 27: the default policy is the certified, exact one');
 }
 
+// Test 28 (R27): the per-item stat vectors give exactly the survivors and
+// dominators of the per-pair `_item_stat_val` lookups they replaced. The
+// reference below is the pre-vector loop, verbatim in its comparisons.
+{
+    function reference(pools, ds) {
+        const higher = [...ds.higher], lower = [...ds.lower], equal = [...(ds.equal ?? [])];
+        const out = {};
+        for (const [slot, pool] of Object.entries(pools)) {
+            const real = pool.filter(it => !it.statMap.has('NONE'));
+            const none = pool.filter(it => it.statMap.has('NONE'));
+            const dom = new Array(real.length).fill(false);
+            if (real.length >= 2) for (let i = 0; i < real.length; i++) {
+                if (dom[i]) continue;
+                const a = real[i].statMap, ai = real[i]._illegalSet ?? null;
+                if (a.get('set')) continue;
+                if ((a.get('majorIds') ?? []).length > 0) continue;
+                const ar = a.get('reqs') ?? [0, 0, 0, 0, 0], as = a.get('skillpoints') ?? [0, 0, 0, 0, 0];
+                for (let j = 0; j < real.length; j++) {
+                    if (i === j || dom[j]) continue;
+                    const b = real[j].statMap;
+                    if (b.get('set')) continue;
+                    if ((b.get('majorIds') ?? []).length > 0) continue;
+                    if (ai && ai !== (real[j]._illegalSet ?? null)) continue;
+                    if (higher.some(st => _item_stat_val(a, st) < _item_stat_val(b, st))) continue;
+                    if (lower.some(st => _item_stat_val(a, st) > _item_stat_val(b, st))) continue;
+                    if (equal.some(st => _item_stat_val(a, st) !== _item_stat_val(b, st))) continue;
+                    const br = b.get('reqs') ?? [0, 0, 0, 0, 0], bs = b.get('skillpoints') ?? [0, 0, 0, 0, 0];
+                    let ok = true;
+                    for (let k = 0; k < 5; k++) if ((ar[k] ?? 0) > (br[k] ?? 0) || (as[k] ?? 0) < (bs[k] ?? 0)) ok = false;
+                    if (ok) dom[j] = true;
+                }
+            }
+            out[slot] = [...real.filter((_, k) => !dom[k]), ...none];
+        }
+        return out;
+    }
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const STATS = ['damPct', 'sdPct', 'hpBonus', 'spRaw1', 'mr', 'atkTier', 'eDef'];
+    const pick = () => [0, 0, 1, 2, 3, 5, -1, -4, NaN][Math.floor(rnd() * 9)];
+    let same = 0, trials = 0, pruned = 0;
+    for (let trial = 0; trial < 300; trial++) {
+        const items = [];
+        for (let n = 0; n < 2 + Math.floor(rnd() * 40); n++) {
+            const sm = new Map(), mr = new Map();
+            for (const st of STATS) {
+                const r = rnd();
+                if (r < 0.4) mr.set(st, pick());          // rolled
+                else if (r < 0.6) sm.set(st, pick());     // static
+            }                                             // else: missing
+            sm.set('maxRolls', mr);
+            sm.set('reqs', [0, 1, 2, 3, 4].map(() => (rnd() < 0.7 ? 0 : Math.floor(rnd() * 3))));
+            sm.set('skillpoints', [0, 1, 2, 3, 4].map(() => (rnd() < 0.8 ? 0 : Math.floor(rnd() * 3))));
+            if (rnd() < 0.1) sm.set('set', 'S');
+            if (rnd() < 0.05) sm.set('majorIds', ['M']);
+            const it = { statMap: sm };
+            if (rnd() < 0.1) it._illegalSet = rnd() < 0.5 ? 'X' : 'Y';
+            items.push(it);
+        }
+        const none = makeNoneItem();
+        const shuffle = (a) => a.map(v => [rnd(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
+        const ds = { higher: new Set(shuffle(STATS).slice(0, 3)), lower: new Set(['spRaw1']),
+                     equal: new Set(rnd() < 0.5 ? ['atkTier'] : []) };
+        ds.higher.delete('spRaw1'); ds.higher.delete('atkTier');
+        const pools = { helmet: [...items, none], ring: shuffle(items) };
+        const want = reference(pools, ds);
+        const before = items.length * 2;
+        _prune_dominated_items(pools, ds);
+        trials++;
+        pruned += before - pools.helmet.length - pools.ring.length + 1;
+        if (want.helmet.length === pools.helmet.length && want.helmet.every((x, k) => x === pools.helmet[k])
+            && want.ring.length === pools.ring.length && want.ring.every((x, k) => x === pools.ring[k])) same++;
+    }
+    t.assert(same === trials && pruned > 100,
+        `Test 28: stat vectors match per-pair lookups on ${same}/${trials} random pools (${pruned} items pruned)`);
+}
+
 const summary = t.summary();
 if (require.main === module) {
     if (summary.fail > 0) process.exit(1);
