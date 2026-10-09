@@ -1949,9 +1949,6 @@ function _run_level_enum() {
                 for (let i = 0; i < 5; i++) {
                     if (skp[i] > 0) _sp_fixed_sum_prov[i] += skp[i];
                 }
-                // Pieces already worn by locked equipment. The weapon is not
-                // counted, matching calculate_skillpoints, which walks the
-                // eight equipment slots and takes the weapon separately.
                 const si = _sp_set_index.get(sm.get('set'));
                 if (si !== undefined) _sp_set_worn_fixed[si]++;
             }
@@ -1985,11 +1982,17 @@ function _run_level_enum() {
             }
         }
 
-        // Weapon: raw requirements only, excluded from prov
+        // Weapon: requirements plus set membership. Weapon SP provision is
+        // still handled by calculate_skillpoints as passive final SP, not as
+        // bootstrap provision for the mid-tree optimistic bound.
         const wep_req = weapon_sm.get('reqs');
         for (let i = 0; i < 5; i++) {
             if (wep_req[i] > _sp_fixed_max_eff_req[i])
                 _sp_fixed_max_eff_req[i] = wep_req[i];
+        }
+        if (!weapon_sm.get('crafted')) {
+            const si = _sp_set_index.get(weapon_sm.get('set'));
+            if (si !== undefined) _sp_set_worn_fixed[si]++;
         }
     }
 

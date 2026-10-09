@@ -153,6 +153,11 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
     const wep_skp = weapon.get('skillpoints');
     for (let i = 0; i < 5; i++) total_item_skillpoints[i] += wep_skp[i];
 
+    if (!weapon.get('crafted')) {
+        const set_name = weapon.get('set');
+        if (set_name) set_counts.set(set_name, (set_counts.get(set_name) || 0) + 1);
+    }
+
     // Set bonuses: treated as free (always available)
     for (const [set_name, count] of set_counts) {
         const bonus = sets.get(set_name).bonuses[count - 1];
