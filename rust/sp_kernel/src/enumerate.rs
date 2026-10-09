@@ -290,6 +290,32 @@ pub mod r2_stats {
     }
 }
 
+/// R2_ITEM_OBSERVE=1 (native, diagnostic): per-item tangent bounds for the
+/// last slot, computed where the tail ceiling does not prune, then checked
+/// at each leaf the search scores there. Counts how many of those leaves a
+/// per-item tangent would have skipped, against what computing it costs.
+pub mod r2_item_stats {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static NODES: AtomicU64 = AtomicU64::new(0);
+    pub static NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static ITEMS: AtomicU64 = AtomicU64::new(0);
+    pub static LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub static BELOW: AtomicU64 = AtomicU64::new(0);
+    /// Scored leaves above their own per-item bound: must stay 0.
+    pub static VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+    pub fn on() -> bool {
+        !cfg!(target_arch = "wasm32") && crate::scoring::env_once!("R2_ITEM_OBSERVE" == "1")
+    }
+    pub fn line() -> Option<String> {
+        let n = NODES.load(Relaxed);
+        if n == 0 { return None; }
+        let (l, b) = (LEAVES.load(Relaxed), BELOW.load(Relaxed));
+        Some(format!("r2_item_observe: nodes {} | {:.2} us/node | items bounded {} | leaves checked {} | \
+                      below the cutoff {} ({:.1}%) | violations {}", n, NANOS.load(Relaxed) as f64 / n as f64 / 1e3,
+                     ITEMS.load(Relaxed), l, b, 100.0 * b as f64 / l.max(1) as f64, VIOLATIONS.load(Relaxed)))
+    }
+}
+
 pub mod bound_observe {
     use std::sync::{Mutex, OnceLock};
     /// Number of relaxed slots under an observed ceiling (>= 1).
@@ -905,6 +931,11 @@ pub struct Search<'a> {
     r2_on: bool,
     adapt_tan: AdaptiveBound,
     r2_evals: u64,
+    /// R2_ITEM_OBSERVE: per-item bounds for the last slot under this prefix.
+    r2_items: Vec<f64>,
+    r2_items_prefix: Option<(usize, usize)>,
+    /// The last scored leaf's score (R2_ITEM_OBSERVE soundness check).
+    last_scored: Option<f64>,
     r2_pruned: f64,
     tan_forbidden: Option<Vec<bool>>,
     tan_dense: Vec<f64>,
@@ -1220,6 +1251,9 @@ impl<'a> Search<'a> {
             adapt_tan: AdaptiveBound::with_rate(std::env::var("R2_MIN_RATE").ok()
                 .and_then(|v| v.parse::<f64>().ok()).unwrap_or(27.0)),
             r2_evals: 0,
+            r2_items: Vec::new(),
+            r2_items_prefix: None,
+            last_scored: None,
             r2_pruned: 0.0,
             tan_forbidden: None,
             tan_dense: Vec::new(),
@@ -1424,6 +1458,24 @@ impl<'a> Search<'a> {
         if self.tan_memo.len() >= BOUND_MEMO_CAP { self.tan_memo.clear(); }
         self.tan_memo.insert(key, v.unwrap_or(f64::INFINITY));
         v
+    }
+
+    /// R2_ITEM_OBSERVE: per-item tangent bounds for the last slot under
+    /// (depth, offset), from the tail ceiling's fresh state; true when set.
+    fn fast_tangent_items(&mut self, depth: usize, offset: usize, hi_rem: i64) -> bool {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return false };
+        let Some(d) = sc.dense.as_ref() else { return false };
+        if !self.ceiling_fresh || depth + 2 != self.n_free { return false; }
+        if self.tan_plan.is_none() {
+            self.tan_plan = Some(crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows));
+        }
+        let Some(plan) = self.tan_plan.as_ref().unwrap().as_ref() else { return false };
+        let h = (hi_rem - offset as i64).clamp(0, db.h_max) as usize;
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+        crate::tangent::fast_bound_items(
+            plan, &mut self.tan_work, d, scratch, leaf, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &sp_cap, &db.table[depth + 1][h], &[(depth + 1, h)], Some(&mut self.r2_items)).is_some()
     }
 
     /// R2: the tag-grouped tangent bound for the subtree under (depth,
@@ -2127,6 +2179,7 @@ impl<'a> Search<'a> {
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
                 LeafOutcome::ThresholdReject => { self.feasible += 1; self.thresh_reject += 1; }
                 LeafOutcome::Scored(r) => {
+                    self.last_scored = Some(r.score);
                     self.feasible += 1;
                     self.scored += 1;
                     if r.score > self.observe_max {
@@ -2405,9 +2458,31 @@ impl<'a> Search<'a> {
                     self.precheck_reject += 1.0;
                     self.maybe_report();
                 } else {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let item_bound = match self.r2_items_prefix {
+                        Some((d0, o0)) if d0 + 1 == depth && self.prefix_offsets[d0] == o0
+                            && o < self.r2_items.len() => {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            r2_item_stats::LEAVES.fetch_add(1, Relaxed);
+                            if let Some(c) = self.cutoff() {
+                                if self.r2_items[o] < c - c.abs() * 1e-9 {
+                                    r2_item_stats::BELOW.fetch_add(1, Relaxed);
+                                }
+                            }
+                            Some(self.r2_items[o])
+                        }
+                        _ => None,
+                    };
+                    self.last_scored = None;
                     self.place(depth, o);
                     self.evaluate_leaf();
                     self.unplace(depth, o);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let (Some(b), Some(sc)) = (item_bound, self.last_scored) {
+                        if sc > b + b.abs() * 1e-9 {
+                            r2_item_stats::VIOLATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                 }
                 offset += 1;
             }
@@ -2556,6 +2631,18 @@ impl<'a> Search<'a> {
                             continue;
                         }
                     }
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if r2_item_stats::on() && self.bound_tables.is_some() && bound_here && tail_here {
+                use std::sync::atomic::Ordering::Relaxed;
+                let t0 = std::time::Instant::now();
+                self.r2_items_prefix = None;
+                if self.fast_tangent_items(depth, o, hi_rem) {
+                    self.r2_items_prefix = Some((depth, o));
+                    r2_item_stats::NODES.fetch_add(1, Relaxed);
+                    r2_item_stats::ITEMS.fetch_add(self.r2_items.len() as u64, Relaxed);
+                    r2_item_stats::NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Relaxed);
                 }
             }
             self.place(depth, o);
@@ -3909,6 +3996,7 @@ pub fn cli_main() {
     let final_cut = totals.top_n.get(14).map(|e| e.score);
     if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
     if let Some(line) = r2_stats::line() { println!("{line}"); }
+    if let Some(line) = r2_item_stats::line() { println!("{line}"); }
     if let Some(line) = r9_stats::line() { println!("{line}"); }
     if fx.window > 0.0 {
         let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);

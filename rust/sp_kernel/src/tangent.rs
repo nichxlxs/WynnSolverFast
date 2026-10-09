@@ -776,6 +776,19 @@ pub fn fast_bound(
     rows: &[Row], compiled: &[CompiledRow], tables: &Tables, sp: &[f64; 5],
     delta: &[(u32, f64)], slots: &[(usize, usize)],
 ) -> Option<f64> {
+    fast_bound_items(plan, w, d, s, leaf, rows, compiled, tables, sp, delta, slots, None)
+}
+
+/// `fast_bound`, and with `per_item` and exactly one open slot, also each
+/// of that slot's items' own bound (offsets 0..=h): the slot's max over
+/// items replaced by the item, so `per_item[k]` bounds every completion
+/// with item k there (x_k <= P, the same tangent inequality).
+#[allow(clippy::too_many_arguments)]
+pub fn fast_bound_items(
+    plan: &TanPlan, w: &mut TanWork, d: &DenseCtx, s: &mut DScratch, leaf: &DenseLeaf,
+    rows: &[Row], compiled: &[CompiledRow], tables: &Tables, sp: &[f64; 5],
+    delta: &[(u32, f64)], slots: &[(usize, usize)], mut per_item: Option<&mut Vec<f64>>,
+) -> Option<f64> {
     if plan.crit_is_var_output { return None; }
     for &(j, h) in slots {
         if h >= plan.slot_forbid_from[j] { return None; }
@@ -929,10 +942,27 @@ pub fn fast_bound(
 
     // Per group: sum_s max_i g . x_i - g . P.
     let mut total = 0.0;
+    if let Some(out) = per_item.as_deref_mut() {
+        out.clear();
+        if slots.len() == 1 {
+            let (j, h) = slots[0];
+            let n = plan.slot_rows[j].len().min(h + 1);
+            out.resize(n, 0.0);
+        }
+    }
     for &tag in &w.gtag {
         for &(u, v) in &w.gsp[tag as usize] { w.dense_g[u as usize] = v; }
         let g = &w.dense_g;
         let mut expo = -w.gsp[tag as usize].iter().map(|&(u, v)| v * w.p[u as usize]).sum::<f64>();
+        if let Some(out) = per_item.as_deref_mut() {
+            if slots.len() == 1 {
+                let rows_j = &plan.slot_rows[slots[0].0];
+                for (k, r) in rows_j.iter().take(out.len()).enumerate() {
+                    let v: f64 = r.iter().map(|&(u, x)| g[u as usize] * x).sum();
+                    out[k] += w.gsum[tag as usize] * (expo + v).exp();
+                }
+            }
+        }
         for &(j, h) in slots {
             let rows_j = &plan.slot_rows[j];
             if rows_j.is_empty() { continue; }
