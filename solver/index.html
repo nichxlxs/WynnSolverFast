@@ -1300,6 +1300,12 @@
                             </div>
                             <div id="solver-search-mode-note" class="small text-secondary w-100"></div>
                             <div class="d-flex align-items-center gap-1 w-100">
+                                <label for="solver-weapon-compare" class="text-secondary small" style="white-space:nowrap">Compare weapons:</label>
+                                <input id="solver-weapon-compare" class="form-control form-control-sm bg-dark text-light"
+                                    style="flex:1" placeholder="other weapons of this class, comma-separated"
+                                    title="Solve once per weapon (the current one first, each with the current weapon powders) and rank every result together. Exhaustive and Near-optimal modes.">
+                            </div>
+                            <div class="d-flex align-items-center gap-1 w-100">
                                 <span class="text-secondary small" style="white-space:nowrap">Item pool:</span>
                                 <select id="solver-pruning-mode"
                                     class="solver-select form-select form-select-sm"

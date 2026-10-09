@@ -1166,7 +1166,7 @@ function solver_compute_result_hash(result) {
         const item_only_sp = result.total_sp.map((v, i) => v - (result.base_sp?.[i] ?? 0));
         const mock_build = {
             equipment: result.items.slice(0, 8),
-            weapon: solver_item_final_nodes[8]?.value,
+            weapon: result.weapon_item ?? solver_item_final_nodes[8]?.value,   // R16
             tomes: solver_item_final_nodes.slice(9).map((n, i) => n?.value ?? none_tomes[_NONE_TOME_KEY[tome_fields[i]]]),
             total_skillpoints: item_only_sp,
             level: parseInt(document.getElementById('level-choice')?.value) || MAX_PLAYER_LEVEL,

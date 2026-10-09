@@ -534,6 +534,14 @@ function _wire_event_listeners() {
     // start greyed out rather than looking like they apply.
     _refresh_tome_opt_state();
 
+    // A weapon change invalidates the solver's SP assignment too: it was solved
+    // against the old weapon's requirements, and the seed build trusts it
+    // (_eval_current_build), so a stale one scores a build whose skill points
+    // the new weapon may not allow.
+    document.getElementById('weapon-choice')?.addEventListener('change', () => {
+        if (!_solver_filling_ui) _solver_sp_override = null;
+    });
+
     // When the user manually edits an equipment slot, update its lock state.
     // Entering an item → locked (solver keeps it).
     // Clearing an item → free (solver will search this slot).

@@ -884,6 +884,14 @@ function _update_solver_progress_ui() {
 // in solver_graph_build.js (_schedule_solver_hash_update / _do_solver_hash_update).
 
 function _fill_build_into_ui(result) {
+    // R16: a compared-weapon result loads its weapon first.
+    if (result.weapon && !_solver_state.weapon_compare) {
+        const input = document.getElementById('weapon-choice');
+        if (input && input.value !== result.weapon) {
+            input.value = result.weapon;
+            input.dispatchEvent(new Event('change'));
+        }
+    }
     // Store solver SP data so SolverSKPNode can show "Assign: X (+Y)" format
     // when the computation graph fires asynchronously.
     // Only set when real SP data is present (progress messages may lack it).
@@ -981,6 +989,7 @@ function _build_result_row(r, i, target) {
         ? [...(r.tome_names.weaponTome ?? []), ...(r.tome_names.armorTome ?? [])] : [];
     if (flat_tomes.length) tome_bits.push('Tomes: ' + flat_tomes.join(', '));
     if (tome_bits.length) names_str += ' \u2022 ' + tome_bits.join(' \u2022 ');
+    if (r.weapon) names_str = `<b>${r.weapon}</b> \u2022 ` + names_str;   // R16
     const result_hash = solver_compute_result_hash(r);
     let new_tab_link = '';
     if (result_hash) {
@@ -2945,7 +2954,99 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
 // ── Top-level orchestrator ────────────────────────────────────────────────────
 
+// ── R16: weapon as an outer group ───────────────────────────────────────────
+//
+// "Compare weapons" solves once per listed weapon, through the page's own
+// pipeline (the weapon input is set and the page left to settle, so atree,
+// combo and snapshot are exactly what a manual run with that weapon builds),
+// then ranks every weapon's results together. One shared top-N: the union
+// of each weapon's top-N contains the overall top-N, so the merged list is
+// exact for whatever each run is exact for. Only weapons of the current
+// weapon's type (class), so every run scores the same combo rows. Each run
+// starts with the previous weapon's builds re-scored (R13).
+const _WEAPON_SETTLE_MS = 1500;
+
+/** Parsed compare list: { weapons: [names], error } (empty when unused). */
+function _weapon_compare_list() {
+    const raw = document.getElementById('solver-weapon-compare')?.value ?? '';
+    const names = raw.split(',').map(x => x.trim()).filter(Boolean);
+    if (!names.length) return { weapons: [] };
+    const cur = solver_item_final_nodes[8]?.value?.statMap;
+    if (!cur || cur.has('NONE')) return { weapons: [], error: 'Set a weapon before comparing weapons.' };
+    const type = cur.get('type');
+    const out = [];
+    for (const name of names) {
+        const it = itemMap.get(name);
+        if (!it || it.category !== 'weapon') return { weapons: [], error: `"${name}" is not a weapon.` };
+        if (it.type !== type) return { weapons: [], error: `"${name}" is a ${it.type}, not a ${type}: compare weapons of one class.` };
+        if (!out.includes(name)) out.push(name);
+    }
+    return { weapons: out };
+}
+
+/** Set the weapon input and wait until the page reflects it. */
+async function _set_weapon_and_settle(name) {
+    const input = document.getElementById('weapon-choice');
+    if (!input) return false;
+    if (input.value !== name) {
+        input.value = name;
+        input.dispatchEvent(new Event('change'));
+    }
+    for (let t = 0; t < 100; t++) {
+        const sm = solver_item_final_nodes[8]?.value?.statMap;
+        if (sm && get_item_display_name(sm) === name) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    await new Promise(r => setTimeout(r, _WEAPON_SETTLE_MS));
+    return get_item_display_name(solver_item_final_nodes[8]?.value?.statMap ?? new Map([['NONE', true]])) === name;
+}
+
+async function _run_weapon_comparison(others) {
+    const original = document.getElementById('weapon-choice')?.value ?? '';
+    const weapons = [original, ...others.filter(w => w !== original)];
+    const status = document.getElementById('solver-status-msg');
+    const cmp = _solver_state.weapon_compare = { cancelled: false, done: 0, total: weapons.length };
+    const all = [];
+    for (const w of weapons) {
+        if (cmp.cancelled) break;
+        if (status) status.textContent = `Comparing weapons: ${w} (${cmp.done + 1} of ${cmp.total})`;
+        if (!await _set_weapon_and_settle(w)) {
+            console.warn('[solver] weapon compare: could not set', w);
+            continue;
+        }
+        const weapon_item = solver_item_final_nodes[8].value;
+        start_solver_search();
+        // A run that refused to start (e.g. a validation error) leaves the
+        // previous weapon's results in top5: never collect those.
+        if (!_solver_state.running) {
+            console.warn('[solver] weapon compare: no search started for', w);
+            continue;
+        }
+        while (_solver_state.running) await new Promise(r => setTimeout(r, 200));
+        if (cmp.cancelled) break;
+        for (const r of _solver_state.top5) all.push({ ...r, weapon: w, weapon_item });
+        cmp.done += 1;
+    }
+    await _set_weapon_and_settle(original);
+    // Shared top-N over every weapon's results, best first.
+    const seen = new Set();
+    const merged = all.sort((a, b) => b.score - a.score).filter(r => {
+        const key = r.weapon + '|' + r.items.map(i => get_item_display_name(i.statMap)).join(',');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).slice(0, _TOP_N);
+    _solver_state.top5 = merged;
+    // Only now: until here a Solve click must not start a run.
+    _solver_state.weapon_compare = null;
+    _display_solver_results(merged);
+    if (status) status.textContent = cmp.cancelled
+        ? `Weapon comparison stopped after ${cmp.done} of ${cmp.total} weapons.`
+        : `Compared ${cmp.done} weapons; best: ${merged[0]?.weapon ?? 'none'}.`;
+}
+
 function toggle_solver() {
+    if (_solver_state.weapon_compare && _solver_state.running) _solver_state.weapon_compare.cancelled = true;
     if (_solver_state.running) {
         if (_solver_state.search_mode === 'quick') {
             _finish_quick_search(_solver_state.run_id, 'stopped');
@@ -2967,6 +3068,18 @@ function toggle_solver() {
         _merge_worker_top5(saved_workers, true);
         _display_solver_results(_solver_state.top5);
         if (_solver_state.top5.length > 0) _fill_build_into_ui(_solver_state.top5[0]);
+        return;
+    }
+    if (_solver_state.weapon_compare) return;   // a comparison is between runs
+    const mode = document.getElementById('solver-search-mode')?.value ?? 'exhaustive';
+    const cmp = _weapon_compare_list();
+    if (cmp.error) {
+        const err_el = document.getElementById('solver-error-text');
+        if (err_el) err_el.textContent = cmp.error;
+        return;
+    }
+    if (cmp.weapons.length && (mode === 'exhaustive' || mode === 'within')) {
+        _run_weapon_comparison(cmp.weapons);
         return;
     }
     start_solver_search();

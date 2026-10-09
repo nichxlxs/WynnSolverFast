@@ -355,6 +355,51 @@ async function archivePhase(page, url, cfg) {
        `archive: final results equal a fresh run's with the archive off (${second.top.length} builds)`);
 }
 
+/**
+ * R16: comparing the current weapon with another of its class gives exactly
+ * the top-N of the two weapons' separate runs, tagged per weapon, and puts
+ * the original weapon back.
+ */
+async function weaponComparePhase(page, url, cfg) {
+    console.log('— weapon comparison —');
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const info = await page.evaluate(() => {
+        const sm = solver_item_final_nodes[8].value.statMap;
+        const name = get_item_display_name(sm), type = sm.get('type'), lvl = sm.get('lvl');
+        const other = [...itemMap.values()].filter(it => it.category === 'weapon' && it.type === type
+            && it.displayName !== name && Math.abs((it.lvl ?? 0) - lvl) <= 3 && !it.majorIds?.length)
+            .map(it => it.displayName).sort()[0];
+        return { name, other };
+    });
+    const tops = (w) => page.evaluate((w) => _solver_state.top5.map(r =>
+        `${r.weapon ?? w}|${r.score.toFixed(6)}|${r.items.map(i => get_item_display_name(i.statMap)).join(',')}`), w);
+    const single = async (w) => {
+        await page.evaluate((w) => { const i = document.getElementById('weapon-choice'); i.value = w; i.dispatchEvent(new Event('change')); }, w);
+        await page.waitForTimeout(3000);
+        await clickRun(page);
+        await page.waitForFunction(() => !_solver_state.running, null, { timeout: 300000 });
+        return tops(w);
+    };
+    const a = await single(info.name);
+    const b = await single(info.other);
+    await page.evaluate((w) => { const i = document.getElementById('weapon-choice'); i.value = w; i.dispatchEvent(new Event('change')); }, info.name);
+    await page.waitForTimeout(3000);
+    await page.evaluate((o) => { document.getElementById('solver-weapon-compare').value = o; }, info.other);
+    await page.evaluate(() => document.getElementById('solver-run-btn').click());
+    await page.waitForFunction(() => _solver_state.weapon_compare, null, { timeout: 60000 });
+    await page.waitForFunction(() => !_solver_state.weapon_compare && !_solver_state.running, null, { timeout: 600000 });
+    const merged = await tops(null);
+    const score = k => Number(k.split('|')[1]);
+    const want = [...a, ...b].sort((x, y) => score(y) - score(x)).slice(0, merged.length);
+    const restored = await page.evaluate(() => document.getElementById('weapon-choice').value);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+    ok(merged.length > 0 && JSON.stringify(merged) === JSON.stringify(want),
+       `weapons: ${info.name} vs ${info.other} merges to exactly the top-${merged.length} of the two separate runs`);
+    ok(restored === info.name, `weapons: the original weapon is restored (${restored})`);
+}
+
 /** Stop mid-search, then confirm the page is still usable. */
 async function cancelPhase(page, url, engine, cfg) {
     console.log(`— cancellation (${engine}) —`);
@@ -470,6 +515,11 @@ async function cancelPhase(page, url, engine, cfg) {
 
         // 3b. Result archive across runs (R13), on the same space.
         await archivePhase(page, url, {
+            target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3c. Weapon comparison (R16), on the same space.
+        await weaponComparePhase(page, url, {
             target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
         });
 
