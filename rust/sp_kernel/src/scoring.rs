@@ -3113,7 +3113,10 @@ pub fn leaf_pipeline_gated(
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
-                    v
+                    // R14: every item is placed, so the leaf state is exact.
+                    if two_sided { v } else {
+                        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, scratch, tables, false))
+                    }
                 } else if two_sided {
                     let base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
                     let cb_lo = asm(base, &low_sp);
@@ -4960,6 +4963,14 @@ pub struct DenseCtx {
     pub thresholds: Vec<(DThresh, bool, f64)>,
     /// R14 soft floors lowered the same way: (kind, floor).
     pub soft_floors: Vec<(DThresh, f64)>,
+    /// R14: the soft floors a ceiling may be penalised with (see
+    /// `dense_soft_ceiling_shortfall`); empty with stat-dependent
+    /// ability-tree effects.
+    pub soft_ceiling: Vec<(DThresh, f64)>,
+    /// Some item in the scenario carries defMobs. Its effect on EHP's defense
+    /// multiplier is fixed at fill time from the prefix, so a subtree ceiling
+    /// would understate EHP; such ceilings then leave EHP floors out.
+    pub soft_ceiling_def_mobs: bool,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -5312,6 +5323,24 @@ impl DenseCtx {
             };
             if t.soft { soft_floors.push((kind, t.value)); } else { thresholds.push((kind, t.ge, t.value)); }
         }
+        // Ceiling-safe soft floors: stats non-decreasing in every component a
+        // ceiling raises (clamped item adds, skill points at their caps).
+        let soft_ceiling: Vec<(DThresh, f64)> = if l2.scaling_kind != "cached" { Vec::new() } else {
+            raw_thresholds.iter().filter(|t| t.soft).filter_map(|t| {
+                let kind = match t.stat.as_str() {
+                    "ehp" => DThresh::Ehp,
+                    "ehp_no_agi" => DThresh::EhpNoAgi,
+                    "total_hp" => DThresh::TotalHp,
+                    "total_mana" => DThresh::TotalMana,
+                    "hpr" | "ehpr" => return None,
+                    st if st.starts_with("finalSpellCost") => return None,
+                    st => DThresh::Plain(*idx.get(st)?),
+                };
+                Some((kind, t.value))
+            }).collect()
+        };
+        let soft_ceiling_def_mobs = l2.item_registry.values()
+            .any(|it| it.get("defMobs").and_then(|v| v.as_f64()).is_some_and(|v| v != 0.0));
 
         // Bounded-doom classification of var output slots.
         let mut var_slot_mana_dir: Vec<i8> = Vec::with_capacity(var_slots.len());
@@ -5624,6 +5653,7 @@ impl DenseCtx {
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
             s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, mana_idx, atk_spd_str,
             var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds, soft_floors,
+            soft_ceiling, soft_ceiling_def_mobs,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -7301,6 +7331,9 @@ pub fn dense_ceiling_cached(
         let DenseWork { leaf, scratch, .. } = work;
         dense_score(d, leaf, scratch, rows, compiled, tables)
     };
+    let v = if d.soft_ceiling.is_empty() { v } else {
+        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, &work.scratch, tables, true))
+    };
     let leaf = &mut work.leaf;
     for (slot, old) in term_journal.into_iter().rev() {
         leaf.const_term_vals[slot] = old;
@@ -7345,7 +7378,11 @@ pub fn dense_ceiling_with(
     let DenseWork { leaf, scratch, .. } = work;
     dense_assemble(d, leaf, scratch, ceiling_sp);
     ceiling_crit_floor_dense(d, scratch);
-    Some(dense_score(d, leaf, scratch, rows, compiled, tables))
+    let v = dense_score(d, leaf, scratch, rows, compiled, tables);
+    // R14 (see dense_soft_ceiling_shortfall); a prefix ceiling is a subtree one.
+    Some(if d.soft_ceiling.is_empty() { v } else {
+        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, scratch, tables, true))
+    })
 }
 
 /// Subtree ceiling on the dense path with the level-banded suffix maxima:
@@ -7510,6 +7547,44 @@ pub fn dense_check_thresholds(
         if !*ge && v > *value { return false; }
     }
     true
+}
+
+/// R14: the soft-floor shortfall at a ceiling's assembled stats, counting
+/// only floors that bound every completion there: a lower bound on any
+/// completion's shortfall, so `apply_soft_shortfall(ceiling, this)` stays a
+/// ceiling (the penalty is non-decreasing in score and stat). Direct stats,
+/// total HP and total mana rise with every clamped add and skill point; EHP
+/// without agility rises with defense; EHP rises with agility too while
+/// agi_reduction <= 1 - def_pct, checked at the ceiling's (largest) def_pct.
+/// `subtree` ceilings skip EHP floors when an item carries defMobs.
+pub fn dense_soft_ceiling_shortfall(d: &DenseCtx, s: &DScratch, tables: &Tables, subtree: bool) -> f64 {
+    if d.soft_ceiling.is_empty() || env_once!("SOFT_CEILING" == "0") { return 0.0; }
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for (kind, value) in &d.soft_ceiling {
+        // Same values dense_threshold_value reads (no spell costs here).
+        let v = match kind {
+            DThresh::Ehp | DThresh::EhpNoAgi if subtree && d.soft_ceiling_def_mobs => continue,
+            DThresh::Ehp => {
+                let def_pct = tables.sp_to_pct(s.num_or0(d.s_def)) * tables.skillpoint_final_mult_3;
+                let agi_reduction = (100.0 - s.num_or0(d.s_agi_def)) / 100.0;
+                if !(agi_reduction <= 1.0 - def_pct) { continue; }
+                def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).1
+            }
+            DThresh::EhpNoAgi => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).2,
+            DThresh::TotalHp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).0,
+            DThresh::TotalMana => {
+                let mm = s.num_or0(d.s_max_mana);
+                let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
+                100.0 + mm + int_mana
+            }
+            DThresh::Plain(i) => s.num_or0(*i),
+            _ => continue,
+        };
+        if !(v < *value) { continue; }
+        short += (*value - v) / *value;
+    }
+    short
 }
 
 /// R14: soft_shortfall_obj on the dense scratch.
