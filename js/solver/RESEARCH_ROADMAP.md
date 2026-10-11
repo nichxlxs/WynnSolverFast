@@ -94,6 +94,15 @@ Found while doing this, fixed since (`6216667`):
   Radiance by 5%") say 5%, so with it on the search ranked at a different
   boost than the page then displayed. Fixed to 0.05; a test keeps the
   search's increments equal to `compute_radiance`'s.
+- **Greedy steps reconciled with the PR #19 branch (`b1245f3`).** That
+  branch moved the greedy from 20, 4, 1 to 10, 4, 1 steps (`0a49382`) for
+  C6: a 20-point first step spends a whole 20-point budget on one lane
+  before any split is tried. On this branch the R12 polish already recovers
+  that, so the change was measured before adopting it: top-15 identical on
+  all six small families, both exhaustive oracles still equal to the greedy,
+  and `benchmark_ab` 1.004x geometric mean (10 of 18 faster, every row
+  within 5%). Adopted in both engines so the branches agree; JS and Rust
+  stay exact through the full pipeline (60 of 60 `score_kernel` cases).
 - **Test harness counted builds twice.** `test_solver_search.js` merged the
   done-message and progress-message top-N without deduplicating, so any run
   long enough to send a progress update listed each build twice and failed
@@ -152,7 +161,11 @@ Measurement note: the container moved hosts mid-session (the old
 absolute times before and after that point are not comparable; every A/B
 above ran both sides on one host.
 
-Not done yet: nothing on the list. Every item has a row above: built, measured and not built, or bounded by another measurement.
+Not done yet: the crit-floor fix (`fe06315`) is not in PR #20; it reaches
+master through the stack either way. Porting it down is about six conflict
+hunks (worker.js, enumerate.rs, scoring.rs; the tangent.rs part drops out),
+a wasm rebuild and the negcrit snapshot, and waits on the author's go-ahead
+to push to that branch. Otherwise nothing on the list. Every item has a row above: built, measured and not built, or bounded by another measurement.
 the author, both since settled (`6216667`, `6216667`): Radiance item-SP
 scaling (above) and the 400 mana cap (section 5, item 3).
 
