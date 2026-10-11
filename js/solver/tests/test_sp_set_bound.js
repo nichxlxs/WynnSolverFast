@@ -62,13 +62,13 @@ t.assert(mixedCap[0] === 0, 'a negative set bonus is not credited as provision')
 t.assert(mixedCap[3] === 15 && mixedCap[4] === 15,
     'positive attributes of the same row are still credited');
 
-// Accumulation across sets takes the per-attribute maximum into one buffer.
+// Accumulation across sets sums each set's independently reachable maxima.
 {
     const out = zeros();
     accumulate_reachable_set_bonus(morph, 0, 3, out);
     accumulate_reachable_set_bonus([[10, 100, 0, 0, 0]], 0, 1, out);
-    t.assert(JSON.stringify(out) === JSON.stringify([10, 100, 0, 0, 0]),
-        'accumulating a second set maxes per attribute in place');
+    t.assert(JSON.stringify(out) === JSON.stringify([10, 185, 0, 0, 0]),
+        'accumulating a second set sums per-set reachable maxima in place');
 }
 
 // ── Admissibility, over random tables ────────────────────────────────────────
