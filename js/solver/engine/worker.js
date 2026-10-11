@@ -1460,7 +1460,7 @@ function _run_level_enum() {
     //
     // After the minimum SP is assigned to meet item requirements, any
     // remaining budget is greedily distributed to maximise the scoring target.
-    // Uses geometric step-down (20 → 4 → 1) for O(50-95) trials worst case.
+    // Uses geometric step-down (10 → 4 → 1); see greedy_sp_loop.
 
     // ── In-place greedy trial evaluation ───────────────────────────────────
     //

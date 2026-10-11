@@ -2278,7 +2278,7 @@ pub fn mana_check_passes(
     (start_mana - end_mana) <= 5.0
 }
 
-/// greedy_sp_loop (pure/engine.js): step-down [20,4,1], try-revert-keep.
+/// greedy_sp_loop (pure/engine.js): step-down [10,4,1], try-revert-keep.
 pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
     base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], mut remaining: i32,
     cap_total: &[i32; 5], mut trial_score: F,
@@ -2287,7 +2287,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
     let mut cur = trial_score(total_sp);
     let mut placed = [0i32; 5];   // points this loop added, per lane
 
-    for step in [20, 4, 1] {
+    for step in [10, 4, 1] {
         let mut progress = true;
         while progress && remaining > 0 {
             progress = false;

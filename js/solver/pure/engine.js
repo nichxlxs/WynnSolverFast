@@ -500,7 +500,11 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
 
 /**
  * Greedy SP allocation loop — shared by worker and main-thread sensitivity.
- * Step-down [20, 4, 1] with try-revert-keep pattern.
+ * Step-down [10, 4, 1] with try-revert-keep pattern. A 20-point first step
+ * could spend a whole 20-point budget on one lane before a split was tried
+ * (the C6 counterexample); the R12 polish recovers that too, and with it
+ * the two step sets give identical top-15s on the six small families at
+ * equal speed (benchmark_ab 1.004x), so this matches the PR #19 branch.
  *
  * @param {Int32Array|number[]} base_sp - Per-attribute base SP (mutated in-place)
  * @param {Int32Array|number[]} total_sp - Per-attribute total SP (mutated in-place)
@@ -514,7 +518,7 @@ function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn)
     let cur = trial_score_fn();
     const placed = [0, 0, 0, 0, 0];   // points this loop added, per lane
 
-    for (const step of [20, 4, 1]) {
+    for (const step of [10, 4, 1]) {
         let progress = true;
         while (progress && remaining > 0) {
             progress = false;
