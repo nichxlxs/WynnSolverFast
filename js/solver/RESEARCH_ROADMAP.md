@@ -65,18 +65,40 @@ measured, and every pruning change passed the oracles before landing.
 | R17 diverse top-N | covered by R20 step 3 | `f86d5ba` | Shortlist mode's one-slot variant grouping is R17's filter over a proved-complete archive: each representative differs from every earlier one in at least k slots, and the exact list stays available |
 | R32 search-mode toggle | done in its main form | `8493bb3`, `75ad6a6` | the Search selector offers Exhaustive, Near-optimal (proved), Shortlist and Quick; item pruning stays a separate selector (certified default). Folding the two into one enum was not needed for any measured case |
 
-Found while doing this, not yet fixed:
+Found while doing this, fixed since (`6216667`):
 
 - **Radiance item-SP scaling.** With Radiance, Divine Honor, Shine or
   Judgement on, the builder also scales the skill points granted by items
-  and set bonuses (`compute_radiance` with `total_item_skillpoints`, after
-  the requirement check); the solver scales the radiance-affected stats but
-  not item SP (the function's own comment says so). So with a boost on, the
-  two disagree on effective SP and on every SP-derived multiplier, and the
-  solver can rank builds differently from what the builder then shows.
-  Needs: the in-game rule confirmed, the leaf and every SP-dependent bound
-  (R1 caps, the ceiling's SP) updated together, and an oracle fixture with
-  the boost on.
+  and set bonuses (`compute_radiance` with `total_item_skillpoints`); the
+  solver did not, so the two disagreed on effective SP and every
+  SP-derived multiplier. The game data settles the rule: Radiance "will buff
+  positive IDs" (only Max Mana and some loot and XP IDs excluded), and item
+  skill points are IDs. Both engines now add `floor(sp + item_sp * (boost -
+  1))` per positive lane after the radiance scale, the builder's exact
+  expression (one floor over the sum: at boost 1.15, 14 SP plus 20 item SP
+  is 17, where flooring the bonus alone gives 16). Item SP is total minus
+  assigned SP, which greedy and the mana rescue preserve, so it is a per-leaf
+  constant. Bounds: the leaf ceilings (R1 reachable SP, the doom Int, the
+  two-sided low point) assemble through the same path and so include it;
+  nothing reads a raw SP stat except through the 150-capped percentage (no
+  ability-tree effect takes an SP input), so the all-150 subtree ceilings
+  stay admissible. The solver page's displayed stats now apply it too.
+  Two independent-oracle snapshots: `solver_indep_oracle_radiance` (the term
+  moves the best build 2.0%, 1,591,196 to 1,623,490) and
+  `solver_indep_oracle_radiance_mana` (Judgement, mana-sustained build);
+  production equals the prune-free oracle, and Rust and JS top-15 are
+  bit-identical on both, with `score_kernel` exact on assembly, score and the
+  full pipeline. A Rust test pins the JS top-15.
+- **Divine Honor at +10% in the search.** `search.js` added 0.10 for Divine
+  Honor while its toggle, the builder and the game ("Increases the bonus from
+  Radiance by 5%") say 5%, so with it on the search ranked at a different
+  boost than the page then displayed. Fixed to 0.05; a test keeps the
+  search's increments equal to `compute_radiance`'s.
+- **Test harness counted builds twice.** `test_solver_search.js` merged the
+  done-message and progress-message top-N without deduplicating, so any run
+  long enough to send a progress update listed each build twice and failed
+  the oracle comparison. The new mana oracle was the first to hit it; the
+  merge now keeps one entry per build.
 
 **Profile-driven overhead removal** (`df952c5`; not a roadmap item, found by
 profiling before R10). Measured with callgrind on `fam_hybrid_medium`, the
@@ -131,8 +153,8 @@ absolute times before and after that point are not comparable; every A/B
 above ran both sides on one host.
 
 Not done yet: nothing on the list. Every item has a row above: built, measured and not built, or bounded by another measurement.
-the author: the 400 start-mana cap (needs checking in game) and Radiance
-item-SP scaling (above).
+the author, both since settled (`6216667`, `6216667`): Radiance item-SP
+scaling (above) and the 400 mana cap (section 5, item 3).
 
 ## 0. Correctness first (from the author's review of PR #19, 2026-10-07)
 
@@ -259,7 +281,8 @@ actually reach.
 
 **Soundness caveats to check before shipping.** Tome guild candidates each get
 their own SP solve (take the max over candidates, or bound per candidate);
-Radiance scaling of item SP; negative-SP lanes; `two_sided` blends already
+Radiance scaling of item SP (handled: leaf ceilings include it, subtree
+ceilings saturate at 150; see the progress notes); negative-SP lanes; `two_sided` blends already
 handle the low side separately.
 
 **Measure.** `benchmark_ab.py --expect-divergence` is the wrong tool here:
@@ -1149,11 +1172,23 @@ not merge it. Cherry-pick these, each as its own small PR with its own test:
    share the hole. Confirmed on master. Fix: evaluate at the reachable cap
    (150, or the R1 per-lane cap), which also closes tracker queue item 2's
    EHP half.
-3. **Maximum mana cap.** The branch clamps start mana to 400 in both
-   simulators. The wiki's Mana page states no cap, so verify this against
-   the live game before adopting; if it is real, it is a one-line change in
-   each simulator, and it is a feasibility fix (the sim currently
-   overestimates mana on high-Int, high-maxMana builds).
+3. **Maximum mana cap.** Adopted (`6216667`). The wiki's Mana page is
+   silent, but its Identifying page states it: "Max Mana caps at 400,
+   including the bonuses provided by Intelligence and Base Mana (100)."
+   `MAX_MANA_CAP = 400` in `game_rules.js` with one helper,
+   `total_mana_pool`, used by both JS simulators, the `total_mana`
+   requirement and objective, the sensitivity estimate and the page's
+   displays; the Rust tables carry it as `max_mana_cap` for both Rust
+   simulators and every dense and Obj `total_mana` site. Setting the
+   constant to `Infinity` turns it off in both engines. It binds for real
+   items (Hydrotoxemia plus Space Dust at 150 Int is 464). `min` is
+   monotone, so every bound stays admissible. Checked: the 53 mana-sim cases
+   are bit-exact JS against Rust (one at the cap); with the cap lowered to
+   160 so it binds on the mana oracle, a `total_mana >= 158` requirement and
+   a `total_mana` objective both equal the prune-free oracle in JS, and Rust
+   matches JS bit for bit there, also under `SCORE_DENSE_CHECK`. Not changed:
+   the upstream builder's own Total Mana readout (`display.js`), which comes
+   from the wynnbuilder merge. Still unverified in the live game.
 
 The raw `>=` precheck ignoring set and tree contributions (the other half
 of tracker item 2) is also disabled on that branch; it is C3 in section 0,
