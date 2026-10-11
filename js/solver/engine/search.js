@@ -244,7 +244,11 @@ function _build_solver_snapshot(restrictions) {
 
     let radiance_boost = 1;
     if (document.getElementById('radiance-boost')?.classList.contains('toggleOn')) radiance_boost += 0.15;
-    if (document.getElementById('divinehonor-boost')?.classList.contains('toggleOn')) radiance_boost += 0.10;
+    // +5%, as the toggle says and as compute_radiance (the builder) applies it;
+    // the game describes Divine Honor as "Increases the bonus from Radiance by
+    // 5%". Same additions in the same order as compute_radiance, so the boost
+    // is the identical double and the item-SP floor below matches bit for bit.
+    if (document.getElementById('divinehonor-boost')?.classList.contains('toggleOn')) radiance_boost += 0.05;
     if (document.getElementById('shine-boost')?.classList.contains('toggleOn')) radiance_boost += 0.05;
     if (document.getElementById('judgement-boost')?.classList.contains('toggleOn')) radiance_boost = 1.4;
 
@@ -501,7 +505,7 @@ function _eval_equip_build(snap, restrictions, items, equip_sms, use_sp_override
     }
 
     // Assemble combo stats
-    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap);
+    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap, _item_sp_of(base_sp, total_sp));
 
     // Threshold check
     if (restrictions.stat_thresholds?.length > 0) {

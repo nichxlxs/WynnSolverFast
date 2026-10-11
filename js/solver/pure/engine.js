@@ -212,7 +212,7 @@ function threshold_stat_value(stats, stat, spell_base_costs, get_def) {
     if (stat === 'total_mana') {
         const mm = stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-        return 100 + mm + int_mana;
+        return total_mana_pool(mm, int_mana);
     }
     return stats.get(stat) ?? 0;
 }
@@ -423,9 +423,27 @@ function eval_combo_damage_with_bp(combo_base, weapon_sm, parsed_combo, bp_confi
  *   { combo_base, combo_base_nested, atree }
  * @param {Map|null} extra_stats - Additional additive stats merged last (tome bundle).
  */
+/**
+ * Radiance on item-granted skill points, exactly as the builder's
+ * compute_radiance does it: each positive lane of SP granted by items and set
+ * bonuses adds floor(sp + item_sp * (boost - 1)) on top of the scaled stat
+ * map. Same operands in the same order, so the float rounding matches the
+ * builder bit for bit. item_sp is the SP solve's total_item_skillpoints (equal
+ * to total_sp - base_sp, which greedy and the mana rescue both preserve), so
+ * it is constant per leaf. No-op without a boost or without item_sp.
+ */
+function _apply_radiance_item_sp(statMap, item_sp, boost) {
+    if (boost === 1 || !item_sp) return;
+    for (let i = 0; i < skp_order.length; i++) {
+        if ((item_sp[i] || 0) > 0) {
+            statMap.set(skp_order[i], Math.floor((statMap.get(skp_order[i]) || 0) + item_sp[i] * (boost - 1)));
+        }
+    }
+}
+
 function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance_boost,
                                atree_merged, button_states, slider_states, static_boosts,
-                               scratch, scaling_opts, extra_stats) {
+                               scratch, scaling_opts, extra_stats, item_sp) {
     // One working map, not two. The pre-scale stats and the returned combo_base
     // used to be separate clones of the build statmap, but nothing reads
     // pre_scale after the atree scaling below is computed from it — neither
@@ -449,6 +467,7 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
     if (weaponType) pre_scale.set('classDef', classDefenseMultipliers.get(weaponType) || 1.0);
     _merge_into(pre_scale, atree_raw);
     _apply_radiance_scale_inplace(pre_scale, radiance_boost);
+    _apply_radiance_item_sp(pre_scale, item_sp, radiance_boost);
     // scaling_opts (worker only): {cached} — atree scaling proven constant
     // for this search, reuse the precomputed result; {split} — constant
     // partition cached, stat-input effects re-evaluated per candidate;
@@ -623,7 +642,7 @@ function eval_indirect_stat(stats, stat) {
     if (stat === 'total_mana') {
         const mm = stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-        return 100 + mm + int_mana;
+        return total_mana_pool(mm, int_mana);
     }
     return stats.get(stat) ?? 0;
 }

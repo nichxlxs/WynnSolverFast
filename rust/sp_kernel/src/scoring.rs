@@ -96,6 +96,10 @@ pub struct Tables {
     pub sp_rate: f64,
     pub sp_cap: f64,
     pub sp_pct_table: Vec<f64>,
+    /// MAX_MANA_CAP (js/game/game_rules.js): the max mana pool, base and Int
+    /// bonus included. Infinity when the JS side turned it off (exported as
+    /// null); 400 for exports that predate the field.
+    pub max_mana_cap: f64,
     pub skillpoint_final_mult_3: f64,
     pub skillpoint_final_mult_4: f64,
     /// Precomputed per-element stat key names (hot-path format! hoist).
@@ -145,12 +149,21 @@ impl Tables {
             sp_rate: v["sp_percentage_rate"].as_f64().unwrap(),
             sp_cap: v["sp_percentage_input_cap"].as_f64().unwrap(),
             sp_pct_table: v.get("sp_pct_table").map(arr_f64).unwrap_or_default(),
+            max_mana_cap: match v.get("max_mana_cap") {
+                None => 400.0,
+                Some(x) => x.as_f64().unwrap_or(f64::INFINITY),
+            },
             skillpoint_final_mult_3: v.get("skillpoint_final_mult")
                 .and_then(|a| a.get(3)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
             skillpoint_final_mult_4: v.get("skillpoint_final_mult")
                 .and_then(|a| a.get(4)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
             names: ElemNames::build(),
         }
+    }
+    /// total_mana_pool (game_rules.js): Math.min(MAX_MANA_CAP, 100 + Max
+    /// Mana + Int bonus), NaN flowing through as Math.min lets it.
+    pub fn mana_pool(&self, item_mana: f64, int_mana: f64) -> f64 {
+        js_min(self.max_mana_cap, 100.0 + item_mana + int_mana)
     }
     pub fn sp_to_pct(&self, skp: f64) -> f64 {
         // Mirrors skillPointsToPercentage, including NaN flow-through
@@ -1446,9 +1459,12 @@ impl Layer2 {
 
     /// Build combo_base for a case's items at the given total_sp.
     /// Convenience: full leaf assembly (build stats + SP-dependent parts).
-    pub fn assemble(&self, item_names: &[&str], total_sp: &[f64], weapon: &Obj) -> Result<Obj, String> {
+    /// `item_sp` is the item-granted SP Radiance scales (total minus assigned).
+    pub fn assemble(
+        &self, item_names: &[&str], total_sp: &[f64], weapon: &Obj, item_sp: Option<&[i32; 5]>,
+    ) -> Result<Obj, String> {
         let base = self.build_base(item_names, weapon)?;
-        Ok(self.assemble_from_base(&base, total_sp, weapon))
+        Ok(self.assemble_from_base_full(&base, total_sp, weapon, None, item_sp))
     }
 
     /// Leaf-invariant build stats: base statmap + item/tome/weapon sums +
@@ -1554,6 +1570,30 @@ impl Layer2 {
         }
     }
 
+    /// Radiance on item-granted skill points, as the builder's
+    /// `compute_radiance` (js/game/shared_graph_nodes.js) and the solver's
+    /// `_apply_radiance_item_sp` (pure/engine.js) apply it: each positive
+    /// lane adds `floor(sp + item_sp * (boost - 1))`, same operands in the
+    /// same order so the double rounds identically. `item_sp` is the leaf's
+    /// total minus assigned SP, which greedy and the mana rescue preserve.
+    ///
+    /// Bounds: nothing reads a raw SP stat except through the 150-capped
+    /// `sp_to_pct` (no atree stat-scaling effect takes an SP input), so the
+    /// all-150 subtree ceilings stay admissible; the leaf ceilings (R1
+    /// reachable SP, doom Int) assemble through `asm` with the leaf's own
+    /// item SP and so include the bonus.
+    pub fn apply_radiance_item_sp(&self, sm: &mut Obj, item_sp: Option<&[i32; 5]>) {
+        let Some(item_sp) = item_sp else { return };
+        if self.radiance_boost == 1.0 { return; }
+        for (i, skp) in self.skp_order.iter().enumerate() {
+            if item_sp[i] > 0 {
+                let cur = sm.get(skp).and_then(|v| v.as_f64()).filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(0.0);
+                let v = (cur + item_sp[i] as f64 * (self.radiance_boost - 1.0)).floor();
+                sm.insert(skp.clone(), Value::from(v));
+            }
+        }
+    }
+
     /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
     /// atree_raw merge + atree scaling (cached/split) + static boosts.
     pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
@@ -1576,6 +1616,15 @@ impl Layer2 {
     pub fn assemble_from_base_extra(
         &self, base: &Obj, total_sp: &[f64], weapon: &Obj, extra: Option<&Obj>,
     ) -> Obj {
+        self.assemble_from_base_full(base, total_sp, weapon, extra, None)
+    }
+
+    /// `assemble_from_base_extra` with the leaf's item-granted SP, which
+    /// Radiance scales on top (see `apply_radiance_item_sp`).
+    pub fn assemble_from_base_full(
+        &self, base: &Obj, total_sp: &[f64], weapon: &Obj, extra: Option<&Obj>,
+        item_sp: Option<&[i32; 5]>,
+    ) -> Obj {
         // assemble_combo_stats: pre_scale = clone + skp + classDef + atree_raw
         let mut pre_scale = base.clone();
         for (i, skp) in self.skp_order.iter().enumerate() {
@@ -1588,6 +1637,7 @@ impl Layer2 {
         merge_into(&mut pre_scale, self.atree_raw.as_ref());
         // _apply_radiance_scale_inplace: scale-and-floor the affected stats.
         self.apply_radiance(&mut pre_scale);
+        self.apply_radiance_item_sp(&mut pre_scale, item_sp);
 
         let mut var_out: Option<Obj> = None;
         let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
@@ -1714,7 +1764,7 @@ fn simulate_mana_fast_src(
         }
     };
     let int_mana = (tables.sp_to_pct(int_v) * 100.0).floor();
-    let start_mana = 100.0 + item_mana + int_mana;
+    let start_mana = tables.mana_pool(item_mana, int_mana);
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
     let mut total_mana_drain = 0.0;
@@ -2886,9 +2936,6 @@ pub fn leaf_pipeline_gated(
             skp: arr5("skillpoints"),
         }
     };
-    // Every assemble in this function goes through here so a tome bundle
-    // cannot be applied to some stages and missed by others.
-    let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_extra(base, sp, weapon, tome_extra);
 
     let _pre_t0 = if trace::on() { Some(std::time::Instant::now()) } else { None };
     let _pl0 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
@@ -2996,6 +3043,14 @@ pub fn leaf_pipeline_gated(
     let mut base_sp = assign;
     let mut total_sp = total;
     let mut assigned_sp = assigned;
+    // SP granted by items and set bonuses (and the guild tome), which Radiance
+    // scales on top. Constant for the leaf: greedy and the rescue move base and
+    // total together.
+    let item_sp: [i32; 5] = std::array::from_fn(|i| total[i] - assign[i]);
+    // Every assemble in this function goes through here so a tome bundle or
+    // the Radiance item-SP term cannot be applied to some stages and missed
+    // by others.
+    let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_full(base, sp, weapon, tome_extra, Some(&item_sp));
 
     // Dense hot path: per-leaf lowered stats for the gate + greedy trials.
     // The direct build skips the Obj base entirely; any shape the lowering
@@ -3610,6 +3665,8 @@ pub fn mana_rescue(
 
     let saved_base = *base_sp;
     let saved_total = *total_sp;
+    // Item SP for the Radiance term; the shifts below keep it unchanged.
+    let item_sp: [i32; 5] = std::array::from_fn(|i| saved_total[i] - saved_base[i]);
 
     for frac in [0.25f64, 0.5, 0.75, 1.0] {
         let shift_target = (max_shift as f64 * frac).ceil() as i32;
@@ -3636,7 +3693,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble_from_base_extra(build_base, &sp_f, weapon, tome_extra);
+        let combo_base = l2.assemble_from_base_full(build_base, &sp_f, weapon, tome_extra, Some(&item_sp));
         if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
@@ -4068,7 +4125,7 @@ pub fn eval_indirect_stat(stats: &StatsView, stat: &str, tables: &Tables) -> f64
         "total_mana" => {
             let mm = stats.num_or0("maxMana");
             let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-            100.0 + mm + int_mana
+            tables.mana_pool(mm, int_mana)
         }
         other => stats.num_or0(other),
     }
@@ -6220,7 +6277,7 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
         DInd::TotalMana => {
             let mm = s.num_or0(d.s_max_mana);
             let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-            100.0 + mm + int_mana
+            tables.mana_pool(mm, int_mana)
         }
         DInd::Plain(i) => s.num_or0(*i),
     }
@@ -7512,7 +7569,7 @@ fn threshold_value_obj(
             "total_mana" => {
                 let mm = stats.num_or0("maxMana");
                 let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-                100.0 + mm + int_mana
+                tables.mana_pool(mm, int_mana)
             }
             s if s.starts_with("finalSpellCost") => {
                 let n: i64 = s[s.len() - 1..].parse().unwrap_or(-1);
@@ -7576,7 +7633,7 @@ pub fn dense_soft_ceiling_shortfall(d: &DenseCtx, s: &DScratch, tables: &Tables,
             DThresh::TotalMana => {
                 let mm = s.num_or0(d.s_max_mana);
                 let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-                100.0 + mm + int_mana
+                tables.mana_pool(mm, int_mana)
             }
             DThresh::Plain(i) => s.num_or0(*i),
             _ => continue,
@@ -7612,7 +7669,7 @@ fn dense_threshold_value(
             DThresh::TotalMana => {
                 let mm = s.num_or0(d.s_max_mana);
                 let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-                100.0 + mm + int_mana
+                tables.mana_pool(mm, int_mana)
             }
             DThresh::SpellCost { raw, pct, fin, base } => spell_cost_capped(
                 s.num_or0(d.s_int), s.num_or0(*raw), s.num_or0(*pct), s.num_or0(*fin),
@@ -7632,7 +7689,7 @@ mod healing_schema_tests {
         Tables {
             skillpoint_damage_mult: Vec::new(), base_damage_multiplier: Vec::new(),
             attack_speeds: Vec::new(), damage_keys: Vec::new(),
-            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0],
+            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0], max_mana_cap: 400.0,
             skillpoint_final_mult_3: 1.0, skillpoint_final_mult_4: 1.0,
             names: ElemNames::build(),
         }
@@ -7715,8 +7772,9 @@ mod healing_schema_tests {
 /// the leaf does; a guild candidate only changes skill points, which
 /// `total_sp` already holds.
 pub fn explain_build(
-    sc: &ScoringCtx, items: &[&str], total_sp: &[i32; 5], tome: Option<&TomeChoice>,
+    sc: &ScoringCtx, items: &[&str], base_sp: &[i32; 5], total_sp: &[i32; 5], tome: Option<&TomeChoice>,
 ) -> Option<Vec<(&'static str, f64)>> {
+    let item_sp: [i32; 5] = std::array::from_fn(|i| total_sp[i] - base_sp[i]);
     let sp: Vec<f64> = total_sp.iter().map(|&v| v as f64).collect();
     let extra = match tome {
         None => None,
@@ -7727,7 +7785,7 @@ pub fn explain_build(
             .find(|b| b.weapon_names == t.weapon_names && b.armor_names == t.armor_names)?.stats),
     };
     let base = sc.layer2.build_base(items, &sc.weapon).ok()?;
-    let combo_base = sc.layer2.assemble_from_base_extra(&base, &sp, &sc.weapon, extra);
+    let combo_base = sc.layer2.assemble_from_base_full(&base, &sp, &sc.weapon, extra, Some(&item_sp));
     let view = StatsView::Borrowed(&combo_base);
     let (total_hp, ehp, ehp_no_agi, hpr, _ehpr) = defense_stats(&view, &sc.tables);
     let mut out = vec![
@@ -7779,10 +7837,93 @@ mod tome_rescue_tests {
                 "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
         // And the score must be what the explain pass computes for the same
         // build with its tome choice (how the bug was found).
-        let stats = explain_build(&sc, &names, &r.total_sp, tome.as_ref()).unwrap();
+        let stats = explain_build(&sc, &names, &r.base_sp, &r.total_sp, tome.as_ref()).unwrap();
         let ehp = stats.iter().find(|(k, _)| *k == "ehp").unwrap().1;
         assert!((ehp - r.score).abs() <= 1e-9 * r.score.abs(),
                 "score {} != EHP of the same build with its tomes {}", r.score, ehp);
+    }
+}
+
+#[cfg(test)]
+mod mana_cap_tests {
+    //! MAX_MANA_CAP (js/game/game_rules.js) reaches the Rust tables as
+    //! `max_mana_cap`: 400 caps the pool, null (JSON for the JS Infinity)
+    //! turns it off, and an export without the field gets the game's 400.
+    use super::*;
+
+    fn tables_with(cap: Option<Value>) -> Tables {
+        let mut v = serde_json::json!({
+            "skillpoint_damage_mult": [], "baseDamageMultiplier": [], "attackSpeeds": [],
+            "damage_keys": [], "sp_percentage_rate": 0.9908, "sp_percentage_input_cap": 150,
+        });
+        if let Some(c) = cap { v["max_mana_cap"] = c; }
+        Tables::parse(&v)
+    }
+
+    #[test]
+    fn pool_caps_like_total_mana_pool() {
+        let t = tables_with(Some(Value::from(400)));
+        assert_eq!(t.mana_pool(50.0, 40.0), 190.0);
+        assert_eq!(t.mana_pool(284.0, 80.0), 400.0, "Hydrotoxemia + Space Dust at 150 Int");
+        assert!(t.mana_pool(f64::NAN, 80.0).is_nan(), "NaN flows through as Math.min lets it");
+    }
+
+    #[test]
+    fn null_turns_it_off_and_missing_is_the_game_cap() {
+        assert_eq!(tables_with(Some(Value::Null)).mana_pool(284.0, 80.0), 464.0);
+        assert_eq!(tables_with(None).mana_pool(284.0, 80.0), 400.0);
+    }
+}
+
+#[cfg(test)]
+mod radiance_item_sp_tests {
+    //! Radiance scales item-granted skill points on top of the scaled stat map
+    //! (the builder's `compute_radiance`). The term must round like the
+    //! builder: `floor(sp + item * (boost - 1))` as one expression, not
+    //! `sp + floor(item * (boost - 1))`. At boost 1 + 0.15, item 20 gives
+    //! 2.9999999999999982, and 14 + that rounds to exactly 17.0 in a double,
+    //! so the builder shows 17 where the split form would give 16.
+    use super::*;
+
+    fn ctx() -> ScoringCtx {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_radiance.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        ScoringCtx::load(&v).unwrap()
+    }
+
+    fn sp_map(vals: [f64; 5]) -> Obj {
+        let mut m = Obj::new();
+        for (k, v) in ["str", "dex", "int", "def", "agi"].iter().zip(vals) {
+            m.insert((*k).into(), Value::from(v));
+        }
+        m
+    }
+
+    fn get(m: &Obj, k: &str) -> f64 { m.get(k).and_then(|v| v.as_f64()).unwrap() }
+
+    #[test]
+    fn rounds_like_the_builder() {
+        let mut sc = ctx();
+        sc.layer2.radiance_boost = 1.0 + 0.15;
+        let mut m = sp_map([14.0, 30.0, 50.0, 7.0, 0.0]);
+        sc.layer2.apply_radiance_item_sp(&mut m, Some(&[20, -10, 0, 7, 6]));
+        assert_eq!(get(&m, "str"), 17.0, "one floor over the sum, as the builder");
+        assert_eq!(get(&m, "dex"), 30.0, "negative item SP is not scaled");
+        assert_eq!(get(&m, "int"), 50.0, "no item SP, no change");
+        assert_eq!(get(&m, "def"), 8.0, "floor(7 + 7 * 0.15) = 8");
+        assert_eq!(get(&m, "agi"), 0.0, "floor(0 + 6 * 0.15) = 0");
+    }
+
+    #[test]
+    fn inactive_without_boost_or_item_sp() {
+        let mut sc = ctx();
+        sc.layer2.radiance_boost = 1.0;
+        let mut m = sp_map([14.0, 0.0, 0.0, 0.0, 0.0]);
+        sc.layer2.apply_radiance_item_sp(&mut m, Some(&[20, 0, 0, 0, 0]));
+        assert_eq!(get(&m, "str"), 14.0);
+        sc.layer2.radiance_boost = 1.4;
+        sc.layer2.apply_radiance_item_sp(&mut m, None);
+        assert_eq!(get(&m, "str"), 14.0);
     }
 }
 

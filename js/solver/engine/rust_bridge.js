@@ -150,6 +150,8 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                 damage_keys: [...damage_keys],
                 sp_percentage_rate: SP_PERCENTAGE_RATE,
                 sp_percentage_input_cap: SP_PERCENTAGE_INPUT_CAP,
+                // null (JSON for Infinity) turns the cap off on the Rust side too.
+                max_mana_cap: MAX_MANA_CAP,
                 // V8's Math.pow and Rust's powf can differ by 1 ULP; skill
                 // points are integers, so ship the exact JS values instead.
                 sp_pct_table: Array.from({length: SP_PERCENTAGE_INPUT_CAP + 1},

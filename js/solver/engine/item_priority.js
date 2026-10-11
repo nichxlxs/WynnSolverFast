@@ -236,10 +236,26 @@ function _build_baseline_statmap(snap, locked) {
  * Assemble combo stats from build_sm + total_sp — delegates to shared
  * assemble_combo_stats (no scratch allocation needed on main thread).
  */
-function _assemble_baseline_combo(build_sm, total_sp, snap) {
+function _assemble_baseline_combo(build_sm, total_sp, snap, item_sp = null) {
     return assemble_combo_stats(build_sm, total_sp, snap.weapon_sm,
         snap.atree_raw, snap.radiance_boost, snap.atree_mgd,
-        snap.button_states, snap.slider_states, snap.static_boosts, null);
+        snap.button_states, snap.slider_states, snap.static_boosts, null,
+        undefined, undefined, item_sp);
+}
+
+/** total_sp - base_sp: the SP items and set bonuses grant (Radiance scales it). */
+function _item_sp_of(base_sp, total_sp) {
+    const out = [0, 0, 0, 0, 0];
+    for (let i = 0; i < 5; i++) out[i] = total_sp[i] - base_sp[i];
+    return out;
+}
+
+/** item_sp with `delta` more in lane i: an item providing SP is scaled too. */
+function _item_sp_plus(item_sp, i, delta) {
+    if (!item_sp) return null;
+    const out = [...item_sp];
+    out[i] += delta;
+    return out;
 }
 
 // ── Step 6: Main-thread greedy SP allocator ─────────────────────────────────
@@ -338,9 +354,10 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
         // then greedy-optimize the remaining budget for score.
         const effort = _best_effort_sp(equip_sms, snap.weapon_sm, snap.sp_budget);
         const remaining = snap.sp_budget - effort.assigned_sp;
+        const effort_item_sp = _item_sp_of(effort.base_sp, effort.total_sp);
         if (remaining > 0) {
             function _trial_score() {
-                const cb = _assemble_baseline_combo(build_sm, effort.total_sp, snap);
+                const cb = _assemble_baseline_combo(build_sm, effort.total_sp, snap, effort_item_sp);
                 return _sensitivity_eval_score(cb, snap);
             }
             const _default_caps = [150, 150, 150, 150, 150];
@@ -348,7 +365,7 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
                 effort.base_sp, effort.total_sp, remaining, _default_caps, null, _trial_score, null
             );
         }
-        return { total_sp: effort.total_sp, assigned_sp: effort.assigned_sp };
+        return { total_sp: effort.total_sp, assigned_sp: effort.assigned_sp, item_sp: effort_item_sp };
     }
 
     for (let i = 0; i < 5; i++) {
@@ -356,9 +373,10 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
         total_sp[i] = sp_result[1][i];
     }
     let assigned_sp = sp_result[2];
+    const item_sp = [...sp_result[4]];
 
     function _trial_score() {
-        const cb = _assemble_baseline_combo(build_sm, total_sp, snap);
+        const cb = _assemble_baseline_combo(build_sm, total_sp, snap, item_sp);
         return _sensitivity_eval_score(cb, snap);
     }
 
@@ -366,7 +384,7 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
     const remaining = snap.sp_budget - assigned_sp;
     assigned_sp += greedy_sp_allocate(base_sp, total_sp, remaining, _default_caps, null, _trial_score, null);
 
-    return { total_sp, assigned_sp };
+    return { total_sp, assigned_sp, item_sp };
 }
 
 // ── Step 7: Pool-calibrated deltas ──────────────────────────────────────────
@@ -446,10 +464,10 @@ function _compute_sensitivity_weights(snap, locked, pools) {
     const build_sm = _build_baseline_statmap(snap, locked);
 
     // 2. Greedy SP allocation
-    const { total_sp, assigned_sp } = _greedy_sp_alloc_main(build_sm, snap, locked);
+    const { total_sp, assigned_sp, item_sp } = _greedy_sp_alloc_main(build_sm, snap, locked);
 
     // 3. Assemble combo stats
-    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap);
+    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap, item_sp);
 
     // 4. Baseline score & perturbation
     // Suppress has_dynamic_sliders during perturbation — the drain mechanic
@@ -501,7 +519,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
 
         const trial_sp = [...total_sp];
         trial_sp[i] += delta;
-        const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap);
+        const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap, _item_sp_plus(item_sp, i, delta));
         const perturbed_score = _sensitivity_eval_score(trial_combo, snap);
         sp_sensitivities[i] = (perturbed_score - baseline_score) / delta * _SP_SENSITIVITY_DAMPEN;
     }
@@ -615,7 +633,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
         console.groupEnd();
     }
 
-    return { weights, baseline_score, combo_base, deltas, sp_deltas, total_sp, build_sm };
+    return { weights, baseline_score, combo_base, deltas, sp_deltas, total_sp, item_sp, build_sm };
 }
 
 // ── Step 9: Constraint & mana weight integration ────────────────────────────
@@ -624,7 +642,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
  * Augment sensitivity weights with constraint bonuses and mana sustainability hints.
  */
 function _augment_sensitivity_weights(result, snap, restrictions) {
-    const { weights, combo_base, deltas, sp_deltas, total_sp, build_sm } = result;
+    const { weights, combo_base, deltas, sp_deltas, total_sp, item_sp, build_sm } = result;
 
     // Compute max absolute weight for constraint/mana bonus scaling
     let max_abs = 1.0;
@@ -711,7 +729,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
                 const sp_delta = sp_deltas[si] || 10;
                 const trial_sp = [...total_sp];
                 trial_sp[si] += sp_delta;
-                const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap);
+                const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap, _item_sp_plus(item_sp, si, sp_delta));
                 const perturbed_val = _eval_indirect_stat(trial_combo, stat);
 
                 const sp_sens = (perturbed_val - baseline_val) / sp_delta;
@@ -1005,7 +1023,7 @@ function _estimate_mana_balance(snap, combo_base) {
         ? Math.floor(skillPointsToPercentage(combo_base.get('int') ?? 0) * 100)
         : 0;
     const item_mana = combo_base ? (combo_base.get('maxMana') ?? 0) : 0;
-    const start_mana = 100 + int_mana + item_mana;
+    const start_mana = total_mana_pool(item_mana, int_mana);
     const max_mana = start_mana;
 
     // MR regen (matching worker pure/simulate.js)

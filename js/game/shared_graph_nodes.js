@@ -337,7 +337,9 @@ function compute_radiance(statmap, total_item_skillpoints = null) {
     _apply_radiance_scale_inplace(ret, boost);
 
     // Radiance also scales SP granted by items (and set bonuses). Only applied
-    // when the caller provides the item-SP breakdown (builder; solver currently does not).
+    // when the caller provides the item-SP breakdown. The solver's search
+    // mirrors this in _apply_radiance_item_sp (pure/engine.js) and the Rust
+    // Layer2::apply_radiance_item_sp; keep the three in step.
     if (total_item_skillpoints) {
         skp_order.forEach((skp, i) => {
             if ((total_item_skillpoints[i] || 0) > 0) {

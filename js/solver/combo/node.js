@@ -1033,7 +1033,7 @@ class SolverComboTotalNode extends ComputeNode {
         const ms = base_stats.get('ms') ?? 0;
         const item_mana = base_stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(base_stats.get('int') ?? 0) * 100);
-        const display_start_mana = 100 + item_mana + int_mana;
+        const display_start_mana = total_mana_pool(item_mana, int_mana);
 
         const end_mana = sim_result.end_mana;
         const deficit = sim_result.start_mana - end_mana;
@@ -1104,6 +1104,7 @@ class SolverComboTotalNode extends ComputeNode {
                 if (item_mana) start_str += ` + ${item_mana} item`;
                 if (int_mana) start_str += ` + ${int_mana} int`;
                 start_str += ` = ${display_start_mana}`;
+                if (display_start_mana === MAX_MANA_CAP) start_str += ` (cap)`;
             }
             let cost_str = fmt(-mana_cost);
             if (has_transcendence) cost_str += ' (\u00d70.75 Transcendence)';

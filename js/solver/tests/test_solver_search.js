@@ -372,7 +372,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
         atree_raw: atreeRaw,
         button_states: buttonStates,
         slider_states: sliderStates,
-        radiance_boost: 1.0,
+        // Snapshots may turn Radiance on (radiance_boost, 1 when inactive).
+        radiance_boost: snap.radiance_boost ?? 1.0,
         static_boosts: staticBoosts,
         parsed_combo: parsedCombo,
         boost_registry: boostRegistry,
@@ -631,8 +632,19 @@ function runSolverWorkers(
                 totalFeasible += progressCounts[wid].feasible;
                 totalTrace = mergeTraceMetrics(totalTrace, progressCounts[wid].trace);
             }
-            // Merge top results from done messages + progress messages.
-            const merged = [...allTop, ...progressTopByItems.values()];
+            // Merge top results from done messages + progress messages. A
+            // worker that sent a progress update before finishing reports the
+            // same builds in both, so keep one entry per build (items plus the
+            // tome choice) at its best score.
+            const byBuild = new Map();
+            for (const e of [...allTop, ...progressTopByItems.values()]) {
+                const key = e?.item_names
+                    ? JSON.stringify([e.item_names, e.guild_idx ?? null, e.tome_names ?? null])
+                    : Symbol();
+                const prev = byBuild.get(key);
+                if (!prev || (e.score || 0) > (prev.score || 0)) byBuild.set(key, e);
+            }
+            const merged = [...byBuild.values()];
             merged.sort((a, b) => (b.score || 0) - (a.score || 0));
             resolve({
                 top5: merged.slice(0, 15),
@@ -1519,6 +1531,10 @@ async function runSolverTest(snapName) {
             `${snapName}: production best equals the prune-free greedy oracle `
             + `(${prodBest} vs ${top(greedy)})`);
         const gs = greedy.top.map(r => r.score), ps = result.top5.map(r => r.score);
+        if (JSON.stringify(gs) !== JSON.stringify(ps)) {
+            console.log(`  [${snapName}] oracle top-N:     ${JSON.stringify(gs)}`);
+            console.log(`  [${snapName}] production top-N: ${JSON.stringify(ps)}`);
+        }
         t.assert(JSON.stringify(gs) === JSON.stringify(ps),
             `${snapName}: production top-N equals the prune-free greedy oracle`);
         if (exhaustive) t.assert(top(exhaustive) !== null && top(exhaustive) >= top(greedy),

@@ -238,6 +238,12 @@ let _tome_guild_candidates = null;
 let _tome_wa_bundles = null;
 let _tome_wa_optimistic = null;
 let _leaf_extra_stats = null;
+// SP granted by items and set bonuses at the current leaf (the SP solve's
+// total_item_skillpoints), which Radiance scales on top of the stat map the
+// way the builder does. Constant per leaf: greedy and the mana rescue move
+// base and total SP together. Aliases the solve's scratch array, so it always
+// reflects the most recent solve (the leaf's, or the guild candidate's).
+let _leaf_item_sp = null;
 const _tome_cand_base = [0, 0, 0, 0, 0];   // per-candidate SP snapshot (restored per bundle)
 const _tome_cand_total = [0, 0, 0, 0, 0];
 const _tome_bundle_pass = [];              // bundles surviving the per-bundle ceiling gate
@@ -696,7 +702,7 @@ function _assemble_combo_stats(build_sm, total_sp, weapon_sm, extra_stats = _lea
         _cfg.button_states, _cfg.slider_states, _cfg.static_boosts,
         { combo_base: _scratch_combo_base, combo_base_nested: _scratch_combo_base_nested,
           atree: _scratch_atree },
-        _ATREE_SCALING_OPTS, extra_stats);
+        _ATREE_SCALING_OPTS, extra_stats, _leaf_item_sp);
 }
 
 function _assemble_threshold_stats(combo_base) {
@@ -1569,6 +1575,7 @@ function _run_level_enum() {
             for (let i = 0; i < 5; i++) {
                 P.set(skp_order[i], total_sp[i] + _trial_raw_skp[i]);
             }
+            _apply_radiance_item_sp(P, _leaf_item_sp, _cfg.radiance_boost);
             let atree_scaled_stats;
             let atree_var_stats = null;
             if (_atree_scaled_cache) {
@@ -1888,6 +1895,7 @@ function _run_level_enum() {
         const total_sp = sp_result[1];
         const assigned_sp = sp_result[2];
         const activeSetCounts = sp_result[3];
+        _leaf_item_sp = sp_result[4];
         _feasible++;
 
         // Build stat assembly from running statMap (incremental accumulation)
@@ -2009,6 +2017,7 @@ function _run_level_enum() {
             _trace_end('sp', csp_t0);
             if (!cr) continue;
             const cand_base = cr[0], cand_total = cr[1], cand_assigned = cr[2];
+            _leaf_item_sp = cr[4];
             // Snapshot the solve result: greedy and rescue mutate the arrays,
             // so each bundle run starts from the solved state, not the
             // previous bundle's post-greedy state.

@@ -94,8 +94,11 @@ async function loadPage(page, url) {
  * Configure the scenario. Returns the target the select actually holds, so the
  * caller can refuse to measure a run whose target silently failed to apply.
  */
-async function setup(page, { target, freeSlots, manaOff, engine, threads, pruning = 'current' }) {
+async function setup(page, { target, freeSlots, manaOff, engine, threads, pruning = 'current', radiance = false }) {
     await page.evaluate((cfg) => {
+        const rb = document.getElementById('radiance-boost');
+        if (rb && cfg.radiance !== rb.classList.contains('toggleOn')) update_radiance('radiance');
+
         const mb = document.getElementById('combo-mana-btn');
         if (mb && cfg.manaOff && mb.classList.contains('toggleOn')) mb.click();
         if (mb && !cfg.manaOff && !mb.classList.contains('toggleOn')) mb.click();
@@ -118,7 +121,7 @@ async function setup(page, { target, freeSlots, manaOff, engine, threads, prunin
         // cannot finish inside the page timeout.
         const pr = document.getElementById('solver-pruning-mode');
         if (pr && cfg.pruning) { pr.value = cfg.pruning; pr.dispatchEvent(new Event('change')); }
-    }, { target, freeSlots, manaOff, threads, pruning });
+    }, { target, freeSlots, manaOff, threads, pruning, radiance });
     await page.waitForTimeout(2500);
 
     await page.evaluate((eng) => {
@@ -204,6 +207,33 @@ function spMatches(a, b) {
 }
 
 // ── Phases ───────────────────────────────────────────────────────────────────
+
+/**
+ * Radiance on item-granted SP in the page's own stats: with the toggle on,
+ * each skill point lane with positive item SP reads floor(sp + item * 0.15)
+ * of what it read with the toggle off, as the builder computes it.
+ */
+async function radianceDisplayPhase(page, url) {
+    console.log('— Radiance on item SP in the displayed stats —');
+    await loadPage(page, url);
+    const r = await page.evaluate(async () => {
+        const settle = () => new Promise((res) => setTimeout(res, 500));
+        const lanes = () => skp_order.map((k) => solver_radiance_node.value.get(k));
+        if (document.getElementById('radiance-boost').classList.contains('toggleOn')) update_radiance('radiance');
+        await settle();
+        const off = lanes();
+        update_radiance('radiance');
+        await settle();
+        const on = lanes();
+        update_radiance('radiance');
+        return { off, on, item: [...(solver_build_node.value?.total_item_skillpoints ?? [])] };
+    });
+    const want = r.off.map((v, i) => (r.item[i] > 0 ? Math.floor(v + r.item[i] * ((1 + 0.15) - 1)) : v));
+    ok(r.item.some((v) => v > 0), `the build has item SP to scale (${JSON.stringify(r.item)})`);
+    ok(JSON.stringify(r.on) === JSON.stringify(want),
+       `displayed SP with Radiance applies the item-SP term (off ${JSON.stringify(r.off)}, on ${JSON.stringify(r.on)}, want ${JSON.stringify(want)})`);
+    ok(r.on.some((v, i) => v !== r.off[i]), 'Radiance changes at least one displayed SP lane');
+}
 
 async function comparedRun(page, url, label, cfg) {
     console.log(`— ${label} —`);
@@ -547,6 +577,13 @@ async function cancelPhase(page, url, engine, cfg) {
         //    the comparison degenerates to two empty lists.
         await comparedRun(page, url, 'combo_damage', {
             target: 'combo_damage', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 2b. Radiance: the page's stats apply it to item SP, and both engines
+        //     agree with it on (Rust assembles the term in its own pipeline).
+        await radianceDisplayPhase(page, url);
+        await comparedRun(page, url, 'combo_damage with Radiance', {
+            target: 'combo_damage', freeSlots: ARMOUR, manaOff: true, radiance: true,
         });
 
         // 3. Partitioning, on the four-armour space so the run completes; the

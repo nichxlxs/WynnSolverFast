@@ -22,6 +22,16 @@ const MAX_PLAYER_LEVEL = 121;
 // ── Mana ─────────────────────────────────────────────────────────────────────
 const BASE_MANA_REGEN = 25;        // Base mana regen per 5 seconds (all classes)
 const MANA_TICK_SECONDS = 5;       // Mana regen tick period (seconds)
+// Max mana pool, base 100 and the Intelligence bonus included. The official
+// wiki's Identifying page: "Max Mana caps at 400, including the bonuses
+// provided by Intelligence and Base Mana (100)." Shipped to the Rust engine
+// in its tables (max_mana_cap); Infinity turns the cap off in both engines.
+const MAX_MANA_CAP = 400;
+
+/** Max (and starting) mana: 100 + Max Mana IDs + Int bonus, capped. */
+function total_mana_pool(item_mana, int_mana) {
+    return Math.min(MAX_MANA_CAP, 100 + item_mana + int_mana);
+}
 
 // ── Health ───────────────────────────────────────────────────────────────────
 const HIDDEN_BASE_HPR = 3;         // Hidden base HP regen per tick (not affected by hprPct)

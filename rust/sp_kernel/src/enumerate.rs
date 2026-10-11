@@ -3514,7 +3514,7 @@ impl EngineSession {
 fn stats_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, e: &TopEntry) -> String {
     let (true, Some(sc)) = (fx.window > 0.0, ctx) else { return String::new() };
     let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
-    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.total_sp, e.tome.as_ref()) else { return String::new() };
+    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.base_sp, &e.total_sp, e.tome.as_ref()) else { return String::new() };
     let body: Vec<String> = stats.iter().filter(|(_, v)| v.is_finite())
         .map(|(k, v)| format!("\"{k}\":{v}")).collect();
     format!(",\"stats\":{{{}}}", body.join(","))
@@ -4075,7 +4075,7 @@ pub fn cli_main() {
         if fx.window > 0.0 {
             for (rank, e) in totals.top_n.iter().enumerate() {
                 let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
-                if let Some(st) = crate::scoring::explain_build(scoring.unwrap(), &names, &e.total_sp, e.tome.as_ref()) {
+                if let Some(st) = crate::scoring::explain_build(scoring.unwrap(), &names, &e.base_sp, &e.total_sp, e.tome.as_ref()) {
                     let tome = e.tome.as_ref().map(|t| format!(" guild_idx={} tomes={}", t.guild_idx,
                         t.weapon_names.len() + t.armor_names.len())).unwrap_or_default();
                     println!("stats: {} {}{} total_sp={:?}", rank + 1, st.iter().map(|(k, v)| format!("{k}={v}"))
@@ -4535,5 +4535,36 @@ mod session_tests {
         assert!(scored(&out) < scored(&honest), "seed ignored: scored {} vs {}", scored(&out), scored(&honest));
         assert_ne!(got.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
                    whole.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
+    }
+}
+
+#[cfg(test)]
+mod radiance_tests {
+    //! The spell oracle with Radiance and Divine Honor on (boost 1.2),
+    //! exported from `solver_indep_oracle_radiance`. The JS worker scores this
+    //! top-15 with Radiance applied to item-granted SP as the builder does;
+    //! the Rust search must return the same scores bit for bit. Without the
+    //! item-SP term the best build scores 1,591,195.66 instead of 1,623,490.02.
+    use super::*;
+
+    const JS_TOP15: [&str; 15] = [
+        "1.62349002478097030e+6", "1.60785430457898579e+6", "1.59537180860364251e+6",
+        "1.58615954220282845e+6", "1.57536056265444704e+6", "1.56235661933677294e+6",
+        "1.55842050695789512e+6", "1.55041340382658830e+6", "1.54917623575623939e+6",
+        "1.54217662320584944e+6", "1.54132900229394808e+6", "1.52626071746402979e+6",
+        "1.50836622007927508e+6", "1.50466130193234235e+6", "1.49194417516161525e+6",
+    ];
+
+    #[test]
+    fn matches_the_js_top15_with_item_sp_scaled() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        let enum_fx = std::fs::read_to_string(format!("{dir}enum_radiance.txt")).unwrap();
+        let score_fx = std::fs::read_to_string(format!("{dir}score_radiance.json")).unwrap();
+        let out = solve_json_full(&enum_fx, &score_fx, 0.0, None, 0, 1);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("solve json");
+        let got: Vec<u64> = v["top"].as_array().unwrap().iter()
+            .map(|e| e["score"].as_f64().unwrap().to_bits()).collect();
+        let want: Vec<u64> = JS_TOP15.iter().map(|s| s.parse::<f64>().unwrap().to_bits()).collect();
+        assert_eq!(got, want);
     }
 }
