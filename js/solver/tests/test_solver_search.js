@@ -335,6 +335,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
     if (snap.extra_restrictions) {
         restrictions.stat_thresholds.push(...snap.extra_restrictions);
     }
+    // R14 soft floors: penalties, not filters.
+    if (snap.soft_floors) restrictions.soft_floors = snap.soft_floors.map(f => ({ ...f }));
 
     // ── 12. Spell base costs ────────────────────────────────────────────────
     const spellBaseCosts = {};
@@ -370,7 +372,8 @@ function buildTestSnapshot(decoded, snap, spellMap, atreeMerged, rawStats) {
         atree_raw: atreeRaw,
         button_states: buttonStates,
         slider_states: sliderStates,
-        radiance_boost: 1.0,
+        // Snapshots may turn Radiance on (radiance_boost, 1 when inactive).
+        radiance_boost: snap.radiance_boost ?? 1.0,
         static_boosts: staticBoosts,
         parsed_combo: parsedCombo,
         boost_registry: boostRegistry,
@@ -629,8 +632,19 @@ function runSolverWorkers(
                 totalFeasible += progressCounts[wid].feasible;
                 totalTrace = mergeTraceMetrics(totalTrace, progressCounts[wid].trace);
             }
-            // Merge top results from done messages + progress messages.
-            const merged = [...allTop, ...progressTopByItems.values()];
+            // Merge top results from done messages + progress messages. A
+            // worker that sent a progress update before finishing reports the
+            // same builds in both, so keep one entry per build (items plus the
+            // tome choice) at its best score.
+            const byBuild = new Map();
+            for (const e of [...allTop, ...progressTopByItems.values()]) {
+                const key = e?.item_names
+                    ? JSON.stringify([e.item_names, e.guild_idx ?? null, e.tome_names ?? null])
+                    : Symbol();
+                const prev = byBuild.get(key);
+                if (!prev || (e.score || 0) > (prev.score || 0)) byBuild.set(key, e);
+            }
+            const merged = [...byBuild.values()];
             merged.sort((a, b) => (b.score || 0) - (a.score || 0));
             resolve({
                 top5: merged.slice(0, 15),
@@ -1101,12 +1115,29 @@ async function runSolverTest(snapName) {
             snap: solverSnap,
             dmg_weights: dmgWeights,
             restrictions: solverSnap.restrictions,
-            mode: pruningStrategy.name,
+            // SOLVER_DOMINANCE_MODE overrides the strategy for benchmark
+            // exports (the reducer runs in the VM, which has no process.env).
+            // One key: a second `mode:` used to override the first with
+            // undefined, silently switching every snapshot to the reducer's
+            // default policy.
+            mode: process.env.SOLVER_DOMINANCE_MODE || pruningStrategy.name,
             preserve_set_items: process.env.SOLVER_BENCH_VARIANT !== 'original',
+            // R4 measurements: SOLVER_SET_DOMINANCE=1 or 0 overrides the policy.
+            ...(process.env.SOLVER_SET_DOMINANCE
+                ? { set_aware: process.env.SOLVER_SET_DOMINANCE === '1' } : {}),
         });
         freePools = reduction.active_pools;
         domStats = reduction.dominance_stats;
         ctx._prioritize_pools(freePools, dmgWeights);
+        // Benchmark hook: report the reduction and skip the search.
+        if (process.env.SOLVER_REDUCTION_ONLY === '1') {
+            const active = countCombinations(freePools);
+            console.log(`  [${snapName}] reduction ${reduction.mode}: input ${inputCombinations} `
+                + `active ${active} (${(active / inputCombinations).toFixed(4)}) removed ${reduction.removed_count} `
+                + `set_dominated ${ctx.SOLVER_DOMINANCE_REPORT?.set_dominated ?? 0} `
+                + `pools ${JSON.stringify(reduction.active_counts)}`);
+            return;
+        }
     }
 
     // Oracle snapshots truncate every free pool after prioritization so the
@@ -1131,6 +1162,21 @@ async function runSolverTest(snapName) {
         }
     }
 
+    // pool_only replaces a free slot's pool with exactly the named items, so
+    // a fixture can make every leaf share a mechanic (e.g. negative crit).
+    for (const [slot, names] of Object.entries(snap.pool_only ?? {})) {
+        const full = allPools[slot === 'ring1' || slot === 'ring2' ? 'ring' : slot] ?? [];
+        const picked = names.map(name => full.find(it => it.statMap.get('displayName') === name
+            || it.statMap.get('name') === name));
+        t.assert(picked.every(Boolean), `${snapName}: pool_only ${names.join(', ')} found in the ${slot} pool`);
+        if (freePools[slot] && picked.every(Boolean)) freePools[slot] = picked;
+    }
+
+    if (process.env.SOLVER_PRINT_POOLS === '1') {
+        console.log(`  [${snapName}] pools ${JSON.stringify(Object.fromEntries(Object.entries(freePools).map(
+            ([k, v]) => [k, v.map(it => it.statMap.get('displayName') ?? it.statMap.get('name'))])))}`);
+    }
+
     // Freshness check: locked item stats + compress hash (has free slots).
     const currentLockedStats = extractLockedItemStats(locked);
     const hasFreeSlots = Object.keys(freePools).length > 0;
@@ -1153,12 +1199,19 @@ async function runSolverTest(snapName) {
     console.log(`  [${snapName}] input combinations: ${inputCombinations}`);
     const combinations = countCombinations(freePools);
     console.log(`  [${snapName}] search combinations: ${combinations}`);
-    if (snap.combination_budget) {
+    // Exporting a new raw-pool benchmark must not reuse timing-era bands
+    // calibrated after legacy dominance. Ordinary regression gates still run.
+    const exportUncalibratedPools = process.env.SOLVER_EXPORT_RUST
+        && process.env.SOLVER_EXPORT_ALLOW_UNCALIBRATED === '1';
+    if (snap.combination_budget && !exportUncalibratedPools) {
         const budget = snap.combination_budget;
         t.assert(inputCombinations >= budget.input_min && inputCombinations <= budget.input_max,
             `${snapName}: input combinations ${inputCombinations} within calibrated band ${budget.input_min}-${budget.input_max}`);
         t.assert(combinations >= budget.search_min && combinations <= budget.search_max,
             `${snapName}: search combinations ${combinations} within calibrated band ${budget.search_min}-${budget.search_max}`);
+    }
+    if (snap.combination_budget && exportUncalibratedPools) {
+        console.log(`  [${snapName}] export records observed pool counts; historical combination bands not applied`);
     }
 
     // 8. Serialize for worker transfer
@@ -1172,6 +1225,12 @@ async function runSolverTest(snapName) {
         type: 'init',
         // R1 reachable-SP ceiling: on unless SOLVER_REACH_SP=0 (A/B runs).
         reach_sp_ceiling: process.env.SOLVER_REACH_SP !== '0',
+        // R14: SOLVER_SOFT_GATE=0 keeps soft floors out of the ceiling gate.
+        soft_gate: process.env.SOLVER_SOFT_GATE !== '0',
+        // R9 in the JS engine: one exact SP solve per last-slot range. Opt-in
+        // (measured slower in JS); SOLVER_SP_NODE=1 turns it on for A/B runs.
+        sp_node_bound: process.env.SOLVER_SP_NODE === '1',
+        ...(process.env.SOLVER_SP_NODE_RATE ? { sp_node_min_rate: Number(process.env.SOLVER_SP_NODE_RATE) } : {}),
         // R12 polish phase: on unless SOLVER_SP_POLISH=0 (A/B runs).
         sp_polish: process.env.SOLVER_SP_POLISH !== '0',
         pools: poolsSer,
@@ -1374,6 +1433,10 @@ async function runSolverTest(snapName) {
         if (best.item_names) {
             const items = best.item_names.map((n, i) => n || `(none@${SLOT_NAMES[i]})`);
             console.log(`  [${snapName}] best items: ${items.join(', ')}`);
+            // Engine-parity hook: the full list at full precision.
+            if (process.env.SOLVER_PRINT_TOP === '1') {
+                for (const r of result.top5) console.log(`  [${snapName}] top ${r.score.toExponential(17)}`);
+            }
         }
     } else {
         t.assert(false, `${snapName}: solver found no results`);
@@ -1468,6 +1531,10 @@ async function runSolverTest(snapName) {
             `${snapName}: production best equals the prune-free greedy oracle `
             + `(${prodBest} vs ${top(greedy)})`);
         const gs = greedy.top.map(r => r.score), ps = result.top5.map(r => r.score);
+        if (JSON.stringify(gs) !== JSON.stringify(ps)) {
+            console.log(`  [${snapName}] oracle top-N:     ${JSON.stringify(gs)}`);
+            console.log(`  [${snapName}] production top-N: ${JSON.stringify(ps)}`);
+        }
         t.assert(JSON.stringify(gs) === JSON.stringify(ps),
             `${snapName}: production top-N equals the prune-free greedy oracle`);
         if (exhaustive) t.assert(top(exhaustive) !== null && top(exhaustive) >= top(greedy),

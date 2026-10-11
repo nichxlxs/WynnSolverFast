@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "file": "evidence/anytime_2026_09_07/screen/campaign.json",
+      "archive": "evidence/anytime_2026_09_07/screen_raw.tar.gz",
+      "archive_sha256": "1a7aaa8f81db72f77efeb71bdedf0e9f0e07d2cfd783714f461fc96024d9ac6f",
+      "archive_member": "screen/campaign.json",
+      "sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208"
+    },
+    {
+      "file": "evidence/anytime_2026_09_07/confirmation/campaign.json",
+      "archive": "evidence/anytime_2026_09_07/confirmation_raw.tar.gz",
+      "archive_sha256": "b4c97c8d3f9ac5290aec972ab6340599c2daa9a1c98c9599917f88979ac12405",
+      "archive_member": "confirmation/campaign.json",
+      "sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861"
+    },
+    {
+      "file": "evidence/anytime_2026_09_07/diagnostic/campaign.json",
+      "archive": "evidence/anytime_2026_09_07/diagnostic_raw.tar.gz",
+      "archive_sha256": "11e35156aa5c223c5ec3e2b9604e0a1cc97c73dda88a32ab1c391bbaaeb1ef0f",
+      "archive_member": "diagnostic/campaign.json",
+      "sha256": "26a9e82784cf85a6517868d3196fffd5e37e72980a779cdeac87d37055aa30ee"
+    },
+    {
+      "file": "evidence/anytime_2026_09_07/followup/campaign.json",
+      "archive": "evidence/anytime_2026_09_07/followup_raw.tar.gz",
+      "archive_sha256": "808532307b8f502c9fc7f9613710ac0981d3b554a3a8d1a7b5573708a9ff35a0",
+      "archive_member": "followup/campaign.json",
+      "sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac"
+    }
+  ],
+  "all_frozen_members_match_tracked_archives": true
+}

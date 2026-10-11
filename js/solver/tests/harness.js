@@ -60,6 +60,7 @@ const SANDBOX_FILES = [
     'js/solver/pure/simulate.js',
     'js/solver/pure/engine.js',
     'js/solver/engine/top_results.js',
+    'js/solver/engine/shortlist.js',
     'js/solver/engine/worker_shims.js',
     'js/solver/engine/sp_set_bound.js',
     'js/solver/engine/item_priority.js',

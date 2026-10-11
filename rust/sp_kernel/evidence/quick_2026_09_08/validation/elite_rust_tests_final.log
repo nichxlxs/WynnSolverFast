@@ -1,0 +1,195 @@
+   Compiling sp_kernel v0.1.0 (/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel)
+warning: unused imports: `Case`, `Kernel`, and `Unit`
+  --> src/scoring.rs:14:13
+   |
+14 | use crate::{Case, Kernel, Unit};
+   |             ^^^^  ^^^^^^  ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `bt`
+    --> src/enumerate.rs:2186:25
+     |
+2186 |         (Some(sc), Some(bt)) => sc.dense.as_ref().and_then(|d| {
+     |                         ^^ help: if this is intentional, prefix it with an underscore: `_bt`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1790:46
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1897 |             advance!(pre_dt);
+     |             ---------------- in this macro invocation
+...
+1901 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1901:42
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+...
+1901 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1790:46
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1833 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+...
+1982 |             advance!(effective_post);
+     |             ------------------------ in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1833:42
+     |
+1833 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1781:37
+     |
+1781 |                                     total_mana_drain += actual;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |                                     |
+     |                                     this value is reassigned later and never used
+     |                                     `total_mana_drain` is overwritten here before the previous value is read
+...
+1897 |             advance!(pre_dt);
+     |             ---------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1781:37
+     |
+1781 |                                     total_mana_drain += actual;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1966 |                             total_mana_drain += dro.actual_drain;
+     |                             ------------------------------------ `total_mana_drain` is overwritten here before the previous value is read
+...
+1982 |             advance!(effective_post);
+     |             ------------------------ in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1966:29
+     |
+1966 | ...                   total_mana_drain += dro.actual_drain;
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: unused variable: `weapon`
+    --> src/scoring.rs:3770:23
+     |
+3770 |     combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+     |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_weapon`
+
+warning: variable does not need to be mutable
+    --> src/scoring.rs:4840:13
+     |
+4840 |         let mut intern = |k: &str, idx: &mut HashMap<String, u32>, keys: &mut Vec<String>| -> u32 {
+     |             ----^^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> src/scoring.rs:6014:13
+     |
+6014 |         let mut read = |i: u32| {
+     |             ----^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: fields `ring_pair_count` and `sp_fixed_max_req` are never read
+   --> src/enumerate.rs:315:5
+    |
+289 | pub struct Search<'a> {
+    |            ------ fields in this struct
+...
+315 |     ring_pair_count: Vec<f64>,
+    |     ^^^^^^^^^^^^^^^
+...
+320 |     sp_fixed_max_req: [i32; 5],
+    |     ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `sp_mid_tree_feasible`, `sp_leaf_feasible`, and `restr_mid_tree_feasible` are never used
+    --> src/enumerate.rs:978:8
+     |
+ 428 | impl<'a> Search<'a> {
+     | ------------------- methods in this implementation
+...
+ 978 |     fn sp_mid_tree_feasible(&self, next_depth: usize) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^
+...
+ 994 |     fn sp_leaf_feasible(&self) -> bool {
+     |        ^^^^^^^^^^^^^^^^
+...
+1027 |     fn restr_mid_tree_feasible(&self, next_depth: usize) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `sp_kernel` (lib test) generated 14 warnings (run `cargo fix --lib -p sp_kernel --tests` to apply 5 suggestions)
+    Finished `release` profile [optimized] target(s) in 22.27s
+     Running unittests src/lib.rs (target/release/deps/sp_kernel-58adb15c395a98c9)
+
+running 35 tests
+test bound_memo::tests::stale_suffixes_are_ignored_but_prefix_depth_is_preserved ... ok
+test bound_memo::tests::packed_keys_are_injective_in_supported_small_pool_domain ... ok
+test bound_memo::tests::wide_subtree_rank_is_not_clamped_or_truncated ... ok
+test bound_memo::tests::wide_keys_separate_offsets_and_namespaces ... ok
+test enumerate::anytime::tests::cyclic_stagnation_returns_to_local_operators_without_global_improvement ... ok
+test enumerate::anytime::tests::archive_preserves_diversity_and_best_score ... ok
+test enumerate::anytime::tests::streamed_tome_and_manual_assignment_are_the_retained_witness ... ok
+test enumerate::anytime::tests::joint_pair_crosses_sp_support_barrier_and_matches_full_search ... ok
+test enumerate::anytime::tests::reduced_domains_preserve_fixed_sets_and_illegal_collisions ... ok
+test enumerate::anytime::tests::elite_domains_are_bounded_deduplicated_and_preserve_incumbent ... ok
+test enumerate::anytime::tests::unequal_ring_pools_preserve_crossed_choices_and_legal_duplicates ... ok
+test enumerate::anytime::tests::streaming_retains_full_witnesses_and_does_not_change_fixed_work_search ... ok
+test enumerate::anytime::tests::zero_wall_and_work_budgets_do_not_start_repair ... ok
+test enumerate::anytime_core_tests::actual_leaf_budget_counts_work_instead_of_credited_space ... ok
+test enumerate::anytime::tests::warm_budget_is_independent_and_still_obeys_global_work_limit ... ok
+test enumerate::anytime_core_tests::archive_deduplicates_ring_exchange_before_cutoff ... ok
+test enumerate::anytime_core_tests::archive_identity_includes_tome_multiset_and_guild ... ok
+test enumerate::anytime::tests::elite_recombination_crosses_four_slot_barrier_with_full_scorer ... ok
+test enumerate::anytime::tests::cyclic_reset_requires_forced_diversification_or_an_improvement ... ok
+test enumerate::anytime::tests::browser_options_reject_unbounded_and_ambiguous_inputs ... ok
+test enumerate::anytime_core_tests::nested_budget_stop_restores_parent_state_and_stops_siblings ... ok
+test enumerate::anytime_core_tests::duplicate_witnesses_cannot_raise_top15_cutoff ... ok
+test enumerate::anytime::tests::work_limited_seed_reproduces_and_budget_is_actual_leaf_calls ... ok
+test enumerate::anytime_core_tests::shared_deadline_can_expire_before_main_search ... ok
+test enumerate::anytime_core_tests::original_ring_guard_uses_root_ranks_when_one_repair_ring_is_frozen ... ok
+test enumerate::anytime_core_tests::top1_cutoff_has_a_retained_witness_after_zero_budget ... ok
+test enumerate::anytime_core_tests::original_ring_guard_preserves_domain_before_order_sensitive_sp_ties ... ok
+test enumerate::anytime_core_tests::wide_last_slot_honors_credited_budget_without_band_overrun ... ok
+test enumerate::anytime_core_tests::wide_last_slot_honors_exact_actual_leaf_budgets ... ok
+test scoring::healing_schema_tests::current_healing_power_and_aggregate_are_both_counted ... ok
+test enumerate::anytime_core_tests::wide_last_slot_observes_shared_cancellation_within_one_poll_window ... ok
+test scoring::healing_schema_tests::healing_multipliers_apply_globally_or_to_the_matching_leaf_part ... ok
+test scoring::healing_schema_tests::dynamic_and_compiled_kinds_recognize_current_and_legacy_heal_parts ... ok
+test scoring::healing_schema_tests::historical_heal_alias_works_but_current_zero_power_takes_precedence ... ok
+test enumerate::anytime::tests::elite_fixed_work_reproduces_and_off_keeps_legacy_path ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

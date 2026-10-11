@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "selection_policy": "Separate supplemental Gaia all-free workload requested during primary campaign, before new Gaia results. Preserves the original eight-query denominator; no winner-based selection from the new campaign.",
+  "queries": [
+    {
+      "name": "gaia_all_free",
+      "candidate_band": "hour_or_larger",
+      "completion_time_established": false,
+      "classification_note": "Broad capacity candidate, not a measured hour runtime.",
+      "prior_completed_runs": 0,
+      "search_combinations": 2152812816000,
+      "baseline_cap_seconds": 60,
+      "enum_sha256": "d4fb396370b745aabd90dc6ac13947cb8c698d76bd7fff46b21e8301037d6455",
+      "score_sha256": "4fd37cf1ccd0dd50b9cbb4bfbabfe7a2bde2dad77890bfd728744ce8ac403100"
+    }
+  ],
+  "top_k": 15,
+  "heuristic_seconds": 30,
+  "heuristic_seeds": [
+    707,
+    808
+  ],
+  "baseline_repeats": 1,
+  "baseline_seed": 707,
+  "wide_exact_seconds": 30,
+  "wide_exact_repeats": 1,
+  "heuristic_profile_adjustment": "Both ALNS arms use max_repairs=100000 for the longer 30-second budget. The earlier five-second profile used 10000; the elite A/B differs only by --elite-pool 1.",
+  "comparison_policy": "Use each longer baseline trace's 30-second checkpoint for equal-budget endpoints. Compare time to identical frozen positive targets, not heuristic time versus exhaustive completion. One baseline repeat cannot establish runtime variance or statistical significance.",
+  "reference_policy": "Targets are frozen from earlier committed evidence. New maxima are separate best-known extensions and never retroactively replace primary milestones.",
+  "runtime_policy": "Native one-thread runs sequentially on the same machine with no competing builds or benchmarks. Generation excluded and recorded separately. Timed tests include launch, parse and warm start.",
+  "prior_sources": {
+    "screen": {
+      "sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+      "file": "evidence/anytime_2026_09_07/screen/campaign.json"
+    },
+    "confirmation": {
+      "sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+      "file": "evidence/anytime_2026_09_07/confirmation/campaign.json"
+    },
+    "diagnostic": {
+      "sha256": "26a9e82784cf85a6517868d3196fffd5e37e72980a779cdeac87d37055aa30ee",
+      "file": "evidence/anytime_2026_09_07/diagnostic/campaign.json"
+    },
+    "followup": {
+      "sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+      "file": "evidence/anytime_2026_09_07/followup/campaign.json"
+    }
+  },
+  "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+  "planned_runs": 6,
+  "all_controls_are_correctness_only": true,
+  "cohort": "supplemental_gaia"
+}

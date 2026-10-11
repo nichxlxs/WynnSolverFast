@@ -1,0 +1,7 @@
+scenario,arm,seed,status,work_budget,host_budget_seconds,host_wall_seconds,first_result_host_seconds,archive_count,best_score,t99_host_seconds,t999_host_seconds,validation_errors,parity_errors,error,parity_performed
+fam_spellsteal_medium,exact,1217,host_deadline,,15,15.005460721000002,2.46707053,15,86039.20466695182,,,0,,,False
+fam_spellsteal_medium,alns,1217,host_deadline,,15,15.000566799,0.12923904399999991,15,92806.8118289668,0.9031561889999994,0.9031561889999994,0,,,False
+meta_mage_arcanist_meteor_remove_6,alns,1217,host_deadline,,15,15.004698990000001,0.22818704900000011,15,45012.79506452047,1.8097222249999978,10.502617564999996,0,,,False
+meta_mage_arcanist_meteor_remove_6,exact,1217,host_deadline,,15,15.003980785,11.393952155,15,33124.66830456436,,,0,,,False
+meta_mage_light_bender_healing_remove_6,exact,1217,host_deadline,,15,15.003002192,0.1645633639999942,15,14778.165000010487,,,0,,,False
+meta_mage_light_bender_healing_remove_6,alns,1217,host_deadline,,15,15.000080144000007,0.17547415400001046,15,22459.50000001594,6.5758265210000095,6.5758265210000095,0,,,False

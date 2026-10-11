@@ -1,0 +1,75 @@
+{
+  "fam_spellsteal_medium": {
+    "kind": "best_known",
+    "score": 92806.8118289668,
+    "enum_sha256": "ef7e01582fad54b3dab7d62bd01677f91a405b43d637c0112326b874d3fc1ea6",
+    "score_sha256": "66da3a05f085d980343fd9e3ba8f6642c686a5412d21ec4f3ac91bee4ba0ab22",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_spellsteal_medium__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      }
+    ],
+    "eligible_prior_runs": 6
+  },
+  "meta_mage_arcanist_meteor_remove_6": {
+    "kind": "best_known",
+    "score": 44734.31761146617,
+    "enum_sha256": "732c18ea3022f9bff644b63ef1feaf1d8e853a76655a93d93ca6c90f18c20fef",
+    "score_sha256": "7609a6d5113a83214d93c8d519d6829af04f8932d765e45dc9b47ac290ba78cc",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "meta_mage_arcanist_meteor_remove_6__alns_cyclic_warm6__r01__s808",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 808
+      }
+    ],
+    "eligible_prior_runs": 21
+  },
+  "meta_mage_light_bender_healing_remove_6": {
+    "kind": "best_known",
+    "score": 22459.50000001594,
+    "enum_sha256": "8bf973614a1b7a89c8abc468a563b0793b5386deaec7bc14ab585e673d79349d",
+    "score_sha256": "4e782a53a4b82bb492dc92cc1df090aa986d683087a97e3a8fb6286b26766303",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 303
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_cyclic_warm6__r02__s909",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 909
+      }
+    ],
+    "eligible_prior_runs": 21
+  }
+}

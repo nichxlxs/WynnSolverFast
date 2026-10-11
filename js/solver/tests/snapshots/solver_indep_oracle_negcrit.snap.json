@@ -1,0 +1,86 @@
+{
+  "name": "solver_indep_oracle_negcrit",
+  "description": "Independent oracle on the spellsteal small build with every leaf wearing Ruinous (critDamPct -286), helmet, leggings and boots free (pools fixed to items that make feasible Ruinous builds). Below -100% crit damage a crit hit is weaker than a normal one, so damage falls as Dex rises and the high-SP leaf ceiling must floor critDamPct at -100 to stay an upper bound. Production must equal the prune-free greedy oracle.",
+  "core_weapon": "Oblivion",
+  "free_equipment_slots": [
+    "helmet",
+    "chestplate",
+    "leggings",
+    "boots"
+  ],
+  "url_hash": "CX0bum9DaE1yQGoDqm1KEml1GkCuK98O0YN-H-XrV-E4_GN4Poa9xXq12iB80140W120WW0000",
+  "scoring_target": "combo_damage",
+  "free_mask": 15,
+  "lvl_min": 106,
+  "lvl_max": 121,
+  "time_limit_seconds": 30,
+  "num_workers": 2,
+  "extra_restrictions": [
+    {
+      "stat": "ehp",
+      "op": "ge",
+      "value": 10000
+    },
+    {
+      "stat": "ms",
+      "op": "ge",
+      "value": 20
+    },
+    {
+      "stat": "hpr",
+      "op": "ge",
+      "value": -250
+    }
+  ],
+  "locked_items": {
+    "ring1": {
+      "name": "Yang",
+      "stat_hash": "9d1d3ef1b4d65a53476fe8b022662f4d9f4c15749a5d79f62a1dd99ded2a7423"
+    },
+    "ring2": {
+      "name": "Photon",
+      "stat_hash": "13ad1e6b61b14f7d1334944c9076259fe9d4dacd6812bf206096938fcb62320e"
+    },
+    "bracelet": {
+      "name": "Misalignment",
+      "stat_hash": "8906ab1659ea54810129d7c6c3bc4a731b0c75ab83f14dab748be8366517690c"
+    },
+    "necklace": {
+      "name": "Metamorphosis",
+      "stat_hash": "02246fdfdd468f54bac8004064d7e5dc64cddc47fadd98152d3e49998031f167"
+    }
+  },
+  "created": "2026-08-13T03:59:38.799Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9",
+  "pool_only": {
+    "helmet": [
+      "Ahriman",
+      "Crash Helmet",
+      "Nutrient"
+    ],
+    "chestplate": [
+      "Ruinous"
+    ],
+    "leggings": [
+      "Greaves of Purest Obsidian",
+      "Bull Charge",
+      "Alstroemania",
+      "Conduit",
+      "Triceratops"
+    ],
+    "boots": [
+      "Coercion",
+      "Final Spark",
+      "Topsoil",
+      "Serene Storm",
+      "Hydrocurrent",
+      "Static Cling"
+    ]
+  },
+  "disable_seed_incumbent": true,
+  "independent_oracle": {
+    "item_pruning": "off",
+    "exhaustive": false
+  }
+}

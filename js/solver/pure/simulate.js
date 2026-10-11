@@ -355,7 +355,7 @@ function simulate_combo_mana_hp(rows, base_stats, health_config, has_transcenden
     const ms = base_stats.get('ms') ?? 0;
     const item_mana = base_stats.get('maxMana') ?? 0;
     const int_mana = Math.floor(skillPointsToPercentage(base_stats.get('int') ?? 0) * 100);
-    const start_mana = 100 + item_mana + int_mana;
+    const start_mana = total_mana_pool(item_mana, int_mana);
     const max_mana = start_mana;
     let mana_wasted = 0;
 
@@ -841,7 +841,7 @@ function simulate_combo_mana_fast(rows, base_stats, health_config, has_transcend
     const ms = base_stats.get('ms') ?? 0;
     const item_mana = base_stats.get('maxMana') ?? 0;
     const int_mana = Math.floor(skillPointsToPercentage(base_stats.get('int') ?? 0) * 100);
-    const start_mana = 100 + item_mana + int_mana;
+    const start_mana = total_mana_pool(item_mana, int_mana);
     const max_mana = start_mana;
     let mana_wasted = 0;
     let total_mana_drain = 0;

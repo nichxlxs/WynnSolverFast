@@ -1,0 +1,52 @@
+{
+  "baseline_commit": "027b0e8490432e6c87fe6c3024aed57fafcfb724",
+  "native_code_commit": "8f78f9b1",
+  "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+  "cpu_count": 9,
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "cpu_max": "800000 100000",
+  "memory_max": "21474836480",
+  "native_threads": 1,
+  "dominance": "off",
+  "enum_prechecks": "disabled; final restrictions unchanged",
+  "rustc": "1.98.1 (48a229cea)",
+  "wasm_bindgen": "0.2.127",
+  "wasm_opt": "unavailable; size pass skipped",
+  "browser_validation": "blocked by pre-existing incomplete playwright-core and absent Chromium",
+  "baseline_binaries": {
+    "/tmp/wynn-baseline-binaries/enum_kernel": "8189e75afad7bc172cb14e152995d232f3e81957d4c8d808404e1cfc14d9ad2e",
+    "/tmp/wynn-baseline-binaries/score_kernel": "a736645c79f5b43fab58b512a8dca53330de48b12e5e1389481cdbf9d8df9cdb"
+  },
+  "benchmark_suite_commit": "8909684b",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "screening_binaries": {
+    "enum_kernel": "cb788a8bf33d0898257151b893d815997043a7a5b9043a9ad82de9b3c23a7d08",
+    "anytime_kernel": "1663e833747f6e6cf41e6b6b45972450d6b9f92d4621373f380dc4fa547c4a18",
+    "score_kernel": "212597495eff97c462de5339f8d96968e5ace7a0f652efbed6ccef23a470ad63"
+  },
+  "followup_native_code_commit": "95c0a628",
+  "final_binaries": {
+    "enum_kernel": "7d3f05e8d9b29c3c213006ac56fb37bd1cbf65c6f9269568503d998ee1f787c9",
+    "score_kernel": "212597495eff97c462de5339f8d96968e5ace7a0f652efbed6ccef23a470ad63",
+    "anytime_kernel": "d62f2dbc00b3a9d9a629e980703a45c4530673ccd5c8b8bf0621121fc9a03058"
+  },
+  "final_wasm_sha256": "d2e06a6e36aac5e3788259f9891ac33993270944dc8cb41225b2c7e904129996",
+  "campaign_runs": {
+    "screen": 792,
+    "confirmation": 264,
+    "diagnostic": 27,
+    "oracle": 60,
+    "followup": 66
+  },
+  "total_campaign_runs": 1209
+}

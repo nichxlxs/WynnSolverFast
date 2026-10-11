@@ -387,6 +387,7 @@ function restriction_add_row() {
                 style="width:3.5em; flex-shrink:0; padding-left:0.3rem; padding-right:1.25rem;">
             <option value="ge">≥</option>
             <option value="le">≤</option>
+            <option value="soft" title="Soft floor: each 1% short of it costs 1% of the score">≥ soft</option>
         </select>
         <input type="text" inputmode="decimal" class="combo-row-input restr-value-input"
                placeholder="0" style="width:4.5em; text-align:center; flex-shrink:0;">
@@ -478,7 +479,8 @@ function _init_restriction_stat_autocomplete(input_id) {
  *   guild_tome: number,   // index into GUILD_TOMES (0 = off, 1-5 = +4 to one attr, 6 = rainbow)
  *   tome_roll: number,    // average roll % assumed for solver-chosen tomes
  *   tome_inventory: Set<number>|null,  // owned tome ids; null = owns everything
- *   stat_thresholds: Array<{stat: string, op: string, value: number}>
+ *   stat_thresholds: Array<{stat: string, op: string, value: number}>,
+ *   soft_floors: Array<{stat: string, value: number}>  // R14, positive floors only
  * }}
  */
 function get_restrictions() {
@@ -519,6 +521,9 @@ function get_restrictions() {
     const tome_inventory = inv_ids ? new Set(inv_ids) : null;
 
     const stat_thresholds = [];
+    // R14: rows set to "≥ soft" are penalties, not filters (apply_soft_floors).
+    // Only positive floors: the penalty is a fraction of the floor.
+    const soft_floors = [];
     for (const row of (document.getElementById('restriction-rows')?.children ?? [])) {
         if (!row.id?.startsWith('restr-row-')) continue;
         const stat_input = row.querySelector('.restr-stat-input');
@@ -530,6 +535,10 @@ function get_restrictions() {
         const raw = val_input.value.trim();
         const value = raw === '' ? 0 : parseFloat(raw);
         if ((!stat_key && !stat_label) || isNaN(value)) continue;
+        if (op_select.value === 'soft') {
+            if (value > 0) soft_floors.push({ stat: stat_key || stat_label, value });
+            continue;
+        }
         stat_thresholds.push({
             stat: stat_key || stat_label,
             op: op_select.value,   // 'ge' (≥) or 'le' (≤)
@@ -538,7 +547,7 @@ function get_restrictions() {
     }
 
     return { build_dir, lvl_min, lvl_max, lvl_overrides, no_major_id, guild_tome,
-             tome_opt, tome_roll, tome_inventory, stat_thresholds };
+             tome_opt, tome_roll, tome_inventory, stat_thresholds, soft_floors };
 }
 
 // ── Item Blacklist ──────────────────────────────────────────────────────────
@@ -884,4 +893,60 @@ function read_custom_weights() {
         weights.push({ target, weight });
     }
     return weights;
+}
+
+// ── Playstyle presets (roadmap R18) ───────────────────────────────────────────
+//
+// Restriction templates, one per family of the validated family suite. The
+// floors are the suite's `success_restrictions`, which each family's seed
+// build (a real, browser-validated build) meets, so a preset never starts
+// from an impossible requirement for that playstyle. They are starting
+// floors to edit, not official cutoffs (threshold-profiles.json says the
+// same). test_restriction_presets.js keeps this table equal to
+// js/solver/benchmarks/family_suite.json.
+
+const SOLVER_RESTRICTION_PRESETS = [
+    { id: 'cancelstack', label: 'Cancelstack melee', seed_weapon: 'Trance', restrictions: [{ stat: 'ehp', op: 'ge', value: 18000 }, { stat: 'ls', op: 'ge', value: 0 }, { stat: 'hpr', op: 'ge', value: -200 }, { stat: 'mainAttackRange', op: 'ge', value: -20 }] },
+    { id: 'heavy_melee', label: 'Heavy melee', seed_weapon: 'Vengeance', restrictions: [{ stat: 'ehp', op: 'ge', value: 18000 }, { stat: 'ls', op: 'ge', value: 0 }, { stat: 'hpr', op: 'ge', value: -100 }] },
+    { id: 'tierstack', label: 'Attack-speed tierstack', seed_weapon: 'Fate', restrictions: [{ stat: 'ehp_no_agi', op: 'ge', value: 12000 }, { stat: 'atkTier', op: 'ge', value: 3 }, { stat: 'hpr', op: 'ge', value: -100 }] },
+    { id: 'spellsteal', label: 'Spellsteal', seed_weapon: 'Oblivion', restrictions: [{ stat: 'ehp', op: 'ge', value: 10000 }, { stat: 'ms', op: 'ge', value: 20 }, { stat: 'hpr', op: 'ge', value: -250 }] },
+    { id: 'spell_sustained', label: 'Sustained spellspam', seed_weapon: 'Divzer', restrictions: [{ stat: 'ehp', op: 'ge', value: 8000 }, { stat: 'ms', op: 'ge', value: 20 }, { stat: 'hpr', op: 'ge', value: -300 }] },
+    { id: 'hybrid', label: 'Spell/melee hybrid', seed_weapon: 'Divzer', restrictions: [{ stat: 'ehp', op: 'ge', value: 10000 }, { stat: 'ms', op: 'ge', value: 10 }, { stat: 'hpr', op: 'ge', value: -250 }] },
+];
+
+/**
+ * Replace the stat threshold rows with a preset's. Blacklist rows, tomes and
+ * everything else are left alone. Returns the number of rows added.
+ */
+function solver_apply_restriction_preset(id) {
+    const preset = SOLVER_RESTRICTION_PRESETS.find(p => p.id === id);
+    const container = document.getElementById('restriction-rows');
+    if (!preset || !container) return 0;
+    for (const row of [...container.querySelectorAll('[id^="restr-row-"]')]) row.remove();
+    let added = 0;
+    for (const r of preset.restrictions) {
+        const stat_obj = RESTRICTION_STATS.find(s => s.key === r.stat);
+        if (!stat_obj) continue;
+        const row = restriction_add_row();
+        if (!row) break;
+        const stat_input = row.querySelector('.restr-stat-input');
+        stat_input.value = stat_obj.label;
+        stat_input.dataset.statKey = stat_obj.key;
+        row.querySelector('select').value = r.op;
+        row.querySelector('.restr-value-input').value = String(r.value);
+        added++;
+    }
+    _validate_restriction_contradictions();
+    _schedule_solver_hash_update();
+    return added;
+}
+
+/** The preset picker's change handler: apply, then reset to the prompt. */
+function solver_restriction_preset_changed(sel) {
+    if (sel?.value) solver_apply_restriction_preset(sel.value);
+    if (sel) sel.value = '';
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { ...(module.exports ?? {}), SOLVER_RESTRICTION_PRESETS };
 }

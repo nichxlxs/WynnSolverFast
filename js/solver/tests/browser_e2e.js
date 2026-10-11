@@ -94,8 +94,11 @@ async function loadPage(page, url) {
  * Configure the scenario. Returns the target the select actually holds, so the
  * caller can refuse to measure a run whose target silently failed to apply.
  */
-async function setup(page, { target, freeSlots, manaOff, engine, threads, pruning = 'current' }) {
+async function setup(page, { target, freeSlots, manaOff, engine, threads, pruning = 'current', radiance = false }) {
     await page.evaluate((cfg) => {
+        const rb = document.getElementById('radiance-boost');
+        if (rb && cfg.radiance !== rb.classList.contains('toggleOn')) update_radiance('radiance');
+
         const mb = document.getElementById('combo-mana-btn');
         if (mb && cfg.manaOff && mb.classList.contains('toggleOn')) mb.click();
         if (mb && !cfg.manaOff && !mb.classList.contains('toggleOn')) mb.click();
@@ -118,7 +121,7 @@ async function setup(page, { target, freeSlots, manaOff, engine, threads, prunin
         // cannot finish inside the page timeout.
         const pr = document.getElementById('solver-pruning-mode');
         if (pr && cfg.pruning) { pr.value = cfg.pruning; pr.dispatchEvent(new Event('change')); }
-    }, { target, freeSlots, manaOff, threads, pruning });
+    }, { target, freeSlots, manaOff, threads, pruning, radiance });
     await page.waitForTimeout(2500);
 
     await page.evaluate((eng) => {
@@ -149,6 +152,7 @@ const readState = (page) => page.evaluate(() => ({
     engine_used: _solver_state.engine_used,
     engine_fallback_reason: _solver_state.engine_fallback_reason,
     partitions: _solver_state.partitions,
+    rust_units: _solver_state.rust_units,
     worker_count: _solver_state.workers.length,
     top: _solver_state.top5.slice(0, 15).map((r) => ({
         score: r.score,
@@ -203,6 +207,33 @@ function spMatches(a, b) {
 }
 
 // ── Phases ───────────────────────────────────────────────────────────────────
+
+/**
+ * Radiance on item-granted SP in the page's own stats: with the toggle on,
+ * each skill point lane with positive item SP reads floor(sp + item * 0.15)
+ * of what it read with the toggle off, as the builder computes it.
+ */
+async function radianceDisplayPhase(page, url) {
+    console.log('— Radiance on item SP in the displayed stats —');
+    await loadPage(page, url);
+    const r = await page.evaluate(async () => {
+        const settle = () => new Promise((res) => setTimeout(res, 500));
+        const lanes = () => skp_order.map((k) => solver_radiance_node.value.get(k));
+        if (document.getElementById('radiance-boost').classList.contains('toggleOn')) update_radiance('radiance');
+        await settle();
+        const off = lanes();
+        update_radiance('radiance');
+        await settle();
+        const on = lanes();
+        update_radiance('radiance');
+        return { off, on, item: [...(solver_build_node.value?.total_item_skillpoints ?? [])] };
+    });
+    const want = r.off.map((v, i) => (r.item[i] > 0 ? Math.floor(v + r.item[i] * ((1 + 0.15) - 1)) : v));
+    ok(r.item.some((v) => v > 0), `the build has item SP to scale (${JSON.stringify(r.item)})`);
+    ok(JSON.stringify(r.on) === JSON.stringify(want),
+       `displayed SP with Radiance applies the item-SP term (off ${JSON.stringify(r.off)}, on ${JSON.stringify(r.on)}, want ${JSON.stringify(want)})`);
+    ok(r.on.some((v, i) => v !== r.off[i]), 'Radiance changes at least one displayed SP lane');
+}
 
 async function comparedRun(page, url, label, cfg) {
     console.log(`— ${label} —`);
@@ -276,7 +307,25 @@ async function partitionPhase(page, url, cfg) {
     await setup(page, { ...cfg, engine: 'rust', threads: 4 });
     const four = await runToCompletion(page);
     console.log(`  threads=4: checked=${four.checked} partitions=${four.partitions} `
-        + `wall=${four.elapsed_ms}ms`);
+        + `units=${four.rust_units} wall=${four.elapsed_ms}ms`);
+
+    // R24: the same split as fixed partitions (no work queue). Both shapes
+    // must reproduce the single-worker answer.
+    await page.addInitScript(() => { window.__SOLVER_NO_QUEUE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 4 });
+    const fixed = await runToCompletion(page);
+    await page.addInitScript(() => { window.__SOLVER_NO_QUEUE = false; });
+    console.log(`  threads=4, fixed partitions: checked=${fixed.checked} partitions=${fixed.partitions} `
+        + `units=${fixed.rust_units} wall=${fixed.elapsed_ms}ms`);
+    ok(four.rust_units > four.partitions && fixed.rust_units === 0,
+       `partitioning: the default run used the work queue (units=${four.rust_units}) `
+       + `and the escape hatch fixed partitions (units=${fixed.rust_units})`);
+    ok(fixed.engine_used === 'rust' && fixed.checked === one.checked && scores(fixed) === scores(one),
+       `partitioning: fixed partitions also match one worker (${fixed.checked} leaves)`);
+    const spf = spMatches(one, fixed);
+    ok(spf.common > 0 && spf.same,
+       `partitioning: fixed partitions, identical SP assignment (${spf.common}/${one.top.length} common)`);
 
     ok(one.engine_used === 'rust' && four.engine_used === 'rust',
        `partitioning: both runs used the Rust engine `
@@ -298,6 +347,129 @@ async function partitionPhase(page, url, cfg) {
     const sp = spMatches(one, four);
     ok(sp.common > 0 && sp.same,
        `partitioning: identical SP assignment (${sp.common}/${one.top.length} common)`);
+}
+
+/**
+ * R13: a re-run after tightening a requirement shows the previous run's
+ * still-valid builds at once (re-scored under the new requirement), and the
+ * final results are exactly those of a fresh page with the archive off.
+ */
+async function archivePhase(page, url, cfg) {
+    console.log('— result archive (re-run after tightening a requirement) —');
+    const addFloor = (v) => page.evaluate((v) => {
+        const r = restriction_add_row(); const i = r.querySelector('.restr-stat-input');
+        i.value = 'Total HP'; i.dataset.statKey = 'total_hp';
+        r.querySelector('.restr-value-input').value = String(v);
+    }, v);
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const first = await runToCompletion(page);
+    const floor = Math.ceil(first.top[3].score);
+    await addFloor(floor);
+    await clickRun(page);
+    const at_start = await page.evaluate(() => ({
+        seeds: (_solver_state.archive_seeds ?? []).length, shown: _solver_state.top5.length }));
+    await page.waitForFunction(() => !_solver_state.running, null, { timeout: 300000 });
+    const second = await readState(page);
+
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    await addFloor(floor);
+    const ref = await runToCompletion(page);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+
+    ok(at_start.seeds > 0 && at_start.shown > 0,
+       `archive: the re-run starts with ${at_start.seeds} re-scored builds from the previous run on screen`);
+    ok(second.top.length > 0 && scores(second) === scores(ref),
+       `archive: final results equal a fresh run's with the archive off (${second.top.length} builds)`);
+}
+
+/**
+ * R16: comparing the current weapon with another of its class gives exactly
+ * the top-N of the two weapons' separate runs, tagged per weapon, and puts
+ * the original weapon back.
+ */
+async function weaponComparePhase(page, url, cfg) {
+    console.log('— weapon comparison —');
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const info = await page.evaluate(() => {
+        const sm = solver_item_final_nodes[8].value.statMap;
+        const name = get_item_display_name(sm), type = sm.get('type'), lvl = sm.get('lvl');
+        const other = [...itemMap.values()].filter(it => it.category === 'weapon' && it.type === type
+            && it.displayName !== name && Math.abs((it.lvl ?? 0) - lvl) <= 3 && !it.majorIds?.length)
+            .map(it => it.displayName).sort()[0];
+        return { name, other };
+    });
+    const tops = (w) => page.evaluate((w) => _solver_state.top5.map(r =>
+        `${r.weapon ?? w}|${r.score.toFixed(6)}|${r.items.map(i => get_item_display_name(i.statMap)).join(',')}`), w);
+    const single = async (w) => {
+        await page.evaluate((w) => { const i = document.getElementById('weapon-choice'); i.value = w; i.dispatchEvent(new Event('change')); }, w);
+        await page.waitForTimeout(3000);
+        await clickRun(page);
+        await page.waitForFunction(() => !_solver_state.running, null, { timeout: 300000 });
+        return tops(w);
+    };
+    const a = await single(info.name);
+    const b = await single(info.other);
+    await page.evaluate((w) => { const i = document.getElementById('weapon-choice'); i.value = w; i.dispatchEvent(new Event('change')); }, info.name);
+    await page.waitForTimeout(3000);
+    await page.evaluate((o) => { document.getElementById('solver-weapon-compare').value = o; }, info.other);
+    await page.evaluate(() => document.getElementById('solver-run-btn').click());
+    await page.waitForFunction(() => _solver_state.weapon_compare, null, { timeout: 60000 });
+    await page.waitForFunction(() => !_solver_state.weapon_compare && !_solver_state.running, null, { timeout: 600000 });
+    const merged = await tops(null);
+    const score = k => Number(k.split('|')[1]);
+    const want = [...a, ...b].sort((x, y) => score(y) - score(x)).slice(0, merged.length);
+    const restored = await page.evaluate(() => document.getElementById('weapon-choice').value);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+    ok(merged.length > 0 && JSON.stringify(merged) === JSON.stringify(want),
+       `weapons: ${info.name} vs ${info.other} merges to exactly the top-${merged.length} of the two separate runs`);
+    ok(restored === info.name, `weapons: the original weapon is restored (${restored})`);
+}
+
+/**
+ * R15: with requirement rolls at 0%, every result meets a rolled-stat floor
+ * at minimum rolls; without it, some do not (so the check is not vacuous).
+ * Judged independently: items re-rolled from raw data at 0%, then the
+ * page's own evaluator with only the floor.
+ */
+async function constraintRollPhase(page, url, cfg) {
+    console.log('— roll-robust requirements —');
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = true; });
+    await loadPage(page, url);
+    await setup(page, { ...cfg, engine: 'rust', threads: 1 });
+    const passAt = (F, pct) => page.evaluate(([F, pct]) => {
+        const saved = [current_roll_mode, current_constraint_roll];
+        current_constraint_roll = null;
+        current_roll_mode = { damage: pct, mana: pct, healing: pct, misc: pct };
+        try {
+            const restr = { ...get_restrictions(), stat_thresholds: [{ stat: 'mr', op: 'ge', value: F }], soft_floors: [] };
+            const snap = _build_solver_snapshot(restr);
+            return _solver_state.top5.map(r => {
+                const items = _reconstruct_result_items(r.items.map(i => get_item_display_name(i.statMap)));
+                return _eval_equip_build(snap, restr, items, items.map(i => i.statMap), false) !== null;
+            });
+        } finally { [current_roll_mode, current_constraint_roll] = saved; }
+    }, [F, pct]);
+    await runToCompletion(page);
+    let floor = 1;
+    for (let F = 1; F <= 60; F++) {
+        const p = await passAt(F, 85);
+        if (p.filter(Boolean).length <= p.length / 2) { floor = F; break; }
+    }
+    await page.evaluate((f) => { const r = restriction_add_row(); const i = r.querySelector('.restr-stat-input');
+        i.value = 'Mana Regen'; i.dataset.statKey = 'mr'; r.querySelector('.restr-value-input').value = String(f); }, floor);
+    await runToCompletion(page);
+    const plain = await passAt(floor, 0);
+    await page.evaluate(() => { document.getElementById('restr-constraint-roll').value = '0'; });
+    await runToCompletion(page);
+    const robust = await passAt(floor, 0);
+    await page.addInitScript(() => { window.__SOLVER_NO_ARCHIVE = false; });
+    ok(plain.some(x => !x), `rolls: without requirement rolls, ${plain.filter(x => !x).length} of ${plain.length} results miss mr >= ${floor} at minimum rolls`);
+    ok(robust.length > 0 && robust.every(Boolean), `rolls: at 0% requirement rolls all ${robust.length} results meet it at minimum rolls`);
 }
 
 /** Stop mid-search, then confirm the page is still usable. */
@@ -407,10 +579,32 @@ async function cancelPhase(page, url, engine, cfg) {
             target: 'combo_damage', freeSlots: ARMOUR, manaOff: true,
         });
 
+        // 2b. Radiance: the page's stats apply it to item SP, and both engines
+        //     agree with it on (Rust assembles the term in its own pipeline).
+        await radianceDisplayPhase(page, url);
+        await comparedRun(page, url, 'combo_damage with Radiance', {
+            target: 'combo_damage', freeSlots: ARMOUR, manaOff: true, radiance: true,
+        });
+
         // 3. Partitioning, on the four-armour space so the run completes; the
         //    threshold is lowered inside the phase (see its comment).
         await partitionPhase(page, url, {
             target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3b. Result archive across runs (R13), on the same space.
+        await archivePhase(page, url, {
+            target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3c. Weapon comparison (R16), on the same space.
+        await weaponComparePhase(page, url, {
+            target: 'total_hp', freeSlots: ARMOUR, manaOff: true,
+        });
+
+        // 3d. Roll-robust requirements (R15), damage target on the same space.
+        await constraintRollPhase(page, url, {
+            target: 'combo_damage', freeSlots: ARMOUR, manaOff: true,
         });
 
         // 4. Cancellation, on the wide space: freeing the accessories makes it

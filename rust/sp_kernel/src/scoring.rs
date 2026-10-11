@@ -96,6 +96,10 @@ pub struct Tables {
     pub sp_rate: f64,
     pub sp_cap: f64,
     pub sp_pct_table: Vec<f64>,
+    /// MAX_MANA_CAP (js/game/game_rules.js): the max mana pool, base and Int
+    /// bonus included. Infinity when the JS side turned it off (exported as
+    /// null); 400 for exports that predate the field.
+    pub max_mana_cap: f64,
     pub skillpoint_final_mult_3: f64,
     pub skillpoint_final_mult_4: f64,
     /// Precomputed per-element stat key names (hot-path format! hoist).
@@ -145,12 +149,21 @@ impl Tables {
             sp_rate: v["sp_percentage_rate"].as_f64().unwrap(),
             sp_cap: v["sp_percentage_input_cap"].as_f64().unwrap(),
             sp_pct_table: v.get("sp_pct_table").map(arr_f64).unwrap_or_default(),
+            max_mana_cap: match v.get("max_mana_cap") {
+                None => 400.0,
+                Some(x) => x.as_f64().unwrap_or(f64::INFINITY),
+            },
             skillpoint_final_mult_3: v.get("skillpoint_final_mult")
                 .and_then(|a| a.get(3)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
             skillpoint_final_mult_4: v.get("skillpoint_final_mult")
                 .and_then(|a| a.get(4)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN),
             names: ElemNames::build(),
         }
+    }
+    /// total_mana_pool (game_rules.js): Math.min(MAX_MANA_CAP, 100 + Max
+    /// Mana + Int bonus), NaN flowing through as Math.min lets it.
+    pub fn mana_pool(&self, item_mana: f64, int_mana: f64) -> f64 {
+        js_min(self.max_mana_cap, 100.0 + item_mana + int_mana)
     }
     pub fn sp_to_pct(&self, skp: f64) -> f64 {
         // Mirrors skillPointsToPercentage, including NaN flow-through
@@ -1446,9 +1459,12 @@ impl Layer2 {
 
     /// Build combo_base for a case's items at the given total_sp.
     /// Convenience: full leaf assembly (build stats + SP-dependent parts).
-    pub fn assemble(&self, item_names: &[&str], total_sp: &[f64], weapon: &Obj) -> Result<Obj, String> {
+    /// `item_sp` is the item-granted SP Radiance scales (total minus assigned).
+    pub fn assemble(
+        &self, item_names: &[&str], total_sp: &[f64], weapon: &Obj, item_sp: Option<&[i32; 5]>,
+    ) -> Result<Obj, String> {
         let base = self.build_base(item_names, weapon)?;
-        Ok(self.assemble_from_base(&base, total_sp, weapon))
+        Ok(self.assemble_from_base_full(&base, total_sp, weapon, None, item_sp))
     }
 
     /// Leaf-invariant build stats: base statmap + item/tome/weapon sums +
@@ -1554,6 +1570,30 @@ impl Layer2 {
         }
     }
 
+    /// Radiance on item-granted skill points, as the builder's
+    /// `compute_radiance` (js/game/shared_graph_nodes.js) and the solver's
+    /// `_apply_radiance_item_sp` (pure/engine.js) apply it: each positive
+    /// lane adds `floor(sp + item_sp * (boost - 1))`, same operands in the
+    /// same order so the double rounds identically. `item_sp` is the leaf's
+    /// total minus assigned SP, which greedy and the mana rescue preserve.
+    ///
+    /// Bounds: nothing reads a raw SP stat except through the 150-capped
+    /// `sp_to_pct` (no atree stat-scaling effect takes an SP input), so the
+    /// all-150 subtree ceilings stay admissible; the leaf ceilings (R1
+    /// reachable SP, doom Int) assemble through `asm` with the leaf's own
+    /// item SP and so include the bonus.
+    pub fn apply_radiance_item_sp(&self, sm: &mut Obj, item_sp: Option<&[i32; 5]>) {
+        let Some(item_sp) = item_sp else { return };
+        if self.radiance_boost == 1.0 { return; }
+        for (i, skp) in self.skp_order.iter().enumerate() {
+            if item_sp[i] > 0 {
+                let cur = sm.get(skp).and_then(|v| v.as_f64()).filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(0.0);
+                let v = (cur + item_sp[i] as f64 * (self.radiance_boost - 1.0)).floor();
+                sm.insert(skp.clone(), Value::from(v));
+            }
+        }
+    }
+
     /// SP-dependent assembly on a prebuilt base: clone + skp + classDef +
     /// atree_raw merge + atree scaling (cached/split) + static boosts.
     pub fn assemble_from_base(&self, base: &Obj, total_sp: &[f64], weapon: &Obj) -> Obj {
@@ -1576,6 +1616,15 @@ impl Layer2 {
     pub fn assemble_from_base_extra(
         &self, base: &Obj, total_sp: &[f64], weapon: &Obj, extra: Option<&Obj>,
     ) -> Obj {
+        self.assemble_from_base_full(base, total_sp, weapon, extra, None)
+    }
+
+    /// `assemble_from_base_extra` with the leaf's item-granted SP, which
+    /// Radiance scales on top (see `apply_radiance_item_sp`).
+    pub fn assemble_from_base_full(
+        &self, base: &Obj, total_sp: &[f64], weapon: &Obj, extra: Option<&Obj>,
+        item_sp: Option<&[i32; 5]>,
+    ) -> Obj {
         // assemble_combo_stats: pre_scale = clone + skp + classDef + atree_raw
         let mut pre_scale = base.clone();
         for (i, skp) in self.skp_order.iter().enumerate() {
@@ -1588,6 +1637,7 @@ impl Layer2 {
         merge_into(&mut pre_scale, self.atree_raw.as_ref());
         // _apply_radiance_scale_inplace: scale-and-floor the affected stats.
         self.apply_radiance(&mut pre_scale);
+        self.apply_radiance_item_sp(&mut pre_scale, item_sp);
 
         let mut var_out: Option<Obj> = None;
         let scaled: Option<&Obj> = match self.scaling_kind.as_str() {
@@ -1714,7 +1764,7 @@ fn simulate_mana_fast_src(
         }
     };
     let int_mana = (tables.sp_to_pct(int_v) * 100.0).floor();
-    let start_mana = 100.0 + item_mana + int_mana;
+    let start_mana = tables.mana_pool(item_mana, int_mana);
     let max_mana = start_mana;
     let mut mana_wasted = 0.0;
     let mut total_mana_drain = 0.0;
@@ -2228,7 +2278,7 @@ pub fn mana_check_passes(
     (start_mana - end_mana) <= 5.0
 }
 
-/// greedy_sp_loop (pure/engine.js): step-down [20,4,1], try-revert-keep.
+/// greedy_sp_loop (pure/engine.js): step-down [10,4,1], try-revert-keep.
 pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
     base_sp: &mut [i32; 5], total_sp: &mut [i32; 5], mut remaining: i32,
     cap_total: &[i32; 5], mut trial_score: F,
@@ -2237,7 +2287,7 @@ pub fn greedy_sp_loop<F: FnMut(&[i32; 5]) -> f64>(
     let mut cur = trial_score(total_sp);
     let mut placed = [0i32; 5];   // points this loop added, per lane
 
-    for step in [20, 4, 1] {
+    for step in [10, 4, 1] {
         let mut progress = true;
         while progress && remaining > 0 {
             progress = false;
@@ -2428,7 +2478,9 @@ pub mod trace {
     /// The existing subtree/cluster ceiling memo in the enumerator.
     pub const BM_HIT: usize = 29;
     pub const BM_MISS: usize = 30;
-    pub const N: usize = 31;
+    /// R23: cluster-loop fills skipped by `fill_direct_reuse`.
+    pub const FD_REUSED: usize = 31;
+    pub const N: usize = 32;
 
     pub static ENABLED: AtomicBool = AtomicBool::new(false);
     /// SCORE_TRACE=2: also time the per-trial sub-phases.
@@ -2521,6 +2573,9 @@ pub mod trace {
             eprintln!("score_trace: SP-solve key repeats — {:.1}% would hit a 4096-slot memo, \
                        {:.1}% identical to the previous leaf",
                       h as f64 / (h + m) as f64 * 100.0, p as f64 / (h + m) as f64 * 100.0);
+        }
+        if c(FD_REUSED) > 0 {
+            eprintln!("score_trace: fill_direct_reuse skipped {} cluster-loop fills", c(FD_REUSED));
         }
         if fine() && c(FD_CALLS) > 0 {
             eprintln!("score_trace: fill_direct slot churn — {:.2} of 8 item slots change \
@@ -2881,9 +2936,6 @@ pub fn leaf_pipeline_gated(
             skp: arr5("skillpoints"),
         }
     };
-    // Every assemble in this function goes through here so a tome bundle
-    // cannot be applied to some stages and missed by others.
-    let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_extra(base, sp, weapon, tome_extra);
 
     let _pre_t0 = if trace::on() { Some(std::time::Instant::now()) } else { None };
     let _pl0 = if trace::fine() { Some(std::time::Instant::now()) } else { None };
@@ -2991,6 +3043,14 @@ pub fn leaf_pipeline_gated(
     let mut base_sp = assign;
     let mut total_sp = total;
     let mut assigned_sp = assigned;
+    // SP granted by items and set bonuses (and the guild tome), which Radiance
+    // scales on top. Constant for the leaf: greedy and the rescue move base and
+    // total together.
+    let item_sp: [i32; 5] = std::array::from_fn(|i| total[i] - assign[i]);
+    // Every assemble in this function goes through here so a tome bundle or
+    // the Radiance item-SP term cannot be applied to some stages and missed
+    // by others.
+    let asm = |base: &Obj, sp: &[f64]| l2.assemble_from_base_full(base, sp, weapon, tome_extra, Some(&item_sp));
 
     // Dense hot path: per-leaf lowered stats for the gate + greedy trials.
     // The direct build skips the Obj base entirely; any shape the lowering
@@ -3050,10 +3110,12 @@ pub fn leaf_pipeline_gated(
         // of every allocation the greedy can reach, which is all the gate
         // needs. Disabling the rescue in particular shrinks the reachable
         // set, and a ceiling over a superset is still a ceiling.
-        let gate_env_off = env_once!("SCORE_HPCAST_GATE" == "0")
-            && consts.hp_casting;
+        // Reference campaigns can evaluate every SP-feasible tuple without
+        // relying on this ceiling. The production default is unchanged.
+        let gate_env_off = env_once!("SCORE_CEILING_GATE" == "0")
+            || (env_once!("SCORE_HPCAST_GATE" == "0") && consts.hp_casting);
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
-            && !gate_env_off {
+            && !gate_env_off && rows_crit_ceiling_ok(compiled_rows) {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
@@ -3083,9 +3145,17 @@ pub fn leaf_pipeline_gated(
                     let DenseWork { leaf, scratch, .. } = &mut **w;
                     let neg = if two_sided {
                         dense_assemble(d, leaf, scratch, &low_sp);
-                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        // The low-SP point is a lower bound only while a crit
+                        // hit is at least a normal one; below that, more Dex
+                        // lowers damage (see CRIT_CEILING_FLOOR). No gate.
+                        if scratch.num(d.s_crit_dam_pct) < CRIT_CEILING_FLOOR {
+                            f64::INFINITY
+                        } else {
+                            dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        }
                     } else { 0.0 };
                     dense_assemble(d, leaf, scratch, &ceiling_sp);
+                    ceiling_crit_floor_dense(d, scratch);
                     let v = if two_sided {
                         dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, false) + neg
                     } else {
@@ -3093,21 +3163,29 @@ pub fn leaf_pipeline_gated(
                     };
                     if dense_check && !two_sided {
                         let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                        ceiling_crit_floor_obj(&mut cb150);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
                     }
-                    v
+                    // R14: every item is placed, so the leaf state is exact.
+                    if two_sided { v } else {
+                        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, scratch, tables, false))
+                    }
                 } else if two_sided {
                     let base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
                     let cb_lo = asm(base, &low_sp);
-                    let neg = objective.score_signed(
-                        &cb_lo, weapon, rows, registry, hit_refs, tables, true);
-                    let cb150 = asm(base, &ceiling_sp);
+                    let lo_crit = cb_lo.get("critDamPct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let neg = if lo_crit < CRIT_CEILING_FLOOR { f64::INFINITY } else {
+                        objective.score_signed(&cb_lo, weapon, rows, registry, hit_refs, tables, true)
+                    };
+                    let mut cb150 = asm(base, &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     objective.score_signed(
                         &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
                     let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     obj_score(&mut cb150)
                 };
                 gate_ceiling = Some(ceiling);
@@ -3257,6 +3335,10 @@ pub fn leaf_pipeline_gated(
     // Final assemble + mana check (+ rescue).
     let mut sp_f5 = [0f64; 5];
     for i in 0..5 { sp_f5[i] = total_sp[i] as f64; }
+    // R14: the soft floors' shortfall, read from the same final stats the
+    // threshold check reads (re-read after a mana rescue), applied to the
+    // final score only, as the JS worker's _eval_leaf_score does.
+    let mut soft_short = 0.0f64;
     if let Some((d, w)) = dwork.as_mut() {
         {
             let DenseWork { leaf, scratch, .. } = &mut **w;
@@ -3273,6 +3355,14 @@ pub fn leaf_pipeline_gated(
                 let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
                 let ov = check_thresholds_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
                 assert!(ov, "dense/obj threshold mismatch (dense passes)");
+            }
+            if !d.soft_floors.is_empty() {
+                soft_short = dense_soft_shortfall(d, scratch, tables, consts);
+                if dense_check {
+                    let cb = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &sp_f5);
+                    let o = soft_shortfall_obj(&StatsView::Borrowed(&cb), thresholds, base_costs, tables, consts);
+                    assert!(o.to_bits() == soft_short.to_bits(), "dense/obj soft shortfall mismatch: {soft_short:?} vs {o:?}");
+                }
             }
         }
         let mana_ok = phase!(MANA, {
@@ -3314,6 +3404,7 @@ pub fn leaf_pipeline_gated(
                 }
                 v
             });
+            let score = apply_soft_shortfall(score, soft_short);
             ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -3345,6 +3436,9 @@ pub fn leaf_pipeline_gated(
                     && !dense_check_thresholds(d2, &w2.scratch, tables, consts) {
                     return Ok(LeafOutcome::ThresholdReject);
                 }
+                if !d2.soft_floors.is_empty() {
+                    soft_short = dense_soft_shortfall(d2, &w2.scratch, tables, consts);
+                }
             }
             let score = phase!(FINAL, {
                 let (d, w) = dwork.as_mut().unwrap();
@@ -3357,6 +3451,7 @@ pub fn leaf_pipeline_gated(
                     None => dense_score(d, leaf, scratch, rows, compiled_rows, tables),
                 }
             });
+            let score = apply_soft_shortfall(score, soft_short);
             ceiling_tripwire(dense_check, gate_ceiling, score);
             return Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }));
         }
@@ -3385,7 +3480,11 @@ pub fn leaf_pipeline_gated(
     }
 
     assert!(!doom_reject_expected, "doom precheck would have rejected a scored leaf (Obj path)");
+    if thresholds.iter().any(|t| t.soft) {
+        soft_short = soft_shortfall_obj(&StatsView::Borrowed(&combo_base), thresholds, base_costs, tables, consts);
+    }
     let score = phase!(FINAL, obj_score(&mut combo_base));
+    let score = apply_soft_shortfall(score, soft_short);
     ceiling_tripwire(dense_check, gate_ceiling, score);
     Ok(LeafOutcome::Scored(LeafResult { base_sp, total_sp, assigned_sp, score }))
 }
@@ -3566,6 +3665,8 @@ pub fn mana_rescue(
 
     let saved_base = *base_sp;
     let saved_total = *total_sp;
+    // Item SP for the Radiance term; the shifts below keep it unchanged.
+    let item_sp: [i32; 5] = std::array::from_fn(|i| saved_total[i] - saved_base[i]);
 
     for frac in [0.25f64, 0.5, 0.75, 1.0] {
         let shift_target = (max_shift as f64 * frac).ceil() as i32;
@@ -3592,7 +3693,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble_from_base_extra(build_base, &sp_f, weapon, tome_extra);
+        let combo_base = l2.assemble_from_base_full(build_base, &sp_f, weapon, tome_extra, Some(&item_sp));
         if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
@@ -3858,6 +3959,7 @@ impl Layer2 {
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
         let mut cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
+        ceiling_crit_floor_obj(&mut cb);
         Ok(match compiled {
             Some(c) => objective.score_compiled(&mut cb, weapon, rows, c, tables),
             None => objective.score(&cb, weapon, rows, registry, hit_refs, tables),
@@ -4023,7 +4125,7 @@ pub fn eval_indirect_stat(stats: &StatsView, stat: &str, tables: &Tables) -> f64
         "total_mana" => {
             let mm = stats.num_or0("maxMana");
             let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-            100.0 + mm + int_mana
+            tables.mana_pool(mm, int_mana)
         }
         other => stats.num_or0(other),
     }
@@ -4916,6 +5018,16 @@ pub struct DenseCtx {
     pub doom_couples_tier: bool,
     /// Restriction thresholds lowered onto the read universe: (kind, ge, value).
     pub thresholds: Vec<(DThresh, bool, f64)>,
+    /// R14 soft floors lowered the same way: (kind, floor).
+    pub soft_floors: Vec<(DThresh, f64)>,
+    /// R14: the soft floors a ceiling may be penalised with (see
+    /// `dense_soft_ceiling_shortfall`); empty with stat-dependent
+    /// ability-tree effects.
+    pub soft_ceiling: Vec<(DThresh, f64)>,
+    /// Some item in the scenario carries defMobs. Its effect on EHP's defense
+    /// multiplier is fixed at fill time from the prefix, so a subtree ceiling
+    /// would understate EHP; such ceilings then leave EHP floors out.
+    pub soft_ceiling_def_mobs: bool,
     // weapon constants
     pub w_damages: [[f64; 2]; 6],
     pub w_present: [bool; 6],
@@ -4954,6 +5066,17 @@ pub struct DenseLeaf {
     pub has_arcanes: bool,
     /// Trace-only: previous call's item-name identities.
     pub probe_prev: [(usize, usize); 8],
+    /// R23: the item names (pointer, length) of the last `fill_direct_reuse`
+    /// build, valid while `reuse_ok`. Every plain `fill_direct` clears it,
+    /// because its callers add bound deltas to the state without rolling
+    /// them back.
+    pub reuse_key: Vec<(usize, usize)>,
+    pub reuse_ok: bool,
+    /// Old values of the deltas `dense_ceiling_with` left applied on a
+    /// reusable fill (callers such as R2's fast path read the state after
+    /// them). The next reuse hit restores them, newest first, bit for bit.
+    pub undo: Vec<(u32, f64, bool)>,
+    pub term_undo: Vec<(usize, f64)>,
 }
 
 /// Mutable trial state; dam/def lists are journaled per row and end each
@@ -5232,6 +5355,7 @@ impl DenseCtx {
         // Threshold lowering (read-universe interning happens here so item
         // writes to threshold stats survive the dead-write filter).
         let mut thresholds: Vec<(DThresh, bool, f64)> = Vec::new();
+        let mut soft_floors: Vec<(DThresh, f64)> = Vec::new();
         for t in raw_thresholds {
             let kind = match t.stat.as_str() {
                 "ehp" => DThresh::Ehp,
@@ -5254,8 +5378,26 @@ impl DenseCtx {
                 }
                 st => DThresh::Plain(intern(st, &mut idx, &mut keys)),
             };
-            thresholds.push((kind, t.ge, t.value));
+            if t.soft { soft_floors.push((kind, t.value)); } else { thresholds.push((kind, t.ge, t.value)); }
         }
+        // Ceiling-safe soft floors: stats non-decreasing in every component a
+        // ceiling raises (clamped item adds, skill points at their caps).
+        let soft_ceiling: Vec<(DThresh, f64)> = if l2.scaling_kind != "cached" { Vec::new() } else {
+            raw_thresholds.iter().filter(|t| t.soft).filter_map(|t| {
+                let kind = match t.stat.as_str() {
+                    "ehp" => DThresh::Ehp,
+                    "ehp_no_agi" => DThresh::EhpNoAgi,
+                    "total_hp" => DThresh::TotalHp,
+                    "total_mana" => DThresh::TotalMana,
+                    "hpr" | "ehpr" => return None,
+                    st if st.starts_with("finalSpellCost") => return None,
+                    st => DThresh::Plain(*idx.get(st)?),
+                };
+                Some((kind, t.value))
+            }).collect()
+        };
+        let soft_ceiling_def_mobs = l2.item_registry.values()
+            .any(|it| it.get("defMobs").and_then(|v| v.as_f64()).is_some_and(|v| v != 0.0));
 
         // Bounded-doom classification of var output slots.
         let mut var_slot_mana_dir: Vec<i8> = Vec::with_capacity(var_slots.len());
@@ -5567,7 +5709,8 @@ impl DenseCtx {
             s_sd_raw, s_md_raw, s_dam_raw, s_r_sd_raw, s_r_md_raw, s_r_dam_raw,
             s_crit_dam_pct, s_def, s_agi, s_hp, s_hp_bonus, s_agi_def,
             s_hpr_raw, s_hpr_pct, s_max_mana, s_int, mana_keys, mana_idx, atk_spd_str,
-            var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds,
+            var_slot_mana_dir, doom_couples_start, doom_couples_tier, thresholds, soft_floors,
+            soft_ceiling, soft_ceiling_def_mobs,
             w_damages, w_present, w_spd_mult, class_def_val,
             skp_atree_adds, skp_const_adds, skp_static_adds,
             var_effects, var_slots, const_term_keys, rows: drows, obj,
@@ -5647,6 +5790,10 @@ impl DenseLeaf {
             lc_vals, present, var_out_absent, const_term_vals,
             dam_entries, dam_vals, def_entries, def_vals, atk_spd_idx, has_arcanes,
             probe_prev: Default::default(),
+            reuse_key: Vec::new(),
+            reuse_ok: false,
+            undo: Vec::new(),
+            term_undo: Vec::new(),
         })
     }
 }
@@ -5934,7 +6081,7 @@ fn dense_spell_plan(
     (per_cast, flat)
 }
 
-enum DenseUndo {
+pub(crate) enum DenseUndo {
     Val(u32, f64, bool),           // idx, old val, old present bit
     DamVal(usize, f64),
     DamAppend,
@@ -5945,7 +6092,7 @@ enum DenseUndo {
 /// with_row_overlay over the dense scratch. `extra_row` carries bonuses for
 /// tokens injected after the lowering was built; they apply after the row's
 /// own ops, matching the Obj path's `comp.bonuses.chain(extra)` order.
-fn dense_apply_row(
+pub(crate) fn dense_apply_row(
     s: &mut DScratch, drow: &DRow, extra_row: &DenseRowExtra,
     journal: &mut Vec<DenseUndo>,
 ) {
@@ -5989,7 +6136,7 @@ fn dense_apply_row(
     }
 }
 
-fn dense_undo_row(s: &mut DScratch, journal: &mut Vec<DenseUndo>) {
+pub(crate) fn dense_undo_row(s: &mut DScratch, journal: &mut Vec<DenseUndo>) {
     while let Some(u) = journal.pop() {
         match u {
             DenseUndo::Val(i, old, was) => {
@@ -6130,7 +6277,7 @@ fn dense_indirect(d: &DenseCtx, s: &DScratch, ind: &DInd, tables: &Tables) -> f6
         DInd::TotalMana => {
             let mm = s.num_or0(d.s_max_mana);
             let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-            100.0 + mm + int_mana
+            tables.mana_pool(mm, int_mana)
         }
         DInd::Plain(i) => s.num_or0(*i),
     }
@@ -6503,11 +6650,68 @@ impl DenseLeaf {
         if leaf.fill_direct(d, dd, item_names) { Some(leaf) } else { None }
     }
 
+    /// R23: `fill_direct`, skipped when the state already holds exactly
+    /// these items from an earlier `fill_direct_reuse`. The tail ceiling
+    /// fills a prefix and the last-slot cluster loop then fills the same
+    /// prefix again (24 to 40% of all fills on cancelstack, tierstack and
+    /// hybrid medium repeat the previous one). Only for callers that leave
+    /// the state as they found it or journal what they change: the cluster
+    /// loop's `dense_ceiling_cached` rolls its deltas back itself, and
+    /// `dense_ceiling_with` leaves its deltas in `undo`, restored here.
+    /// `FILL_REUSE=0` disables. Debug builds rebuild on every hit and check
+    /// the reused state bit for bit.
+    pub fn fill_direct_reuse(
+        &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
+    ) -> bool {
+        let same = self.reuse_ok && self.reuse_key.len() == item_names.len()
+            && self.reuse_key.iter().zip(item_names)
+                .all(|(k, n)| *k == (n.as_ptr() as usize, n.len()));
+        if same && env_once!("FILL_REUSE" != "0") {
+            for (slot, old) in self.term_undo.drain(..).rev() {
+                self.const_term_vals[slot] = old;
+            }
+            for (i, old, was) in self.undo.drain(..).rev() {
+                self.lc_vals[i as usize] = old;
+                if !was { self.present[(i / 64) as usize] &= !(1u64 << (i % 64)); }
+            }
+            #[cfg(debug_assertions)]
+            {
+                let mut fresh = DenseLeaf::default();
+                assert!(fresh.fill_direct(d, dd, item_names));
+                assert!(self.same_state(&fresh), "fill_direct_reuse: reused state differs from a rebuild");
+            }
+            if trace::on() { trace::add(trace::FD_REUSED, 1); }
+            return true;
+        }
+        if !self.fill_direct(d, dd, item_names) { return false; }
+        self.reuse_key.clear();
+        self.reuse_key.extend(item_names.iter().map(|n| (n.as_ptr() as usize, n.len())));
+        self.reuse_ok = true;
+        true
+    }
+
+    #[cfg(debug_assertions)]
+    fn same_state(&self, o: &DenseLeaf) -> bool {
+        let bits = |a: &[f64], b: &[f64]| a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits());
+        let mults = |a: &[DMultEntry], b: &[DMultEntry]| a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| x.key == y.key && x.spell_match == y.spell_match);
+        bits(&self.lc_vals, &o.lc_vals) && self.present == o.present
+            && self.var_out_absent == o.var_out_absent
+            && bits(&self.const_term_vals, &o.const_term_vals)
+            && mults(&self.dam_entries, &o.dam_entries) && bits(&self.dam_vals, &o.dam_vals)
+            && mults(&self.def_entries, &o.def_entries) && bits(&self.def_vals, &o.def_vals)
+            && self.atk_spd_idx == o.atk_spd_idx && self.has_arcanes == o.has_arcanes
+    }
+
     /// build_direct into reused buffers; false → unknown item (caller falls
     /// back to the Obj path). Every field is fully overwritten.
     pub fn fill_direct(
         &mut self, d: &DenseCtx, dd: &DenseDirect, item_names: &[&str],
     ) -> bool {
+        self.reuse_ok = false;
+        self.undo.clear();
+        self.term_undo.clear();
         if trace::on() {
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| eprintln!(
@@ -6688,6 +6892,15 @@ pub struct DenseBound {
     pub super_clusters: Vec<Vec<(u32, f64)>>,
     pub super_cluster_terms: Vec<Vec<(usize, f64)>>,
     pub super_size: usize,
+    /// item_vecs[slot][offset]: that item's own deltas on the read universe,
+    /// clamped >= 0 with its set's max positive transition added, exactly
+    /// the per-item terms the maxima above are taken over. The R2 tangent
+    /// bound (`tangent`) maximizes a linear function over these per slot.
+    pub item_vecs: Vec<Vec<Vec<(u32, f64)>>>,
+    /// slot_max[slot]: that slot's per-stat maxima over its whole pool plus
+    /// its largest set transitions (one slot's share of table[0][h_max]).
+    /// R3 relaxes every slot but one with these.
+    pub slot_max: Vec<Vec<(u32, f64)>>,
 }
 
 impl DenseBound {
@@ -6740,7 +6953,9 @@ impl DenseBound {
         // offset (read-universe keys only).
         let mut per_slot: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
         let mut per_slot_set: Vec<Vec<HashMap<u32, f64>>> = Vec::with_capacity(n);
+        let mut item_vecs: Vec<Vec<Vec<(u32, f64)>>> = Vec::with_capacity(n);
         for pool in slot_pools {
+            let mut slot_vecs: Vec<Vec<(u32, f64)>> = Vec::with_capacity(pool.len());
             let mut running: HashMap<u32, f64> = HashMap::new();
             let mut running_set: HashMap<u32, f64> = HashMap::new();
             let mut by_offset = Vec::with_capacity(pool.len());
@@ -6749,12 +6964,14 @@ impl DenseBound {
                 let item = l2.item_registry.get(name)?;
                 let mut item_stats: HashMap<String, f64> = HashMap::new();
                 l2.additive_item_stats(item, &mut item_stats);
+                let mut own: HashMap<u32, f64> = HashMap::new();
                 for (k, v) in item_stats {
                     let v = if v == f64::NEG_INFINITY { 0.0 } else { v };
                     let v = if v < 0.0 { 0.0 } else { v };
                     let Some(&i) = d.idx.get(&k) else { continue };
                     let e = running.entry(i).or_insert(0.0);
                     if v > *e { *e = v; }
+                    *own.entry(i).or_insert(0.0) += v;
                 }
                 let crafted = item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false);
                 if !crafted {
@@ -6762,16 +6979,29 @@ impl DenseBound {
                         for (i, v) in set_delta(sn) {
                             let e = running_set.entry(i).or_insert(0.0);
                             if v > *e { *e = v; }
+                            *own.entry(i).or_insert(0.0) += v;
                         }
                     }
                 }
+                let mut own: Vec<(u32, f64)> = own.into_iter().filter(|(_, v)| *v != 0.0).collect();
+                own.sort_by_key(|(i, _)| *i);
+                slot_vecs.push(own);
                 by_offset.push(running.clone());
                 by_offset_set.push(running_set.clone());
             }
             per_slot.push(by_offset);
             per_slot_set.push(by_offset_set);
+            item_vecs.push(slot_vecs);
         }
 
+        let slot_max: Vec<Vec<(u32, f64)>> = (0..n).map(|j| {
+            let mut acc: HashMap<u32, f64> = HashMap::new();
+            if let Some(m) = per_slot[j].last() { for (&i, &v) in m { *acc.entry(i).or_insert(0.0) += v; } }
+            if let Some(m) = per_slot_set[j].last() { for (&i, &v) in m { *acc.entry(i).or_insert(0.0) += v; } }
+            let mut v: Vec<(u32, f64)> = acc.into_iter().filter(|(_, v)| *v != 0.0).collect();
+            v.sort_by_key(|(i, _)| *i);
+            v
+        }).collect();
         let mut table = Vec::with_capacity(n + 1);
         let mut term_table = Vec::with_capacity(n + 1);
         for depth in 0..=n {
@@ -6854,7 +7084,7 @@ impl DenseBound {
         let super_size = if cluster_size > 0 { cluster_size * 4 } else { 0 };
         let (super_clusters, super_cluster_terms) = build_clusters(super_size)?;
         Some(DenseBound { table, term_table, h_max, last_clusters, last_cluster_terms, cluster_size,
-                          super_clusters, super_cluster_terms, super_size })
+                          super_clusters, super_cluster_terms, super_size, item_vecs, slot_max })
     }
 }
 
@@ -7078,6 +7308,42 @@ pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
     o
 }
 
+/// Crit damage below -100% makes a crit hit weaker than a normal one, so a
+/// part's crit-mixed damage `d * dm * (str + crit * (1 + critDamPct / 100))`
+/// FALLS as Dex (crit chance) rises, and an assemble at high skill points
+/// stops bounding it (Ruinous rolls -372% to -286%; found by BOUND_OBSERVE on
+/// fam_spellsteal_small, where the all-max ceiling sat below the subtree's
+/// real best in 132 of 44,292 subtrees).
+///
+/// Every upper-bound evaluation raises critDamPct to at least -100 after its
+/// assemble. Proof: let v be critDamPct at the ceiling point (>= every
+/// completion's, the per-stat maxima) and r >= 0 a row's own bonus
+/// (`rows_crit_ceiling_ok`). With v' = max(v, -100), cm' = 1 + (v' + r)/100
+/// is >= 0 and >= every completion's cm, so for crit chances c <= c_ceiling:
+/// str + c * cm <= str + c * cm' <= str + c_ceiling * cm'. At v < -100 the
+/// floor gives crit = normal hit, i.e. the c = 0 value. Lower-bound uses (the
+/// two-sided blend's negative terms) do not get the floor; the leaf gate
+/// skips them on such leaves instead.
+pub const CRIT_CEILING_FLOOR: f64 = -100.0;
+
+pub fn ceiling_crit_floor_dense(d: &DenseCtx, s: &mut DScratch) {
+    let i = d.s_crit_dam_pct as usize;
+    if s.vals[i] < CRIT_CEILING_FLOOR { s.vals[i] = CRIT_CEILING_FLOOR; }
+}
+
+pub fn ceiling_crit_floor_obj(cb: &mut Obj) {
+    if let Some(v) = cb.get("critDamPct").and_then(|v| v.as_f64()) {
+        if v < CRIT_CEILING_FLOOR { cb.insert("critDamPct".into(), Value::from(CRIT_CEILING_FLOOR)); }
+    }
+}
+
+/// The floor's proof needs every per-row critDamPct bonus to be >= 0 (or a
+/// max-merge, which is monotone and only raises the value).
+pub fn rows_crit_ceiling_ok(compiled: &[CompiledRow]) -> bool {
+    compiled.iter().all(|r| r.bonuses.iter()
+        .all(|b| b.key != "critDamPct" || b.use_max || b.contrib >= 0.0))
+}
+
 /// Objective ceiling for bound deltas over an ALREADY-FILLED leaf in `work`
 /// (the last-slot cluster loop fills the prefix once and probes many delta
 /// sets against it). Deltas are journaled and rolled back.
@@ -7116,10 +7382,14 @@ pub fn dense_ceiling_cached(
             scratch.def_vals.extend_from_slice(&leaf.def_vals);
         }
         dense_assemble(d, leaf, scratch, ceiling_sp);
+        ceiling_crit_floor_dense(d, scratch);
     }
     let v = {
         let DenseWork { leaf, scratch, .. } = work;
         dense_score(d, leaf, scratch, rows, compiled, tables)
+    };
+    let v = if d.soft_ceiling.is_empty() { v } else {
+        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, &work.scratch, tables, true))
     };
     let leaf = &mut work.leaf;
     for (slot, old) in term_journal.into_iter().rev() {
@@ -7140,24 +7410,36 @@ pub fn dense_ceiling_with(
     ceiling_sp: &[f64; 5],
 ) -> Option<f64> {
     let dd = d.direct.as_ref()?;
-    if !work.leaf.fill_direct(d, dd, prefix_names) { return None; }
+    // Reusable: the deltas below are journaled into the leaf, so a later
+    // fill of the same prefix (the cluster loop) restores instead of
+    // rebuilding.
+    if !work.leaf.fill_direct_reuse(d, dd, prefix_names) { return None; }
     let leaf = &mut work.leaf;
     for &(i, dv) in adds {
         let iu = i as usize;
-        let cur = if bit_get(&leaf.present, i) {
-            let v = leaf.lc_vals[iu];
+        let was = bit_get(&leaf.present, i);
+        let old = leaf.lc_vals[iu];
+        let cur = if was {
+            let v = old;
             if v.is_nan() { 0.0 } else { v }
         } else { 0.0 };
         leaf.lc_vals[iu] = cur + dv;
         bit_set(&mut leaf.present, i);
+        leaf.undo.push((i, old, was));
     }
     for &(slot, dv) in term_adds {
+        leaf.term_undo.push((slot, leaf.const_term_vals[slot]));
         leaf.const_term_vals[slot] += dv;
     }
     work.scratch.reset(&work.leaf, d);
     let DenseWork { leaf, scratch, .. } = work;
     dense_assemble(d, leaf, scratch, ceiling_sp);
-    Some(dense_score(d, leaf, scratch, rows, compiled, tables))
+    ceiling_crit_floor_dense(d, scratch);
+    let v = dense_score(d, leaf, scratch, rows, compiled, tables);
+    // R14 (see dense_soft_ceiling_shortfall); a prefix ceiling is a subtree one.
+    Some(if d.soft_ceiling.is_empty() { v } else {
+        apply_soft_shortfall(v, dense_soft_ceiling_shortfall(d, scratch, tables, true))
+    })
 }
 
 /// Subtree ceiling on the dense path with the level-banded suffix maxima:
@@ -7185,18 +7467,39 @@ pub struct Threshold {
     pub stat: String,
     pub ge: bool,
     pub value: f64,
+    /// R14 soft floor (`restrictions.soft_floors`): never rejects; its
+    /// shortfall lowers the final score (`soft_shortfall_obj`). Always ge.
+    pub soft: bool,
 }
 
 pub fn parse_thresholds(fixture: &Value) -> Vec<Threshold> {
-    fixture["layer2"]["restrictions"]["stat_thresholds"].as_array()
+    let r = &fixture["layer2"]["restrictions"];
+    let mut out: Vec<Threshold> = r["stat_thresholds"].as_array()
         .map(|a| a.iter().filter_map(|t| {
             Some(Threshold {
                 stat: t.get("stat")?.as_str()?.to_string(),
                 ge: t.get("op")?.as_str()? == "ge",
                 value: t.get("value")?.as_f64()?,
+                soft: false,
             })
         }).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Positive floors only, in order: apply_soft_floors skips the rest.
+    if let Some(a) = r["soft_floors"].as_array() {
+        out.extend(a.iter().filter_map(|t| {
+            let value = t.get("value")?.as_f64()?;
+            let stat = t.get("stat")?.as_str()?.to_string();
+            (value > 0.0).then_some(Threshold { stat, ge: true, value, soft: true })
+        }));
+    }
+    out
+}
+
+/// R14: apply_soft_floors (pure/engine.js) given the summed shortfall
+/// fraction, same operations in the same order.
+pub fn apply_soft_shortfall(score: f64, short: f64) -> f64 {
+    if !score.is_finite() || !(short > 0.0) { return score; }
+    score - score.abs() * short.min(1.0)
 }
 
 pub fn parse_spell_base_costs(fixture: &Value) -> HashMap<i64, f64> {
@@ -7227,7 +7530,37 @@ pub fn check_thresholds_obj(
 ) -> bool {
     let mut def: Option<(f64, f64, f64, f64, f64)> = None;
     for t in th {
-        let v = match t.stat.as_str() {
+        if t.soft { continue; }
+        let Some(v) = threshold_value_obj(stats, t, base_costs, tables, consts, &mut def) else { continue };
+        if t.ge && v < t.value { return false; }
+        if !t.ge && v > t.value { return false; }
+    }
+    true
+}
+
+/// R14: the summed shortfall fraction of the soft floors in `th`.
+pub fn soft_shortfall_obj(
+    stats: &StatsView, th: &[Threshold], base_costs: &HashMap<i64, f64>,
+    tables: &Tables, consts: &L2Consts,
+) -> f64 {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for t in th {
+        if !t.soft { continue; }
+        let Some(v) = threshold_value_obj(stats, t, base_costs, tables, consts, &mut def) else { continue };
+        if !(v < t.value) { continue; }
+        short += (t.value - v) / t.value;
+    }
+    short
+}
+
+/// threshold_stat_value (pure/engine.js): None for a spell cost without a
+/// configured base cost (JS `continue`s).
+fn threshold_value_obj(
+    stats: &StatsView, t: &Threshold, base_costs: &HashMap<i64, f64>,
+    tables: &Tables, consts: &L2Consts, def: &mut Option<(f64, f64, f64, f64, f64)>,
+) -> Option<f64> {
+        Some(match t.stat.as_str() {
             "ehp" => def.get_or_insert_with(|| defense_stats(stats, tables)).1,
             "ehp_no_agi" => def.get_or_insert_with(|| defense_stats(stats, tables)).2,
             "total_hp" => def.get_or_insert_with(|| defense_stats(stats, tables)).0,
@@ -7236,11 +7569,11 @@ pub fn check_thresholds_obj(
             "total_mana" => {
                 let mm = stats.num_or0("maxMana");
                 let int_mana = (tables.sp_to_pct(stats.num_or0("int")) * 100.0).floor();
-                100.0 + mm + int_mana
+                tables.mana_pool(mm, int_mana)
             }
             s if s.starts_with("finalSpellCost") => {
                 let n: i64 = s[s.len() - 1..].parse().unwrap_or(-1);
-                let Some(&base) = base_costs.get(&n) else { continue };
+                let &base = base_costs.get(&n)?;
                 spell_cost_capped(
                     stats.num_or0("int"),
                     stats.num_or0(&format!("spRaw{}", n)),
@@ -7249,11 +7582,7 @@ pub fn check_thresholds_obj(
                     base, tables, consts)
             }
             s => stats.num_or0(s),
-        };
-        if t.ge && v < t.value { return false; }
-        if !t.ge && v > t.value { return false; }
-    }
-    true
+        })
 }
 
 /// Threshold kinds lowered onto the dense read universe.
@@ -7270,7 +7599,68 @@ pub fn dense_check_thresholds(
 ) -> bool {
     let mut def: Option<(f64, f64, f64, f64, f64)> = None;
     for (kind, ge, value) in &d.thresholds {
+        let Some(v) = dense_threshold_value(d, s, kind, tables, consts, &mut def) else { continue };
+        if *ge && v < *value { return false; }
+        if !*ge && v > *value { return false; }
+    }
+    true
+}
+
+/// R14: the soft-floor shortfall at a ceiling's assembled stats, counting
+/// only floors that bound every completion there: a lower bound on any
+/// completion's shortfall, so `apply_soft_shortfall(ceiling, this)` stays a
+/// ceiling (the penalty is non-decreasing in score and stat). Direct stats,
+/// total HP and total mana rise with every clamped add and skill point; EHP
+/// without agility rises with defense; EHP rises with agility too while
+/// agi_reduction <= 1 - def_pct, checked at the ceiling's (largest) def_pct.
+/// `subtree` ceilings skip EHP floors when an item carries defMobs.
+pub fn dense_soft_ceiling_shortfall(d: &DenseCtx, s: &DScratch, tables: &Tables, subtree: bool) -> f64 {
+    if d.soft_ceiling.is_empty() || env_once!("SOFT_CEILING" == "0") { return 0.0; }
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for (kind, value) in &d.soft_ceiling {
+        // Same values dense_threshold_value reads (no spell costs here).
         let v = match kind {
+            DThresh::Ehp | DThresh::EhpNoAgi if subtree && d.soft_ceiling_def_mobs => continue,
+            DThresh::Ehp => {
+                let def_pct = tables.sp_to_pct(s.num_or0(d.s_def)) * tables.skillpoint_final_mult_3;
+                let agi_reduction = (100.0 - s.num_or0(d.s_agi_def)) / 100.0;
+                if !(agi_reduction <= 1.0 - def_pct) { continue; }
+                def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).1
+            }
+            DThresh::EhpNoAgi => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).2,
+            DThresh::TotalHp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).0,
+            DThresh::TotalMana => {
+                let mm = s.num_or0(d.s_max_mana);
+                let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
+                tables.mana_pool(mm, int_mana)
+            }
+            DThresh::Plain(i) => s.num_or0(*i),
+            _ => continue,
+        };
+        if !(v < *value) { continue; }
+        short += (*value - v) / *value;
+    }
+    short
+}
+
+/// R14: soft_shortfall_obj on the dense scratch.
+pub fn dense_soft_shortfall(d: &DenseCtx, s: &DScratch, tables: &Tables, consts: &L2Consts) -> f64 {
+    let mut def: Option<(f64, f64, f64, f64, f64)> = None;
+    let mut short = 0.0;
+    for (kind, value) in &d.soft_floors {
+        let Some(v) = dense_threshold_value(d, s, kind, tables, consts, &mut def) else { continue };
+        if !(v < *value) { continue; }
+        short += (*value - v) / *value;
+    }
+    short
+}
+
+fn dense_threshold_value(
+    d: &DenseCtx, s: &DScratch, kind: &DThresh, tables: &Tables, consts: &L2Consts,
+    def: &mut Option<(f64, f64, f64, f64, f64)>,
+) -> Option<f64> {
+        Some(match kind {
             DThresh::Ehp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).1,
             DThresh::EhpNoAgi => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).2,
             DThresh::TotalHp => def.get_or_insert_with(|| dense_defense_stats(d, s, tables)).0,
@@ -7279,18 +7669,14 @@ pub fn dense_check_thresholds(
             DThresh::TotalMana => {
                 let mm = s.num_or0(d.s_max_mana);
                 let int_mana = (tables.sp_to_pct(s.num_or0(d.s_int)) * 100.0).floor();
-                100.0 + mm + int_mana
+                tables.mana_pool(mm, int_mana)
             }
             DThresh::SpellCost { raw, pct, fin, base } => spell_cost_capped(
                 s.num_or0(d.s_int), s.num_or0(*raw), s.num_or0(*pct), s.num_or0(*fin),
                 *base, tables, consts),
             DThresh::Plain(i) => s.num_or0(*i),
-            DThresh::Skip => continue,
-        };
-        if *ge && v < *value { return false; }
-        if !*ge && v > *value { return false; }
-    }
-    true
+            DThresh::Skip => return None,
+        })
 }
 
 
@@ -7303,7 +7689,7 @@ mod healing_schema_tests {
         Tables {
             skillpoint_damage_mult: Vec::new(), base_damage_multiplier: Vec::new(),
             attack_speeds: Vec::new(), damage_keys: Vec::new(),
-            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0],
+            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0], max_mana_cap: 400.0,
             skillpoint_final_mult_3: 1.0, skillpoint_final_mult_4: 1.0,
             names: ElemNames::build(),
         }
@@ -7374,6 +7760,53 @@ mod healing_schema_tests {
     }
 }
 
+/// R20 explain pass: the stats a QoL ranking needs for one scored build,
+/// recomputed from its items and final skill points. Runs only for archived
+/// builds at the end of a windowed search, never on the hot path. Returns
+/// None when the build cannot be assembled (an unknown item name).
+///
+/// `mana_delta` is end minus start mana over one combo from the fast sim
+/// (negative means the combo drains mana); it is omitted when the scenario
+/// has no timed combo.
+/// With tome optimisation the chosen weapon/armour bundle is merged last, as
+/// the leaf does; a guild candidate only changes skill points, which
+/// `total_sp` already holds.
+pub fn explain_build(
+    sc: &ScoringCtx, items: &[&str], base_sp: &[i32; 5], total_sp: &[i32; 5], tome: Option<&TomeChoice>,
+) -> Option<Vec<(&'static str, f64)>> {
+    let item_sp: [i32; 5] = std::array::from_fn(|i| total_sp[i] - base_sp[i]);
+    let sp: Vec<f64> = total_sp.iter().map(|&v| v as f64).collect();
+    let extra = match tome {
+        None => None,
+        Some(t) if t.weapon_names.is_empty() && t.armor_names.is_empty() => None,
+        // A choice the bundle list cannot reproduce: no stats rather than
+        // stats for a different build.
+        Some(t) => Some(&sc.layer2.tome_wa_bundles.iter()
+            .find(|b| b.weapon_names == t.weapon_names && b.armor_names == t.armor_names)?.stats),
+    };
+    let base = sc.layer2.build_base(items, &sc.weapon).ok()?;
+    let combo_base = sc.layer2.assemble_from_base_full(&base, &sp, &sc.weapon, extra, Some(&item_sp));
+    let view = StatsView::Borrowed(&combo_base);
+    let (total_hp, ehp, ehp_no_agi, hpr, _ehpr) = defense_stats(&view, &sc.tables);
+    let mut out = vec![
+        ("total_hp", total_hp), ("ehp", ehp), ("ehp_no_agi", ehp_no_agi), ("hpr", hpr),
+        ("total_mana", eval_indirect_stat(&view, "total_mana", &sc.tables)),
+        ("mr", view.num_or0("mr")), ("ms", view.num_or0("ms")), ("spd", view.num_or0("spd")),
+        ("ls", view.num_or0("ls")), ("atkTier", view.num_or0("atkTier")),
+    ];
+    if sc.consts.combo_time > 0.0 {
+        let has_transcendence = combo_base.get("activeMajorIDs")
+            .and_then(|v| v.get("__s")).and_then(|s| s.as_array())
+            .map(|a| a.iter().any(|m| m.as_str() == Some("ARCANES")))
+            .unwrap_or(false);
+        let (start, end, _, _) = simulate_mana_fast(
+            &sc.rows, &combo_base, has_transcendence, &sc.registry, &sc.tables, &sc.consts,
+            Some(&sc.compiled_rows));
+        out.push(("mana_delta", end - start));
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tome_rescue_tests {
     //! The mana rescue must assemble with the leaf's tome bundle. It did not:
@@ -7394,7 +7827,7 @@ mod tome_rescue_tests {
                      "Diamond Static Bracelet", "Achromatic Gloom"];
         let mut kernel = crate::Kernel::new();
         let mut work = DenseWork::default();
-        let (out, _tome) = leaf_pipeline_tome(
+        let (out, tome) = leaf_pipeline_tome(
             &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(), &mut kernel,
             &sc.rows, &sc.registry, &sc.hit_refs, &sc.tables, &sc.consts, &sc.objective,
             Some(&sc.compiled_rows), None, sc.dense.as_ref().map(|d| (d, &mut work)),
@@ -7402,5 +7835,207 @@ mod tome_rescue_tests {
         let LeafOutcome::Scored(r) = out else { panic!("build not scored") };
         assert!((r.score - 49_223.325520909995).abs() < 1e-6,
                 "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
+        // And the score must be what the explain pass computes for the same
+        // build with its tome choice (how the bug was found).
+        let stats = explain_build(&sc, &names, &r.base_sp, &r.total_sp, tome.as_ref()).unwrap();
+        let ehp = stats.iter().find(|(k, _)| *k == "ehp").unwrap().1;
+        assert!((ehp - r.score).abs() <= 1e-9 * r.score.abs(),
+                "score {} != EHP of the same build with its tomes {}", r.score, ehp);
+    }
+}
+
+#[cfg(test)]
+mod mana_cap_tests {
+    //! MAX_MANA_CAP (js/game/game_rules.js) reaches the Rust tables as
+    //! `max_mana_cap`: 400 caps the pool, null (JSON for the JS Infinity)
+    //! turns it off, and an export without the field gets the game's 400.
+    use super::*;
+
+    fn tables_with(cap: Option<Value>) -> Tables {
+        let mut v = serde_json::json!({
+            "skillpoint_damage_mult": [], "baseDamageMultiplier": [], "attackSpeeds": [],
+            "damage_keys": [], "sp_percentage_rate": 0.9908, "sp_percentage_input_cap": 150,
+        });
+        if let Some(c) = cap { v["max_mana_cap"] = c; }
+        Tables::parse(&v)
+    }
+
+    #[test]
+    fn pool_caps_like_total_mana_pool() {
+        let t = tables_with(Some(Value::from(400)));
+        assert_eq!(t.mana_pool(50.0, 40.0), 190.0);
+        assert_eq!(t.mana_pool(284.0, 80.0), 400.0, "Hydrotoxemia + Space Dust at 150 Int");
+        assert!(t.mana_pool(f64::NAN, 80.0).is_nan(), "NaN flows through as Math.min lets it");
+    }
+
+    #[test]
+    fn null_turns_it_off_and_missing_is_the_game_cap() {
+        assert_eq!(tables_with(Some(Value::Null)).mana_pool(284.0, 80.0), 464.0);
+        assert_eq!(tables_with(None).mana_pool(284.0, 80.0), 400.0);
+    }
+}
+
+#[cfg(test)]
+mod radiance_item_sp_tests {
+    //! Radiance scales item-granted skill points on top of the scaled stat map
+    //! (the builder's `compute_radiance`). The term must round like the
+    //! builder: `floor(sp + item * (boost - 1))` as one expression, not
+    //! `sp + floor(item * (boost - 1))`. At boost 1 + 0.15, item 20 gives
+    //! 2.9999999999999982, and 14 + that rounds to exactly 17.0 in a double,
+    //! so the builder shows 17 where the split form would give 16.
+    use super::*;
+
+    fn ctx() -> ScoringCtx {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_radiance.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        ScoringCtx::load(&v).unwrap()
+    }
+
+    fn sp_map(vals: [f64; 5]) -> Obj {
+        let mut m = Obj::new();
+        for (k, v) in ["str", "dex", "int", "def", "agi"].iter().zip(vals) {
+            m.insert((*k).into(), Value::from(v));
+        }
+        m
+    }
+
+    fn get(m: &Obj, k: &str) -> f64 { m.get(k).and_then(|v| v.as_f64()).unwrap() }
+
+    #[test]
+    fn rounds_like_the_builder() {
+        let mut sc = ctx();
+        sc.layer2.radiance_boost = 1.0 + 0.15;
+        let mut m = sp_map([14.0, 30.0, 50.0, 7.0, 0.0]);
+        sc.layer2.apply_radiance_item_sp(&mut m, Some(&[20, -10, 0, 7, 6]));
+        assert_eq!(get(&m, "str"), 17.0, "one floor over the sum, as the builder");
+        assert_eq!(get(&m, "dex"), 30.0, "negative item SP is not scaled");
+        assert_eq!(get(&m, "int"), 50.0, "no item SP, no change");
+        assert_eq!(get(&m, "def"), 8.0, "floor(7 + 7 * 0.15) = 8");
+        assert_eq!(get(&m, "agi"), 0.0, "floor(0 + 6 * 0.15) = 0");
+    }
+
+    #[test]
+    fn inactive_without_boost_or_item_sp() {
+        let mut sc = ctx();
+        sc.layer2.radiance_boost = 1.0;
+        let mut m = sp_map([14.0, 0.0, 0.0, 0.0, 0.0]);
+        sc.layer2.apply_radiance_item_sp(&mut m, Some(&[20, 0, 0, 0, 0]));
+        assert_eq!(get(&m, "str"), 14.0);
+        sc.layer2.radiance_boost = 1.4;
+        sc.layer2.apply_radiance_item_sp(&mut m, None);
+        assert_eq!(get(&m, "str"), 14.0);
+    }
+}
+
+#[cfg(test)]
+mod crit_floor_tests {
+    //! A crit damage below -100% (Ruinous: -286%) makes damage fall as Dex
+    //! rises, so the high-SP ceiling must floor critDamPct at -100 to stay an
+    //! upper bound (CRIT_CEILING_FLOOR). Without the floor the all-max
+    //! assemble scored this build about half of its low-Dex value.
+    use super::*;
+
+    fn score_at(sc: &ScoringCtx, names: &[&str; 8], sp: &[f64; 5], floor: bool) -> f64 {
+        let d = sc.dense.as_ref().expect("dense lowering");
+        let dd = d.direct.as_ref().expect("direct leaf build");
+        let mut work = DenseWork::default();
+        assert!(work.leaf.fill_direct(d, dd, names));
+        let DenseWork { leaf, scratch, .. } = &mut work;
+        scratch.reset(leaf, d);
+        dense_assemble(d, leaf, scratch, sp);
+        if floor { ceiling_crit_floor_dense(d, scratch); }
+        dense_score(d, leaf, scratch, &sc.rows, &sc.compiled_rows, &sc.tables)
+    }
+
+    #[test]
+    fn high_sp_ceiling_bounds_a_build_with_crit_below_minus_100() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_fam_tierstack_small.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        assert!(rows_crit_ceiling_ok(&sc.compiled_rows));
+        let names = ["No Helmet", "Ruinous", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        let low_dex = [150.0, 0.0, 150.0, 150.0, 150.0];
+        let all_max = [150.0; 5];
+        let real = score_at(&sc, &names, &low_dex, false);
+        let unfloored = score_at(&sc, &names, &all_max, false);
+        assert!(real > 0.0);
+        // The adversarial shape: more Dex, less damage.
+        assert!(unfloored < real, "expected Dex to lower damage here: {unfloored} vs {real}");
+        // The floored ceiling bounds it, through the public ceiling path too.
+        let floored = score_at(&sc, &names, &all_max, true);
+        assert!(floored >= real, "floored ceiling {floored} below the real score {real}");
+        let d = sc.dense.as_ref().unwrap();
+        let mut work = DenseWork::default();
+        let via = dense_ceiling_with(d, &[], &[], &names, &mut work, &sc.rows, &sc.compiled_rows,
+                                     &sc.tables, &all_max).unwrap();
+        assert_eq!(via, floored);
+        // Above -100 the floor is a no-op: a build without Ruinous is unchanged.
+        let plain = ["No Helmet", "No Chestplate", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        assert_eq!(score_at(&sc, &plain, &all_max, true), score_at(&sc, &plain, &all_max, false));
+    }
+}
+
+#[cfg(test)]
+mod soft_floor_tests {
+    //! R14 soft floors: parsing keeps them apart from hard thresholds, and the
+    //! arithmetic matches apply_soft_floors (pure/engine.js) operation for
+    //! operation (cross-engine parity is checked on full searches; see the
+    //! roadmap row).
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_keeps_soft_floors_apart() {
+        let fx = json!({"layer2": {"restrictions": {
+            "stat_thresholds": [{"stat": "ehp", "op": "ge", "value": 10000}],
+            "soft_floors": [{"stat": "mr", "value": 10}, {"stat": "ms", "value": 0},
+                            {"stat": "ls", "value": -5}, {"stat": "hpr", "value": 50}],
+        }}});
+        let th = parse_thresholds(&fx);
+        let soft: Vec<_> = th.iter().filter(|t| t.soft).map(|t| (t.stat.as_str(), t.value)).collect();
+        assert_eq!(soft, vec![("mr", 10.0), ("hpr", 50.0)], "non-positive floors are dropped, order kept");
+        assert_eq!(th.iter().filter(|t| !t.soft).count(), 1);
+        assert!(th.iter().filter(|t| t.soft).all(|t| t.ge));
+    }
+
+    #[test]
+    fn shortfall_arithmetic() {
+        assert_eq!(apply_soft_shortfall(1000.0, 0.0), 1000.0);
+        assert_eq!(apply_soft_shortfall(1000.0, 0.1), 900.0);
+        assert_eq!(apply_soft_shortfall(1000.0, 3.0), 0.0, "capped at the whole score");
+        assert_eq!(apply_soft_shortfall(-200.0, 0.5), -300.0, "a negative score is lowered, never raised");
+        assert!(apply_soft_shortfall(f64::NAN, 0.5).is_nan());
+        assert_eq!(apply_soft_shortfall(f64::INFINITY, 0.5), f64::INFINITY);
+        // Never above the raw score, non-decreasing in it.
+        for s in [-50.0, -1.0, 0.0, 2.0, 70.0] {
+            for k in [0.0, 0.2, 0.9, 1.5] {
+                assert!(apply_soft_shortfall(s, k) <= s);
+                assert!(apply_soft_shortfall(s, k) <= apply_soft_shortfall(s + 1.0, k));
+            }
+        }
+    }
+
+    #[test]
+    fn soft_rows_never_reject() {
+        // Real tables and constants from a committed fixture.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_fam_tierstack_small.json");
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        v["layer2"]["restrictions"]["soft_floors"] = json!([{"stat": "mr", "value": 100.0}]);
+        let sc = ScoringCtx::load(&v).unwrap();
+        assert!(sc.thresholds.iter().any(|t| t.soft && t.stat == "mr"));
+        // The fixture's own hard floors aside: only the soft row.
+        let th = &[Threshold { stat: "mr".into(), ge: true, value: 100.0, soft: true }];
+        let mut m = Obj::new();
+        m.insert("mr".into(), json!(5.0));
+        let view = StatsView::Borrowed(&m);
+        assert!(check_thresholds_obj(&view, th, &sc.spell_base_costs, &sc.tables, &sc.consts),
+                "a soft floor never rejects");
+        let short = soft_shortfall_obj(&view, th, &sc.spell_base_costs, &sc.tables, &sc.consts);
+        assert_eq!(short, (100.0 - 5.0) / 100.0);
+        if let Some(d) = sc.dense.as_ref() {
+            assert_eq!(d.soft_floors.len(), 1, "lowered into the dense context, not its thresholds");
+        }
     }
 }

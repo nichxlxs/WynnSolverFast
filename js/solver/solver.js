@@ -429,7 +429,7 @@ function _restore_from_url(solver_params) {
                 stat_input.value = stat_obj.label;
                 stat_input.dataset.statKey = stat_obj.key;
             }
-            if (op_select) op_select.value = r.op === 1 ? 'le' : 'ge';
+            if (op_select) op_select.value = r.soft ? 'soft' : r.op === 1 ? 'le' : 'ge';
             if (val_input) val_input.value = r.value;
         }
         _validate_restriction_contradictions();
@@ -533,6 +533,14 @@ function _wire_event_listeners() {
     // Reflect the initial mode (usually Off) so the tome roll and inventory
     // start greyed out rather than looking like they apply.
     _refresh_tome_opt_state();
+
+    // A weapon change invalidates the solver's SP assignment too: it was solved
+    // against the old weapon's requirements, and the seed build trusts it
+    // (_eval_current_build), so a stale one scores a build whose skill points
+    // the new weapon may not allow.
+    document.getElementById('weapon-choice')?.addEventListener('change', () => {
+        if (!_solver_filling_ui) _solver_sp_override = null;
+    });
 
     // When the user manually edits an equipment slot, update its lock state.
     // Entering an item → locked (solver keeps it).

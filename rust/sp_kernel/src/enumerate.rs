@@ -19,10 +19,15 @@
 //! per-thread sums combine exactly regardless of scheduling order.
 
 use crate::{Case, Kernel, Unit, SP_PER_ATTR_CAP};
+use crate::bound_memo::{BoundMemo, CeilingKind};
 use std::env;
 use std::fs;
+use std::io::{BufWriter, Write};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use crate::clock::{Clock, Instant};
+use crate::clock::Instant;
+
+pub mod anytime;
 
 /// Bound-eval timing helpers (SCORE_TRACE=1): measures the batch-shaped
 /// ceiling work a GPU offload would target.
@@ -44,7 +49,7 @@ fn bound_timer_end(t0: Option<Instant>) {
 /// pruning cutoff, improves. `anytime.py` turns these into the primal
 /// integral and time-to-target. Off unless asked for, and inert on wasm32,
 /// whose clock does not run.
-pub mod anytime {
+pub mod anytime_trace {
     use std::sync::{Mutex, OnceLock};
     use crate::clock::Instant;
 
@@ -74,6 +79,421 @@ pub mod anytime {
     }
 }
 
+/// BOUND_OBSERVE=1: measure how loose the tail ceiling is. For every
+/// subtree under the last two slots, compute the ceiling without pruning on
+/// it and record it beside the best score any leaf in that subtree really
+/// reached. Run with the other prunes that hide scored leaves off
+/// (BOUND_CLUSTER=0 SCORE_CEILING_GATE=0), or the subtree's best is
+/// understated. The CLI prints quantiles of ceiling / true best and how many
+/// subtrees a perfect bound would prune at the final cutoff that this one
+/// does not. Diagnostic only: slow, and never on by default.
+///
+/// BOUND_OBSERVE_SLOTS=k (default 1) moves the observation up so that k
+/// slots are relaxed under the ceiling. The single-item and at-SP
+/// diagnostics are one-slot measures and are recorded only for k = 1.
+/// R5: optimality-gap reporting over whole first-slot offsets (the
+/// threaded path claims and finishes offsets whole). `ceiling[o]` bounds
+/// every build under first-slot offset o, so while some offsets are
+/// unfinished, max(best, their ceilings) bounds the optimum; once all are
+/// finished the search is complete and the gap is 0.
+pub(crate) struct R5Frontier {
+    pub ceiling: Vec<f64>,
+    done: Vec<std::sync::atomic::AtomicBool>,
+}
+
+impl R5Frontier {
+    fn new(
+        fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>, bounds: Option<&crate::scoring::BoundTables>,
+        dense_bound: Option<&crate::scoring::DenseBound>, bound_tail: usize, first_pool_len: usize,
+    ) -> Option<R5Frontier> {
+        let (Some(sc), Some(bt)) = (scoring, bounds) else { return None };
+        if fx.slots.len() < 2 { return None; }
+        let mut s = Search::new(fx);
+        s.scoring = Some(sc);
+        s.bound_tables = Some(bt);
+        s.dense_bound = dense_bound;
+        s.bound_tail = bound_tail;
+        s.init_equip_names();
+        s.refresh_sp_bound_base(0);
+        let hi = i64::MAX / 4;
+        let use_tangent = std::env::var("R5_TANGENT").as_deref() == Ok("1");
+        let ceiling: Vec<f64> = (0..first_pool_len)
+            .map(|o| {
+                let c = s.subtree_ceiling_value(0, o, hi).unwrap_or(f64::INFINITY);
+                // R2's tangent is admissible too: the tighter of the two.
+                #[cfg(not(target_arch = "wasm32"))]
+                if use_tangent {
+                    if let Some(t) = s.tangent_bound(0, o, hi) { return c.min(t); }
+                }
+                c
+            })
+            .collect();
+        let done = (0..first_pool_len).map(|_| std::sync::atomic::AtomicBool::new(false)).collect();
+        Some(R5Frontier { ceiling, done })
+    }
+    fn finish(&self, o: usize) { self.done[o].store(true, Ordering::Relaxed); }
+    /// (dual bound, best). The bound is never below the best.
+    fn bound(&self, shared_best: &AtomicU64) -> (f64, f64) {
+        let best = f64::from_bits(shared_best.load(Ordering::Relaxed));
+        let open = self.ceiling.iter().zip(&self.done)
+            .filter(|(_, d)| !d.load(Ordering::Relaxed))
+            .map(|(c, _)| *c)
+            .fold(f64::NEG_INFINITY, f64::max);
+        (open.max(best), best)
+    }
+    fn gap(bound: f64, best: f64) -> f64 {
+        if !(bound > 0.0) || !best.is_finite() { return 1.0; }
+        ((bound - best) / bound).max(0.0)
+    }
+}
+
+/// R3_REPORT=1: how many items each free slot could drop before the search.
+/// UB(slot j, item i) is the dense ceiling with slot j holding i, every other
+/// free slot relaxed to its whole-pool maxima (slot_max) and all skill points
+/// at 150; an item whose UB is strictly below the warm cutoff (the 15th best
+/// of real builds) cannot reach the top 15. Diagnostic only.
+fn r3_report(fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
+             db: Option<&crate::scoring::DenseBound>, cutoff: f64) {
+    let (Some(sc), Some(db)) = (scoring, db) else { eprintln!("r3: no dense bound"); return };
+    let Some(d) = sc.dense.as_ref() else { return };
+    if !(cutoff > 0.0) { eprintln!("r3: no warm cutoff"); return; }
+    let mut base: [&str; 8] = [""; 8];
+    for p in 0..8 { base[p] = &fx.none_names[p]; }
+    for (p, n) in &fx.fixed_names { base[*p] = n; }
+    let mut work = crate::scoring::DenseWork::default();
+    let mut kept_frac = 1.0f64;
+    let mut line = String::new();
+    for j in 0..fx.slots.len() {
+        let mut acc: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+        for (k, m) in db.slot_max.iter().enumerate() {
+            if k == j { continue; }
+            for &(i, v) in m { *acc.entry(i).or_insert(0.0) += v; }
+        }
+        let adds: Vec<(u32, f64)> = acc.into_iter().collect();
+        let terms: Vec<(usize, f64)> = d.const_term_keys.iter().enumerate().filter_map(|(slot, key)| {
+            let &i = d.idx.get(key.as_str())?;
+            adds.iter().find(|(k, _)| *k == i).map(|(_, v)| (slot, *v))
+        }).collect();
+        let slot = &fx.slots[j];
+        let mut names = base;
+        let mut drop = 0usize;
+        for i in 0..slot.item_names.len() {
+            names[slot.pos] = &slot.item_names[i];
+            let ub = crate::scoring::dense_ceiling_with(d, &adds, &terms, &names, &mut work,
+                &sc.rows, &sc.compiled_rows, &sc.tables, &[150.0; 5]).unwrap_or(f64::INFINITY);
+            if ub < cutoff - cutoff.abs() * 1e-9 { drop += 1; }
+        }
+        let n = slot.item_names.len().max(1);
+        kept_frac *= (n - drop) as f64 / n as f64;
+        line += &format!(" slot{} {}/{}", j, drop, n);
+    }
+    eprintln!("r3: warm cutoff {cutoff:.6e} | droppable{line} | space kept {:.3e}x", kept_frac);
+}
+
+/// R28_REPORT=1: Pareto front sizes of the last one and two free slots'
+/// real items and item pairs, over the stats the damage objective reads
+/// (R2's coordinates), maximizing every coordinate. Diagnostic only.
+fn r28_report(fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
+              db: Option<&crate::scoring::DenseBound>) {
+    let (Some(sc), Some(db)) = (scoring, db) else { eprintln!("r28: no dense bound"); return };
+    let Some(d) = sc.dense.as_ref() else { return };
+    let Some(plan) = crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows) else {
+        eprintln!("r28: objective not damage"); return
+    };
+    let nu = plan.n_coords();
+    let n = fx.slots.len();
+    if n < 2 { return; }
+    let dense = |row: &[(u16, f64)]| -> Vec<f64> {
+        let mut v = vec![0.0; nu];
+        for &(u, x) in row { v[u as usize] += x; }
+        v
+    };
+    let front = |pts: &[Vec<f64>]| -> usize {
+        // Maximal points (no other point >= on every coordinate and > on one).
+        let mut keep = 0usize;
+        'outer: for (i, p) in pts.iter().enumerate() {
+            for (j, q) in pts.iter().enumerate() {
+                if i == j { continue; }
+                let ge = q.iter().zip(p).all(|(a, b)| a >= b);
+                let gt = q.iter().zip(p).any(|(a, b)| a > b);
+                if ge && (gt || j < i) { continue 'outer; }
+            }
+            keep += 1;
+        }
+        keep
+    };
+    let last: Vec<Vec<f64>> = plan.slot_rows(n - 1).iter().map(|r| dense(r)).collect();
+    let prev: Vec<Vec<f64>> = plan.slot_rows(n - 2).iter().map(|r| dense(r)).collect();
+    let used = |pts: &[Vec<f64>]| (0..nu).filter(|&u| pts.iter().any(|p| p[u] != 0.0)).count();
+    let mut pairs: Vec<Vec<f64>> = Vec::with_capacity(last.len() * prev.len());
+    for a in &prev { for b in &last { pairs.push(a.iter().zip(b).map(|(x, y)| x + y).collect()); } }
+    let f1 = front(&last);
+    let f2 = front(&pairs);
+    eprintln!("r28: coords {nu} (used by the last slot {}, by pairs {}) | last slot front {f1} of {} | last two slots front {f2} of {} pairs",
+              used(&last), used(&pairs), last.len(), pairs.len());
+}
+
+/// R9_STATS=1 diagnostic counters (single process, all threads).
+pub mod r9_stats {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static S: Mutex<(u64, u64, u64)> = Mutex::new((0, 0, 0));
+    static DEAD: OnceLock<Mutex<HashSet<(usize, [usize; 8])>>> = OnceLock::new();
+    pub fn on() -> bool {
+        static V: OnceLock<bool> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("R9_STATS").as_deref() == Ok("1"))
+    }
+    fn dead() -> &'static Mutex<HashSet<(usize, [usize; 8])>> { DEAD.get_or_init(|| Mutex::new(HashSet::new())) }
+    pub fn is_dead(depth: usize, key: &[usize; 8]) -> bool {
+        dead().lock().unwrap().contains(&(depth, *key))
+    }
+    pub fn record(ok: bool, known_dead: bool, newly_dead: Option<(usize, [usize; 8])>) {
+        let mut s = S.lock().unwrap();
+        s.0 += 1;
+        if !ok { s.1 += 1; }
+        if known_dead { s.2 += 1; }
+        if let Some(k) = newly_dead { dead().lock().unwrap().insert(k); }
+    }
+    pub fn line() -> Option<String> {
+        if !on() { return None; }
+        let s = S.lock().unwrap();
+        Some(format!("r9_stats: calls {} | rejects {} | calls on a prefix already dead over its whole pool {} | dead prefixes {}",
+            s.0, s.1, s.2, dead().lock().unwrap().len()))
+    }
+}
+
+/// R2_SKIP_RATIO (default 2): the tangent is tried only where the tail
+/// ceiling is below this multiple of the cutoff.
+fn r2_skip_ratio() -> f64 {
+    static V: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("R2_SKIP_RATIO").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0))
+}
+
+/// R2_TANGENT=1 counters across threads, printed with the run summary.
+pub mod r2_stats {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static EVALS: AtomicU64 = AtomicU64::new(0);
+    pub static NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static PRUNES: AtomicU64 = AtomicU64::new(0);
+    pub static LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub fn add(nanos: u64, pruned_leaves: f64) {
+        EVALS.fetch_add(1, Relaxed);
+        NANOS.fetch_add(nanos, Relaxed);
+        if pruned_leaves > 0.0 { PRUNES.fetch_add(1, Relaxed); LEAVES.fetch_add(pruned_leaves as u64, Relaxed); }
+    }
+    pub fn line() -> Option<String> {
+        let e = EVALS.load(Relaxed);
+        if e == 0 { return None; }
+        let ns = NANOS.load(Relaxed);
+        Some(format!("r2_tangent: evals {} | {:.2} us/eval | pruning evals {} | pruned leaves {}",
+            e, ns as f64 / e as f64 / 1e3, PRUNES.load(Relaxed), LEAVES.load(Relaxed)))
+    }
+}
+
+/// R2_ITEM_OBSERVE=1 (native, diagnostic): per-item tangent bounds for the
+/// last slot, computed where the tail ceiling does not prune, then checked
+/// at each leaf the search scores there. Counts how many of those leaves a
+/// per-item tangent would have skipped, against what computing it costs.
+pub mod r2_item_stats {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static NODES: AtomicU64 = AtomicU64::new(0);
+    pub static NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static ITEMS: AtomicU64 = AtomicU64::new(0);
+    pub static LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub static BELOW: AtomicU64 = AtomicU64::new(0);
+    /// Scored leaves above their own per-item bound: must stay 0.
+    pub static VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+    pub fn on() -> bool {
+        !cfg!(target_arch = "wasm32") && crate::scoring::env_once!("R2_ITEM_OBSERVE" == "1")
+    }
+    pub fn line() -> Option<String> {
+        let n = NODES.load(Relaxed);
+        if n == 0 { return None; }
+        let (l, b) = (LEAVES.load(Relaxed), BELOW.load(Relaxed));
+        Some(format!("r2_item_observe: nodes {} | {:.2} us/node | items bounded {} | leaves checked {} | \
+                      below the cutoff {} ({:.1}%) | violations {}", n, NANOS.load(Relaxed) as f64 / n as f64 / 1e3,
+                     ITEMS.load(Relaxed), l, b, 100.0 * b as f64 / l.max(1) as f64, VIOLATIONS.load(Relaxed)))
+    }
+}
+
+/// R10_OBSERVE=1 (native, diagnostic): an upper bound on what SP conflict
+/// pairs with forward checking could save at the last slot. A last-slot loop
+/// that reaches leaves but yields no SP-feasible build is one perfect
+/// per-candidate SP knowledge would skip whole; its time is the ceiling.
+pub mod r10_observe {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static LOOPS: AtomicU64 = AtomicU64::new(0);
+    pub static LOOP_NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD_NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static DEAD_LEAVES: AtomicU64 = AtomicU64::new(0);
+    pub fn on() -> bool {
+        !cfg!(target_arch = "wasm32") && crate::scoring::env_once!("R10_OBSERVE" == "1")
+    }
+    pub fn record(nanos: u64, leaves: u64, feasible: u64) {
+        if leaves == 0 { return; }
+        LOOPS.fetch_add(1, Relaxed);
+        LOOP_NANOS.fetch_add(nanos, Relaxed);
+        if feasible == 0 {
+            DEAD.fetch_add(1, Relaxed);
+            DEAD_NANOS.fetch_add(nanos, Relaxed);
+            DEAD_LEAVES.fetch_add(leaves, Relaxed);
+        }
+    }
+    pub fn line() -> Option<String> {
+        let l = LOOPS.load(Relaxed);
+        if l == 0 { return None; }
+        Some(format!("r10_observe: last-slot loops with leaves {} ({:.2} s) | with no SP-feasible leaf {} \
+                      ({:.2} s, {} leaves)", l, LOOP_NANOS.load(Relaxed) as f64 / 1e9, DEAD.load(Relaxed),
+                     DEAD_NANOS.load(Relaxed) as f64 / 1e9, DEAD_LEAVES.load(Relaxed)))
+    }
+}
+
+pub mod bound_observe {
+    use std::sync::{Mutex, OnceLock};
+    /// Number of relaxed slots under an observed ceiling (>= 1).
+    pub fn slots() -> usize {
+        static V: OnceLock<usize> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("BOUND_OBSERVE_SLOTS").ok()
+            .and_then(|v| v.parse::<usize>().ok()).filter(|&k| k >= 1).unwrap_or(1))
+    }
+    static PAIRS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    static AT_SP: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    static FULL: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    static SINGLE: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    /// R2 tangent diagnostics: (tangent, min(tangent, ceiling)) / true best.
+    static TAN: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    /// U(x) / f(x) at the best leaf's own items (must be >= 1).
+    static ENV: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+    /// (ceiling, min(tangent, ceiling), true best) per covered subtree, for
+    /// the prune counts at the final cutoff.
+    static TAN_ABS: Mutex<Vec<(f64, f64, f64)>> = Mutex::new(Vec::new());
+    /// min(grouped tangent, ceiling) for (by tag, one group), same order.
+    static TAN_GROUPED: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
+    pub fn record_grouped(by_tag: f64, one: f64, ceiling: f64) {
+        TAN_GROUPED.lock().unwrap_or_else(|e| e.into_inner()).push((by_tag.min(ceiling), one.min(ceiling)));
+    }
+    /// [refused: objective, use_max, negative, forbidden, no dense; tangent
+    /// below the true best; envelope below the exact value]
+    static TAN_COUNTS: Mutex<[u64; 7]> = Mutex::new([0; 7]);
+    pub fn tan_count(k: usize) { TAN_COUNTS.lock().unwrap_or_else(|e| e.into_inner())[k] += 1; }
+    static REASONS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+    /// Refusal detail (which factor, which forbidden key).
+    pub fn tan_reason(r: String) {
+        let mut v = REASONS.lock().unwrap_or_else(|e| e.into_inner());
+        match v.iter_mut().find(|(k, _)| *k == r) { Some((_, c)) => *c += 1, None => v.push((r, 1)) }
+    }
+    pub fn record_tangent(tangent: f64, ceiling: f64, best: f64) {
+        if !(best.is_finite() && best > 0.0 && tangent.is_finite()) { return; }
+        if tangent < best * (1.0 - 1e-9) { tan_count(5); }
+        TAN.lock().unwrap_or_else(|e| e.into_inner()).push((tangent / best, tangent.min(ceiling) / best));
+        TAN_ABS.lock().unwrap_or_else(|e| e.into_inner()).push((ceiling, tangent.min(ceiling), best));
+    }
+    pub fn record_envelope(u: f64, f: f64) {
+        if !(f.is_finite() && f > 0.0 && u.is_finite()) { return; }
+        if u < f * (1.0 - 1e-9) { tan_count(6); }
+        ENV.lock().unwrap_or_else(|e| e.into_inner()).push(u / f);
+    }
+    pub fn record_single(single: Option<f64>, best: f64) {
+        if let (Some(v), true) = (single, best.is_finite() && best > 0.0) {
+            SINGLE.lock().unwrap_or_else(|e| e.into_inner()).push(v / best);
+        }
+    }
+    #[inline]
+    pub fn on() -> bool {
+        static V: OnceLock<bool> = OnceLock::new();
+        *V.get_or_init(|| std::env::var("BOUND_OBSERVE").as_deref() == Ok("1"))
+    }
+    pub fn record(ceiling: f64, best: f64, at_best_sp: Option<f64>, full_build: Option<f64>) {
+        if best.is_finite() && best > 0.0 && ceiling.is_finite() {
+            if let Some(f) = full_build.filter(|f| f.is_finite()) {
+                FULL.lock().unwrap_or_else(|e| e.into_inner()).push(f / best);
+            }
+            PAIRS.lock().unwrap_or_else(|e| e.into_inner()).push((ceiling, best));
+            if let Some(a) = at_best_sp.filter(|a| a.is_finite()) {
+                AT_SP.lock().unwrap_or_else(|e| e.into_inner()).push(a / best);
+            }
+        }
+    }
+    /// Summary line for the CLI (None when nothing was recorded).
+    pub fn report(final_cutoff: Option<f64>) -> Option<String> {
+        let pairs = PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+        if pairs.is_empty() { return None; }
+        let mut r: Vec<f64> = pairs.iter().map(|(c, b)| c / b).collect();
+        r.sort_by(|a, b| a.total_cmp(b));
+        let q = |p: f64| r[((r.len() - 1) as f64 * p) as usize];
+        let frac = |t: f64| r.iter().filter(|&&x| x >= t).count() as f64 / r.len() as f64;
+        let mut line = format!(
+            "bound_observe: {} subtrees | ceiling/true best p10 {:.3} p50 {:.3} p90 {:.3} max {:.3} | >=1.05x {:.1}% >=1.2x {:.1}% >=1.5x {:.1}%",
+            r.len(), q(0.1), q(0.5), q(0.9), r[r.len() - 1],
+            100.0 * frac(1.05), 100.0 * frac(1.2), 100.0 * frac(1.5));
+        let below = pairs.iter().filter(|(c, b)| *c < *b * (1.0 - 1e-9)).count();
+        line += &format!(" | ceiling below true best: {below}");
+        if let Some(cut) = final_cutoff {
+            let missed = pairs.iter().filter(|(c, b)| *b < cut && *c >= cut).count();
+            let pruned = pairs.iter().filter(|(c, _)| *c < cut).count();
+            line += &format!(" | at the final cutoff: current prunes {} ({:.1}%), a perfect bound would also prune {} more ({:.1}%)",
+                pruned, 100.0 * pruned as f64 / pairs.len() as f64,
+                missed, 100.0 * missed as f64 / pairs.len() as f64);
+        }
+        let mut a = AT_SP.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !a.is_empty() {
+            a.sort_by(|x, y| x.total_cmp(y));
+            let qa = |p: f64| a[((a.len() - 1) as f64 * p) as usize];
+            line += &format!(" | item relaxation alone (ceiling at the best leaf's SP)/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qa(0.1), qa(0.5), qa(0.9));
+        }
+        let mut g = SINGLE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !g.is_empty() {
+            g.sort_by(|x, y| x.total_cmp(y));
+            let qg = |p: f64| g[((g.len() - 1) as f64 * p) as usize];
+            line += &format!(" | best single item, feasibility ignored, at the best leaf's SP/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qg(0.1), qg(0.5), qg(0.9));
+        }
+        let tan = TAN.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let counts = *TAN_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+        if !tan.is_empty() || counts.iter().any(|&c| c > 0) {
+            let q = |mut v: Vec<f64>, p: f64| -> f64 {
+                if v.is_empty() { return f64::NAN; }
+                v.sort_by(|a, b| a.total_cmp(b));
+                v[((v.len() - 1) as f64 * p) as usize]
+            };
+            let t: Vec<f64> = tan.iter().map(|x| x.0).collect();
+            let m: Vec<f64> = tan.iter().map(|x| x.1).collect();
+            let env = ENV.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            line += &format!(
+                " | R2 tangent/true best p10 {:.3} p50 {:.3} p90 {:.3} on {} subtrees, min(tangent, ceiling) p50 {:.3}; \
+                 refused objective {} use_max {} negative {} forbidden {} no_dense {}; \
+                 tangent below true best {}; envelope U/f p50 {:.4} max {:.4}, below exact {}",
+                q(t.clone(), 0.1), q(t.clone(), 0.5), q(t.clone(), 0.9), t.len(), q(m, 0.5),
+                counts[0], counts[1], counts[2], counts[3], counts[4], counts[5],
+                q(env.clone(), 0.5), q(env, 1.0), counts[6]);
+            if let Some(cut) = final_cutoff {
+                let abs = TAN_ABS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let by_c = abs.iter().filter(|(c, _, _)| *c < cut).count();
+                let by_t = abs.iter().filter(|(_, t, _)| *t < cut).count();
+                let need = abs.iter().filter(|(_, _, b)| *b < cut).count();
+                let grp = TAN_GROUPED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let by_tag = grp.iter().filter(|(t, _)| *t < cut).count();
+                let by_one = grp.iter().filter(|(_, o)| *o < cut).count();
+                line += &format!(" | covered subtrees pruned at the final cutoff: ceiling {by_c}, min(tangent, ceiling) {by_t} (grouped by tag {by_tag}, one group {by_one}), perfect {need} of {}", abs.len());
+            }
+            let mut rs = REASONS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            rs.sort_by(|a, b| b.1.cmp(&a.1));
+            let top: Vec<String> = rs.iter().take(8).map(|(k, c)| format!("{k}={c}")).collect();
+            if !top.is_empty() { line += &format!(" | refusals: {}", top.join(" ")); }
+        }
+        let mut f = FULL.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !f.is_empty() {
+            f.sort_by(|x, y| x.total_cmp(y));
+            let qf = |p: f64| f[((f.len() - 1) as f64 * p) as usize];
+            line += &format!(" | no relaxation (ceiling of the best build itself)/true best p10 {:.3} p50 {:.3} p90 {:.3}",
+                qf(0.1), qf(0.5), qf(0.9));
+        }
+        Some(line)
+    }
+}
+
 /// Self-tuning switch for a bound layer.
 ///
 /// Ablation shows the coarse bound layers are scenario-dependent: the tail
@@ -93,6 +513,9 @@ struct AdaptiveBound {
     pruned: f64,
     window: u64,
     retry_at: f64,
+    /// Pruned leaves per eval below which the layer switches off (1 for the
+    /// ceilings, whose eval costs about one leaf; more for dearer bounds).
+    min_rate: f64,
 }
 
 /// Entry cap for the subtree/cluster ceiling memo.
@@ -111,7 +534,10 @@ const ADAPT_RETRY_LEAVES: f64 = 20_000_000.0;
 
 impl AdaptiveBound {
     fn new() -> Self {
-        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0 }
+        AdaptiveBound { enabled: true, evals: 0, pruned: 0.0, window: ADAPT_WINDOW, retry_at: 0.0, min_rate: 1.0 }
+    }
+    fn with_rate(min_rate: f64) -> Self {
+        AdaptiveBound { min_rate, ..AdaptiveBound::new() }
     }
     #[inline]
     fn armed(&mut self, checked: f64) -> bool {
@@ -128,7 +554,7 @@ impl AdaptiveBound {
         self.evals += 1;
         self.pruned += pruned_leaves;
         if self.evals >= self.window {
-            if self.pruned < self.evals as f64 {
+            if self.pruned < self.min_rate * self.evals as f64 {
                 self.enabled = false;
                 self.retry_at = checked + ADAPT_RETRY_LEAVES;
             }
@@ -184,6 +610,11 @@ pub struct Fixture {
     /// A search option rather than scenario data, carried here so the browser
     /// can set it through the fixture it already sends.
     pub eps: f64,
+    /// R20 windowed archive: keep every build within `window` (a fraction)
+    /// of the best, up to `archive_cap` entries, from optional `WINDOW <x>`
+    /// and `ARCHIVE <n>` lines. 0 = the usual top-N.
+    pub window: f64,
+    pub archive_cap: usize,
 }
 
 pub fn parse_fixture(text: &str) -> Fixture {
@@ -289,6 +720,8 @@ pub fn parse_fixture(text: &str) -> Fixture {
     let mut fixed_names = Vec::new();
     let mut none_names = Vec::new();
     let mut eps = 0.0f64;
+    let mut window = 0.0f64;
+    let mut archive_cap = DEFAULT_ARCHIVE_CAP;
     loop {
         let Some(line) = lines.next() else { break };
         let t = toks(line);
@@ -312,6 +745,14 @@ pub fn parse_fixture(text: &str) -> Fixture {
                     fixed_names.push((pos_s.parse().unwrap(), name.trim().to_string()));
                 }
             }
+            "WINDOW" => {
+                window = t.get(1).and_then(|v| v.parse::<f64>().ok())
+                    .filter(|w| w.is_finite() && *w > 0.0 && *w < 1.0).unwrap_or(0.0);
+            }
+            "ARCHIVE" => {
+                archive_cap = t.get(1).and_then(|v| v.parse::<usize>().ok())
+                    .filter(|&n| n > 0).unwrap_or(DEFAULT_ARCHIVE_CAP);
+            }
             "EPS" => {
                 eps = t.get(1).and_then(|v| v.parse::<f64>().ok())
                     .filter(|e| e.is_finite() && *e > 0.0).unwrap_or(0.0);
@@ -327,7 +768,32 @@ pub fn parse_fixture(text: &str) -> Fixture {
     }
 
     Fixture { budget, pc_thresholds, pc_start, ehp, ehpna, thp, hp_start,
-              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names, eps }
+              weapon, weapon_set, guild, fixed, slots, set_table, fixed_names, none_names, eps,
+              window, archive_cap }
+}
+
+/// Default R20 archive capacity. Beyond it the window's completeness claim is
+/// withdrawn rather than the archive growing without bound.
+pub const DEFAULT_ARCHIVE_CAP: usize = 2000;
+
+/// The result capacity a search over `fx` uses: the archive cap when an R20
+/// window is set, the configured top-N otherwise.
+pub fn effective_result_count(fx: &Fixture, options: &SearchOptions) -> usize {
+    if fx.window > 0.0 { fx.archive_cap } else { options.result_count }
+}
+
+/// R20: whether an archive holds every build within the window. `complete`
+/// is whether the search exhausted its space; `top` is the final archive,
+/// best first. Sound when nothing in the final window was evicted or
+/// pruned: an evicted entry scored at most the archive's last score at the
+/// time, which only rises, and a pruned subtree's ceiling was below
+/// max(last score, window line) at the time, both at most their final
+/// values. So it holds when the archive is not full, or its last entry is
+/// below the final window line.
+pub fn window_complete(complete: bool, top: &[TopEntry], cap: usize, window: f64) -> bool {
+    if !complete || window <= 0.0 { return false; }
+    let Some(best) = top.first().map(|e| e.score) else { return true };
+    top.len() < cap || top[cap - 1].score < best * (1.0 - window)
 }
 
 pub struct Search<'a> {
@@ -406,6 +872,10 @@ pub struct Search<'a> {
     /// Used where there is no usable wall clock (wasm) and wherever a
     /// reproducible chunk of work is wanted instead of a time slice.
     pub leaf_budget: Option<f64>,
+    /// Real evaluated-leaf budget, unlike credited subtree space.
+    pub actual_leaf_budget: Option<u64>,
+    /// Optional deadline epoch shared by preparation, warm search and repairs.
+    global_started: Option<Instant>,
     /// SP_BOUND_OFF=1: read once at construction, never in the hot path.
     sp_bound_off: bool,
     /// R9 node bound; SP_NODE_BOUND=0 turns it off.
@@ -418,6 +888,26 @@ pub struct Search<'a> {
     reach_cap_on: bool,
     /// Last-slot ranges R9 rejected with one solve.
     pub sp_node_reject: u64,
+    /// Per slot, per set id: the sorted pool offsets of that slot's items in
+    /// the set (any item with that set id, as R9 always counted). For R9.
+    slot_set_offsets: Vec<Vec<Vec<u32>>>,
+    /// Per slot: the set ids its pool stocks.
+    slot_set_ids: Vec<Vec<u32>>,
+    /// Per slot: sparse table of per-lane skill-point provision maxima over
+    /// non-crafted items, level k covering [i, i + 2^k) (i32::MIN where the
+    /// window holds only crafted items). R9 reads its range maxima in O(1).
+    slot_skp_sparse: Vec<Vec<Vec<[i32; 5]>>>,
+    /// BOUND_OBSERVE=1 diagnostic: best real score seen inside the subtree
+    /// currently being observed (see `bound_observe`).
+    observe_max: f64,
+    /// total_sp of the leaf that set `observe_max`.
+    observe_sp: [i32; 5],
+    observe_names: [&'a str; 8],
+    /// R9 ran early for the current last-slot node (from its parent, before
+    /// the tail ceiling; see `r9_early`) and passed, so the node skips it.
+    r9_done: bool,
+    /// Ceiling evaluations the early R9 check avoided (diagnostics).
+    pub r9_early_skips: u64,
     dense_work: crate::scoring::DenseWork,
     /// Separate buffers for bound evals so the leaf pipeline can't clobber
     /// the cached last-slot prefix state.
@@ -427,18 +917,27 @@ pub struct Search<'a> {
     /// Optional live-progress sink (browser UI). Called every
     /// `progress_every` credited leaves with a funnel snapshot plus the
     /// current top-N, so a long solve shows movement instead of looking
-    /// hung. Keyed on leaves rather than wall time because wasm32 has no
-    /// usable clock — which also makes emission points deterministic.
+    /// hung. Exact mode retains deterministic credited-leaf emission points.
     progress: Option<&'a mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
     progress_every: f64,
     next_progress: f64,
+    /// Anytime UI needs its first retained witness before a long repair ends.
+    /// Kept off for exact search so its callbacks and work remain unchanged.
+    progress_on_first_result: bool,
 
     // Scoring integration (P2.4 layer 3): current equip names by position,
     // the scenario scoring context, per-thread top-N, and the shared cutoff
     // (floor(score) as u64; 0 = unset — floor is admissible for the gate).
     equip_names: [&'a str; 8],
     scoring: Option<&'a crate::scoring::ScoringCtx>,
+    /// Root-domain ring ordering for reduced neighbourhoods. Their two local
+    /// pools can have different indices, so local ring flags must be off.
+    /// Only attach when both rings were free in the original search.
+    original_ring_order: Option<&'a std::collections::HashMap<String, usize>>,
     top_n: Vec<TopEntry>,
+    result_count: usize,
+    quality_trace: Option<Arc<QualityTrace>>,
+    trace_phase: &'static str,
     shared_cutoff: Option<&'a AtomicU64>,
     /// R21: the best score any thread has found, as f64 bits (fetch_max on
     /// the bits orders non-negative floats correctly; only positive scores
@@ -449,6 +948,10 @@ pub struct Search<'a> {
     /// optimum and ranks 2 to 15 are unverified. 0 (the default) is the exact
     /// search, unchanged. SEARCH_EPS sets it on the CLI.
     eps: f64,
+    /// R20 window (0 = off). When set, `eps` is ignored: the exact window's
+    /// prune line is (1 - window) * best, and a tolerance on top of it would
+    /// drop builds inside the window.
+    window: f64,
     scored: u64,
     gated: u64,
     mana_reject: u64,
@@ -457,6 +960,26 @@ pub struct Search<'a> {
     cluster_memo_hits: u64,
     adapt_super: AdaptiveBound,
     adapt_tail: AdaptiveBound,
+    /// R2 tangent prune at the tail sites (R2_TANGENT=1; native only).
+    r2_on: bool,
+    adapt_tan: AdaptiveBound,
+    r2_evals: u64,
+    /// R2_ITEM_OBSERVE: per-item bounds for the last slot under this prefix.
+    r2_items: Vec<f64>,
+    r2_items_prefix: Option<(usize, usize)>,
+    /// The last scored leaf's score (R2_ITEM_OBSERVE soundness check).
+    last_scored: Option<f64>,
+    r2_pruned: f64,
+    tan_forbidden: Option<Vec<bool>>,
+    tan_dense: Vec<f64>,
+    /// Fast R2 path: per-run plan (built on first use), buffers, memo, and
+    /// whether bound_work still holds the last subtree ceiling's assemble.
+    tan_plan: Option<Option<crate::tangent::TanPlan>>,
+    tan_work: crate::tangent::TanWork,
+    tan_memo: BoundMemo,
+    ceiling_fresh: bool,
+    /// The value `bound_prunes` last computed (infinite when none).
+    last_ceiling: f64,
     adapt_node: AdaptiveBound,
 
     // Mid-tree damage ceiling bound (objective branch-and-bound).
@@ -469,11 +992,11 @@ pub struct Search<'a> {
     bound_tail: usize,
     dense_bound: Option<&'a crate::scoring::DenseBound>,
     bound_pruned: f64,
-    /// Ceiling memo keyed by packed prefix offsets (the ceiling depends on
-    /// the prefix, not the band, and prefixes recur across band sweeps).
-    bound_memo: std::collections::HashMap<u64, f64, crate::scoring::FastBuild>,
-    /// Current prefix offsets (by depth) for memo keys.
-    prefix_offsets: [u8; 8],
+    /// Ceiling memo keyed by the complete prefix and (for subtrees) band
+    /// budget. Small pools use packed keys; wider pools use structured keys.
+    bound_memo: BoundMemo,
+    /// Current prefix offsets (by depth); never truncate wide-pool offsets.
+    prefix_offsets: [usize; 8],
 }
 
 impl<'a> Search<'a> {
@@ -694,6 +1217,45 @@ impl<'a> Search<'a> {
                 m
             }).collect(),
             sp_node_reject: 0,
+            r9_done: false,
+            slot_set_offsets: fx.slots.iter().map(|sl| {
+                let mut v = vec![Vec::new(); fx.set_table.len()];
+                for (o, it) in sl.pool.iter().enumerate() {
+                    if it.set_id >= 0 && (it.set_id as usize) < v.len() {
+                        v[it.set_id as usize].push(o as u32);
+                    }
+                }
+                v
+            }).collect(),
+            slot_skp_sparse: fx.slots.iter().map(|sl| {
+                let base: Vec<[i32; 5]> = sl.pool.iter()
+                    .map(|it| if it.crafted { [i32::MIN; 5] } else { it.skp })
+                    .collect();
+                let mut levels = vec![base];
+                let mut w = 1usize;
+                while 2 * w <= levels[0].len() {
+                    let prev = levels.last().unwrap();
+                    // Windows of 2w starting at 0..=len-2w.
+                    let next: Vec<[i32; 5]> = (0..levels[0].len() + 1 - 2 * w)
+                        .map(|i| std::array::from_fn(|j| prev[i][j].max(prev[i + w][j])))
+                        .collect();
+                    levels.push(next);
+                    w *= 2;
+                }
+                levels
+            }).collect(),
+            slot_set_ids: fx.slots.iter().map(|sl| {
+                let mut ids: Vec<u32> = sl.pool.iter()
+                    .filter(|it| it.set_id >= 0 && (it.set_id as usize) < fx.set_table.len())
+                    .map(|it| it.set_id as u32).collect();
+                ids.sort_unstable();
+                ids.dedup();
+                ids
+            }).collect(),
+            observe_max: f64::NEG_INFINITY,
+            observe_sp: [0; 5],
+            observe_names: Default::default(),
+            r9_early_skips: 0,
             checked: 0.0, leaf_calls: 0, precheck_reject: 0.0, precheck_pass: 0,
             feasible: 0, sp_leaf_reject: 0, sp_kernel_reject: 0,
             kernel: Kernel::new(),
@@ -708,6 +1270,8 @@ impl<'a> Search<'a> {
             stop_flag: None,
             stop: false,
             leaf_budget: None,
+            actual_leaf_budget: None,
+            global_started: None,
             time_cap: std::env::var("ENUM_TIME_CAP_SECS").ok().and_then(|v| v.parse().ok()),
             dense_work: Default::default(),
             thresh_reject: 0,
@@ -716,14 +1280,34 @@ impl<'a> Search<'a> {
             adapt_super: AdaptiveBound::new(),
             adapt_node: AdaptiveBound::new(),
             adapt_tail: AdaptiveBound::new(),
+            r2_on: !cfg!(target_arch = "wasm32") && std::env::var("R2_TANGENT").as_deref() == Ok("1"),
+            adapt_tan: AdaptiveBound::with_rate(std::env::var("R2_MIN_RATE").ok()
+                .and_then(|v| v.parse::<f64>().ok()).unwrap_or(27.0)),
+            r2_evals: 0,
+            r2_items: Vec::new(),
+            r2_items_prefix: None,
+            last_scored: None,
+            r2_pruned: 0.0,
+            tan_forbidden: None,
+            tan_dense: Vec::new(),
+            tan_plan: None,
+            tan_work: Default::default(),
+            tan_memo: BoundMemo::new(fx.slots.iter().any(|s| s.pool.len() >= 128)),
+            ceiling_fresh: false,
+            last_ceiling: f64::INFINITY,
             bound_work: Default::default(),
             checked_flushed: 0.0,
             progress: None,
             progress_every: (1u64 << 21) as f64,
             next_progress: f64::INFINITY,
+            progress_on_first_result: false,
             equip_names: Default::default(),
             scoring: None,
+            original_ring_order: None,
             top_n: Vec::new(),
+            result_count: SearchOptions::from_env().result_count,
+            quality_trace: None,
+            trace_phase: "enumerate",
             shared_cutoff: None,
             shared_best: None,
             // SEARCH_EPS (CLI) overrides the fixture's EPS line; "0" forces exact.
@@ -732,6 +1316,7 @@ impl<'a> Search<'a> {
                 Some(_) => 0.0,
                 None => fx.eps,
             },
+            window: fx.window,
             scored: 0,
             gated: 0,
             mana_reject: 0,
@@ -740,7 +1325,7 @@ impl<'a> Search<'a> {
             bound_tail: 0,
             dense_bound: None,
             bound_pruned: 0.0,
-            bound_memo: std::collections::HashMap::default(),
+            bound_memo: BoundMemo::new(fx.slots.iter().any(|s| s.pool.len() >= 128)),
             prefix_offsets: [0; 8],
         }
     }
@@ -749,8 +1334,8 @@ impl<'a> Search<'a> {
     /// floored cutoff, whichever is higher. None until either exists.
     fn cutoff(&self) -> Option<f64> {
         let mut cutoff: Option<f64> = None;
-        if self.top_n.len() >= 15 {
-            cutoff = Some(self.top_n[14].score);
+        if self.top_n.len() >= self.result_count {
+            cutoff = Some(self.top_n[self.result_count - 1].score);
         }
         if let Some(shared) = self.shared_cutoff {
             let s = shared.load(Ordering::Relaxed);
@@ -758,34 +1343,321 @@ impl<'a> Search<'a> {
                 cutoff = Some(s as f64);
             }
         }
-        if self.eps > 0.0 {
-            // R21: (1 + eps) * best, defined only for a positive best. With a
-            // positive best it is at least the 15th-best cutoff, so it only
-            // ever raises the line.
+        if self.window > 0.0 || self.eps > 0.0 {
+            // R21: (1 + eps) * best; R20: (1 - window) * best, which takes
+            // precedence. Defined only for a positive best (a real build's
+            // score), so the line is admissible like the 15th-best cutoff.
             let mut best = self.top_n.first().map_or(f64::NEG_INFINITY, |e| e.score);
             if let Some(sb) = self.shared_best {
                 let b = f64::from_bits(sb.load(Ordering::Relaxed));
                 if b > best { best = b; }
             }
             if best > 0.0 {
-                let line = best * (1.0 + self.eps);
+                let line = if self.window > 0.0 { best * (1.0 - self.window) }
+                           else { best * (1.0 + self.eps) };
                 cutoff = Some(cutoff.map_or(line, |c| c.max(line)));
             }
         }
         cutoff
     }
 
-    /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
-    /// the packed prefix. Returns true when the subtree CANNOT beat `cutoff`.
-    fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
-        let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return false };
-        let h_child = hi_rem - offset as i64;
-        let mut key = (depth as u64) << 60;
-        key |= (h_child.clamp(0, 2047) as u64) & 0x7FF;
-        for d in 0..depth {
-            key |= (self.prefix_offsets[d] as u64) << (11 + d * 7);
+    /// Insert one distinct equipment/tome result before publishing any cutoff.
+    /// Warm starts, repairs and enumeration may rediscover the same build.
+    fn insert_top(&mut self, entry: TopEntry) -> bool {
+        let first_result = self.top_n.is_empty();
+        let score = entry.score;
+        if !insert_top_n(&mut self.top_n, entry, self.result_count) { return false; }
+        if let Some(trace) = &self.quality_trace {
+            trace.record(self.trace_phase, &self.top_n, self.result_count);
         }
-        key |= (offset as u64) << (11 + depth * 7);
+        // A new local best: report it (R8) and publish it for the R21 line.
+        if self.top_n[0].score == score {
+            if anytime_trace::on() { anytime_trace::best(score); }
+            // Also read by the R5 gap report, so published whenever positive
+            // (bit order matches value order for positive floats).
+            if let (true, Some(sb)) = (score > 0.0, self.shared_best) {
+                sb.fetch_max(score.to_bits(), Ordering::Relaxed);
+            }
+        }
+        if self.top_n.len() >= self.result_count {
+            if let Some(shared) = self.shared_cutoff {
+                let floor = self.top_n[self.result_count - 1].score.floor();
+                if floor > 0.0 {
+                    let prev = shared.fetch_max(floor as u64, Ordering::Relaxed);
+                    if anytime_trace::on() { anytime_trace::cutoff(prev, floor as u64); }
+                }
+            }
+        }
+        if first_result && self.progress_on_first_result { self.emit_progress(); }
+        true
+    }
+
+    /// Subtree ceiling for placing pool item `offset` at `depth`, memoized by
+    /// the complete prefix and band budget. Returns true if it cannot beat `cutoff`.
+    fn bound_prunes(&mut self, depth: usize, offset: usize, cutoff: f64, hi_rem: i64) -> bool {
+        let Some(ceiling) = self.subtree_ceiling_value(depth, offset, hi_rem) else {
+            self.last_ceiling = f64::INFINITY;
+            return false;
+        };
+        self.last_ceiling = ceiling;
+        if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
+            use std::sync::atomic::AtomicU64 as A;
+            static N: A = A::new(0);
+            if N.fetch_add(1, Ordering::Relaxed) < 30 {
+                eprintln!("bound_debug: depth {} ceiling {:.4e} cutoff {:.4e}", depth, ceiling, cutoff);
+            }
+        }
+        ceiling < cutoff - cutoff.abs() * 1e-9
+    }
+
+    /// BOUND_OBSERVE only: the subtree ceiling with the SP lanes set to `sp`
+    /// instead of the reachable caps. Not memoized, not a bound.
+    fn ceiling_at_sp(&mut self, depth: usize, offset: usize, hi_rem: i64, sp: &[f64; 5]) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let h_child = hi_rem - offset as i64;
+        let slot = &self.fx.slots[depth];
+        let mut names = self.equip_names;
+        names[slot.pos] = &slot.item_names[offset];
+        crate::scoring::dense_subtree_ceiling(
+            d, db, depth + 1, h_child, &names, &mut self.bound_work,
+            &sc.rows, &sc.compiled_rows, &sc.tables, sp)
+    }
+
+    /// BOUND_OBSERVE only: max over the last slot's items (offsets the
+    /// ceiling covers) of the complete build's ceiling at `sp`, with the
+    /// prefix placed: no super-item, and no SP or mana feasibility.
+    fn best_single_item(&mut self, depth: usize, offset: usize, hi_rem: i64, sp: &[f64; 5]) -> Option<f64> {
+        let sc = self.scoring?;
+        let d = sc.dense.as_ref()?;
+        let child = depth + 1;
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        let cslot = &fx.slots[child];
+        let mut best = f64::NEG_INFINITY;
+        for i in 0..=h_child.min(cslot.pool.len().saturating_sub(1)) {
+            names[cslot.pos] = &cslot.item_names[i];
+            if let Some(v) = crate::scoring::dense_ceiling_with(
+                d, &[], &[], &names, &mut self.bound_work,
+                &sc.rows, &sc.compiled_rows, &sc.tables, sp) {
+                if v > best { best = v; }
+            }
+        }
+        best.is_finite().then_some(best)
+    }
+
+    /// BOUND_OBSERVE only: the dense ceiling of the observed best leaf itself
+    /// (all items fixed) at its own skill points; ideally its score.
+    fn ceiling_of_build(&mut self, sp: &[f64; 5]) -> Option<f64> {
+        let sc = self.scoring?;
+        let d = sc.dense.as_ref()?;
+        let names = self.observe_names;
+        crate::scoring::dense_ceiling_with(
+            d, &[], &[], &names, &mut self.bound_work,
+            &sc.rows, &sc.compiled_rows, &sc.tables, sp)
+    }
+
+    /// BOUND_OBSERVE only: the R2 tangent bound (see `tangent`) for the
+    /// subtree under (depth, offset), and the envelope check at the observed
+    /// best leaf's own items. Records into `bound_observe`; never prunes.
+    /// R2 fast path: the grouped tangent at the subtree ceiling's own point,
+    /// reusing that evaluation's assembled scratch (see `tangent::fast_bound`).
+    /// Must follow `subtree_ceiling_value` for the same (depth, offset).
+    /// Memoized like the ceiling; None when the gates refuse or the scratch
+    /// is not the ceiling's (a ceiling memo hit with no tangent memo entry).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fast_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let h_child = hi_rem - offset as i64;
+        let key = self.tan_memo.key(CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
+        if let Some(&v) = self.tan_memo.get(&key) { return v.is_finite().then_some(v); }
+        if !self.ceiling_fresh { return None; }
+        if self.tan_plan.is_none() {
+            self.tan_plan = Some(crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows));
+        }
+        let plan = self.tan_plan.as_ref().unwrap().as_ref()?;
+        let h = h_child.clamp(0, db.h_max) as usize;
+        let mut slots = [(0usize, 0usize); 8];
+        let mut ns = 0;
+        for j in depth + 1..self.n_free { slots[ns] = (j, h); ns += 1; }
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+        let v = crate::tangent::fast_bound(
+            plan, &mut self.tan_work, d, scratch, leaf, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &sp_cap, &db.table[depth + 1][h], &slots[..ns]);
+        if self.tan_memo.len() >= BOUND_MEMO_CAP { self.tan_memo.clear(); }
+        self.tan_memo.insert(key, v.unwrap_or(f64::INFINITY));
+        v
+    }
+
+    /// R2_ITEM_OBSERVE: per-item tangent bounds for the last slot under
+    /// (depth, offset), from the tail ceiling's fresh state; true when set.
+    fn fast_tangent_items(&mut self, depth: usize, offset: usize, hi_rem: i64) -> bool {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return false };
+        let Some(d) = sc.dense.as_ref() else { return false };
+        if !self.ceiling_fresh || depth + 2 != self.n_free { return false; }
+        if self.tan_plan.is_none() {
+            self.tan_plan = Some(crate::tangent::TanPlan::new(d, &db.item_vecs, &sc.rows));
+        }
+        let Some(plan) = self.tan_plan.as_ref().unwrap().as_ref() else { return false };
+        let h = (hi_rem - offset as i64).clamp(0, db.h_max) as usize;
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+        crate::tangent::fast_bound_items(
+            plan, &mut self.tan_work, d, scratch, leaf, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &sp_cap, &db.table[depth + 1][h], &[(depth + 1, h)], Some(&mut self.r2_items)).is_some()
+    }
+
+    /// R2: the tag-grouped tangent bound for the subtree under (depth,
+    /// offset), or None when the envelope's gates refuse it. Must be called
+    /// before `offset` is placed (it reads the hoisted SP state for depth).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn tangent_bound(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { return None };
+        let d = sc.dense.as_ref()?;
+        let dd = d.direct.as_ref()?;
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        let sp_cap = self.subtree_sp_cap(depth, offset);
+        if !self.bound_work.leaf.fill_direct(d, dd, &names) { return None; }
+        {
+            let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+            scratch.reset(leaf, d);
+            crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
+            crate::scoring::ceiling_crit_floor_dense(d, scratch);
+        }
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        let tier_extra: f64 = (depth + 1..self.n_free).map(|j| {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { return 0.0; }
+            v[..=h_child.min(v.len() - 1)].iter()
+                .filter_map(|it| it.iter().find(|(i, _)| *i == d.atk_tier_idx).map(|(_, x)| *x))
+                .fold(0.0f64, f64::max)
+        }).sum();
+        let env = crate::tangent::build_envelope(
+            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &self.bound_work.leaf, &sp_cap, tier_extra).ok()?;
+        if self.tan_forbidden.is_none() {
+            self.tan_forbidden = Some(crate::tangent::forbidden_indices(d, &sc.rows));
+        }
+        if self.tan_dense.len() < d.n { self.tan_dense.resize(d.n, 0.0); }
+        let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
+        for j in depth + 1..self.n_free {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { continue; }
+            slots.push(&v[..=h_child.min(v.len() - 1)]);
+        }
+        let forbidden = self.tan_forbidden.as_ref().unwrap();
+        env.tangent(&slots, forbidden, &mut self.tan_dense, crate::tangent::Grouping::ByTag)
+            .ok().map(|v| v.0).filter(|v| v.is_finite())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn observe_tangent(&mut self, depth: usize, offset: usize, hi_rem: i64, ceiling: f64, sp_cap: [f64; 5]) {
+        use crate::tangent::Refuse;
+        let (Some(sc), Some(db)) = (self.scoring, self.dense_bound) else { bound_observe::tan_count(4); return };
+        let Some(d) = sc.dense.as_ref() else { bound_observe::tan_count(4); return };
+        let Some(dd) = d.direct.as_ref() else { bound_observe::tan_count(4); return };
+        let fx: &'a Fixture = self.fx;
+        let mut names = self.equip_names;
+        names[fx.slots[depth].pos] = &fx.slots[depth].item_names[offset];
+        // sp_cap is taken before the child's recursion: sp_bound_base is only
+        // restored after this call, so recomputing it here would read a
+        // deeper level's state.
+        if !self.bound_work.leaf.fill_direct(d, dd, &names) { bound_observe::tan_count(4); return; }
+        {
+            let crate::scoring::DenseWork { leaf, scratch, .. } = &mut self.bound_work;
+            scratch.reset(leaf, d);
+            crate::scoring::dense_assemble(d, leaf, scratch, &sp_cap);
+            crate::scoring::ceiling_crit_floor_dense(d, scratch);
+        }
+        let h_child = (hi_rem - offset as i64).max(0) as usize;
+        // Largest attack-tier bonus the relaxed slots can add (per slot max).
+        let tier_extra: f64 = (depth + 1..self.n_free).map(|j| {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { return 0.0; }
+            v[..=h_child.min(v.len() - 1)].iter()
+                .filter_map(|it| it.iter().find(|(i, _)| *i == d.atk_tier_idx).map(|(_, x)| *x))
+                .fold(0.0f64, f64::max)
+        }).sum();
+        let env = match crate::tangent::build_envelope(
+            d, &mut self.bound_work.scratch, &sc.rows, &sc.compiled_rows, &sc.tables,
+            &self.bound_work.leaf, &sp_cap, tier_extra) {
+            Ok(e) => e,
+            Err(r) => {
+                bound_observe::tan_count(match r {
+                    Refuse::Objective => 0, Refuse::UseMax => 1, Refuse::Negative(_) => 2, Refuse::Forbidden => 3,
+                });
+                if let Refuse::Negative(why) = r { bound_observe::tan_reason(format!("negative:{why}")); }
+                return;
+            }
+        };
+        let forbidden = crate::tangent::forbidden_indices(d, &sc.rows);
+        let mut slots: Vec<&[Vec<(u32, f64)>]> = Vec::new();
+        for j in depth + 1..self.n_free {
+            let v = &db.item_vecs[j];
+            if v.is_empty() { continue; }
+            slots.push(&v[..=h_child.min(v.len() - 1)]);
+        }
+        let mut dense = vec![0.0f64; d.n];
+        let (tan, _u_at_i) = match env.tangent(&slots, &forbidden, &mut dense, crate::tangent::Grouping::PerTerm) {
+            Ok(v) => v,
+            Err(i) => {
+                bound_observe::tan_count(3);
+                let key = d.idx.iter().find(|(_, &v)| v == i).map(|(k, _)| k.as_str()).unwrap_or("?");
+                bound_observe::tan_reason(format!("forbidden:{key}"));
+                return;
+            }
+        };
+        bound_observe::record_tangent(tan, ceiling, self.observe_max);
+        // Same subtree set as record_tangent, so the prune counts compare.
+        if self.observe_max.is_finite() && self.observe_max > 0.0 && tan.is_finite() {
+            let g = |m| env.tangent(&slots, &forbidden, &mut vec![0.0f64; d.n], m).map(|v| v.0).unwrap_or(f64::INFINITY);
+            let by_tag = g(crate::tangent::Grouping::ByTag);
+            let one = g(crate::tangent::Grouping::One);
+            if by_tag < self.observe_max * (1.0 - 1e-9) || one < self.observe_max * (1.0 - 1e-9) {
+                bound_observe::tan_count(5);
+            }
+            bound_observe::record_grouped(by_tag, one, ceiling);
+        }
+        // Envelope check at the best leaf's own relaxed items.
+        if self.observe_max.is_finite() {
+            let mut x: Vec<(u32, f64)> = Vec::new();
+            for j in depth + 1..self.n_free {
+                let slot = &fx.slots[j];
+                let name = self.observe_names[slot.pos];
+                let Some(o) = slot.item_names.iter().position(|n| n.as_str() == name) else { return };
+                x.extend(db.item_vecs[j][o].iter().cloned());
+            }
+            x.sort_by_key(|(i, _)| *i);
+            let mut merged: Vec<(u32, f64)> = Vec::new();
+            for (i, v) in x {
+                match merged.last_mut() { Some((j, w)) if *j == i => *w += v, _ => merged.push((i, v)) }
+            }
+            let u = env.value(&merged, &mut dense);
+            // fill_direct above left the prefix in bound_work.leaf.
+            let f = crate::scoring::dense_ceiling_cached(
+                d, &mut self.bound_work, &merged, &[], &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap);
+            bound_observe::record_envelope(u, f);
+            if tan < self.observe_max * (1.0 - 1e-9) && std::env::var("TANGENT_DEBUG").is_ok() {
+                eprintln!("tangent_violation: depth {depth} best {:.6e} tangent {:.6e} U(x) {:.6e} f_sigma(x+) {:.6e} ceiling {:.6e} sigma {:?} best_sp {:?} names {:?}",
+                    self.observe_max, tan, u, f, ceiling, sp_cap, self.observe_sp, self.observe_names);
+            }
+        }
+    }
+
+    /// The memoized subtree ceiling behind `bound_prunes` (None without
+    /// bound tables).
+    fn subtree_ceiling_value(&mut self, depth: usize, offset: usize, hi_rem: i64) -> Option<f64> {
+        let (Some(sc), Some(bt)) = (self.scoring, self.bound_tables) else { return None };
+        let h_child = hi_rem - offset as i64;
+        let key = self.bound_memo.key(
+            CeilingKind::Subtree, depth, &self.prefix_offsets, offset, h_child);
+        self.ceiling_fresh = false;
         let ceiling = match self.bound_memo.get(&key) {
             Some(&c) => { if crate::scoring::trace::fine() { crate::scoring::trace::add(crate::scoring::trace::BM_HIT, 1); } c }
             None => {
@@ -800,6 +1672,7 @@ impl<'a> Search<'a> {
                         &sc.rows, &sc.compiled_rows, &sc.tables, &sp_cap),
                     _ => None,
                 };
+                self.ceiling_fresh = dense_c.is_some();
                 let c = match dense_c {
                     Some(c) => c,
                     None => sc.layer2.subtree_ceiling(
@@ -811,14 +1684,7 @@ impl<'a> Search<'a> {
                 c
             }
         };
-        if crate::scoring::env_once!("BOUND_DEBUG" == "1") {
-            use std::sync::atomic::AtomicU64 as A;
-            static N: A = A::new(0);
-            if N.fetch_add(1, Ordering::Relaxed) < 30 {
-                eprintln!("bound_debug: depth {} ceiling {:.4e} cutoff {:.4e}", depth, ceiling, cutoff);
-            }
-        }
-        ceiling < cutoff - cutoff.abs() * 1e-9
+        Some(ceiling)
     }
 
     /// Initialize equip names: none-item names per position, overridden by
@@ -833,11 +1699,11 @@ impl<'a> Search<'a> {
     }
 
     /// Progress line with rate + ETA, every ~5 seconds (time check amortized
-    /// over 65k credit/leaf events so Instant::now() stays off the hot path).
+    /// over 256 credit/leaf events so Instant::now() stays off the hot path).
     fn maybe_report(&mut self) {
         // Checked first and unmasked: a browser chunk of a few thousand
         // leaves must actually stop there, and the masked path below only
-        // fires every 65536 events.
+        // fires every 256 events.
         if let Some(budget) = self.leaf_budget {
             if self.checked >= budget { self.stop = true; return; }
         }
@@ -845,13 +1711,17 @@ impl<'a> Search<'a> {
             self.next_progress = self.checked + self.progress_every;
             self.emit_progress();
         }
+        if self.actual_leaf_budget.is_some_and(|budget| self.leaf_calls >= budget) {
+            self.stop = true;
+        }
         self.report_calls += 1;
-        if self.report_calls & 0xFFFF != 0 { return; }
+        // Repairs need responsive cancellation; one clock read per 256 events.
+        if self.report_calls & 0xFF != 0 { return; }
         if let Some(f) = self.stop_flag {
             if f.load(Ordering::Relaxed) != 0 { self.stop = true; }
         } else if let Some(cap) = self.time_cap {
             // Single-thread mode has no monitor thread; honor the cap here.
-            if self.started.elapsed().as_secs_f64() >= cap { self.stop = true; }
+            if self.global_started.unwrap_or(self.started).elapsed().as_secs_f64() >= cap { self.stop = true; }
         }
         if let Some(shared) = self.shared_checked {
             // Threaded mode: flush the local delta; the monitor thread prints.
@@ -890,7 +1760,9 @@ impl<'a> Search<'a> {
             mana_reject: self.mana_reject,
             thresh_reject: self.thresh_reject,
             bound_pruned: self.bound_pruned,
-            top_n: self.top_n.clone(),
+            // Interim frames show at most the top 15: an R20 archive can hold
+            // thousands, and the sink serializes every frame.
+            top_n: self.top_n.iter().take(15).cloned().collect(),
         };
         // The sink may hand back the best score any OTHER partition has
         // reached (browser workers share it through a SharedArrayBuffer).
@@ -900,6 +1772,11 @@ impl<'a> Search<'a> {
         // a valid lower bound on the global top-N threshold, so a leaf whose
         // ceiling cannot reach it cannot enter the merged top-N either.
         let feedback = match self.progress.as_mut() { Some(f) => f(snap), None => None };
+        // The host computes that floor from the 15th-best score. Under an R20
+        // window the archive needs every build above (1 - x) * best, which
+        // can sit far below the 15th best, so the floor would prune builds
+        // inside the window: ignore it there.
+        let feedback = if self.window > 0.0 { None } else { feedback };
         if let (Some(v), Some(shared)) = (feedback, self.shared_cutoff) {
             if v.is_finite() && v > 0.0 {
                 shared.fetch_max(v.floor() as u64, Ordering::Relaxed);
@@ -1025,6 +1902,36 @@ impl<'a> Search<'a> {
     /// Skipped (returns true) when the scored path chooses among guild tome
     /// candidates, or when SP_NODE_BOUND=0.
     fn sp_node_feasible(&mut self, depth: usize, from: usize, to: usize) -> bool {
+        if r9_stats::on() { return self.sp_node_feasible_counted(depth, from, to); }
+        self.sp_node_feasible_inner(depth, from, to)
+    }
+
+    /// Prefix key for R9_STATS: depth and the placed offsets of slots
+    /// 0..depth. (A dead-prefix cache on this key was tried and removed:
+    /// only 7.7% of node checks on hybrid medium, 1.9% on cancelstack
+    /// medium, repeat a prefix already dead over its whole pool, and the
+    /// extra whole-pool solve per reject made it 0.82x.)
+    #[allow(dead_code)]
+    fn r9_key(&self, depth: usize) -> u128 {
+        let mut k = depth as u128;
+        for &o in &self.prefix_offsets[..depth] { k = (k << 16) | o as u128; }
+        k
+    }
+
+    /// R9_STATS=1: count calls, rejects, and calls whose prefix was already
+    /// shown infeasible over the slot's whole pool (a cache would skip them).
+    fn sp_node_feasible_counted(&mut self, depth: usize, from: usize, to: usize) -> bool {
+        let mut key = [usize::MAX; 8];
+        key[..depth].copy_from_slice(&self.prefix_offsets[..depth]);
+        let known_dead = r9_stats::is_dead(depth, &key);
+        let full = self.fx.slots[depth].pool.len().saturating_sub(1);
+        let ok = self.sp_node_feasible_inner(depth, from, to);
+        let dead_whole = !known_dead && !self.sp_node_feasible_inner(depth, 0, full);
+        r9_stats::record(ok, known_dead, dead_whole.then_some((depth, key)));
+        ok
+    }
+
+    fn sp_node_feasible_inner(&mut self, depth: usize, from: usize, to: usize) -> bool {
         if self.sp_bound_off || !self.sp_node_on { return true; }
         let guild: Option<crate::Unit> = match self.scoring {
             Some(sc) => {
@@ -1034,22 +1941,43 @@ impl<'a> Search<'a> {
             None => self.fx.guild.as_ref().map(|(g, _)| *g),
         };
         let slot = &self.fx.slots[depth];
-        let mut skp = [0i32; 5];
-        let mut first = true;
-        for it in &slot.pool[from..=to] {
-            if it.crafted { continue; }
-            for j in 0..5 {
-                if first || it.skp[j] > skp[j] { skp[j] = it.skp[j]; }
+        // Per-lane maxima of the non-crafted candidates in [from, to], by
+        // sparse-table lookup (two overlapping power-of-two windows; max is
+        // idempotent). The table holds i32::MIN for crafted items, so a
+        // range of only crafted candidates (none adds SP) reads as MIN.
+        let skp: [i32; 5] = {
+            let levels = &self.slot_skp_sparse[depth];
+            let len = to - from + 1;
+            let k = (usize::BITS - 1 - len.leading_zeros()) as usize;
+            let (a, b) = (&levels[k][from], &levels[k][to + 1 - (1 << k)]);
+            let m: [i32; 5] = std::array::from_fn(|j| a[j].max(b[j]));
+            if m[0] == i32::MIN { [0; 5] } else { m }
+        };
+        #[cfg(debug_assertions)]
+        {
+            let mut r = [0i32; 5];
+            let mut first = true;
+            for it in &slot.pool[from..=to] {
+                if it.crafted { continue; }
+                for j in 0..5 { if first || it.skp[j] > r[j] { r[j] = it.skp[j]; } }
+                first = false;
             }
-            first = false;
+            debug_assert_eq!(skp, r, "sparse-table range max differs on [{from}, {to}]");
         }
-        if first { skp = [0; 5]; }   // only crafted candidates: none adds SP
+        // Set term. Only sets that are worn, or stocked by this slot within
+        // [from, to], contribute; `slot_set_offsets` answers "stocked in the
+        // range" by binary search, where this used to scan the whole range
+        // once per set in the game (O(sets x range) per call, about a
+        // quarter of all instructions early in a search). Integer sums, so
+        // the visiting order does not change the result.
+        let offs = &self.slot_set_offsets[depth];
+        let in_range = |sid: usize| -> usize {
+            let v = &offs[sid];
+            let i = v.partition_point(|&x| (x as usize) < from);
+            usize::from(i < v.len() && (v[i] as usize) <= to)
+        };
         let mut set_free = [0i32; 5];
-        for (sid, rows) in self.fx.set_table.iter().enumerate() {
-            if rows.is_empty() { continue; }
-            let worn = self.set_counts[sid].max(0) as usize;
-            let reach = usize::from(slot.pool[from..=to].iter().any(|it| it.set_id == sid as i32));
-            if worn + reach == 0 { continue; }
+        let mut add = |rows: &Vec<[i32; 5]>, worn: usize, reach: usize| {
             let lo = worn.max(1).min(rows.len());
             let hi = rows.len().min(worn + reach).max(lo);
             for j in 0..5 {
@@ -1057,11 +1985,24 @@ impl<'a> Search<'a> {
                 for t in lo..=hi { best = best.max(rows[t - 1][j]); }
                 set_free[j] += best;
             }
+        };
+        for (sid, &cnt) in self.set_counts.iter().enumerate() {
+            if cnt <= 0 { continue; }
+            let rows = &self.fx.set_table[sid];
+            if rows.is_empty() { continue; }
+            add(rows, cnt as usize, in_range(sid));
+        }
+        for &sid in &self.slot_set_ids[depth] {
+            let sid = sid as usize;
+            if self.set_counts[sid] > 0 { continue; }   // counted above
+            let rows = &self.fx.set_table[sid];
+            if rows.is_empty() || in_range(sid) == 0 { continue; }
+            add(rows, 0, 1);
         }
         let mut equipment = self.equips;
         equipment[slot.pos] = Unit { crafted: false, reqs: [0; 5], skp };
         let case = Case { budget: self.fx.budget, equipment, weapon: self.fx.weapon, set_free, expected: None };
-        self.kernel.calculate_with_extra(&case, guild.as_ref()).is_some()
+        self.kernel.feasible_with_extra(&case, guild.as_ref())
     }
 
     /// R1 at the last-slot cluster bounds: per lane, the highest total a
@@ -1207,6 +2148,19 @@ impl<'a> Search<'a> {
         self.checked += 1.0;
         self.leaf_calls += 1;
         self.maybe_report();
+        // Preserve the original ordered tuple domain before the SP solver.
+        // Merely deduplicating swapped rings after scoring is insufficient:
+        // tied minimum-SP allocations can depend on equipment input order.
+        if let Some(order) = self.original_ring_order {
+            let canonical = matches!(
+                (order.get(self.equip_names[4]), order.get(self.equip_names[5])),
+                (Some(left), Some(right)) if left <= right
+            );
+            if !canonical {
+                self.precheck_reject += 1.0;
+                return;
+            }
+        }
         // Leaf prechecks (constraint + EHP family)
         let n_pc = self.fx.pc_thresholds.len();
         for i in 0..n_pc {
@@ -1258,35 +2212,20 @@ impl<'a> Search<'a> {
                 LeafOutcome::ManaReject => { self.feasible += 1; self.mana_reject += 1; }
                 LeafOutcome::ThresholdReject => { self.feasible += 1; self.thresh_reject += 1; }
                 LeafOutcome::Scored(r) => {
+                    self.last_scored = Some(r.score);
                     self.feasible += 1;
                     self.scored += 1;
-                    let pos = self.top_n.iter()
-                        .position(|x| ranks_before(r.score, &names, x.score, &x.items))
-                        .unwrap_or(self.top_n.len());
-                    if pos == 0 {
-                        if anytime::on() { anytime::best(r.score); }
-                        if let (true, Some(sb)) = (self.eps > 0.0 && r.score > 0.0, self.shared_best) {
-                            sb.fetch_max(r.score.to_bits(), Ordering::Relaxed);
-                        }
+                    if r.score > self.observe_max {
+                        self.observe_max = r.score; self.observe_sp = r.total_sp; self.observe_names = names;
                     }
-                    if pos < 15 {
-                        let names_owned = names.iter().map(|s| s.to_string()).collect();
-                        self.top_n.insert(pos, TopEntry {
-                            score: r.score, items: names_owned,
+                    // Allocate result strings only when the score can enter the archive.
+                    if self.top_n.len() < self.result_count
+                        || r.score >= self.top_n[self.result_count - 1].score {
+                        self.insert_top(TopEntry {
+                            score: r.score, items: names.iter().map(|s| s.to_string()).collect(),
                             base_sp: r.base_sp, total_sp: r.total_sp,
-                            assigned_sp: r.assigned_sp,
-                            tome: tome_choice,
+                            assigned_sp: r.assigned_sp, tome: tome_choice,
                         });
-                        self.top_n.truncate(15);
-                        if self.top_n.len() == 15 {
-                            if let Some(shared) = self.shared_cutoff {
-                                let floored = self.top_n[14].score.floor();
-                                if floored > 0.0 {
-                                    let prev = shared.fetch_max(floored as u64, Ordering::Relaxed);
-                                    if anytime::on() { anytime::cutoff(prev, floored as u64); }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -1301,7 +2240,7 @@ impl<'a> Search<'a> {
             expected: None,
         };
         let guild_unit = self.fx.guild.as_ref().map(|(g, _)| *g);
-        if self.kernel.calculate_with_extra(&case, guild_unit.as_ref()).is_some() {
+        if self.kernel.feasible_with_extra(&case, guild_unit.as_ref()) {
             self.feasible += 1;
         }
     }
@@ -1412,7 +2351,8 @@ impl<'a> Search<'a> {
             // Self-tuning like the cluster layers: where it rarely rejects
             // (tierstack measured 10% slower with it always on), it switches
             // itself off and re-samples later. Speed only; never a result.
-            if from <= to && self.sp_node_on && self.adapt_node.armed(self.checked) {
+            let r9_done = std::mem::replace(&mut self.r9_done, false);
+            if from <= to && !r9_done && self.sp_node_on && self.adapt_node.armed(self.checked) {
                 let ok = self.sp_node_feasible(depth, from as usize, to as usize);
                 let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
                 self.adapt_node.record(skipped, self.checked);
@@ -1424,6 +2364,8 @@ impl<'a> Search<'a> {
                     return;
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            let r10_t0 = r10_observe::on().then(|| (std::time::Instant::now(), self.leaf_calls, self.feasible));
             let mut offset = from;
             // R1 at the last-slot clusters: the highest total each lane can
             // reach from this prefix (see last_slot_sp_cap).
@@ -1431,7 +2373,7 @@ impl<'a> Search<'a> {
             // Cached prefix state for the cluster bound: filled at the first
             // cluster miss, reused for every cluster in this node.
             let mut prefix_state: i8 = 0; // 0 unfilled, 1 ok, -1 unavailable
-            while offset <= to {
+            while offset <= to && !self.stop {
                 let o = offset as usize;
                 // Last-slot cluster bound: one ceiling eval covers a cluster
                 // of level-adjacent items; below-cutoff clusters are skipped
@@ -1445,11 +2387,8 @@ impl<'a> Search<'a> {
                                 && self.adapt_super.armed(self.checked)
                                 && crate::scoring::env_once!("SUPER_CLUSTER" != "0") {
                                 let sci = o / db.super_size;
-                                let mut skey = 0xEu64 << 60;
-                                skey |= (sci as u64) << 49;
-                                for dd in 0..depth {
-                                    skey |= (self.prefix_offsets[dd] as u64) << (dd * 7);
-                                }
+                                let skey = self.bound_memo.key(
+                                    CeilingKind::SuperCluster, depth, &self.prefix_offsets, sci, 0);
                                 let sceiling = match self.bound_memo.get(&skey) {
                                     Some(&v) => { self.cluster_memo_hits += 1; v }
                                     None => {
@@ -1457,7 +2396,7 @@ impl<'a> Search<'a> {
                                         if prefix_state == 0 {
                                             prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                                 Some((d, dd)) => {
-                                                    if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                    if self.bound_work.leaf.fill_direct_reuse(d, dd, &self.equip_names) { 1 } else { -1 }
                                                 }
                                                 None => -1,
                                             };
@@ -1491,11 +2430,8 @@ impl<'a> Search<'a> {
                                 self.adapt_super.record(0.0, self.checked);
                             }
                             let c = o / db.cluster_size;
-                            let mut key = 0xFu64 << 60;
-                            key |= (c as u64) << 49;
-                            for dd in 0..depth {
-                                key |= (self.prefix_offsets[dd] as u64) << (dd * 7);
-                            }
+                            let key = self.bound_memo.key(
+                                CeilingKind::Cluster, depth, &self.prefix_offsets, c, 0);
                             let ceiling = match self.bound_memo.get(&key) {
                                 Some(&v) => {
                                     self.cluster_memo_hits += 1;
@@ -1508,7 +2444,7 @@ impl<'a> Search<'a> {
                                     if prefix_state == 0 {
                                         prefix_state = match sc.dense.as_ref().and_then(|d| d.direct.as_ref().map(|dd| (d, dd))) {
                                             Some((d, dd)) => {
-                                                if self.bound_work.leaf.fill_direct(d, dd, &self.equip_names) { 1 } else { -1 }
+                                                if self.bound_work.leaf.fill_direct_reuse(d, dd, &self.equip_names) { 1 } else { -1 }
                                             }
                                             None => -1,
                                         };
@@ -1557,11 +2493,38 @@ impl<'a> Search<'a> {
                     self.precheck_reject += 1.0;
                     self.maybe_report();
                 } else {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let item_bound = match self.r2_items_prefix {
+                        Some((d0, o0)) if d0 + 1 == depth && self.prefix_offsets[d0] == o0
+                            && o < self.r2_items.len() => {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            r2_item_stats::LEAVES.fetch_add(1, Relaxed);
+                            if let Some(c) = self.cutoff() {
+                                if self.r2_items[o] < c - c.abs() * 1e-9 {
+                                    r2_item_stats::BELOW.fetch_add(1, Relaxed);
+                                }
+                            }
+                            Some(self.r2_items[o])
+                        }
+                        _ => None,
+                    };
+                    self.last_scored = None;
                     self.place(depth, o);
                     self.evaluate_leaf();
                     self.unplace(depth, o);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let (Some(b), Some(sc)) = (item_bound, self.last_scored) {
+                        if sc > b + b.abs() * 1e-9 {
+                            r2_item_stats::VIOLATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                 }
                 offset += 1;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some((t0, l0, f0)) = r10_t0 {
+                r10_observe::record(t0.elapsed().as_nanos() as u64, self.leaf_calls - l0,
+                                    (self.feasible - f0) as u64);
             }
             return;
         }
@@ -1575,7 +2538,7 @@ impl<'a> Search<'a> {
             offset = offset.max(self.part_lo);
             max_offset = max_offset.min(self.part_hi);
         }
-        while offset <= max_offset {
+        while offset <= max_offset && !self.stop {
             let o = offset as usize;
             let illegal = self.fx.slots[depth].pool[o].illegal_id;
             if self.blocks(illegal) {
@@ -1613,7 +2576,48 @@ impl<'a> Search<'a> {
                 && depth + 1 < self.n_free
                 && self.n_free - (depth + 1) <= self.bound_tail
                 && self.adapt_tail.armed(self.checked);
-            let bound_here = depth < self.bound_max_depth || tail_here;
+            let bound_here = (depth < self.bound_max_depth || tail_here) && !bound_observe::on();
+            let mut r9_pre_ok = false;
+            // R9 before the tail ceiling. When the child is the last slot, the
+            // child's first act is R9's one SP solve over its in-band range,
+            // and an infeasible verdict skips the whole range. A ceiling
+            // evaluation (several times the cost of the solve) made just
+            // before it is then wasted, so run the solve first. Both are
+            // admissible rejections of the same leaves, so results are
+            // unchanged; a passing verdict is handed to the child so the solve
+            // is not repeated. R9_EARLY=0 disables.
+            if bound_here && depth + 2 == self.n_free && self.bound_tables.is_some()
+                && self.sp_node_on && crate::scoring::env_once!("R9_EARLY" != "0")
+                && self.cutoff().is_some() && self.adapt_node.armed(self.checked)
+                && !self.fx.slots[depth + 1].pool.is_empty() {
+                let child = depth + 1;
+                let child_ring2 = child as isize == self.ring2_depth && self.ring1_depth >= 0;
+                let child_min: i64 = if child_ring2 {
+                    if slot_is_ring1 { offset } else { self.ring1_placed_offset as i64 }
+                } else { 0 };
+                let from = child_min.max(lo_rem - offset).max(0);
+                let to = (self.fx.slots[child].pool.len() as i64 - 1).min(hi_rem - offset);
+                if from <= to {
+                    self.place(depth, o);
+                    // R9_STATS keys on prefix_offsets[..child].
+                    self.prefix_offsets[depth] = o;
+                    let ok = self.sp_node_feasible(child, from as usize, to as usize);
+                    self.unplace(depth, o);
+                    let skipped = if ok { 0.0 } else { (to - from + 1) as f64 };
+                    self.adapt_node.record(skipped, self.checked);
+                    if !ok {
+                        if slot_is_ring1 && self.rings_contiguous { self.rebuild_ring2_subtree(o); }
+                        self.checked += skipped;
+                        self.sp_leaf_reject += skipped as u64;
+                        self.sp_node_reject += 1;
+                        self.r9_early_skips += 1;
+                        self.maybe_report();
+                        offset += 1;
+                        continue;
+                    }
+                    r9_pre_ok = true;
+                }
+            }
             if bound_here && self.bound_tables.is_some() {
                 if let Some(cutoff) = self.cutoff() {
                     if self.bound_prunes(depth, o, cutoff, hi_rem) {
@@ -1629,10 +2633,60 @@ impl<'a> Search<'a> {
                         continue;
                     }
                     if tail_here { self.adapt_tail.record(0.0, self.checked); }
+                    // R2: the ceiling did not prune; try the tangent bound
+                    // (tighter where no single item holds every maximum). An
+                    // admissible bound like the ceiling, so results are
+                    // unchanged; its own adaptive gate keeps it off where it
+                    // does not pay (a tangent eval costs several leaves).
+                    #[cfg(not(target_arch = "wasm32"))]
+                    // Only near the cutoff: the tangent tightens today's
+                    // ceiling by about 1.3x to 1.8x (BOUND_OBSERVE), so a
+                    // ceiling far above it is not worth the eval. Speed only.
+                    if self.r2_on && tail_here
+                        && self.last_ceiling < cutoff * r2_skip_ratio()
+                        && self.adapt_tan.armed(self.checked) {
+                        self.r2_evals += 1;
+                        let t0 = std::time::Instant::now();
+                        let tv = if crate::scoring::env_once!("R2_SLOW" == "1") {
+                            self.tangent_bound(depth, o, hi_rem)
+                        } else {
+                            self.fast_tangent(depth, o, hi_rem)
+                        };
+                        let pruned = match tv {
+                            Some(t) if t < cutoff - cutoff.abs() * 1e-9 =>
+                                self.band_credit(depth + 1, lo_rem - offset, hi_rem - offset),
+                            _ => 0.0,
+                        };
+                        r2_stats::add(t0.elapsed().as_nanos() as u64, pruned);
+                        self.adapt_tan.record(pruned, self.checked);
+                        if pruned > 0.0 {
+                            if slot_is_ring1 && self.rings_contiguous {
+                                self.rebuild_ring2_subtree(o);
+                            }
+                            self.checked += pruned;
+                            self.bound_pruned += pruned;
+                            self.r2_pruned += pruned;
+                            self.maybe_report();
+                            offset += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if r2_item_stats::on() && self.bound_tables.is_some() && bound_here && tail_here {
+                use std::sync::atomic::Ordering::Relaxed;
+                let t0 = std::time::Instant::now();
+                self.r2_items_prefix = None;
+                if self.fast_tangent_items(depth, o, hi_rem) {
+                    self.r2_items_prefix = Some((depth, o));
+                    r2_item_stats::NODES.fetch_add(1, Relaxed);
+                    r2_item_stats::ITEMS.fetch_add(self.r2_items.len() as u64, Relaxed);
+                    r2_item_stats::NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Relaxed);
                 }
             }
             self.place(depth, o);
-            self.prefix_offsets[depth] = o as u8;
+            self.prefix_offsets[depth] = o;
             if slot_is_ring1 {
                 self.ring1_placed_offset = o;
                 if self.rings_contiguous { self.rebuild_ring2_subtree(o); }
@@ -1640,7 +2694,72 @@ impl<'a> Search<'a> {
             // The child refreshes the hoist for its own depth; restore ours
             // before the next offset is tested against it.
             let saved_base = self.sp_bound_base;
+            // Set only here, so an offset the ceiling prunes cannot leak it.
+            self.r9_done = r9_pre_ok;
+            // Record only visits whose band covers every child offset the
+            // ceiling covers (0..=h_child): under the level-band sweep the
+            // lower offsets of a later band were visited in an earlier pass,
+            // so their leaves are missing from this subtree's best. Ring-2
+            // children start at ring 1's offset, which the ceiling ignores.
+            let child_ring2 = (depth + 1) as isize == self.ring2_depth;
+            let observe = bound_observe::on() && depth + 1 + bound_observe::slots() == self.n_free
+                && lo_rem - offset <= 0 && !child_ring2;
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+            let observed_ceiling = if observe { self.subtree_ceiling_value(depth, o, hi_rem) } else { None };
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+            let observed_sp_cap = if observe { Some(self.subtree_sp_cap(depth, o)) } else { None };
+            let outer_max = std::mem::replace(&mut self.observe_max, f64::NEG_INFINITY);
+            let outer_sp = self.observe_sp;
+            let outer_names = self.observe_names;
             self.enumerate(depth + 1, lo_rem - offset, hi_rem - offset);
+            // A subtree the time cap cut short understates its best.
+            // Diagnostic only, so the browser build leaves it out.
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(c) = observed_ceiling.filter(|_| !self.stop) {
+                // The same ceiling at the best leaf's own skill points: not a
+                // bound (diagnostic only), it isolates the item relaxation.
+                let one_slot = bound_observe::slots() == 1;
+                let (at_sp, full) = if one_slot && self.observe_max.is_finite() {
+                    let sp = self.observe_sp.map(|v| v as f64);
+                    (self.ceiling_at_sp(depth, o, hi_rem, &sp), self.ceiling_of_build(&sp))
+                } else { (None, None) };
+                let single = if one_slot && self.observe_max.is_finite() {
+                    let sp = self.observe_sp.map(|v| v as f64);
+                    self.best_single_item(depth, o, hi_rem, &sp)
+                } else { None };
+                bound_observe::record(c, self.observe_max, at_sp, full);
+                bound_observe::record_single(single, self.observe_max);
+                if c < self.observe_max * (1.0 - 1e-9) && std::env::var("TANGENT_DEBUG").is_ok() {
+                    let own = self.observe_sp.map(|v| v as f64);
+                    let at_own = self.ceiling_of_build(&own);
+                    let at_sigma = self.ceiling_of_build(&observed_sp_cap.unwrap());
+                    if let Some(d) = self.scoring.and_then(|sc| sc.dense.as_ref()) {
+                        let sc = &self.bound_work.scratch;
+                        eprintln!("state@sigma: critDamPct {} dex {} str {} crit {}",
+                            sc.num(d.s_crit_dam_pct), sc.num(d.dex_idx), sc.num(d.skp_idx[0]),
+                            self.scoring.unwrap().tables.sp_to_pct(sc.num(d.dex_idx)));
+                    }
+                    let _ = self.ceiling_of_build(&own);
+                    if let Some(d) = self.scoring.and_then(|sc| sc.dense.as_ref()) {
+                        let sc = &self.bound_work.scratch;
+                        eprintln!("state@own: critDamPct {} dex {} str {} crit {}",
+                            sc.num(d.s_crit_dam_pct), sc.num(d.dex_idx), sc.num(d.skp_idx[0]),
+                            self.scoring.unwrap().tables.sp_to_pct(sc.num(d.dex_idx)));
+                    }
+                    // One lane at a time raised from own to sigma.
+                    let mut lanes = Vec::new();
+                    for l in 0..5 {
+                        let mut sp = own; sp[l] = observed_sp_cap.unwrap()[l];
+                        lanes.push(self.ceiling_of_build(&sp).map(|v| (v / at_own.unwrap_or(1.0) * 1e4).round() / 1e4));
+                    }
+                    eprintln!("ceiling_violation: depth {depth} offset {o} best {:.6e} ceiling {:.6e} build@own {:?} build@sigma {:?} per-lane ratio {:?} sigma_pre {:?} best_sp {:?} names {:?}",
+                        self.observe_max, c, at_own, at_sigma, lanes, observed_sp_cap, self.observe_sp, self.observe_names);
+                }
+                self.observe_tangent(depth, o, hi_rem, c, observed_sp_cap.unwrap());
+            }
+            if outer_max > self.observe_max {
+                self.observe_max = outer_max; self.observe_sp = outer_sp; self.observe_names = outer_names;
+            }
             self.sp_bound_base = saved_base;
             self.unplace(depth, o);
             offset += 1;
@@ -1662,6 +2781,13 @@ impl<'a> Search<'a> {
         self.started = Instant::now();
         self.report_every = 1.0;
         self.next_report = 5.0;
+        if self.actual_leaf_budget == Some(0)
+            || self.leaf_budget.is_some_and(|n| n <= 0.0)
+            || self.time_cap.is_some_and(|cap|
+                self.global_started.unwrap_or(self.started).elapsed().as_secs_f64() >= cap) {
+            self.stop = true;
+            return;
+        }
 
         if self.n_free == 0 {
             self.evaluate_leaf();
@@ -1672,7 +2798,7 @@ impl<'a> Search<'a> {
         let l_max = self.l_max as i64;
         let mut band_lo: i64 = 0;
         let mut band_width: i64 = 1;
-        while band_lo <= l_max {
+        while band_lo <= l_max && !self.stop {
             let band_hi = l_max.min(band_lo + band_width - 1);
             self.enumerate(0, band_lo, band_hi);
             band_lo = band_hi + 1;
@@ -1778,18 +2904,166 @@ fn ranks_before<A: AsRef<str>, B: AsRef<str>>(a: f64, a_items: &[A], b: f64, b_i
     false
 }
 
+/// Gear identity ignores SP allocation (keep the best allocation for that gear),
+/// treats the two ring slots as interchangeable, and includes the chosen tome
+/// multiset. Delimiters are JSON escaped, so names cannot collide.
+pub fn build_identity(entry: &TopEntry) -> String {
+    let mut items = entry.items.clone();
+    if items.len() >= 6 && items[4] > items[5] { items.swap(4, 5); }
+    let tome = entry.tome.as_ref().map(|t| {
+        let mut weapon = t.weapon_names.clone();
+        let mut armor = t.armor_names.clone();
+        weapon.sort();
+        armor.sort();
+        (t.guild_idx, weapon, armor)
+    });
+    serde_json::to_string(&(items, tome)).expect("build identity")
+}
+
+fn same_build(a: &TopEntry, b: &TopEntry) -> bool {
+    if a.items.len() != b.items.len() { return false; }
+    for i in 0..a.items.len() {
+        if a.items.len() >= 6 && (i == 4 || i == 5) { continue; }
+        if a.items[i] != b.items[i] { return false; }
+    }
+    if a.items.len() >= 6 {
+        let ring_a = (&a.items[4], &a.items[5]);
+        let ring_b = (&b.items[4], &b.items[5]);
+        if ring_a != ring_b && ring_a != (ring_b.1, ring_b.0) { return false; }
+    }
+    match (&a.tome, &b.tome) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            let multiset_equal = |a: &[String], b: &[String]| {
+                a.len() == b.len() && a.iter().all(|name|
+                    a.iter().filter(|x| *x == name).count()
+                        == b.iter().filter(|x| *x == name).count())
+            };
+            a.guild_idx == b.guild_idx
+                && multiset_equal(&a.weapon_names, &b.weapon_names)
+                && multiset_equal(&a.armor_names, &b.armor_names)
+        }
+        _ => false,
+    }
+}
+
+fn insert_top_n(into: &mut Vec<TopEntry>, entry: TopEntry, count: usize) -> bool {
+    if count == 0 || !entry.score.is_finite() { return false; }
+    if into.len() >= count && entry.score < into[count - 1].score { return false; }
+    if let Some(old) = into.iter().position(|e| same_build(e, &entry)) {
+        if into[old].score >= entry.score { return false; }
+        into.remove(old);
+    }
+    // Ties rank by item names (ranks_before), the order the JS engine and
+    // the page use, so equal-score builds come out the same way in both
+    // engines regardless of which thread, partition or repair found them.
+    let pos = into.iter().position(|e| ranks_before(entry.score, &entry.items, e.score, &e.items))
+        .unwrap_or(into.len());
+    if pos >= count { return false; }
+    into.insert(pos, entry);
+    into.truncate(count);
+    true
+}
+
+pub fn merge_top_n(into: &mut Vec<TopEntry>, from: Vec<TopEntry>, count: usize) {
+    // Normalize the destination as well: callers may merge legacy results.
+    let previous = std::mem::take(into);
+    for e in previous.into_iter().chain(from) { insert_top_n(into, e, count); }
+}
+
 pub fn merge_top(into: &mut Vec<TopEntry>, from: Vec<TopEntry>) {
-    for e in from {
-        // The same build can arrive twice (the warm start's builds merged
-        // with a search that found them again). Same items, same score.
-        if into.iter().any(|x| x.items == e.items) { continue; }
-        let pos = into.iter().position(|x| ranks_before(e.score, &e.items, x.score, &x.items))
-            .unwrap_or(into.len());
-        if pos < 15 {
-            into.insert(pos, e);
-            into.truncate(15);
+    merge_top_n(into, from, 15);
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SearchOptions {
+    pub result_count: usize,
+    pub retain_warm: bool,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self { Self { result_count: 15, retain_warm: true } }
+}
+
+impl SearchOptions {
+    pub fn from_env() -> Self {
+        Self {
+            result_count: env::var("RESULT_COUNT").ok().and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0).unwrap_or(15),
+            retain_warm: env::var("RETAIN_WARM").as_deref() != Ok("0"),
         }
     }
+}
+
+/// Opt-in native quality log. No file, clock reads or locks on the default
+/// leaf path. Timestamps include fixture/scoring preparation and warm search.
+/// The lock also gives parallel discoveries a single monotonic archive.
+pub struct QualityTrace {
+    started: Instant,
+    state: Mutex<(BufWriter<fs::File>, Vec<TopEntry>)>,
+}
+
+impl QualityTrace {
+    pub fn new(path: &str, started: Instant) -> std::io::Result<Self> {
+        let mut writer = BufWriter::new(fs::File::create(path)?);
+        writeln!(writer, "{}", serde_json::json!({"event":"start", "wall_seconds":0.0}))?;
+        writer.flush()?;
+        Ok(Self { started, state: Mutex::new((writer, Vec::new())) })
+    }
+
+    pub fn record(&self, phase: &str, entries: &[TopEntry], count: usize) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        let previous_best = state.1.first().map(|e| e.score);
+        let previous_kth = state.1.get(count.saturating_sub(1)).map(|e| e.score);
+        merge_top_n(&mut state.1, entries.to_vec(), count);
+        let best = state.1.first();
+        let kth = state.1.get(count.saturating_sub(1)).map(|e| e.score);
+        if best.map(|e| e.score) == previous_best && kth == previous_kth { return; }
+        let Some(best) = best else { return; };
+        let event = serde_json::json!({
+            "event":"incumbent", "phase":phase,
+            "wall_seconds":self.started.elapsed().as_secs_f64(),
+            "score":best.score, "kth_score":kth, "result_count":count,
+            "archive_size":state.1.len(), "items":best.items,
+            "base_sp":best.base_sp, "total_sp":best.total_sp,
+            "assigned_sp":best.assigned_sp, "identity":build_identity(best),
+            "tome":best.tome.as_ref().map(|t| serde_json::json!({
+                "guild_idx":t.guild_idx, "weaponTome":t.weapon_names, "armorTome":t.armor_names})),
+        });
+        writeln!(state.0, "{}", event).expect("write quality trace");
+        state.0.flush().expect("flush quality trace");
+    }
+
+    pub fn finish(&self, complete: bool, warm_seconds: f64) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        writeln!(state.0, "{}", serde_json::json!({"event":"finish", "complete":complete,
+            "wall_seconds":self.started.elapsed().as_secs_f64(), "warm_seconds":warm_seconds}))
+            .expect("write quality trace finish");
+        state.0.flush().expect("flush quality trace");
+    }
+
+    /// Native benchmark telemetry, separate from incumbent events. Counters
+    /// describe this phase only: warm work is not original-domain completion.
+    fn work(&self, phase: &str, p: &ProgressSnapshot) {
+        let mut state = self.state.lock().expect("quality trace lock");
+        writeln!(state.0, "{}", serde_json::json!({
+            "event":"work", "phase":phase,
+            "wall_seconds":self.started.elapsed().as_secs_f64(),
+            "checked":p.checked, "total":p.total, "leaf_calls":p.leaf_calls,
+            "scored":p.scored, "feasible":p.feasible,
+            "precheck_reject":p.precheck_reject, "sp_kernel_reject":p.sp_kernel_reject,
+            "gated":p.gated, "bound_pruned":p.bound_pruned,
+        })).expect("write quality work trace");
+        state.0.flush().expect("flush quality work trace");
+    }
+}
+
+/// Wide-key bounds are opt-in: the expanded benchmark found their setup and
+/// lookup cost outweighed pruning. The switch does not change the bound
+/// mathematics. Read during setup only (including the WASM path).
+fn wide_pool_bounds_allowed(fx: &Fixture) -> bool {
+    std::env::var("WIDE_BOUND_KEYS").as_deref() == Ok("1")
+        || fx.slots.iter().all(|s| s.pool.len() < 128)
 }
 
 /// Run one single-threaded search over a parsed fixture. Shared by the CLI
@@ -1818,6 +3092,20 @@ pub fn run_single_with_progress(
     // whole-space totals.
     part: Option<(i64, i64)>,
 ) -> Totals {
+    run_single_with_options(fx, scoring, leaf_budget, progress, part, SearchOptions::from_env())
+}
+
+pub fn run_single_with_options(
+    fx: &Fixture,
+    scoring: Option<&crate::scoring::ScoringCtx>,
+    leaf_budget: Option<f64>,
+    progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    part: Option<(i64, i64)>,
+    options: SearchOptions,
+) -> Totals {
+    assert!(options.result_count > 0, "result_count must be positive");
+    let options = SearchOptions { result_count: effective_result_count(fx, &options), ..options };
+    let overall_started = Instant::now();
     let shared_cutoff = AtomicU64::new(0);
     let shared_best = AtomicU64::new(0);
     let bound_tables = scoring.and_then(|sc| {
@@ -1827,11 +3115,12 @@ pub fn run_single_with_progress(
         // it cannot express a two-sided bound; leave it off there. The leaf
         // gate handles those objectives on its own.
         if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting || sc.consts.dynamic.is_some()
             || sc.objective.needs_two_sided_ceiling() {
             return None;
         }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) { return None; }
+        if !wide_pool_bounds_allowed(fx) { return None; }
         let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
         sc.layer2.build_bound_tables(&pools).ok()
     });
@@ -1850,10 +3139,14 @@ pub fn run_single_with_progress(
     let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let bound_cluster: usize = std::env::var("BOUND_CLUSTER").ok()
         .and_then(|v| v.parse().ok()).unwrap_or(4);
-    let warm_top = seed_warm_cutoff(fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster, false);
+    let warm = seed_warm_cutoff(fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster,
+        false, options.result_count, overall_started, None);
+
 
     let mut search = Search::new(fx);
     search.scoring = scoring;
+    search.result_count = options.result_count;
+    search.global_started = Some(overall_started);
     search.shared_cutoff = Some(&shared_cutoff);
     search.shared_best = Some(&shared_best);
     search.bound_tables = bound_tables.as_ref();
@@ -1874,8 +3167,23 @@ pub fn run_single_with_progress(
         search.next_progress = search.progress_every;
     }
     search.init_equip_names();
+    // R21 needs the warm builds: with eps > 0 the main search prunes below
+    // (1 + eps) * best, which removes the build that set `best` when the warm
+    // start found it, so retention is forced on there.
+    if options.retain_warm || search.eps > 0.0 {
+        for entry in warm {
+            // Each browser partition publishes only its own witnesses. This
+            // keeps the existing disjoint-partition merge contract intact.
+            let owned = part.is_none_or(|(lo, hi)| fx.slots.first().is_none_or(|slot| {
+                slot.item_names.iter().position(|n| entry.items.get(slot.pos) == Some(n))
+                    .is_some_and(|offset| offset as i64 >= lo && offset as i64 <= hi)
+            }));
+            if owned { search.insert_top(entry); }
+        }
+        search.total_space = search.total_space_of();
+        search.emit_progress();
+    }
     search.run();
-    if search.eps > 0.0 { merge_top(&mut search.top_n, warm_top); }
     // Final snapshot so the UI's last frame matches the returned totals.
     search.emit_progress();
     Totals {
@@ -1993,6 +3301,11 @@ pub fn solve_json_full(
         Some(partition_bounds(pool_len, part_index, part_count))
     } else { None };
     let totals = run_single_with_progress(&fx, ctx.as_ref(), budget, progress, part);
+    totals_json(&fx, ctx.as_ref(), &totals)
+}
+
+/// The solve JSON for a finished (or stopped) run's totals.
+fn totals_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, totals: &Totals) -> String {
     let complete = !totals.stopped_early;
     let mut top = String::from("[");
     for (i, e) in totals.top_n.iter().enumerate() {
@@ -2007,19 +3320,218 @@ pub fn solve_json_full(
         // the build's skill points; without it the UI would show a zeroed
         // allocation whose stats contradict the score.
         let sp = |a: &[i32; 5]| format!("[{},{},{},{},{}]", a[0], a[1], a[2], a[3], a[4]);
-        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}}}",
+        top.push_str(&format!("],\"base_sp\":{},\"total_sp\":{},\"assigned_sp\":{}{}{}}}",
                               sp(&e.base_sp), sp(&e.total_sp), e.assigned_sp,
-                              tome_json(&e.tome)));
+                              tome_json(&e.tome), stats_json(fx, ctx, e)));
     }
     top.push(']');
     format!(
         "{{\"checked\":{},\"feasible\":{},\"scored\":{},\"gated\":{},\
          \"mana_reject\":{},\"thresh_reject\":{},\"bound_pruned\":{},\
-         \"complete\":{},\"top\":{}}}",
+         \"complete\":{},{}\"top\":{}}}",
         totals.checked, totals.feasible, totals.scored, totals.gated,
         totals.mana_reject, totals.thresh_reject, totals.bound_pruned,
-        complete, top,
+        complete, window_json(fx, complete, &totals.top_n), top,
     )
+}
+
+/// R24: a parsed scenario that solves first-slot offset ranges on demand.
+///
+/// The browser's workers cannot share a cutoff without SharedArrayBuffer
+/// (cross-origin isolation is off by default), and a running solve cannot
+/// receive messages. Splitting the search into units (first-slot offset
+/// ranges, finished whole, the native work-stealing grain) lets a host hand
+/// out units one at a time and pass each the best cutoff any worker has
+/// reached so far. Parsing, the bound tables and the warm start happen once
+/// per session, not per unit. Seeds are admissible for the same reason the
+/// warm cutoff is: the 15th-best distinct score among real builds bounds
+/// the final cutoff from below.
+pub struct EngineSession {
+    fx: Fixture,
+    ctx: Option<crate::scoring::ScoringCtx>,
+    bounds: Option<crate::scoring::BoundTables>,
+    dense: Option<crate::scoring::DenseBound>,
+    options: SearchOptions,
+    warm: Vec<TopEntry>,
+    warm_cutoff: u64,
+    warm_best: u64,
+    /// Everything this session's units have produced so far: counters
+    /// summed, top-N merged, `stopped_early` if any unit stopped. Each unit
+    /// starts from the merged top-N, so a worker's own earlier units raise
+    /// its cutoff, and its output is the union a single partition over all
+    /// its units would report.
+    acc: std::cell::RefCell<Totals>,
+}
+
+impl Totals {
+    fn add_counts(&mut self, o: &Totals) {
+        self.checked += o.checked; self.leaf_calls += o.leaf_calls;
+        self.precheck_reject += o.precheck_reject; self.precheck_pass += o.precheck_pass;
+        self.sp_leaf_reject += o.sp_leaf_reject; self.sp_kernel_reject += o.sp_kernel_reject;
+        self.feasible += o.feasible; self.scored += o.scored; self.gated += o.gated;
+        self.mana_reject += o.mana_reject; self.thresh_reject += o.thresh_reject;
+        self.bound_pruned += o.bound_pruned; self.stopped_early |= o.stopped_early;
+    }
+}
+
+impl EngineSession {
+    pub fn new(enum_fixture: &str, score_fixture: &str) -> Result<EngineSession, String> {
+        let fx = parse_fixture(enum_fixture);
+        let ctx = if score_fixture.trim().is_empty() { None } else {
+            Some(serde_json::from_str::<serde_json::Value>(score_fixture)
+                .map_err(|e| e.to_string())
+                .and_then(|v| crate::scoring::ScoringCtx::load(&v))?)
+        };
+        let options = SearchOptions::from_env();
+        let options = SearchOptions { result_count: effective_result_count(&fx, &options), ..options };
+        let scoring = ctx.as_ref();
+        let bounds = scoring.and_then(|sc| {
+            if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+                || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
+                || sc.consts.hp_casting || sc.consts.dynamic.is_some()
+                || sc.objective.needs_two_sided_ceiling() { return None; }
+            if !wide_pool_bounds_allowed(&fx) { return None; }
+            let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+            sc.layer2.build_bound_tables(&pools).ok()
+        });
+        let dense = match (scoring, bounds.as_ref()) {
+            (Some(sc), Some(_)) => sc.dense.as_ref().and_then(|d| {
+                let pools: Vec<Vec<String>> = fx.slots.iter().map(|s| s.item_names.clone()).collect();
+                crate::scoring::DenseBound::build(&sc.layer2, d, &pools, 4)
+            }),
+            _ => None,
+        };
+        let shared_cutoff = AtomicU64::new(0);
+        let shared_best = AtomicU64::new(0);
+        let warm_k: usize = std::env::var("WARM_K").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let warm = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, 4,
+            false, options.result_count, Instant::now(), None);
+        Ok(EngineSession {
+            warm_cutoff: shared_cutoff.load(Ordering::Relaxed),
+            warm_best: shared_best.load(Ordering::Relaxed),
+            fx, ctx, bounds, dense, options, warm, acc: Default::default(),
+        })
+    }
+
+    pub fn result_count(&self) -> usize { self.options.result_count }
+    pub fn warm_cutoff(&self) -> u64 { self.warm_cutoff }
+
+    pub fn first_pool_len(&self) -> usize { self.fx.slots.first().map_or(0, |s| s.pool.len()) }
+
+    /// `solve_range_json` over unit `index` of `count` equal contiguous
+    /// first-slot ranges (`partition_bounds`; a unit past the pool is empty).
+    pub fn solve_unit_json(
+        &self, index: usize, count: usize, seed_cutoff: f64, seed_best: f64, max_leaves: f64,
+        progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    ) -> String {
+        let (lo, hi) = partition_bounds(self.first_pool_len(), index, count.max(1));
+        self.solve_range_json(lo, hi, seed_cutoff, seed_best, max_leaves, progress)
+    }
+
+    /// Solves first-slot offsets [lo, hi] (inclusive) and returns the solve
+    /// JSON of everything this session has solved so far (see `acc`).
+    /// `seed_cutoff` is the host's current cutoff: the floor of the
+    /// result_count-th best distinct real score (0 for none), `seed_best`
+    /// its best (for the eps/window lines). Progress snapshots are
+    /// cumulative over the session's units too.
+    pub fn solve_range_json(
+        &self, lo: i64, hi: i64, seed_cutoff: f64, seed_best: f64, max_leaves: f64,
+        progress: Option<&mut dyn FnMut(ProgressSnapshot) -> Option<f64>>,
+    ) -> String {
+        let fx = &self.fx;
+        let floor = if seed_cutoff.is_finite() && seed_cutoff > 0.0 { seed_cutoff.floor() as u64 } else { 0 };
+        let shared_cutoff = AtomicU64::new(self.warm_cutoff.max(floor));
+        let best_bits = if seed_best.is_finite() && seed_best > 0.0 { seed_best.to_bits() } else { 0 };
+        let shared_best = AtomicU64::new(self.warm_best.max(best_bits));
+        let mut search = Search::new(fx);
+        search.scoring = self.ctx.as_ref();
+        search.result_count = self.options.result_count;
+        search.global_started = Some(Instant::now());
+        search.shared_cutoff = Some(&shared_cutoff);
+        search.shared_best = Some(&shared_best);
+        search.bound_tables = self.bounds.as_ref();
+        search.bound_max_depth = 0;
+        search.bound_tail = 1;
+        search.dense_bound = self.dense.as_ref();
+        search.leaf_budget = (max_leaves > 0.0).then_some(max_leaves);
+        search.next_report = f64::INFINITY;
+        search.part_lo = lo;
+        search.part_hi = hi;
+        let base = std::mem::take(&mut *self.acc.borrow_mut());
+        let mut cumulative = progress.map(|p| {
+            let base = &base;
+            move |mut snap: ProgressSnapshot| {
+                snap.checked += base.checked; snap.leaf_calls += base.leaf_calls;
+                snap.precheck_reject += base.precheck_reject; snap.precheck_pass += base.precheck_pass;
+                snap.sp_leaf_reject += base.sp_leaf_reject; snap.sp_kernel_reject += base.sp_kernel_reject;
+                snap.feasible += base.feasible; snap.scored += base.scored; snap.gated += base.gated;
+                snap.mana_reject += base.mana_reject; snap.thresh_reject += base.thresh_reject;
+                snap.bound_pruned += base.bound_pruned;
+                p(snap)
+            }
+        });
+        if let Some(p) = cumulative.as_mut() {
+            search.progress = Some(p);
+            search.next_progress = search.progress_every;
+        }
+        search.init_equip_names();
+        for entry in base.top_n.iter().cloned() { search.insert_top(entry); }
+        // As run_single_with_options: each range publishes only the warm
+        // builds whose first-slot item it owns, so ranges stay disjoint.
+        if self.options.retain_warm || search.eps > 0.0 {
+            for entry in self.warm.iter().cloned() {
+                let owned = fx.slots.first().is_none_or(|slot| {
+                    slot.item_names.iter().position(|n| entry.items.get(slot.pos) == Some(n))
+                        .is_some_and(|offset| offset as i64 >= lo && offset as i64 <= hi)
+                });
+                if owned { search.insert_top(entry); }
+            }
+        }
+        search.run();
+        search.emit_progress();
+        let unit = Totals {
+            checked: search.checked, leaf_calls: search.leaf_calls,
+            precheck_reject: search.precheck_reject, precheck_pass: search.precheck_pass,
+            sp_leaf_reject: search.sp_leaf_reject, sp_kernel_reject: search.sp_kernel_reject,
+            feasible: search.feasible, scored: search.scored, gated: search.gated,
+            mana_reject: search.mana_reject, thresh_reject: search.thresh_reject,
+            bound_pruned: search.bound_pruned, stopped_early: search.stop, top_n: Vec::new(),
+        };
+        let top_n = std::mem::take(&mut search.top_n);
+        drop(search);
+        drop(cumulative);
+        let mut totals = base;
+        totals.add_counts(&unit);
+        totals.top_n = top_n;
+        let json = totals_json(fx, self.ctx.as_ref(), &totals);
+        *self.acc.borrow_mut() = totals;
+        json
+    }
+}
+
+/// R20: `,"stats":{...}` for an archived build in a windowed run (empty
+/// otherwise, or when the build cannot be re-assembled).
+fn stats_json(fx: &Fixture, ctx: Option<&crate::scoring::ScoringCtx>, e: &TopEntry) -> String {
+    let (true, Some(sc)) = (fx.window > 0.0, ctx) else { return String::new() };
+    let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
+    let Some(stats) = crate::scoring::explain_build(sc, &names, &e.base_sp, &e.total_sp, e.tome.as_ref()) else { return String::new() };
+    let body: Vec<String> = stats.iter().filter(|(_, v)| v.is_finite())
+        .map(|(k, v)| format!("\"{k}\":{v}")).collect();
+    format!(",\"stats\":{{{}}}", body.join(","))
+}
+
+/// R20 fields for the solve JSON (empty without a window). `archive_full`
+/// and `archive_last` let a host that merges several partitions apply the
+/// completeness rule itself: every partition complete, and every full
+/// partition's last score below the merged window line.
+fn window_json(fx: &Fixture, complete: bool, top: &[TopEntry]) -> String {
+    if fx.window <= 0.0 { return String::new(); }
+    let full = top.len() >= fx.archive_cap;
+    let last = if full { top[fx.archive_cap - 1].score } else { f64::NEG_INFINITY };
+    format!("\"window\":{},\"archive_cap\":{},\"archive_full\":{},\"archive_last\":{},\"window_complete\":{},",
+            fx.window, fx.archive_cap, full,
+            if last.is_finite() { format!("{last:.17e}") } else { "null".into() },
+            window_complete(complete, top, fx.archive_cap, fx.window))
 }
 
 fn json_str(s: &str) -> String {
@@ -2056,6 +3568,7 @@ fn seed_warm_cutoff(
     fx: &Fixture, scoring: Option<&crate::scoring::ScoringCtx>,
     shared_cutoff: &AtomicU64, shared_best: &AtomicU64, warm_k: usize, bound_cluster: usize,
     verbose: bool,
+    result_count: usize, overall_started: Instant, quality_trace: Option<&Arc<QualityTrace>>,
 ) -> Vec<TopEntry> {
 if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > warm_k)) {
     return Vec::new();
@@ -2118,6 +3631,8 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
         fixed_names: fx.fixed_names.clone(),
         none_names: fx.none_names.clone(),
         eps: fx.eps,
+        window: fx.window,
+        archive_cap: fx.archive_cap,
     };
     let warm_started = Instant::now();
     let wpools: Vec<Vec<String>> = wfx.slots.iter().map(|s| s.item_names.clone()).collect();
@@ -2126,6 +3641,10 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
     });
     let mut ws = Search::new(&wfx);
     ws.scoring = scoring;
+    ws.result_count = result_count;
+    ws.global_started = Some(overall_started);
+    ws.quality_trace = quality_trace.cloned();
+    ws.trace_phase = "warm";
     ws.shared_cutoff = Some(&shared_cutoff);
     ws.shared_best = Some(shared_best);
     ws.dense_bound = wdb.as_ref();
@@ -2139,25 +3658,27 @@ if !(scoring.is_some() && warm_k > 0 && fx.slots.iter().any(|s| s.pool.len() > w
             shared_cutoff.load(Ordering::Relaxed) as f64,
         );
     }
-    let _ = warm_started;
-    // The warm search's builds are real, fully scored builds. The caller keeps
-    // them as results when eps > 0: the main search then prunes below
-    // (1 + eps) * best, which removes the very build that set `best` if the
-    // warm start found it, and the run would report nothing.
     ws.top_n
 }
-
-
 }
 
 /// CLI entry point (thin wrapper lives in src/bin/enum_kernel.rs).
 pub fn cli_main() {
-    anytime::start();
+    anytime_trace::start();
+    let overall_started = Instant::now();
+    let options = SearchOptions::from_env();
+    let quality_trace = env::var("QUALITY_TRACE_PATH").ok().map(|path|
+        Arc::new(QualityTrace::new(&path, overall_started).expect("create quality trace")));
     let args: Vec<String> = env::args().collect();
     let fixture_path = args.get(1).map(String::as_str)
         .expect("usage: enum_kernel <fixture> [threads] [score_fixture.json]");
     let text = fs::read_to_string(fixture_path).expect("cannot read fixture");
-    let fx = parse_fixture(&text);
+    let mut fx = parse_fixture(&text);
+    // SEARCH_WINDOW (CLI) overrides the fixture's WINDOW line; "0" turns it off.
+    if let Some(w) = env::var("SEARCH_WINDOW").ok().and_then(|v| v.parse::<f64>().ok()) {
+        fx.window = if w.is_finite() && w > 0.0 && w < 1.0 { w } else { 0.0 };
+    }
+    let options = SearchOptions { result_count: effective_result_count(&fx, &options), ..options };
 
     let n_threads: usize = args.get(2)
         .map(|s| s.parse().expect("threads must be a number"))
@@ -2201,8 +3722,8 @@ pub fn cli_main() {
     let shared_cutoff = AtomicU64::new(0);
     let shared_best = AtomicU64::new(0);
 
-    // Mid-tree damage ceiling bound tables (objective B&B). Memo keys pack
-    // offsets into 7 bits, so guard on pool sizes.
+    // Mid-tree damage ceiling bound tables (objective B&B). Structured keys
+    // allow wide pools; WIDE_BOUND_KEYS=0 restores the old wide-pool bypass.
     let bound_max_depth: usize = env::var("BOUND_DEPTH").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(0);
     let bound_tail: usize = env::var("BOUND_TAIL").ok()
@@ -2211,8 +3732,8 @@ pub fn cli_main() {
         let bound_cluster_on: bool = env::var("BOUND_CLUSTER").ok()
             .and_then(|s| s.parse::<usize>().ok()).unwrap_or(4) > 0;
         if bound_max_depth == 0 && bound_tail == 0 && !bound_cluster_on { return None; }
-        if !fx.slots.iter().all(|s| s.pool.len() < 128) {
-            eprintln!("bound: pool >= 128 items, memo packing disabled — skipping bound");
+        if !wide_pool_bounds_allowed(&fx) {
+            eprintln!("bound: WIDE_BOUND_KEYS=0 and pool >=128 items — skipping bound");
             return None;
         }
         // Same gate as `run_single_with_progress`: dynamic rows make the
@@ -2221,6 +3742,7 @@ pub fn cli_main() {
         // and scored none of them.
         if !sc.objective.supports_ceiling()
             || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting
             || sc.consts.dynamic.is_some()
             // See run_single_with_progress: one assembled state cannot
@@ -2248,23 +3770,56 @@ pub fn cli_main() {
     // waiting for the cutoff to warm up. WARM_K=0 disables.
     let warm_k: usize = env::var("WARM_K").ok()
         .and_then(|s| s.parse().ok()).unwrap_or(6);
-    let warm_top = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster, true);
+    let warm_started = Instant::now();
+    let warm = seed_warm_cutoff(&fx, scoring, &shared_cutoff, &shared_best, warm_k, bound_cluster,
+        true, options.result_count, overall_started, quality_trace.as_ref());
+    let warm_seconds = warm_started.elapsed().as_secs_f64();
+
+    if std::env::var("R28_REPORT").as_deref() == Ok("1") {
+        r28_report(&fx, scoring, dense_bound);
+    }
+    if std::env::var("R3_REPORT").as_deref() == Ok("1") {
+        let cut = std::env::var("R3_CUTOFF").ok().and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(shared_cutoff.load(Ordering::Relaxed) as f64);
+        r3_report(&fx, scoring, dense_bound, cut);
+    }
 
     let start = Instant::now();
 
     let (totals, elapsed) = if n_threads <= 1 || fx.slots.is_empty() {
+        let counters = env::var("QUALITY_TRACE_COUNTERS").as_deref() == Ok("1");
+        let mut last_counter = f64::NEG_INFINITY;
+        let mut on_work = |p: ProgressSnapshot| {
+            let elapsed = overall_started.elapsed().as_secs_f64();
+            if elapsed - last_counter >= 0.1 {
+                if let Some(trace) = &quality_trace { trace.work("search", &p); }
+                last_counter = elapsed;
+            }
+            None
+        };
         let mut search = Search::new(&fx);
         search.scoring = scoring;
+        search.result_count = options.result_count;
+        search.global_started = Some(overall_started);
+        search.quality_trace = quality_trace.clone();
         search.shared_cutoff = Some(&shared_cutoff);
         search.shared_best = Some(&shared_best);
+        if options.retain_warm || search.eps > 0.0 {
+            for entry in warm.iter().cloned() { search.insert_top(entry); }
+        }
         search.bound_tables = bounds;
         search.bound_max_depth = bound_max_depth;
         search.bound_tail = bound_tail;
         search.dense_bound = dense_bound;
         search.leaf_budget = cli_leaf_budget;
+        if counters && quality_trace.is_some() {
+            search.progress = Some(&mut on_work);
+            search.progress_every = 8192.0;
+            search.next_progress = 1.0;
+        }
         search.init_equip_names();
         search.run();
-        if search.eps > 0.0 { merge_top(&mut search.top_n, warm_top); }
+        search.emit_progress();
         let elapsed = start.elapsed();
         (Totals {
             checked: search.checked,
@@ -2302,6 +3857,30 @@ pub fn cli_main() {
             total.max(1.0)
         };
 
+        // R5: the depth-0 ceiling of every first-slot offset. Offsets are
+        // claimed whole and finished whole, so the best any unfinished
+        // offset can still hold is bounded by its ceiling, and
+        // max(best, max over unfinished ceilings) bounds the optimum.
+        // R22_ORDER=1 claims offsets in descending ceiling order (an exact
+        // reorder: every offset is still searched in full).
+        // Diagnostic only (R5_GAP=1, R5_TRACE=1 or R22_ORDER=1): measured
+        // uninformative, the depth-0 ceilings are about 6x the best (3.4x
+        // with R5_TANGENT=1), so the gap stays above 70% until the end.
+        let r5_on = ["R5_GAP", "R5_TRACE", "R22_ORDER"].iter()
+            .any(|k| std::env::var(k).as_deref() == Ok("1"));
+        let r5 = if r5_on {
+            R5Frontier::new(&fx, scoring, bounds, dense_bound, bound_tail, first_pool_len)
+        } else { None };
+        let claim_order: Vec<usize> = match (&r5, std::env::var("R22_ORDER").as_deref() == Ok("1")) {
+            (Some(f), true) => {
+                let mut v: Vec<usize> = (0..first_pool_len).collect();
+                v.sort_by(|&a, &b| f.ceiling[b].total_cmp(&f.ceiling[a]).then(a.cmp(&b)));
+                v
+            }
+            _ => (0..first_pool_len).collect(),
+        };
+        let r5_trace = std::env::var("R5_TRACE").as_deref() == Ok("1");
+
         let totals = std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for _ in 0..n_threads.min(first_pool_len) {
@@ -2310,8 +3889,14 @@ pub fn cli_main() {
                     search.shared_checked = Some(&shared_checked);
                     search.stop_flag = Some(&stop_flag);
                     search.scoring = scoring;
+                    search.result_count = options.result_count;
+                    search.global_started = Some(overall_started);
+                    search.quality_trace = quality_trace.clone();
                     search.shared_cutoff = Some(&shared_cutoff);
                     search.shared_best = Some(&shared_best);
+                    if options.retain_warm || search.eps > 0.0 {
+                        for entry in warm.iter().cloned() { search.insert_top(entry); }
+                    }
                     search.bound_tables = bounds;
                     search.bound_max_depth = bound_max_depth;
                     search.bound_tail = bound_tail;
@@ -2322,24 +3907,41 @@ pub fn cli_main() {
                     search.next_report = f64::INFINITY;
                     let l_max = search.l_max as i64;
                     loop {
+                        if time_cap.is_some_and(|cap| overall_started.elapsed().as_secs_f64() >= cap) {
+                            search.stop = true;
+                        }
                         if search.stop { break; }
-                        let o = next_offset.fetch_add(1, Ordering::Relaxed);
-                        if o >= first_pool_len { break; }
+                        let claim = next_offset.fetch_add(1, Ordering::Relaxed);
+                        if claim >= first_pool_len { break; }
+                        let o = claim_order[claim];
                         search.part_lo = o as i64;
                         search.part_hi = o as i64;
                         let mut band_lo: i64 = 0;
                         let mut band_width: i64 = 1;
-                        while band_lo <= l_max {
+                        while band_lo <= l_max && !search.stop {
                             let band_hi = l_max.min(band_lo + band_width - 1);
                             search.enumerate(0, band_lo, band_hi);
                             band_lo = band_hi + 1;
                             band_width *= 2;
+                        }
+                        if !search.stop {
+                            if let Some(f) = &r5 {
+                                f.finish(o);
+                                if r5_trace {
+                                    let (bound, best) = f.bound(&shared_best);
+                                    eprintln!("r5: t={:.3} offset {o} bound {bound:.6e} best {best:.6e}",
+                                              overall_started.elapsed().as_secs_f64());
+                                }
+                            }
                         }
                     }
                     search.flush_checked();
                     if std::env::var("CLUSTER_STATS").as_deref() == Ok("1") {
                         eprintln!("cluster_stats: evals {} | memo_hits {} | memo_len {}",
                                   search.cluster_evals, search.cluster_memo_hits, search.bound_memo.len());
+                        if search.r2_on {
+                            eprintln!("r2_stats: evals {} | pruned leaves {:.4e}", search.r2_evals, search.r2_pruned);
+                        }
                     }
                     Totals {
                         checked: search.checked,
@@ -2369,7 +3971,7 @@ pub fn cli_main() {
                     if done.load(Ordering::Relaxed) != 0 { break; }
                     let elapsed = started.elapsed().as_secs_f64();
                     if let Some(cap) = time_cap {
-                        if elapsed >= cap { stop_flag.store(1, Ordering::Relaxed); }
+                        if overall_started.elapsed().as_secs_f64() >= cap { stop_flag.store(1, Ordering::Relaxed); }
                     }
                     if elapsed < next_report { continue; }
                     next_report = elapsed + 5.0;
@@ -2377,8 +3979,15 @@ pub fn cli_main() {
                     if checked == 0.0 { continue; }
                     let rate = checked / elapsed;
                     let remaining = (total_space - checked).max(0.0);
+                    let gap = match &r5 {
+                        Some(f) => {
+                            let (bound, best) = f.bound(&shared_best);
+                            format!(" | bound {bound:.4e} gap {:.2}%", R5Frontier::gap(bound, best) * 100.0)
+                        }
+                        None => String::new(),
+                    };
                     eprintln!(
-                        "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s",
+                        "progress: {:.2}% | checked {:.3e}/{:.3e} | {:.2e} checked/s | elapsed {:.0}s | eta {:.0}s{gap}",
                         checked / total_space * 100.0, checked, total_space,
                         rate, elapsed, remaining / rate,
                     );
@@ -2389,6 +3998,8 @@ pub fn cli_main() {
             for h in handles {
                 let t = h.join().expect("worker thread panicked");
                 totals.checked += t.checked;
+                totals.leaf_calls += t.leaf_calls;
+                totals.stopped_early |= t.stopped_early;
                 totals.precheck_reject += t.precheck_reject;
                 totals.precheck_pass += t.precheck_pass;
                 totals.sp_leaf_reject += t.sp_leaf_reject;
@@ -2400,11 +4011,10 @@ pub fn cli_main() {
                 totals.thresh_reject += t.thresh_reject;
                 totals.bound_pruned += t.bound_pruned;
                 totals.stopped_early |= t.stopped_early;
-                merge_top(&mut totals.top_n, t.top_n);
+                merge_top_n(&mut totals.top_n, t.top_n, options.result_count);
             }
             done.store(1, Ordering::Relaxed);
             monitor.join().expect("monitor thread panicked");
-            if Search::new(&fx).eps > 0.0 { merge_top(&mut totals.top_n, warm_top); }
             totals
         });
         (totals, start.elapsed())
@@ -2423,6 +4033,19 @@ pub fn cli_main() {
     // Whether the space was exhausted (a proof) or a budget or time cap
     // stopped it first. anytime.py keys proven optima on this.
     println!("search: complete {}", if totals.stopped_early { "no" } else { "yes" });
+    let final_cut = totals.top_n.get(14).map(|e| e.score);
+    if let Some(line) = bound_observe::report(final_cut) { println!("{line}"); }
+    if let Some(line) = r2_stats::line() { println!("{line}"); }
+    if let Some(line) = r2_item_stats::line() { println!("{line}"); }
+    if let Some(line) = r10_observe::line() { println!("{line}"); }
+    if let Some(line) = r9_stats::line() { println!("{line}"); }
+    if fx.window > 0.0 {
+        let best = totals.top_n.first().map_or(f64::NAN, |e| e.score);
+        let inside = totals.top_n.iter().filter(|e| e.score >= best * (1.0 - fx.window)).count();
+        println!("search: window {} | {} builds within {:.3}% of the best (archive {} of cap {}) | complete within window: {}",
+                 fx.window, inside, fx.window * 100.0, totals.top_n.len(), fx.archive_cap,
+                 if window_complete(!totals.stopped_early, &totals.top_n, fx.archive_cap, fx.window) { "yes" } else { "no" });
+    }
     let eps = Search::new(&fx).eps;
     if eps > 0.0 {
         // R21's claim, stated where the result is: the top-1 is within eps of
@@ -2430,6 +4053,10 @@ pub fn cli_main() {
         println!("search: eps {} | top-1 within {:.3}% of optimal{} | ranks 2-15 unverified",
                  eps, eps * 100.0, if totals.stopped_early { " (NOT proved: stopped early)" } else { " (proved)" });
     }
+    println!("timing: wall_total {:.6}s | warm {:.6}s | main {:.6}s | complete {} | result_count {} | retain_warm {}",
+        overall_started.elapsed().as_secs_f64(), warm_seconds, elapsed.as_secs_f64(),
+        !totals.stopped_early, options.result_count, options.retain_warm);
+    if let Some(trace) = &quality_trace { trace.finish(!totals.stopped_early, warm_seconds); }
     crate::scoring::trace::report();
     if let Some(r) = crate::scoring::greedy_audit_report() { println!("{r}"); }
     if scoring.is_some() {
@@ -2442,6 +4069,19 @@ pub fn cli_main() {
             println!("top15: {:.17e} | {}", score,
                 names.iter().filter(|n| !n.starts_with("No ")).cloned()
                     .collect::<Vec<_>>().join(", "));
+        }
+        // R20: the explain pass's stats per archived build, one line each,
+        // after the top15 lines so their parsers are unaffected.
+        if fx.window > 0.0 {
+            for (rank, e) in totals.top_n.iter().enumerate() {
+                let names: Vec<&str> = e.items.iter().map(String::as_str).collect();
+                if let Some(st) = crate::scoring::explain_build(scoring.unwrap(), &names, &e.base_sp, &e.total_sp, e.tome.as_ref()) {
+                    let tome = e.tome.as_ref().map(|t| format!(" guild_idx={} tomes={}", t.guild_idx,
+                        t.weapon_names.len() + t.armor_names.len())).unwrap_or_default();
+                    println!("stats: {} {}{} total_sp={:?}", rank + 1, st.iter().map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>().join(" "), tome, e.total_sp);
+                }
+            }
         }
     }
 }
@@ -2530,5 +4170,401 @@ mod eps_tests {
         assert_eq!(parse_fixture(&(base.clone() + "\nEPS 0.01\n")).eps, 0.01);
         assert_eq!(parse_fixture(&(base.clone() + "\nEPS -1\n")).eps, 0.0);
         assert_eq!(parse_fixture(&(base + "\nEPS nan\n")).eps, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod anytime_core_tests {
+    use super::*;
+
+    fn entry(name: &str, score: f64) -> TopEntry {
+        let mut items = vec![String::new(); 8];
+        items[0] = name.into();
+        TopEntry { items, score, ..Default::default() }
+    }
+
+    #[test]
+    fn archive_deduplicates_ring_exchange_before_cutoff() {
+        let mut a = entry("a", 100.0);
+        a.items[4] = "ring A".into();
+        a.items[5] = "ring B".into();
+        let mut swapped = a.clone();
+        swapped.items.swap(4, 5);
+        let mut archive = Vec::new();
+        merge_top_n(&mut archive, vec![a.clone(), swapped, a.clone()], 15);
+        assert_eq!(archive.len(), 1);
+        assert_eq!(build_identity(&archive[0]), build_identity(&a));
+        let mut stronger_allocation = a.clone();
+        stronger_allocation.base_sp[0] = 10;
+        stronger_allocation.score = 120.0;
+        merge_top_n(&mut archive, vec![stronger_allocation], 15);
+        assert_eq!(archive.len(), 1);
+        assert_eq!(archive[0].score, 120.0);
+        assert_eq!(archive[0].base_sp[0], 10);
+    }
+
+    #[test]
+    fn archive_identity_includes_tome_multiset_and_guild() {
+        let mut a = entry("a", 10.0);
+        a.tome = Some(crate::scoring::TomeChoice {
+            guild_idx: 2, weapon_names: vec!["A".into(), "B".into()],
+            armor_names: vec!["C".into(), "D".into()],
+        });
+        let mut permutation = a.clone();
+        permutation.tome.as_mut().unwrap().weapon_names.reverse();
+        permutation.tome.as_mut().unwrap().armor_names.reverse();
+        let mut other = a.clone();
+        other.tome.as_mut().unwrap().guild_idx = 3;
+        let mut multiplicity = a.clone();
+        multiplicity.tome.as_mut().unwrap().weapon_names = vec!["A".into(), "A".into()];
+        let mut archive = Vec::new();
+        merge_top_n(&mut archive, vec![a, permutation, other, multiplicity], 15);
+        assert_eq!(archive.len(), 3);
+    }
+
+    fn empty_fixture() -> Fixture {
+        parse_fixture("BUDGET 200\nPRECHECKS 0\nEHP 0 0 0 0\nEHPNA 0 0 0 0\nTHP 0 0 0\nHPSTART 0\nWEAPON 0 0 0 0 0 0 0 0 0 0\nGUILD 0\nNFIXED 0\nNSLOTS 0\nNSETS 0\n")
+    }
+
+    #[test]
+    fn duplicate_witnesses_cannot_raise_top15_cutoff() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.result_count = 15;
+        let shared = AtomicU64::new(0);
+        search.shared_cutoff = Some(&shared);
+        for _ in 0..30 { search.insert_top(entry("same", 100.0)); }
+        assert_eq!(search.cutoff(), None);
+        assert_eq!(shared.load(Ordering::Relaxed), 0);
+        for i in 0..14 { search.insert_top(entry(&format!("distinct {i}"), 90.0)); }
+        assert_eq!(search.cutoff(), Some(90.0));
+        assert_eq!(shared.load(Ordering::Relaxed), 90);
+    }
+
+    #[test]
+    fn top1_cutoff_has_a_retained_witness_after_zero_budget() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.result_count = 1;
+        search.actual_leaf_budget = Some(0);
+        search.insert_top(entry("warm", 123.0));
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 0);
+        assert_eq!(search.cutoff(), Some(123.0));
+        assert_eq!(search.top_n[0].items[0], "warm");
+    }
+
+    #[test]
+    fn shared_deadline_can_expire_before_main_search() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.global_started = Some(Instant::now());
+        search.time_cap = Some(0.0);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 0);
+    }
+
+    #[test]
+    fn actual_leaf_budget_counts_work_instead_of_credited_space() {
+        let fx = empty_fixture();
+        let mut search = Search::new(&fx);
+        search.actual_leaf_budget = Some(1);
+        search.run();
+        assert_eq!(search.leaf_calls, 1);
+        assert!(search.stop);
+    }
+    fn wide_fixture(nested: bool) -> Fixture {
+        let mut fx = empty_fixture();
+        let make_slot = |name: &str, pos: usize, count: usize| Slot {
+            name: name.into(), pos, is_ring1: false, is_ring2: false,
+            pool: vec![PoolItem { crafted: false, reqs: [0; 5], skp: [0; 5],
+                set_id: -1, illegal_id: -1, hp: 3.0, pc: Vec::new() }; count],
+            item_names: Vec::new(),
+        };
+        if nested { fx.slots.push(make_slot("helmet", 0, 3)); }
+        fx.slots.push(make_slot("boots", 3, 257));
+        fx
+    }
+
+    #[test]
+    fn wide_last_slot_honors_exact_actual_leaf_budgets() {
+        for budget in [10, 37] {
+            let fx = wide_fixture(false);
+            let mut search = Search::new(&fx);
+            search.actual_leaf_budget = Some(budget);
+            search.run();
+            assert!(search.stop);
+            assert_eq!(search.leaf_calls, budget);
+            assert_eq!(search.checked, budget as f64);
+            assert_eq!(search.feasible, budget);
+            assert_eq!(search.hp_running, fx.hp_start);
+        }
+    }
+
+    #[test]
+    fn nested_budget_stop_restores_parent_state_and_stops_siblings() {
+        let fx = wide_fixture(true);
+        let mut search = Search::new(&fx);
+        search.actual_leaf_budget = Some(37);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 37);
+        assert_eq!(search.checked, 37.0);
+        assert_eq!(search.hp_running, fx.hp_start);
+        assert_eq!(search.sp_free_prov, [0; 5]);
+        assert!(search.equip_set.iter().all(|&set| set == -1));
+    }
+
+    #[test]
+    fn wide_last_slot_honors_credited_budget_without_band_overrun() {
+        let fx = wide_fixture(false);
+        let mut search = Search::new(&fx);
+        search.leaf_budget = Some(37.0);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 37);
+        assert_eq!(search.checked, 37.0);
+    }
+
+    #[test]
+    fn wide_last_slot_observes_shared_cancellation_within_one_poll_window() {
+        let fx = wide_fixture(false);
+        let flag = AtomicU64::new(1);
+        let mut search = Search::new(&fx);
+        search.stop_flag = Some(&flag);
+        search.run();
+        assert!(search.stop);
+        assert_eq!(search.leaf_calls, 256);
+        assert_eq!(search.hp_running, fx.hp_start);
+    }
+
+    fn tied_ring_fixture(canonical_flags: bool, freeze_first: bool) -> Fixture {
+        let mut fx = empty_fixture();
+        fx.budget = 10;
+        let a = PoolItem { crafted: false, reqs: [10, 0, 0, 0, 0],
+            skp: [0, 10, 0, 0, 0], set_id: -1, illegal_id: -1,
+            hp: 0.0, pc: Vec::new() };
+        let b = PoolItem { reqs: [0, 10, 0, 0, 0], skp: [10, 0, 0, 0, 0], ..a.clone() };
+        fx.slots.push(Slot { name: "ring1".into(), pos: 4,
+            is_ring1: canonical_flags, is_ring2: false,
+            pool: if freeze_first { vec![b.clone()] } else { vec![a.clone(), b.clone()] },
+            item_names: if freeze_first { vec!["B".into()] } else { vec!["A".into(), "B".into()] },
+        });
+        fx.slots.push(Slot { name: "ring2".into(), pos: 5,
+            is_ring1: false, is_ring2: canonical_flags,
+            pool: vec![a, b], item_names: vec!["A".into(), "B".into()],
+        });
+        fx
+    }
+
+    #[test]
+    fn original_ring_guard_preserves_domain_before_order_sensitive_sp_ties() {
+        let a = Unit { crafted: false, reqs: [10, 0, 0, 0, 0], skp: [0, 10, 0, 0, 0] };
+        let b = Unit { crafted: false, reqs: [0, 10, 0, 0, 0], skp: [10, 0, 0, 0, 0] };
+        let mut case = Case { budget: 10, equipment: [Unit::default(); 8],
+            weapon: Unit::default(), set_free: [0; 5], expected: None };
+        case.equipment[4] = a;
+        case.equipment[5] = b;
+        let forward = Kernel::new().calculate(&case).unwrap();
+        case.equipment.swap(4, 5);
+        let reverse = Kernel::new().calculate(&case).unwrap();
+        assert_eq!(forward.2, reverse.2);
+        assert_eq!(forward.1, [20, 10, 0, 0, 0]);
+        assert_eq!(reverse.1, [10, 20, 0, 0, 0]);
+
+        let order = std::collections::HashMap::from([("A".into(), 0), ("B".into(), 1)]);
+        let original = tied_ring_fixture(true, false);
+        let mut root = Search::new(&original);
+        root.run();
+        assert_eq!(root.feasible, 3);
+        let reduced = tied_ring_fixture(false, false);
+        let mut repair = Search::new(&reduced);
+        repair.original_ring_order = Some(&order);
+        repair.run();
+        assert_eq!(repair.checked, 4.0);
+        assert_eq!(repair.precheck_reject, 1.0);
+        assert_eq!(repair.precheck_pass, 3);
+        assert_eq!(repair.feasible, root.feasible);
+    }
+
+    #[test]
+    fn original_ring_guard_uses_root_ranks_when_one_repair_ring_is_frozen() {
+        let order = std::collections::HashMap::from([("A".into(), 0), ("B".into(), 1)]);
+        let reduced = tied_ring_fixture(false, true);
+        let mut guarded = Search::new(&reduced);
+        guarded.original_ring_order = Some(&order);
+        guarded.run();
+        assert_eq!(guarded.checked, 2.0);
+        assert_eq!(guarded.precheck_reject, 1.0);
+        assert_eq!(guarded.feasible, 1);
+        // No root rule is imposed by default. This is necessary when only
+        // one ring was free in the user's original search configuration.
+        let mut unguarded = Search::new(&reduced);
+        unguarded.run();
+        assert_eq!(unguarded.feasible, 2);
+    }
+
+}
+
+#[cfg(test)]
+mod window_tests {
+    //! R20 windowed archive. The completeness rule, the fixture lines, and an
+    //! end-to-end check against a brute-force reference: on tierstack_small
+    //! a run with no cutoff at all (RESULT_COUNT 1e6, every feasible build
+    //! scored and kept; 221,194 builds) has exactly 3 builds within 2% of the
+    //! best, and the windowed run must return those 3.
+    use super::*;
+
+    fn entry(score: f64) -> TopEntry { TopEntry { score, ..Default::default() } }
+
+    #[test]
+    fn completeness_rule() {
+        let top: Vec<TopEntry> = [100.0, 99.0, 97.0].iter().map(|&s| entry(s)).collect();
+        // Not full: complete if the search finished.
+        assert!(window_complete(true, &top, 10, 0.02));
+        assert!(!window_complete(false, &top, 10, 0.02));
+        // Full, last entry (97) below the line (98): nothing in the window lost.
+        assert!(window_complete(true, &top, 3, 0.02));
+        // Full, last entry (97) at or above the line (96.5): an evicted build
+        // may have been inside the window, so the claim is withdrawn.
+        assert!(!window_complete(true, &top, 3, 0.035));
+        // No window: never claims.
+        assert!(!window_complete(true, &top, 10, 0.0));
+    }
+
+    #[test]
+    fn window_lines_parse() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        let base = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap();
+        let fx = parse_fixture(&base);
+        assert_eq!((fx.window, fx.archive_cap), (0.0, DEFAULT_ARCHIVE_CAP));
+        let fx = parse_fixture(&(base.clone() + "\nWINDOW 0.05\nARCHIVE 300\n"));
+        assert_eq!((fx.window, fx.archive_cap), (0.05, 300));
+        let fx = parse_fixture(&(base + "\nWINDOW 1.5\nARCHIVE 0\n"));
+        assert_eq!((fx.window, fx.archive_cap), (0.0, DEFAULT_ARCHIVE_CAP));
+    }
+
+    #[test]
+    fn window_holds_every_build_within_it() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        let enum_fx = std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap()
+            + "\nWINDOW 0.02\n";
+        let score_fx = std::fs::read_to_string(format!("{dir}score_fam_tierstack_small.json")).unwrap();
+        let out = solve_json_full(&enum_fx, &score_fx, 0.0, None, 0, 1);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["window_complete"], serde_json::json!(true), "{}", &out[..out.len().min(400)]);
+        let scores: Vec<f64> = v["top"].as_array().unwrap().iter()
+            .map(|e| e["score"].as_f64().unwrap()).collect();
+        let best = scores[0];
+        assert!((best - 2.20863848359218158e5).abs() < 1e-6, "top-1 {best}");
+        let inside = scores.iter().filter(|&&s| s >= best * 0.98).count();
+        assert_eq!(inside, 3, "builds within 2%: {scores:?}");
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    //! R24 `EngineSession`: units in any order and with admissible seeds
+    //! reproduce the whole run; an inadmissible seed shows the seed reaches
+    //! the pruning (so the exactness checks are not vacuous).
+    use super::*;
+    use serde_json::Value;
+
+    fn load() -> (String, String) {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        (std::fs::read_to_string(format!("{dir}enum_fam_tierstack_small.txt")).unwrap(),
+         std::fs::read_to_string(format!("{dir}score_fam_tierstack_small.json")).unwrap())
+    }
+
+    fn scores(json: &str) -> (Vec<f64>, f64, bool) {
+        let v: Value = serde_json::from_str(json).unwrap();
+        let s = v["top"].as_array().unwrap().iter().map(|t| t["score"].as_f64().unwrap()).collect();
+        (s, v["checked"].as_f64().unwrap(), v["complete"].as_bool().unwrap())
+    }
+
+    #[test]
+    fn units_reproduce_whole_run() {
+        let (e, sc) = load();
+        let (whole, checked, _) = scores(&solve_json_full(&e, &sc, 0.0, None, 0, 1));
+        // One session, units out of order, each seeded with the cutoff the
+        // whole run ends with (the strongest admissible seed).
+        let cut = whole[whole.len() - 1].floor();
+        let s = EngineSession::new(&e, &sc).unwrap();
+        let mut last = String::new();
+        for u in [5, 0, 9, 2, 7, 1, 3, 8, 4, 6] {
+            last = s.solve_unit_json(u, 10, cut, whole[0], 0.0, None);
+        }
+        let (got, got_checked, complete) = scores(&last);
+        assert!(complete);
+        assert_eq!(got_checked, checked);
+        assert_eq!(got.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                   whole.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn progress_is_cumulative() {
+        let (e, sc) = load();
+        let s = EngineSession::new(&e, &sc).unwrap();
+        let mut last_checked = 0.0;
+        for u in 0..3 {
+            let mut seen = Vec::new();
+            let mut sink = |p: ProgressSnapshot| { seen.push(p.checked); None };
+            let out = s.solve_unit_json(u, 3, 0.0, 0.0, 0.0, Some(&mut sink));
+            let (_, checked, _) = scores(&out);
+            assert!(seen.iter().all(|&c| c >= last_checked && c <= checked), "{seen:?}");
+            assert_eq!(*seen.last().unwrap(), checked);
+            last_checked = checked;
+        }
+    }
+
+    #[test]
+    fn inadmissible_seed_loses_builds() {
+        let (e, sc) = load();
+        let (whole, _, _) = scores(&solve_json_full(&e, &sc, 0.0, None, 0, 1));
+        let scored = |out: &str| serde_json::from_str::<Value>(out).unwrap()["scored"].as_u64().unwrap();
+        // A cutoff of the true best: everything else is pruned unvisited
+        // or scored without the gate's help, so far fewer leaves are scored
+        // and the top-N comes back short or wrong. Only possible if the
+        // seed is honored.
+        let honest = EngineSession::new(&e, &sc).unwrap().solve_unit_json(0, 1, 0.0, 0.0, 0.0, None);
+        let out = EngineSession::new(&e, &sc).unwrap()
+            .solve_unit_json(0, 1, whole[0].floor(), whole[0], 0.0, None);
+        let (got, _, _) = scores(&out);
+        assert!(scored(&out) < scored(&honest), "seed ignored: scored {} vs {}", scored(&out), scored(&honest));
+        assert_ne!(got.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                   whole.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
+    }
+}
+
+#[cfg(test)]
+mod radiance_tests {
+    //! The spell oracle with Radiance and Divine Honor on (boost 1.2),
+    //! exported from `solver_indep_oracle_radiance`. The JS worker scores this
+    //! top-15 with Radiance applied to item-granted SP as the builder does;
+    //! the Rust search must return the same scores bit for bit. Without the
+    //! item-SP term the best build scores 1,591,195.66 instead of 1,623,490.02.
+    use super::*;
+
+    const JS_TOP15: [&str; 15] = [
+        "1.62349002478097030e+6", "1.60785430457898579e+6", "1.59537180860364251e+6",
+        "1.58615954220282845e+6", "1.57536056265444704e+6", "1.56235661933677294e+6",
+        "1.55842050695789512e+6", "1.55041340382658830e+6", "1.54917623575623939e+6",
+        "1.54217662320584944e+6", "1.54132900229394808e+6", "1.52626071746402979e+6",
+        "1.50836622007927508e+6", "1.50466130193234235e+6", "1.49194417516161525e+6",
+    ];
+
+    #[test]
+    fn matches_the_js_top15_with_item_sp_scaled() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/");
+        let enum_fx = std::fs::read_to_string(format!("{dir}enum_radiance.txt")).unwrap();
+        let score_fx = std::fs::read_to_string(format!("{dir}score_radiance.json")).unwrap();
+        let out = solve_json_full(&enum_fx, &score_fx, 0.0, None, 0, 1);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("solve json");
+        let got: Vec<u64> = v["top"].as_array().unwrap().iter()
+            .map(|e| e["score"].as_f64().unwrap().to_bits()).collect();
+        let want: Vec<u64> = JS_TOP15.iter().map(|s| s.parse::<f64>().unwrap().to_bits()).collect();
+        assert_eq!(got, want);
     }
 }

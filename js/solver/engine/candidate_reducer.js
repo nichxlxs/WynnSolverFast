@@ -11,11 +11,20 @@
 
 const CANDIDATE_REDUCTION_POLICIES = Object.freeze({
     off: Object.freeze({ enabled: false, sensitivity_ratio: 0.005, guard: 'none', exact: true }),
-    certified: Object.freeze({ enabled: true, sensitivity_ratio: 0, guard: 'certified', exact: true }),
-    balanced: Object.freeze({ enabled: true, sensitivity_ratio: 0.005, guard: 'structural', exact: false }),
-    conservative: Object.freeze({ enabled: true, sensitivity_ratio: 0, guard: 'legacy', exact: false }),
-    current: Object.freeze({ enabled: true, sensitivity_ratio: 0.005, guard: 'legacy', exact: false }),
-    aggressive: Object.freeze({ enabled: true, sensitivity_ratio: 0.02, guard: 'legacy', exact: false }),
+    // set_aware (R4): set items in skill-point-free sets can be dominated
+    // by a setless item that beats them plus their set's largest per-piece
+    // change (`_set_transition_bounds`). Sound under each policy's own stat
+    // classification. Off for certified: on 116 meta and gaia snapshots and
+    // the family suite it removes nothing there (bonus rows touch stats the
+    // certified guard holds equal), so it would add risk for no gain. On for
+    // the heuristic policies: under `current` it removes 346 set items over
+    // those 116 snapshots, search space 0.969x geometric mean (to 0.79x),
+    // and the 181-test snapshot suite passes with it.
+    certified: Object.freeze({ enabled: true, sensitivity_ratio: 0, guard: 'certified', exact: true, set_aware: false }),
+    balanced: Object.freeze({ enabled: true, sensitivity_ratio: 0.005, guard: 'structural', exact: false, set_aware: true }),
+    conservative: Object.freeze({ enabled: true, sensitivity_ratio: 0, guard: 'legacy', exact: false, set_aware: true }),
+    current: Object.freeze({ enabled: true, sensitivity_ratio: 0.005, guard: 'legacy', exact: false, set_aware: true }),
+    aggressive: Object.freeze({ enabled: true, sensitivity_ratio: 0.02, guard: 'legacy', exact: false, set_aware: true }),
 });
 
 function get_candidate_reduction_policy(mode) {
@@ -141,9 +150,16 @@ function reduce_candidate_pools(pools, context = {}) {
 
     _candidate_apply_contract_guards(dominance_stats, snap, dmg_weights, policy);
 
+    // R4 set-aware dominance: on when the policy says so, unless the caller
+    // or a global switch (`SOLVER_SET_DOMINANCE = false`) turns it off.
+    const set_switch = typeof globalThis !== 'undefined' ? globalThis.SOLVER_SET_DOMINANCE : undefined;
+    const set_aware = (context.set_aware ?? set_switch ?? policy.set_aware) === true;
+    const set_table = context.sets ?? (typeof sets !== 'undefined' ? sets : null);
     const pruning_report = _prune_dominated_items(active_pools, dominance_stats, {
         preserve_set_items: context.preserve_set_items !== false,
         return_report: true,
+        set_aware,
+        sets: set_table,
     });
     const deferred_pools = _candidate_deferred_pools(original_pools, active_pools);
 
