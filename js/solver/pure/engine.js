@@ -449,7 +449,9 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
 
 /**
  * Greedy SP allocation loop — shared by worker and main-thread sensitivity.
- * Step-down [20, 4, 1] with try-revert-keep pattern.
+ * Uses a smaller coarse step [10, 4, 1] with the try-revert-keep pattern.
+ * The old 20-point step could consume an entire 20-point budget before a
+ * better split allocation was considered.
  *
  * @param {Int32Array|number[]} base_sp - Per-attribute base SP (mutated in-place)
  * @param {Int32Array|number[]} total_sp - Per-attribute total SP (mutated in-place)
@@ -462,7 +464,7 @@ function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn)
     let allocated = 0;
     let cur = trial_score_fn();
 
-    for (const step of [20, 4, 1]) {
+    for (const step of [10, 4, 1]) {
         let progress = true;
         while (progress && remaining > 0) {
             progress = false;
@@ -628,7 +630,7 @@ function eval_combo_mana_check(p) {
 }
 
 /**
- * Greedy SP allocation with optional floor enforcement.
+ * Score-driven SP allocation with optional floor enforcement.
  * Wraps greedy_sp_loop with budget check, room check, and floor phase.
  *
  * @param {Int32Array|number[]} base_sp - mutated in-place

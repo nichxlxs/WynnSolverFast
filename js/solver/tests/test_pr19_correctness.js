@@ -59,23 +59,22 @@ function sameArray(actual, expected, label) {
         `Bony two-piece aDamPct applied during finalization: got ${finalized.get('aDamPct')}`);
 }
 
-// 3. Greedy SP allocation should not get stuck at the first 20-point step when
-// a split allocation scores higher. This synthetic surface has 10/10 as the
-// best accepted state and 20/0 worse than the starting score.
+// 3. Extra-SP allocation should not get stuck at the first 20-point step when
+// a split allocation scores higher. This reproduces the review's neutral-damage
+// Str/Dex counterexample with the actual SP conversion curve: 10/10 beats 20/0.
 {
-    const base = [0, 0, 0, 0, 0];
-    const total = [0, 0, 0, 0, 0];
-    const score = () => {
-        const a = total[0], b = total[1];
-        return 100 - Math.abs(a - 10) - Math.abs(b - 10);
-    };
-    const allocated = ctx.greedy_sp_allocate(base, total, 20, [100, 100, 100, 100, 100], null, score, null);
+    const base = [0, 0, 60, 60, 60];
+    const total = [0, 0, 60, 60, 60];
+    const score = () => 1 + ctx.skillPointsToPercentage(total[0]) +
+        ctx.skillPointsToPercentage(total[1]);
+    const allocated = ctx.greedy_sp_allocate(base, total, 20, [100, 100, 150, 150, 150], null, score, null);
+    const expected = 1 + ctx.skillPointsToPercentage(10) + ctx.skillPointsToPercentage(10);
     t.assert(allocated === 20,
-        `greedy SP allocated the available split budget: got ${allocated}`);
+        `SP allocator used the available split budget: got ${allocated}`);
     t.assert(base[0] === 10 && base[1] === 10,
-        `greedy SP chose 10/10 synthetic optimum: got ${JSON.stringify(base)}`);
-    t.assert(score() === 100,
-        `greedy SP reached synthetic optimum score: got ${score()}`);
+        `SP allocator chose the 10/10 counterexample optimum: got ${JSON.stringify(base)}`);
+    t.assert(Math.abs(score() - expected) < 1e-12,
+        `SP allocator reached the 10/10 counterexample score: got ${score()}, expected ${expected}`);
 }
 
 const result = t.summary();
