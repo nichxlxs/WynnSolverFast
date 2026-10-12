@@ -8,6 +8,8 @@ regenerate a file only together with the constants that depend on it.
   `score_*.json`: copies of the family fixtures produced by
   `gen_family_fixtures.sh`, read by the R21 epsilon regressions in
   `src/enumerate.rs` (they pin the tierstack and heavy melee small optima).
+  The tierstack score fixture is also read by the crit-floor regression in
+  `src/scoring.rs` (a Ruinous build whose damage falls as Dex rises).
 - `score_ehp_tome_all.json`: the `solver_bench_ehp_tome_all` score fixture
   (tome optimisation mode 2), read by the mana-rescue regression test in
   `src/scoring.rs`.
