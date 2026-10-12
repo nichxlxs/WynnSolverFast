@@ -5,7 +5,8 @@
 //! validated bit-exact by `bin/score_kernel.rs` against fixtures exported
 //! with SOLVER_EXPORT_SCORE. JS numeric semantics are mirrored throughout
 //! (missing-key NaN flow, insertion-order maps, NaN-propagating max,
-//! half-up rounding). Healing is not ported (never affects total_damage).
+//! half-up rounding). Damage-only paths omit healing amounts; healing
+//! objectives use the separate healing evaluator.
 
 use serde_json::Value;
 use std::borrow::Cow;
@@ -426,8 +427,8 @@ pub fn eval_spell_parts(
             result.kind = Some("damage");
             result.normal_total = norm;
             result.crit_total = crit;
-        } else if part.get("max_hp_heal_pct").is_some() {
-            // Healing not ported: heal parts never contribute to total_damage.
+        } else if part.get("power").or_else(|| part.get("max_hp_heal_pct")).is_some() {
+            // Heal parts never contribute to this damage-only result.
             result.kind = Some("heal");
         } else if let Some(hits) = part.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = part.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -1474,9 +1475,11 @@ impl Layer2 {
         for tome in &self.tome_sms { self.add_item(&mut sm, tome); }
         self.add_item(&mut sm, weapon);
 
-        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names.
+        // Set bonuses (skip SP keys) from non-crafted equips' 'set' names,
+        // and the weapon's: a non-crafted weapon is a set piece too
+        // (calculate_skillpoints counts it).
         let mut set_counts: Vec<(String, i64)> = Vec::new();
-        for item in &equips {
+        for item in equips.iter().copied().chain(std::iter::once(weapon)) {
             if item.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) { continue; }
             let Some(set_name) = item.get("set").and_then(|v| v.as_str()) else { continue };
             match set_counts.iter_mut().find(|(n, _)| n == set_name) {
@@ -2942,7 +2945,7 @@ pub fn leaf_pipeline_gated(
         let gate_env_off = env_once!("SCORE_HPCAST_GATE" == "0")
             && consts.hp_casting;
         if objective.supports_ceiling() && l2.ceiling_vars_ok && !two_sided_off
-            && !gate_env_off {
+            && !gate_env_off && rows_crit_ceiling_ok(compiled_rows) {
             if (dwork.is_none() || dense_check) && base_pre.is_none() && base_opt.is_none() {
                 base_opt = Some(phase!(BASE, l2.build_base(item_names, weapon))?);
             }
@@ -2964,9 +2967,17 @@ pub fn leaf_pipeline_gated(
                     let DenseWork { leaf, scratch, .. } = &mut **w;
                     let neg = if two_sided {
                         dense_assemble(d, leaf, scratch, &low_sp);
-                        dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        // The low-SP point is a lower bound only while a crit
+                        // hit is at least a normal one; below that, more Dex
+                        // lowers damage (see CRIT_CEILING_FLOOR). No gate.
+                        if scratch.num(d.s_crit_dam_pct) < CRIT_CEILING_FLOOR {
+                            f64::INFINITY
+                        } else {
+                            dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, true)
+                        }
                     } else { 0.0 };
                     dense_assemble(d, leaf, scratch, &ceiling_sp);
+                    ceiling_crit_floor_dense(d, scratch);
                     let v = if two_sided {
                         dense_score_signed(d, leaf, scratch, rows, compiled_rows, tables, false) + neg
                     } else {
@@ -2974,6 +2985,7 @@ pub fn leaf_pipeline_gated(
                     };
                     if dense_check && !two_sided {
                         let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                        ceiling_crit_floor_obj(&mut cb150);
                         let o = obj_score(&mut cb150);
                         assert!(v == o || (v.is_nan() && o.is_nan()),
                                 "dense/obj gate mismatch: {v:?} vs {o:?}");
@@ -2982,13 +2994,17 @@ pub fn leaf_pipeline_gated(
                 } else if two_sided {
                     let base = base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap());
                     let cb_lo = asm(base, &low_sp);
-                    let neg = objective.score_signed(
-                        &cb_lo, weapon, rows, registry, hit_refs, tables, true);
-                    let cb150 = asm(base, &ceiling_sp);
+                    let lo_crit = cb_lo.get("critDamPct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let neg = if lo_crit < CRIT_CEILING_FLOOR { f64::INFINITY } else {
+                        objective.score_signed(&cb_lo, weapon, rows, registry, hit_refs, tables, true)
+                    };
+                    let mut cb150 = asm(base, &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     objective.score_signed(
                         &cb150, weapon, rows, registry, hit_refs, tables, false) + neg
                 } else {
                     let mut cb150 = asm(base_pre.unwrap_or_else(|| base_opt.as_ref().unwrap()), &ceiling_sp);
+                    ceiling_crit_floor_obj(&mut cb150);
                     obj_score(&mut cb150)
                 };
                 ceiling < cutoff - cutoff.abs() * 1e-9
@@ -3201,7 +3217,8 @@ pub fn leaf_pipeline_gated(
                 let mut b2 = saved_rescue_base;
                 let mut t2 = saved_rescue_total;
                 let o = mana_rescue(bb, l2, weapon, &mut b2, &mut t2, &orig_base_sp,
-                                    rows, registry, hit_refs, tables, consts, compiled)?.is_some();
+                                    rows, registry, hit_refs, tables, consts, compiled,
+                                    tome_extra)?.is_some();
                 assert_eq!(ok, o, "dense/obj rescue mismatch");
                 assert_eq!((b2, t2), (base_sp, total_sp), "dense/obj rescue SP mismatch");
             }
@@ -3240,7 +3257,8 @@ pub fn leaf_pipeline_gated(
     }
     if phase!(MANA, !mana_check_passes(rows, &combo_base, registry, tables, consts, compiled)) {
         match mana_rescue(build_base, l2, weapon, &mut base_sp, &mut total_sp,
-                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled)? {
+                          &orig_base_sp, rows, registry, hit_refs, tables, consts, compiled,
+                          tome_extra)? {
             Some(rescued) => {
                 combo_base = rescued;
                 if !thresholds.is_empty()
@@ -3336,6 +3354,11 @@ pub fn mana_rescue(
     rows: &[Row], registry: &[Value],
     hit_refs: &HashMap<i64, HashMap<String, Obj>>, tables: &Tables, consts: &L2Consts,
     compiled: Option<&[CompiledRow]>,
+    // The leaf's tome bundle (tome optimisation), merged into every trial
+    // assembly exactly as the leaf does. Without it a rescued build was
+    // mana-checked and scored with no weapon/armour tomes, while the JS
+    // worker's rescue (through `_leaf_extra_stats`) includes them.
+    tome_extra: Option<&Obj>,
 ) -> Result<Option<Obj>, String> {
     let _ = hit_refs;
     if consts.hp_casting { return Ok(None); }
@@ -3384,7 +3407,7 @@ pub fn mana_rescue(
         total_sp[INT_IDX] += shifted;
 
         let sp_f: Vec<f64> = total_sp.iter().map(|&x| x as f64).collect();
-        let combo_base = l2.assemble_from_base(build_base, &sp_f, weapon);
+        let combo_base = l2.assemble_from_base_extra(build_base, &sp_f, weapon, tome_extra);
         if mana_check_passes(rows, &combo_base, registry, tables, consts, compiled) {
             return Ok(Some(combo_base));
         }
@@ -3650,6 +3673,7 @@ impl Layer2 {
         add(&mut base, &bounds.set_upper);
         let ceiling_sp = [150f64; 5];
         let mut cb = self.assemble_from_base(&base, &ceiling_sp, weapon);
+        ceiling_crit_floor_obj(&mut cb);
         Ok(match compiled {
             Some(c) => objective.score_compiled(&mut cb, weapon, rows, c, tables),
             None => objective.score(&cb, weapon, rows, registry, hit_refs, tables),
@@ -3717,7 +3741,10 @@ pub fn compute_spell_healing_total(stats: &StatsView, spell: &Value, tables: &Ta
             p.get("name").and_then(|n| n.as_str()) == Some(name)
         }) else { return 0.0 };
         let part_id = format!("{}.{}", base_spell, name);
-        let amount = if let Some(pct) = part.get("max_hp_heal_pct").and_then(|v| v.as_f64()) {
+        // Current spells use `power`; historical fixtures use the older
+        // alias. Match JS spell_part_heal_power, including power=0 precedence.
+        let amount = if let Some(pct) = part.get("power")
+            .or_else(|| part.get("max_hp_heal_pct")).and_then(|v| v.as_f64()) {
             let mut heal_mult = 1.0;
             if let Some(m) = heal_mult_map {
                 for (k, v) in m {
@@ -4366,7 +4393,7 @@ pub fn eval_combo_damage_compiled(
 // compile time: parts lowered to flat structs with precomputed multipliers,
 // part ids, and part-scoped ConvBase key names; hit edges resolved to part
 // indices; part KINDS resolved statically (multipliers → damage,
-// max_hp_heal_pct → heal, total → first sub's kind — the same inference the
+// power/max_hp_heal_pct → heal, total → first sub's kind — the same inference the
 // dynamic path performs); the display part index (find_display_result) and
 // the flat-damage contributor set (given the row's constant DPS chain root)
 // precomputed. Evaluation walks arrays with an indexed memo and computes
@@ -4428,7 +4455,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
         seen.push(i);
         let p = &parts[i];
         if p.get("multipliers").is_some() { return Some("damage"); }
-        if p.get("max_hp_heal_pct").is_some() { return Some("heal"); }
+        if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() { return Some("heal"); }
         if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             for sub in hits.keys() {
                 if let Some(j) = names.iter().position(|x| x == sub) {
@@ -4460,7 +4487,7 @@ pub fn compile_spell_plan(spell: &Value, comp_dps: &Option<(String, f64, String)
                 part_id,
                 conv_names,
             })
-        } else if p.get("max_hp_heal_pct").is_some() {
+        } else if p.get("power").or_else(|| p.get("max_hp_heal_pct")).is_some() {
             PartKindPlan::Heal
         } else if let Some(hits) = p.get("hits").and_then(|h| h.as_object()) {
             let tick_rounding = p.get("tick_rounding").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -5236,6 +5263,11 @@ impl DenseCtx {
             scratch_arena.clear();
             DenseDirect::lower_item(l2, weapon, |k| idx.get(k).copied(), &mut scratch_arena)?;
             let base_arcanes = l2.tome_sms.iter().any(item_has_arcanes) || item_has_arcanes(weapon);
+            let weapon_set_id = if weapon.get("crafted").and_then(|v| v.as_bool()).unwrap_or(false) {
+                None
+            } else {
+                weapon.get("set").and_then(|v| v.as_str()).and_then(|n| l2.set_ids.get(n).copied())
+            };
             post_item_adds.extend(scratch_arena.iter().copied());
 
             // Set bonuses (skp keys excluded, js coercion prebaked).
@@ -5282,7 +5314,7 @@ impl DenseCtx {
                 dam_tome_adds: dam_sim.tome_adds,
                 def_tome_adds: def_sim.tome_adds,
                 atk_spd_idx: tables.atk_spd_index(weapon.get("atkSpd").and_then(|v| v.as_str())),
-                template_zero_idxs, base_arcanes, hp_idx, agi_def_idx,
+                template_zero_idxs, base_arcanes, weapon_set_id, hp_idx, agi_def_idx,
                 hp_base: l2.hp_base,
                 class_def_idx: 0,               // filled below
                 class_def_val,
@@ -6231,6 +6263,9 @@ pub struct DenseDirect {
     pub template_zero_idxs: Vec<u32>,
     /// ARCANES present on tomes/weapon (leaf items OR onto this).
     pub base_arcanes: bool,
+    /// The weapon's set id when it is a non-crafted set piece; it seeds the
+    /// per-leaf set counts.
+    pub weapon_set_id: Option<u32>,
     pub hp_idx: u32,
     pub agi_def_idx: u32,
     pub hp_base: f64,
@@ -6334,7 +6369,8 @@ impl DenseLeaf {
             trace::add(trace::FD_DIFF_SLOTS, diff);
             if diff == 0 { trace::add(trace::FD_SAME_ALL, 1); }
         }
-        let mut set_counts: [(u32, i64); 8] = [(u32::MAX, 0); 8];
+        // Nine slots can hold a set piece: eight equips and the weapon.
+        let mut set_counts: [(u32, i64); 9] = [(u32::MAX, 0); 9];
         let mut n_sets = 0usize;
         self.has_arcanes = dd.base_arcanes;
         for name in item_names {
@@ -6349,6 +6385,15 @@ impl DenseLeaf {
                         None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
                     }
                 }
+            }
+        }
+        // The weapon counts after the equipment, in the order
+        // calculate_skillpoints builds its set map, so bonuses are summed in
+        // the same order as the JS engine.
+        if let Some(sid) = dd.weapon_set_id {
+            match set_counts[..n_sets].iter_mut().find(|(s, _)| *s == sid) {
+                Some((_, c)) => *c += 1,
+                None => { set_counts[n_sets] = (sid, 1); n_sets += 1; }
             }
         }
         add_item_ops!(&dd.post_item_adds);
@@ -6845,6 +6890,42 @@ pub fn dense_mana_obj(d: &DenseCtx, leaf: &DenseLeaf, s: &DScratch) -> Obj {
     o
 }
 
+/// Crit damage below -100% makes a crit hit weaker than a normal one, so a
+/// part's crit-mixed damage `d * dm * (str + crit * (1 + critDamPct / 100))`
+/// FALLS as Dex (crit chance) rises, and an assemble at high skill points
+/// stops bounding it (Ruinous rolls -372% to -286%; found by BOUND_OBSERVE on
+/// fam_spellsteal_small, where the all-max ceiling sat below the subtree's
+/// real best in 132 of 44,292 subtrees).
+///
+/// Every upper-bound evaluation raises critDamPct to at least -100 after its
+/// assemble. Proof: let v be critDamPct at the ceiling point (>= every
+/// completion's, the per-stat maxima) and r >= 0 a row's own bonus
+/// (`rows_crit_ceiling_ok`). With v' = max(v, -100), cm' = 1 + (v' + r)/100
+/// is >= 0 and >= every completion's cm, so for crit chances c <= c_ceiling:
+/// str + c * cm <= str + c * cm' <= str + c_ceiling * cm'. At v < -100 the
+/// floor gives crit = normal hit, i.e. the c = 0 value. Lower-bound uses (the
+/// two-sided blend's negative terms) do not get the floor; the leaf gate
+/// skips them on such leaves instead.
+pub const CRIT_CEILING_FLOOR: f64 = -100.0;
+
+pub fn ceiling_crit_floor_dense(d: &DenseCtx, s: &mut DScratch) {
+    let i = d.s_crit_dam_pct as usize;
+    if s.vals[i] < CRIT_CEILING_FLOOR { s.vals[i] = CRIT_CEILING_FLOOR; }
+}
+
+pub fn ceiling_crit_floor_obj(cb: &mut Obj) {
+    if let Some(v) = cb.get("critDamPct").and_then(|v| v.as_f64()) {
+        if v < CRIT_CEILING_FLOOR { cb.insert("critDamPct".into(), Value::from(CRIT_CEILING_FLOOR)); }
+    }
+}
+
+/// The floor's proof needs every per-row critDamPct bonus to be >= 0 (or a
+/// max-merge, which is monotone and only raises the value).
+pub fn rows_crit_ceiling_ok(compiled: &[CompiledRow]) -> bool {
+    compiled.iter().all(|r| r.bonuses.iter()
+        .all(|b| b.key != "critDamPct" || b.use_max || b.contrib >= 0.0))
+}
+
 /// Objective ceiling for bound deltas over an ALREADY-FILLED leaf in `work`
 /// (the last-slot cluster loop fills the prefix once and probes many delta
 /// sets against it). Deltas are journaled and rolled back.
@@ -6884,6 +6965,7 @@ pub fn dense_ceiling_cached(
         }
         let ceiling_sp = [150f64; 5];
         dense_assemble(d, leaf, scratch, &ceiling_sp);
+        ceiling_crit_floor_dense(d, scratch);
     }
     let v = {
         let DenseWork { leaf, scratch, .. } = work;
@@ -6925,6 +7007,7 @@ pub fn dense_ceiling_with(
     let DenseWork { leaf, scratch, .. } = work;
     let ceiling_sp = [150f64; 5];
     dense_assemble(d, leaf, scratch, &ceiling_sp);
+    ceiling_crit_floor_dense(d, scratch);
     Some(dense_score(d, leaf, scratch, rows, compiled, tables))
 }
 
@@ -7058,4 +7141,166 @@ pub fn dense_check_thresholds(
         if !*ge && v > *value { return false; }
     }
     true
+}
+
+
+#[cfg(test)]
+mod healing_schema_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn tables() -> Tables {
+        Tables {
+            skillpoint_damage_mult: Vec::new(), base_damage_multiplier: Vec::new(),
+            attack_speeds: Vec::new(), damage_keys: Vec::new(),
+            sp_rate: 0.99, sp_cap: 150.0, sp_pct_table: vec![0.0],
+            skillpoint_final_mult_3: 1.0, skillpoint_final_mult_4: 1.0,
+            names: ElemNames::build(),
+        }
+    }
+
+    fn stats(multipliers: Value) -> Obj {
+        json!({"hp": 8000.0, "hpBonus": 2000.0, "healMult": {"__m": multipliers}})
+            .as_object().unwrap().clone()
+    }
+
+    fn spell(heal_fields: Value) -> Value {
+        let mut heal = heal_fields.as_object().unwrap().clone();
+        heal.insert("name".into(), json!("Heal"));
+        json!({"base_spell": 1, "display": "Total", "parts": [
+            heal, {"name": "Total", "hits": {"Heal": 2}}
+        ]})
+    }
+
+    #[test]
+    fn current_healing_power_and_aggregate_are_both_counted() {
+        let stats = stats(json!({}));
+        let heal = spell(json!({"power": 0.15}));
+        // JS sums every part: 1500 direct + 2 * 1500 aggregate.
+        assert_eq!(compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables()), 4500.0);
+    }
+
+    #[test]
+    fn healing_multipliers_apply_globally_or_to_the_matching_leaf_part() {
+        let stats = stats(json!({
+            "global": 20, "selected:1.Heal": 50,
+            "other_spell:2.Heal": 900, "aggregate_only:1.Total": 900
+        }));
+        let heal = spell(json!({"power": 0.15}));
+        // Only global and the Heal-specific boost apply: 4500 * 1.2 * 1.5.
+        let result = compute_spell_healing_total(&StatsView::Borrowed(&stats), &heal, &tables());
+        assert!((result - 8100.0).abs() < 1e-9, "{result}");
+    }
+
+    #[test]
+    fn historical_heal_alias_works_but_current_zero_power_takes_precedence() {
+        let stats = stats(json!({}));
+        let view = StatsView::Borrowed(&stats);
+        let tables = tables();
+        for (fields, expected) in [
+            (json!({"max_hp_heal_pct": 0.15}), 4500.0),
+            (json!({"power": 0, "max_hp_heal_pct": 0.15}), 0.0),
+            (json!({"power": 0.10, "max_hp_heal_pct": 0.15}), 3000.0),
+        ] {
+            assert_eq!(compute_spell_healing_total(&view, &spell(fields), &tables), expected);
+        }
+    }
+
+    #[test]
+    fn dynamic_and_compiled_kinds_recognize_current_and_legacy_heal_parts() {
+        let stats = stats(json!({}));
+        for fields in [json!({"power": 0.15}), json!({"power": 0}),
+            json!({"max_hp_heal_pct": 0.15})] {
+            let heal = spell(fields);
+            let dynamic = eval_spell_parts(&StatsView::Borrowed(&stats), &Obj::new(), &heal, &tables());
+            assert_eq!(dynamic.len(), 2);
+            assert!(dynamic.iter().all(|part| part.kind == Some("heal")));
+            let compiled = compile_spell_plan(&heal, &None, &None).unwrap();
+            assert!(matches!(compiled.parts[0].kind, PartKindPlan::Heal));
+            assert!(compiled.parts.iter().all(|part| part.static_kind == Some("heal")));
+            assert_eq!(eval_spell_plan(&StatsView::Borrowed(&stats), &Obj::new(), &compiled,
+                0.0, &tables(), false), (0.0, 0.0));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tome_rescue_tests {
+    //! The mana rescue must assemble with the leaf's tome bundle. It did not:
+    //! `mana_rescue` used `assemble_from_base`, so with tome optimisation a
+    //! rescued build was mana-checked and scored without its weapon/armour
+    //! tomes (the JS worker's rescue includes them). On the ehp tome scenario
+    //! 43 of the 2,000 builds within 5% of the best were affected; this one
+    //! scored 45,998.45 without its tomes and 49,223.33 with them (its EHP
+    //! recomputed from items, final skill points and tomes).
+    use super::*;
+
+    #[test]
+    fn rescued_build_is_scored_with_its_tomes() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_ehp_tome_all.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        let names = ["Shimmersight", "Adamantite", "Empty Joy", "Statue", "Summa", "Summa",
+                     "Diamond Static Bracelet", "Achromatic Gloom"];
+        let mut kernel = crate::Kernel::new();
+        let mut work = DenseWork::default();
+        let (out, _tome) = leaf_pipeline_tome(
+            &names, &sc.layer2, &sc.weapon, sc.guild_unit.as_ref(), &mut kernel,
+            &sc.rows, &sc.registry, &sc.hit_refs, &sc.tables, &sc.consts, &sc.objective,
+            Some(&sc.compiled_rows), None, sc.dense.as_ref().map(|d| (d, &mut work)),
+            &sc.thresholds, &sc.spell_base_costs).unwrap();
+        let LeafOutcome::Scored(r) = out else { panic!("build not scored") };
+        assert!((r.score - 49_223.325520909995).abs() < 1e-6,
+                "rescued build scored {} (45998.45 means its tomes were dropped)", r.score);
+    }
+}
+
+#[cfg(test)]
+mod crit_floor_tests {
+    //! A crit damage below -100% (Ruinous: -286%) makes damage fall as Dex
+    //! rises, so the high-SP ceiling must floor critDamPct at -100 to stay an
+    //! upper bound (CRIT_CEILING_FLOOR). Without the floor the all-max
+    //! assemble scored this build about half of its low-Dex value.
+    use super::*;
+
+    fn score_at(sc: &ScoringCtx, names: &[&str; 8], sp: &[f64; 5], floor: bool) -> f64 {
+        let d = sc.dense.as_ref().expect("dense lowering");
+        let dd = d.direct.as_ref().expect("direct leaf build");
+        let mut work = DenseWork::default();
+        assert!(work.leaf.fill_direct(d, dd, names));
+        let DenseWork { leaf, scratch, .. } = &mut work;
+        scratch.reset(leaf, d);
+        dense_assemble(d, leaf, scratch, sp);
+        if floor { ceiling_crit_floor_dense(d, scratch); }
+        dense_score(d, leaf, scratch, &sc.rows, &sc.compiled_rows, &sc.tables)
+    }
+
+    #[test]
+    fn high_sp_ceiling_bounds_a_build_with_crit_below_minus_100() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/score_fam_tierstack_small.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sc = ScoringCtx::load(&v).unwrap();
+        assert!(rows_crit_ceiling_ok(&sc.compiled_rows));
+        let names = ["No Helmet", "Ruinous", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        let low_dex = [150.0, 0.0, 150.0, 150.0, 150.0];
+        let all_max = [150.0; 5];
+        let real = score_at(&sc, &names, &low_dex, false);
+        let unfloored = score_at(&sc, &names, &all_max, false);
+        assert!(real > 0.0);
+        // The adversarial shape: more Dex, less damage.
+        assert!(unfloored < real, "expected Dex to lower damage here: {unfloored} vs {real}");
+        // The floored ceiling bounds it, through the public ceiling path too.
+        let floored = score_at(&sc, &names, &all_max, true);
+        assert!(floored >= real, "floored ceiling {floored} below the real score {real}");
+        let d = sc.dense.as_ref().unwrap();
+        let mut work = DenseWork::default();
+        let via = dense_ceiling_with(d, &[], &[], &names, &mut work, &sc.rows, &sc.compiled_rows,
+                                     &sc.tables).unwrap();
+        assert_eq!(via, floored);
+        // Above -100 the floor is a no-op: a build without Ruinous is unchanged.
+        let plain = ["No Helmet", "No Chestplate", "No Leggings", "No Boots",
+                     "No Ring 1", "No Ring 2", "No Bracelet", "No Necklace"];
+        assert_eq!(score_at(&sc, &plain, &all_max, true), score_at(&sc, &plain, &all_max, false));
+    }
 }

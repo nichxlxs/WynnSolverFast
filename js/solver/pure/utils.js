@@ -435,3 +435,117 @@ function compute_melee_time_hits(qty_seconds, base_stats, delay, melee_period_ov
     }
     return qty_seconds / Math.max(melee_period, delay ?? SPELL_CAST_DELAY);
 }
+
+// ── Admissible envelope for the raw >= prechecks ────────────────────────────
+//
+// The leaf prechecks (and the restriction suffix bounds that mirror them)
+// reject a build when a running sum of item stats cannot reach a `>=`
+// restriction. That is only sound if the running sum, plus what is added
+// later, is an UPPER bound on the final value the restriction is checked
+// against. Assembly adds three things after the item sum: set bonuses
+// (applied at the leaf from the worn piece counts), the Radiance scale
+// (`floor(v * boost)` on positive values of the affected stats), and the
+// ability tree's scaling outputs. The precheck used to count none of them, so
+// a pair like Jester Bracelet + Jester Ring (raw XP -34, set bonus +45, net
+// +11) was rejected against `xpb >= 5`. Reported on PR #19 (C3).
+//
+// Final value, in assembly order:
+//   x     = items + sets + atree_raw                       (pre-Radiance)
+//   final = rad(x) + atree_scaled + static_boosts + tomes  (post-Radiance)
+// with rad(x) <= max(x, x * boost) for every x. So the precheck may reject
+// only when max(x_ub, x_ub * boost) + post < value, where x_ub adds to the
+// running item sum the best positive bonus every reachable set could grant.
+
+/**
+ * Prepare the per-search parts of the envelope.
+ * @param {object} o
+ * @param {Map}    o.atree_merged, o.button_states, o.slider_states
+ * @param {number} o.radiance_boost   1 when inactive
+ * @param {Iterable<string>} o.set_names  sets any pool, locked item or the
+ *                 weapon belongs to (non-crafted only)
+ * @param {Map}    o.sets_map         set name -> { bonuses: [...] }
+ */
+function precheck_envelope_context(o) {
+    const ctx = {
+        unknown_atree: false, var_keys: new Set(), const_scaled: new Map(),
+        radiance: (o.radiance_boost ?? 1) > 1 ? o.radiance_boost : 1,
+        set_rows: [],
+    };
+    const am = o.atree_merged;
+    if (am && am.size > 0) {
+        const a = atree_scaling_analysis(am);
+        if (!a.stat_dependent) {
+            const [, scaled] = atree_compute_scaling(am, new Map(),
+                o.button_states, o.slider_states, null, !a.has_prop_outputs);
+            ctx.const_scaled = scaled;
+        } else {
+            const plan = atree_collect_stat_effects(am);
+            if (!plan || plan.var_has_prop_io) {
+                ctx.unknown_atree = true;
+            } else {
+                const [, const_scaled] = atree_compute_scaling(am, new Map(),
+                    o.button_states, o.slider_states, null, !a.has_prop_outputs, true);
+                ctx.const_scaled = const_scaled;
+                ctx.var_keys = plan.var_keys;
+            }
+        }
+    }
+    for (const name of o.set_names ?? []) {
+        const bonuses = o.sets_map?.get(name)?.bonuses;
+        if (Array.isArray(bonuses)) ctx.set_rows.push(bonuses);
+    }
+    return ctx;
+}
+
+/** Sum over reachable sets of the best positive bonus each grants to `stat`. */
+function _precheck_set_allowance(ctx, stat) {
+    let total = 0;
+    for (const bonuses of ctx.set_rows) {
+        let best = 0;
+        for (const row of bonuses) {
+            const v = row?.[stat];
+            if (typeof v === 'number' && v > best) best = v;
+        }
+        total += best;
+    }
+    return total;
+}
+
+/**
+ * The running item sum a build must reach for `>= value` to stay possible,
+ * or null when no sound envelope exists (the precheck must then be skipped).
+ *
+ * @param {object} ctx           from precheck_envelope_context
+ * @param {string[]} stats       stats whose running sums are added (e.g.
+ *                               ['hp', 'hpBonus'] for the HP prechecks)
+ * @param {number} value         the restriction threshold
+ * @param {number} pre_fixed     constants added before Radiance (atree_raw)
+ * @param {number} post_fixed    constants added after Radiance (static
+ *                               boosts, tome bound)
+ */
+function precheck_required_running(ctx, stats, value, pre_fixed, post_fixed) {
+    if (ctx.unknown_atree) return null;
+    let set_allow = 0, scaled = 0, rad = false;
+    for (const stat of stats) {
+        if (ctx.var_keys.has(stat)) return null;
+        set_allow += _precheck_set_allowance(ctx, stat);
+        const c = ctx.const_scaled.get(stat);
+        if (typeof c === 'number') scaled += c;
+        if (radiance_affected.includes(stat) && !reversedIDs.includes(stat)) rad = true;
+    }
+    const target = value - post_fixed - scaled;     // rad(x) must reach this
+    const r = rad ? ctx.radiance : 1;
+    const need_x = target > 0 ? target / r : target; // max(x, x*r) >= target
+    return need_x - pre_fixed - set_allow;
+}
+
+/** Names of the sets any of these item statMaps belongs to (non-crafted). */
+function collect_set_names(statmaps) {
+    const names = new Set();
+    for (const sm of statmaps) {
+        if (!sm || (sm.has && sm.has('NONE')) || sm.get('crafted')) continue;
+        const n = sm.get('set');
+        if (n) names.add(n);
+    }
+    return names;
+}

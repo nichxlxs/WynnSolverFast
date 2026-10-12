@@ -153,6 +153,15 @@ function calculate_skillpoints(equipment, weapon, sp_budget = Infinity, scratch_
     const wep_skp = weapon.get('skillpoints');
     for (let i = 0; i < 5; i++) total_item_skillpoints[i] += wep_skp[i];
 
+    // A non-crafted weapon is a set piece like any armour or accessory (44
+    // weapons in 2.2.3.0 belong to a set, e.g. Bony Bow with Bony Circlet).
+    // The weapon is passed separately from `equipment`, so it has to be
+    // counted here or weapon-inclusive set bonuses never activate.
+    if (!weapon.get('crafted')) {
+        const wep_set = weapon.get('set');
+        if (wep_set) set_counts.set(wep_set, (set_counts.get(wep_set) ?? 0) + 1);
+    }
+
     // Set bonuses: treated as free (always available)
     for (const [set_name, count] of set_counts) {
         const bonus = sets.get(set_name).bonuses[count - 1];

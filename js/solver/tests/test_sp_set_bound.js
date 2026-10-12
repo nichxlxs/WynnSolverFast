@@ -62,13 +62,31 @@ t.assert(mixedCap[0] === 0, 'a negative set bonus is not credited as provision')
 t.assert(mixedCap[3] === 15 && mixedCap[4] === 15,
     'positive attributes of the same row are still credited');
 
-// Accumulation across sets takes the per-attribute maximum into one buffer.
+// Accumulation across sets SUMS each set's best reachable row: two sets are
+// worn at once, so their bonuses stack. This test used to assert a
+// per-attribute maximum across sets, which pinned an inadmissible bound.
 {
     const out = zeros();
     accumulate_reachable_set_bonus(morph, 0, 3, out);
     accumulate_reachable_set_bonus([[10, 100, 0, 0, 0]], 0, 1, out);
-    t.assert(JSON.stringify(out) === JSON.stringify([10, 100, 0, 0, 0]),
-        'accumulating a second set maxes per attribute in place');
+    t.assert(JSON.stringify(out) === JSON.stringify([10, 185, 0, 0, 0]),
+        'accumulating a second set adds its best reachable row per attribute');
+}
+
+// The PR #19 review counterexample: two disjoint sets each granting +10 Dex at
+// two pieces. A weapon requiring 115 Dex needs 95 assigned with both sets
+// complete, inside the 100-per-lane cap. Crediting only one set's +10 claims
+// 105 must be assigned and rejects a buildable completion.
+{
+    const setA = [[0, 0, 0, 0, 0], [0, 10, 0, 0, 0]];
+    const setB = [[0, 0, 0, 0, 0], [0, 10, 0, 0, 0]];
+    const out = zeros();
+    accumulate_reachable_set_bonus(setA, 0, 2, out);
+    accumulate_reachable_set_bonus(setB, 0, 2, out);
+    t.assert(out[1] === 20, `two disjoint +10 Dex sets bound +20 Dex (got ${out[1]})`);
+    const weaponDexReq = 115;
+    t.assert(weaponDexReq - out[1] <= 100,
+        'the review case stays inside the 100-per-lane assign cap');
 }
 
 // ── Admissibility, over random tables ────────────────────────────────────────
@@ -134,6 +152,46 @@ t.assert(tight,
     + (firstFailure ? ` — ${JSON.stringify(firstFailure)}` : ''));
 t.assert(exercisedClamp,
     'the random trials actually covered worn-past-end-of-table');
+
+// Multi-set admissibility over random tables: for every combination of
+// reachable piece counts across sets, the summed bound covers the summed
+// actual bonus.
+{
+    let ok = true, failure = null;
+    for (let trial = 0; trial < 2000 && ok; trial++) {
+        const sets = [];
+        const nsets = 1 + rand(3);
+        for (let s = 0; s < nsets; s++) {
+            const rows = [];
+            for (let r = 0, rc = 1 + rand(4); r < rc; r++) {
+                const row = zeros();
+                for (let j = 0; j < 5; j++) row[j] = rand(60) - 15;
+                rows.push(row);
+            }
+            sets.push({ rows, worn: rand(3), reach: rand(4) });
+        }
+        const bound = zeros();
+        for (const s of sets) accumulate_reachable_set_bonus(s.rows, s.worn, s.reach, bound);
+        // Enumerate every combination of reachable counts.
+        const choices = sets.map(s => reachable_set_counts(s.rows.length, s.worn, s.reach));
+        const walk = (i, acc) => {
+            if (!ok) return;
+            if (i === sets.length) {
+                for (let j = 0; j < 5; j++) {
+                    if (bound[j] < acc[j]) { ok = false; failure = { trial, j, bound, acc }; }
+                }
+                return;
+            }
+            for (const c of choices[i]) {
+                const add = trueBonus(sets[i].rows, c);
+                walk(i + 1, acc.map((v, j) => v + Math.max(0, add[j])));
+            }
+        };
+        walk(0, zeros());
+    }
+    t.assert(ok, 'multi-set sum is admissible over every reachable count combination'
+        + (failure ? ` — ${JSON.stringify(failure)}` : ''));
+}
 
 // Reachability itself: counts below what is worn are unreachable, because
 // pieces cannot be taken off partway through a search.

@@ -1,0 +1,47 @@
+{
+  "name": "solver_set_weapon_empty",
+  "description": "Set weapon (C1): the README mage build with Empty Mind swapped in, helmet and leggings free, and Empty Agony and Empty Joy forced into the leggings pool. Empty Mind plus one Empty legging activates the Empty two-piece bonus only if the weapon counts toward its set. Exact Cartesian oracle and independent oracle; also the scenario the Rust port of C1 is validated on.",
+  "url_hash": "CV0X60iCme0eDH05yb066M10tqDSw6qIW70yUUbcq6TEj1_GPYXkWG8403bbWA05oI10120XoeGMA00G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94402bHXiKG132GkBGeCAab2A0G001W94482bHXiKG132KkBGeCAab2AWG0CKM2g0K8B50080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4220XoeGMAeW118t58K65oI15080W0m4224XoeGMAeW11At58K65oI1500",
+  "scoring_target": "combo_damage",
+  "time_limit_seconds": 60,
+  "num_workers": 2,
+  "free_mask": 5,
+  "max_pool_size": 8,
+  "oracle": true,
+  "locked_items": {
+    "boots": {
+      "name": "Static Cling",
+      "stat_hash": "d09d8e03dc4d140c6f2f1bc2ae833bc9aeda56b53ae20c87d7a5f8272bdc2b7e"
+    },
+    "ring1": {
+      "name": "Intensity",
+      "stat_hash": "85a8a37c0d9cf62554aa87cef650e5eec02d1394472d0e0d7791a3319d4bd3cb"
+    },
+    "ring2": {
+      "name": "Gloomstone",
+      "stat_hash": "d7e8c1382e9c7e35fecabcc80a78984e6133d6e648ea115af0ec99c744e77615"
+    },
+    "bracelet": {
+      "name": "Diamond Static Bracelet",
+      "stat_hash": "59c5d0cda72c01ec82317d452f887af4822ff6b957babb8ea46e14a189066298"
+    },
+    "necklace": {
+      "name": "Achromatic Gloom",
+      "stat_hash": "3463abde847ef4d0aadc36f3824298c2aa811124586545557469fedaf5ed38d6"
+    }
+  },
+  "created": "2026-08-13T03:21:27.585Z",
+  "compress_hash": "f0490af7d4e1f955cddd434577da84b6c20395a5088ee476b82e38aa1baf9379",
+  "atree_hash": "af72089348512efe7769fd8d045b126cd73f4c1f941b6eec1e2d00c7989623e9",
+  "weapon_override": "Empty Mind",
+  "pool_include": {
+    "leggings": [
+      "Empty Agony",
+      "Empty Joy"
+    ]
+  },
+  "independent_oracle": {
+    "exhaustive": false,
+    "item_pruning": "off"
+  }
+}

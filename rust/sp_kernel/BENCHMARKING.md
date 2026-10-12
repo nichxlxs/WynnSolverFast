@@ -56,6 +56,44 @@ rust/sp_kernel/gen_family_fixtures.sh     # ~15 min, all 18
 individually. Each family is supplied 5, then 4, then 3 items from its
 validated ideal build, so small → medium → large widens the same search.
 
+## Current-meta recovery fixtures
+
+The current-meta suite is shared with the JS harness through
+`js/solver/benchmarks/current_meta_suite.json`. It contains all 15 source
+profiles grouped primarily by build family. It covers seven scenarios per
+profile: an anchor, one through three
+missing items for exact-candidate work, and four through six missing items for
+anytime work. Export the required exact anchors and shallow recovery cases into
+the gitignored Rust fixture directory:
+
+```bash
+python rust/sp_kernel/gen_current_meta_fixtures.py \
+  --variants=known_good,remove_1,remove_2
+cargo build --release --bin enum_kernel
+python rust/sp_kernel/bench.py \
+  --scenarios current-meta-required --enforce-recovery
+```
+
+`bench.py` provides three dynamic aliases:
+
+| Alias | Scenarios |
+|---|---|
+| `current-meta` | all 105 shared scenarios |
+| `current-meta-required` | 15 exact anchors plus 15 each at one and two missing items |
+| `current-meta-stress` | 15 each at three, four, five, and six missing items |
+
+Use `--variants=all` to export the report-only stress fixtures. You can also
+limit export with `--profiles=<comma-separated-profile-ids>`. The manifest owns
+the expected target score and removal metadata, so both engines consume the
+same scenario definitions rather than maintaining parallel hand-written lists.
+
+Required scenarios enforce recovery from their manifest contract. Passing
+`--enforce-recovery` also turns report-only stress misses into failures. For a
+time-capped run, failure
+to recover is a bounded search result, not proof that the target is impossible.
+On Windows, native builds require the Visual Studio C++ toolchain so Cargo can
+find `link.exe`.
+
 ## bench.py — scenario × configuration matrix
 
 ```bash

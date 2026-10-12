@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "source_generated_at": "2026-08-16T08:28:35.683Z",
+  "scenario_count": 45,
+  "exhaustive_unpruned_controls": 34,
+  "by_mode": [
+    {
+      "mode": "off",
+      "runs": 45,
+      "completed": 34,
+      "aggregate_combination_reduction": 0,
+      "median_combination_reduction": 0,
+      "median_elapsed_ms": 787,
+      "median_time_to_recovery_ms": 245,
+      "median_checked_per_second": 29725.84856396867,
+      "observed_vs_equal_cap_control": {
+        "better": 0,
+        "equal": 45,
+        "worse": 0,
+        "median_score_ratio": 1,
+        "worse_cases": []
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    },
+    {
+      "mode": "certified",
+      "runs": 45,
+      "completed": 34,
+      "aggregate_combination_reduction": 0.08499322809548226,
+      "median_combination_reduction": 0.04609289536705796,
+      "median_elapsed_ms": 712,
+      "median_time_to_recovery_ms": 214.5,
+      "median_checked_per_second": 29465.665236051504,
+      "observed_vs_equal_cap_control": {
+        "better": 0,
+        "equal": 45,
+        "worse": 0,
+        "median_score_ratio": 1,
+        "worse_cases": []
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    },
+    {
+      "mode": "balanced",
+      "runs": 45,
+      "completed": 36,
+      "aggregate_combination_reduction": 0.5601848019774393,
+      "median_combination_reduction": 0.36807348560079445,
+      "median_elapsed_ms": 618,
+      "median_time_to_recovery_ms": 189,
+      "median_checked_per_second": 25712.758374910904,
+      "observed_vs_equal_cap_control": {
+        "better": 1,
+        "equal": 43,
+        "worse": 1,
+        "median_score_ratio": 1,
+        "worse_cases": [
+          {
+            "profile_id": "mage_arcanist_meteor",
+            "variant": "remove_3",
+            "score_ratio": 0.9844448021844203,
+            "control_completed": false,
+            "candidate_completed": false
+          }
+        ]
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    },
+    {
+      "mode": "conservative",
+      "runs": 45,
+      "completed": 36,
+      "aggregate_combination_reduction": 0.5950971288356279,
+      "median_combination_reduction": 0.45599148508411436,
+      "median_elapsed_ms": 533,
+      "median_time_to_recovery_ms": 215.5,
+      "median_checked_per_second": 21886.191802626345,
+      "observed_vs_equal_cap_control": {
+        "better": 0,
+        "equal": 44,
+        "worse": 1,
+        "median_score_ratio": 1,
+        "worse_cases": [
+          {
+            "profile_id": "mage_arcanist_meteor",
+            "variant": "remove_3",
+            "score_ratio": 0.9844448021844203,
+            "control_completed": false,
+            "candidate_completed": false
+          }
+        ]
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    },
+    {
+      "mode": "current",
+      "runs": 45,
+      "completed": 36,
+      "aggregate_combination_reduction": 0.6240586643283703,
+      "median_combination_reduction": 0.45599148508411436,
+      "median_elapsed_ms": 474,
+      "median_time_to_recovery_ms": 221.5,
+      "median_checked_per_second": 22765.217391304348,
+      "observed_vs_equal_cap_control": {
+        "better": 0,
+        "equal": 44,
+        "worse": 1,
+        "median_score_ratio": 1,
+        "worse_cases": [
+          {
+            "profile_id": "mage_arcanist_meteor",
+            "variant": "remove_3",
+            "score_ratio": 0.9844448021844203,
+            "control_completed": false,
+            "candidate_completed": false
+          }
+        ]
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    },
+    {
+      "mode": "aggressive",
+      "runs": 45,
+      "completed": 36,
+      "aggregate_combination_reduction": 0.64315069372992,
+      "median_combination_reduction": 0.45599148508411436,
+      "median_elapsed_ms": 562,
+      "median_time_to_recovery_ms": 165,
+      "median_checked_per_second": 25390.08620689655,
+      "observed_vs_equal_cap_control": {
+        "better": 0,
+        "equal": 43,
+        "worse": 2,
+        "median_score_ratio": 1,
+        "worse_cases": [
+          {
+            "profile_id": "archer_trapper_slow_melee",
+            "variant": "remove_3",
+            "score_ratio": 0.9724744965690004,
+            "control_completed": false,
+            "candidate_completed": true
+          },
+          {
+            "profile_id": "mage_arcanist_meteor",
+            "variant": "remove_3",
+            "score_ratio": 0.9844448021844203,
+            "control_completed": false,
+            "candidate_completed": false
+          }
+        ]
+      },
+      "exhaustive_control_optimum": {
+        "preserved": 34,
+        "lost": 0
+      }
+    }
+  ]
+}

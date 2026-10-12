@@ -17,7 +17,8 @@ const SOLVER_DEBUG_PRIORITY = false;
 // Log dominance pruning: before/after pool sizes per slot, which items were
 // pruned, which item dominated them, and the stats that caused it.
 // Uses console.group() for collapsible output.  [item_priority.js]
-const SOLVER_DEBUG_DOMINANCE = false;
+const SOLVER_DEBUG_DOMINANCE = (typeof process !== 'undefined'
+    && !!(process.env && process.env.SOLVER_DEBUG_DOMINANCE)) || false;
 
 // ── Worker enumeration (Web Worker, worker 0 only) ──────────────────────────
 
@@ -32,7 +33,8 @@ const SOLVER_DEBUG_WORKER = (typeof process !== 'undefined'
 // Log sensitivity weight computation: baseline stats, per-stat sensitivities
 // sorted by magnitude, SP sensitivities, constraint/mana bonuses, and
 // dominance classification.  [item_priority.js]
-const SOLVER_DEBUG_SENSITIVITY = false;
+const SOLVER_DEBUG_SENSITIVITY = (typeof process !== 'undefined'
+    && !!(process.env && process.env.SOLVER_DEBUG_SENSITIVITY)) || false;
 
 // ── Combo damage (main thread + Web Worker) ─────────────────────────────────
 

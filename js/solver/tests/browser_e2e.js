@@ -94,7 +94,7 @@ async function loadPage(page, url) {
  * Configure the scenario. Returns the target the select actually holds, so the
  * caller can refuse to measure a run whose target silently failed to apply.
  */
-async function setup(page, { target, freeSlots, manaOff, engine, threads }) {
+async function setup(page, { target, freeSlots, manaOff, engine, threads, pruning = 'current' }) {
     await page.evaluate((cfg) => {
         const mb = document.getElementById('combo-mana-btn');
         if (mb && cfg.manaOff && mb.classList.contains('toggleOn')) mb.click();
@@ -110,7 +110,15 @@ async function setup(page, { target, freeSlots, manaOff, engine, threads }) {
 
         const th = document.getElementById('solver-thread-count');
         if (th && cfg.threads) { th.value = String(cfg.threads); th.dispatchEvent(new Event('change')); }
-    }, { target, freeSlots, manaOff, threads });
+
+        // This test compares the two ENGINES on one search space, not pruning
+        // policies, so it pins the policy it was written against (legacy,
+        // the only one that existed then). Under the certified default the
+        // total_hp space grows from 57K to 15.4M leaves, which the JS engine
+        // cannot finish inside the page timeout.
+        const pr = document.getElementById('solver-pruning-mode');
+        if (pr && cfg.pruning) { pr.value = cfg.pruning; pr.dispatchEvent(new Event('change')); }
+    }, { target, freeSlots, manaOff, threads, pruning });
     await page.waitForTimeout(2500);
 
     await page.evaluate((eng) => {
@@ -122,6 +130,11 @@ async function setup(page, { target, freeSlots, manaOff, engine, threads }) {
     // scores 0 and both engines "agree" on a list of zeroes. Fail loudly.
     const held = await page.evaluate(
         () => document.getElementById('solver-target')?.value ?? null);
+    const heldPruning = await page.evaluate(
+        () => document.getElementById('solver-pruning-mode')?.value ?? null);
+    if (heldPruning !== null && heldPruning !== pruning) {
+        throw new Error(`pruning mode did not take: wanted '${pruning}', select holds '${heldPruning}'`);
+    }
     if (held !== target) {
         throw new Error(`target did not take: wanted '${target}', select holds '${held}'. `
             + `The option is missing from solver/index.html, so this run would have `

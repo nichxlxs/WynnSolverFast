@@ -35,7 +35,9 @@ for (const file of testFiles) {
     try {
         const output = execSync(`node "${filePath}"`, {
             encoding: 'utf8',
-            timeout: 120000,  // 2 minute timeout per test
+            // 5 minutes per file: test_solver_search runs ~2 minutes since the
+            // independent-oracle snapshots joined it, and machines vary.
+            timeout: 300000,
             stdio: ['pipe', 'pipe', 'pipe'],
         });
 

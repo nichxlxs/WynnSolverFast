@@ -3,6 +3,7 @@
 
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { summarize } = require('./stats');
 const { parseSolverOutput, compareVariants } = require('./real_world_lib');
@@ -12,9 +13,12 @@ const testScript = path.join(repoRoot, 'js', 'solver', 'tests', 'test_solver_sea
 const samples = Math.max(1, Number(process.env.BENCH_SAMPLES) || 3);
 const suite = process.env.BENCH_SUITE || 'default';
 const isFamilySuite = suite === 'family' || suite.startsWith('family-');
+const isCurrentMetaSuite = suite === 'current-meta' || suite.startsWith('current-meta-');
 const seconds = isFamilySuite
     ? Math.min(30, Math.max(1, Number(process.env.BENCH_SECONDS) || 30))
-    : Math.max(1, Number(process.env.BENCH_SECONDS) || 10);
+    : isCurrentMetaSuite
+        ? Math.min(3600, Math.max(1, Number(process.env.BENCH_SECONDS) || 30))
+        : Math.max(1, Number(process.env.BENCH_SECONDS) || 10);
 const workers = Math.max(1, Number(process.env.BENCH_WORKERS) || 1);
 const includeIsolation = process.env.BENCH_INCLUDE_ISOLATION !== '0';
 const familyNames = ['cancelstack', 'heavy_melee', 'tierstack', 'spellsteal', 'spell_sustained', 'hybrid'];
@@ -26,7 +30,22 @@ if (isFamilySuite && !allowedFamilySizes.has(familySize)) {
 const familyScenarios = familySize === 'all'
     ? ['small', 'medium', 'large'].flatMap(size => familyNames.map(family => `family_${family}_${size}`))
     : familyNames.map(family => `family_${family}_${familySize}`);
-const defaultScenarios = isFamilySuite
+const currentMetaManifestPath = path.join(__dirname, 'current_meta_suite.json');
+const currentMetaManifest = fs.existsSync(currentMetaManifestPath)
+    ? JSON.parse(fs.readFileSync(currentMetaManifestPath, 'utf8')) : { scenarios: [] };
+const currentMetaVariant = suite === 'current-meta' ? 'remove_2' : suite.slice('current-meta-'.length);
+const allowedCurrentMetaVariants = new Set([
+    'known_good', 'remove_1', 'remove_2', 'remove_3', 'remove_4', 'remove_5', 'remove_6', 'all',
+]);
+if (isCurrentMetaSuite && !allowedCurrentMetaVariants.has(currentMetaVariant)) {
+    throw new Error(`Unknown current-meta benchmark suite: ${suite}`);
+}
+const currentMetaScenarios = currentMetaManifest.scenarios
+    .filter(scenario => currentMetaVariant === 'all' || scenario.variant === currentMetaVariant)
+    .map(scenario => scenario.snapshot.replace(/^solver_/, ''));
+const defaultScenarios = isCurrentMetaSuite
+    ? currentMetaScenarios
+    : isFamilySuite
     ? familyScenarios
     : suite === 'large'
         ? ['gaia_armor_bracelet_1m', 'gaia_armor_ring_2m', 'gaia_armor_ring_5m',
