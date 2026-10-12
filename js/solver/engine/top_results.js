@@ -1,10 +1,18 @@
 'use strict';
 
+// Worker entries carry `item_names`; the main thread's merged entries carry
+// `items` (Item objects with a statMap) instead. Both rank the same way.
+function topResultNames(r) {
+    if (r.item_names) return r.item_names;
+    if (r.items) return r.items.map(i => i?.statMap?.get('name') ?? '');
+    return [];
+}
+
 function compareTopResult(a, b) {
     const scoreOrder = b.score - a.score;
     if (scoreOrder !== 0) return scoreOrder;
-    const aNames = a.item_names ?? [];
-    const bNames = b.item_names ?? [];
+    const aNames = topResultNames(a);
+    const bNames = topResultNames(b);
     const length = Math.max(aNames.length, bNames.length);
     for (let i = 0; i < length; i++) {
         const aName = String(aNames[i] ?? '');
@@ -41,5 +49,5 @@ function tryInsertTopResult(buffer, score, candidateFactory, capacity) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { compareTopResult, tryInsertTopResult };
+    module.exports = { compareTopResult, topResultNames, tryInsertTopResult };
 }

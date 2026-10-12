@@ -36,6 +36,29 @@ const inserted = tryInsertTopResult(top, 1, () => {
 }, 3);
 t.assert(!inserted && !rejectedFactoryCalled, 'rejected candidates stay allocation-free');
 
+// The main thread merges entries whose names live on Item statMaps, not in
+// item_names. They must rank exactly like the worker's entries, or tied
+// builds come out in worker-completion order (search.js used to sort the
+// merged list by score alone).
+const asItems = (score, names) => ({
+    score, items: names.map(n => ({ statMap: new Map([['name', n]]) })),
+});
+const merged = [asItems(7, ['Mechanical Augmentation']), asItems(7, ['Clandestine']), asItems(8, ['Zz'])];
+merged.sort(compareTopResult);
+t.assert(merged.map(r => r.items[0].statMap.get('name')).join('|') === 'Zz|Clandestine|Mechanical Augmentation',
+    'statMap-shaped entries use the same tie order');
+t.assert(compareTopResult(asItems(7, ['Clandestine']), result(7, ['Mechanical Augmentation'])) < 0
+    && compareTopResult(result(7, ['Clandestine']), asItems(7, ['Mechanical Augmentation'])) < 0,
+    'mixed entry shapes compare consistently');
+
+// The page must load the comparator before search.js uses it.
+const html = require('fs').readFileSync(require('path').join(__dirname, '../../../solver/index.html'), 'utf8');
+const iTop = html.indexOf('engine/top_results.js'), iSearch = html.indexOf('engine/search.js');
+t.assert(iTop >= 0 && iTop < iSearch, 'solver/index.html loads top_results.js before search.js');
+const searchSrc = require('fs').readFileSync(require('path').join(__dirname, '../engine/search.js'), 'utf8');
+t.assert(!/top5\.sort\(\(a, b\) => b\.score - a\.score\)/.test(searchSrc),
+    'search.js has no score-only top-N sort');
+
 let invalidRejected = false;
 try { tryInsertTopResult([], 1, () => result(1, []), 0); }
 catch (err) { invalidRejected = err instanceof RangeError; }

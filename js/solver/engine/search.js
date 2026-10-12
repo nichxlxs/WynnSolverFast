@@ -379,6 +379,10 @@ function _build_solver_snapshot(restrictions) {
 
 // ── Top-5 heap ────────────────────────────────────────────────────────────────
 
+// Merges sort with the workers' order (compareTopResult: equal scores order
+// by item names). Sorting by score alone kept tied builds in arrival order,
+// so which of two equal builds ranked first, or survived at rank 15,
+// depended on which worker finished first.
 function _insert_top5(candidate) {
     // Dedup: if a build with the same item names already exists, keep the higher score
     const cand_names = candidate.items.map(i => i.statMap.get('name') ?? '').join(',');
@@ -393,7 +397,7 @@ function _insert_top5(candidate) {
         }
     }
     _solver_state.top5.push(candidate);
-    _solver_state.top5.sort((a, b) => b.score - a.score);
+    _solver_state.top5.sort(compareTopResult);
     if (_solver_state.top5.length > _TOP_N) _solver_state.top5.length = _TOP_N;
 }
 
@@ -2103,7 +2107,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
     function _insert_wstate_top5(wstate, entry) {
         wstate.top5.push(entry);
-        wstate.top5.sort((a, b) => b.score - a.score);
+        wstate.top5.sort(compareTopResult);
         if (wstate.top5.length > _TOP_N) wstate.top5.length = _TOP_N;
     }
 
