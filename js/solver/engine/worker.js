@@ -1990,6 +1990,10 @@ function _run_level_enum() {
                 const b = bundles[bi];
                 const ceiling_t0 = _trace_start('ceiling');
                 const cb = _assemble_combo_stats(build_sm, _SP_CEILING, weapon_sm, b.stats);
+                // Same floor as the pre-loop gate: below -100% crit damage
+                // more Dex lowers damage, so the all-150 assemble is only an
+                // upper bound with critDamPct raised to at least -100.
+                if (cb.get('critDamPct') < _CRIT_CEILING_FLOOR) cb.set('critDamPct', _CRIT_CEILING_FLOOR);
                 _cached_hp_sim = null;
                 const c = _eval_combo_damage(cb);
                 _trace_end('ceiling', ceiling_t0);
