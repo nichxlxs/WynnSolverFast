@@ -222,7 +222,11 @@ fn main() {
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
                 .unwrap_or_default();
             let sp: Vec<f64> = arr_f64(&case["total_sp"]);
-            match l2.assemble(&names, &sp, &weapon) {
+            // Radiance scales item-granted SP: total minus assigned.
+            let base_sp: Vec<f64> = arr_f64(&case["base_sp"]);
+            let item_sp: Option<[i32; 5]> = (sp.len() == 5 && base_sp.len() == 5)
+                .then(|| std::array::from_fn(|i| (sp[i] - base_sp[i]) as i32));
+            match l2.assemble(&names, &sp, &weapon, item_sp.as_ref()) {
                 Ok(assembled) => {
                     let diffs = diff_stat_maps(&assembled, combo_base);
                     if diffs.is_empty() { l2_pass += 1; } else {

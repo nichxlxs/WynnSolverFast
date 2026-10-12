@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "total_runs": 66,
+  "distinct_queries": 9,
+  "all_runs_have_predeadline_result": true,
+  "trace_errors": 0,
+  "incumbent_witnesses_checked": 895,
+  "witness_validation_scope": "Structural item/SP completeness and assigned-point conservation; the current evaluator supplies feasibility. This is not an independent game-accuracy certificate.",
+  "compression": "gzip level9 mtime0; tar sorted paths, normalized owner/permissions/mtime",
+  "archives": [
+    {
+      "cohort": "long",
+      "runs": 48,
+      "archive": "long_raw.tar.gz",
+      "archive_bytes": 1545733,
+      "archive_sha256": "3e81dcfdede798dcf38ee692f945733406e93c51f7f96337bd9c61f19faddc68",
+      "member_manifest": "long/archive_manifest.json",
+      "member_manifest_sha256": "cfb032398fbd02662a7fb634fa54c9254d28c9bda3ab45f4746bf035fd2b8dc9",
+      "payload_files": 213,
+      "payload_bytes": 17983857,
+      "all_members_verified": true,
+      "plan_sha256": "20e1e295698c68e60d3a714feed0f1160022aa3af26ff0ef50d0fea2a6eff2d9",
+      "references_sha256": "4ffdb7a6960bff6be9b19ddfbd2d4f1a6f05e60b04238904ca9764a9d07cacd4",
+      "variants": [
+        {
+          "name": "current_exact15",
+          "kind": "enum",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/enum_kernel",
+          "env": {
+            "RESULT_COUNT": "15",
+            "RETAIN_WARM": "1",
+            "WIDE_BOUND_KEYS": "0",
+            "WARM_K": "6",
+            "QUALITY_TRACE_COUNTERS": "1"
+          },
+          "binary_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d"
+        },
+        {
+          "name": "wide_exact15",
+          "kind": "enum",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/enum_kernel",
+          "env": {
+            "RESULT_COUNT": "15",
+            "RETAIN_WARM": "1",
+            "WIDE_BOUND_KEYS": "1",
+            "WARM_K": "6",
+            "QUALITY_TRACE_COUNTERS": "1"
+          },
+          "binary_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d"
+        },
+        {
+          "name": "current_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        },
+        {
+          "name": "elite_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1",
+            "--elite-pool",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        }
+      ]
+    },
+    {
+      "cohort": "gaia",
+      "runs": 6,
+      "archive": "gaia_raw.tar.gz",
+      "archive_bytes": 123655,
+      "archive_sha256": "a89d4f460ea7f9f6aeb59f9f62483334d9d2536018465b3b1d3c4bf9b49329a9",
+      "member_manifest": "gaia/archive_manifest.json",
+      "member_manifest_sha256": "61acdd120366e9d3e75329e7e4d441a3a54ceb7eea4f0632f3bf698be7e23e52",
+      "payload_files": 41,
+      "payload_bytes": 1053292,
+      "all_members_verified": true,
+      "plan_sha256": "566a0e74151771294a3a335a8c710ba1c2e931d6fb5aef96af973ac51cb0ba7e",
+      "references_sha256": "944b3da9ef778aa0f5bd55432205ba6c1f349d5fea6141bda9aefb9c13b675c3",
+      "variants": [
+        {
+          "name": "current_exact15",
+          "kind": "enum",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/enum_kernel",
+          "env": {
+            "RESULT_COUNT": "15",
+            "RETAIN_WARM": "1",
+            "WIDE_BOUND_KEYS": "0",
+            "WARM_K": "6",
+            "QUALITY_TRACE_COUNTERS": "1"
+          },
+          "binary_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d"
+        },
+        {
+          "name": "wide_exact15",
+          "kind": "enum",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/enum_kernel",
+          "env": {
+            "RESULT_COUNT": "15",
+            "RETAIN_WARM": "1",
+            "WIDE_BOUND_KEYS": "1",
+            "WARM_K": "6",
+            "QUALITY_TRACE_COUNTERS": "1"
+          },
+          "binary_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d"
+        },
+        {
+          "name": "current_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        },
+        {
+          "name": "elite_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1",
+            "--elite-pool",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        }
+      ]
+    },
+    {
+      "cohort": "new_seeds",
+      "runs": 12,
+      "archive": "new_seeds_raw.tar.gz",
+      "archive_bytes": 303827,
+      "archive_sha256": "834c8fc6db7d9fa0ea6406926fb8cf7e3da9110abde9c4b5f623efcde31d4182",
+      "member_manifest": "new_seeds/archive_manifest.json",
+      "member_manifest_sha256": "63809f70f67c8a90a6c02d4fa2a558b36da80d41ea5d4512b6609e7eff38e128",
+      "payload_files": 57,
+      "payload_bytes": 5834270,
+      "all_members_verified": true,
+      "plan_sha256": "ca5bcc5215f9bc930b489f37e821d807eec3abf68de57cb7007c6b00371964cb",
+      "references_sha256": "83992884dfadf3b856ead28bed75f44076a55a85846640b65e76f82583b949fc",
+      "variants": [
+        {
+          "name": "current_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        },
+        {
+          "name": "elite_alns15",
+          "kind": "lns",
+          "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+          "env": {
+            "WIDE_BOUND_KEYS": "0"
+          },
+          "args": [
+            "--warm-k",
+            "6",
+            "--warm-budget",
+            "2000000",
+            "--repair-budget",
+            "100000",
+            "--max-repairs",
+            "100000",
+            "--cycle-stagnation",
+            "1",
+            "--elite-pool",
+            "1"
+          ],
+          "binary_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa"
+        }
+      ]
+    }
+  ]
+}

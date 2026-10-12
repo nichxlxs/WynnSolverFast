@@ -1,0 +1,2114 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "027b0e8490432e6c87fe6c3024aed57fafcfb724",
+  "provenance": {
+    "recovered_from": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+    "already_present_branches": {
+      "agent/add-family-benchmark-variations": "3a992a8e69b4fa45d4101828fa663d97d61ca850",
+      "claude/wynnsolver-performance-traces-0131sj": "7080f4cd15f68cdac5891a3e43ccf78c0997da71"
+    },
+    "note": "Existing six-family and Gaia suites already present on master. Recovered 15 class/archetype profiles with zero through six removed slots (105 snapshots). No solver implementations, stale scores, or runtime claims imported."
+  },
+  "groups": {
+    "wide_screen": "15 meta profiles at remove_3/remove_6, 18 family cases, nine legacy cases (57 total)",
+    "meta": "all 105 recovered scenarios",
+    "meta_small": "15 profiles at remove_1/remove_2/remove_3",
+    "meta_large": "15 profiles at remove_4/remove_5/remove_6",
+    "families": "18 existing class-family cases",
+    "legacy": "nine broad Gaia/spell cases",
+    "all": "all 132 cases"
+  },
+  "scenarios": [
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_known_good",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_known_good",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_1",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_1",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_2",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_2",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_3",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_3",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_4",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_4",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_5",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_5",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_boltslinger_fast_hybrid_remove_6",
+      "snapshot": "solver_meta_archer_boltslinger_fast_hybrid_remove_6",
+      "group": "meta",
+      "profile": "archer_boltslinger_fast_hybrid",
+      "family": "fast_hybrid",
+      "class": "archer",
+      "archetype": "boltslinger",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_known_good",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_known_good",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_1",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_1",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_2",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_2",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_3",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_3",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_4",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_4",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_5",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_5",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_sharpshooter_heavy_melee_remove_6",
+      "snapshot": "solver_meta_archer_sharpshooter_heavy_melee_remove_6",
+      "group": "meta",
+      "profile": "archer_sharpshooter_heavy_melee",
+      "family": "heavy_melee",
+      "class": "archer",
+      "archetype": "sharpshooter",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_known_good",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_known_good",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_1",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_1",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_2",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_2",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_3",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_3",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_4",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_4",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_5",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_5",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_archer_trapper_slow_melee_remove_6",
+      "snapshot": "solver_meta_archer_trapper_slow_melee_remove_6",
+      "group": "meta",
+      "profile": "archer_trapper_slow_melee",
+      "family": "slow_heavy_melee",
+      "class": "archer",
+      "archetype": "trapper",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_known_good",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_known_good",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_1",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_1",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_2",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_2",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_3",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_3",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_4",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_4",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_5",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_5",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_acrobat_spellspam_remove_6",
+      "snapshot": "solver_meta_assassin_acrobat_spellspam_remove_6",
+      "group": "meta",
+      "profile": "assassin_acrobat_spellspam",
+      "family": "spellspam",
+      "class": "assassin",
+      "archetype": "acrobat",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_known_good",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_known_good",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_1",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_1",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_2",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_2",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_3",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_3",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_4",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_4",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_5",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_5",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_shadestepper_spellsteal_remove_6",
+      "snapshot": "solver_meta_assassin_shadestepper_spellsteal_remove_6",
+      "group": "meta",
+      "profile": "assassin_shadestepper_spellsteal",
+      "family": "spellsteal",
+      "class": "assassin",
+      "archetype": "shadestepper",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_known_good",
+      "snapshot": "solver_meta_assassin_trickster_spell_known_good",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_1",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_1",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_2",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_2",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_3",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_3",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_4",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_4",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_5",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_5",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_assassin_trickster_spell_remove_6",
+      "snapshot": "solver_meta_assassin_trickster_spell_remove_6",
+      "group": "meta",
+      "profile": "assassin_trickster_spell",
+      "family": "spell",
+      "class": "assassin",
+      "archetype": "trickster",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_known_good",
+      "snapshot": "solver_meta_mage_arcanist_meteor_known_good",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_1",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_1",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_2",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_2",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_3",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_3",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_4",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_4",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_5",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_5",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_6",
+      "snapshot": "solver_meta_mage_arcanist_meteor_remove_6",
+      "group": "meta",
+      "profile": "mage_arcanist_meteor",
+      "family": "rawstack_spell",
+      "class": "mage",
+      "archetype": "arcanist",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_known_good",
+      "snapshot": "solver_meta_mage_light_bender_healing_known_good",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_1",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_1",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_2",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_2",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_3",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_3",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_4",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_4",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_5",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_5",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_6",
+      "snapshot": "solver_meta_mage_light_bender_healing_remove_6",
+      "group": "meta",
+      "profile": "mage_light_bender_healing",
+      "family": "support_healing",
+      "class": "mage",
+      "archetype": "light_bender",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_known_good",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_known_good",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_1",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_1",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_2",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_2",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_3",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_3",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_4",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_4",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_5",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_5",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_mage_riftwalker_cancelstack_remove_6",
+      "snapshot": "solver_meta_mage_riftwalker_cancelstack_remove_6",
+      "group": "meta",
+      "profile": "mage_riftwalker_cancelstack",
+      "family": "cancelstack",
+      "class": "mage",
+      "archetype": "riftwalker",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_known_good",
+      "snapshot": "solver_meta_shaman_acolyte_healing_known_good",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_1",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_1",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_2",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_2",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_3",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_3",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_4",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_4",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_5",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_5",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_acolyte_healing_remove_6",
+      "snapshot": "solver_meta_shaman_acolyte_healing_remove_6",
+      "group": "meta",
+      "profile": "shaman_acolyte_healing",
+      "family": "support_spell",
+      "class": "shaman",
+      "archetype": "acolyte",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_known_good",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_known_good",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_1",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_1",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_2",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_2",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_3",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_3",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_4",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_4",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_5",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_5",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_ritualist_tierstack_remove_6",
+      "snapshot": "solver_meta_shaman_ritualist_tierstack_remove_6",
+      "group": "meta",
+      "profile": "shaman_ritualist_tierstack",
+      "family": "tierstack",
+      "class": "shaman",
+      "archetype": "ritualist",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_known_good",
+      "snapshot": "solver_meta_shaman_summoner_aura_known_good",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_1",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_1",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_2",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_2",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_3",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_3",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_4",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_4",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_5",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_5",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_shaman_summoner_aura_remove_6",
+      "snapshot": "solver_meta_shaman_summoner_aura_remove_6",
+      "group": "meta",
+      "profile": "shaman_summoner_aura",
+      "family": "spell_summoner",
+      "class": "shaman",
+      "archetype": "summoner",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_known_good",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_known_good",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_1",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_1",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_2",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_2",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_3",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_3",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_4",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_4",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_5",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_5",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_battle_monk_uppercut_remove_6",
+      "snapshot": "solver_meta_warrior_battle_monk_uppercut_remove_6",
+      "group": "meta",
+      "profile": "warrior_battle_monk_uppercut",
+      "family": "spell",
+      "class": "warrior",
+      "archetype": "battle_monk",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_known_good",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_known_good",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_1",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_1",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_2",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_2",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_3",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_3",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_4",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_4",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_5",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_5",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_fallen_uppercut_remove_6",
+      "snapshot": "solver_meta_warrior_fallen_uppercut_remove_6",
+      "group": "meta",
+      "profile": "warrior_fallen_uppercut",
+      "family": "blood_pact_spell",
+      "class": "warrior",
+      "archetype": "fallen",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_known_good",
+      "snapshot": "solver_meta_warrior_paladin_tank_known_good",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "known_good",
+      "free_slots": 0,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_1",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_1",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_1",
+      "free_slots": 1,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_2",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_2",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_2",
+      "free_slots": 2,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_3",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_3",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_3",
+      "free_slots": 3,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_4",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_4",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_4",
+      "free_slots": 4,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_5",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_5",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_5",
+      "free_slots": 5,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "meta_warrior_paladin_tank_remove_6",
+      "snapshot": "solver_meta_warrior_paladin_tank_remove_6",
+      "group": "meta",
+      "profile": "warrior_paladin_tank",
+      "family": "tank",
+      "class": "warrior",
+      "archetype": "paladin",
+      "variant": "remove_6",
+      "free_slots": 6,
+      "source_commit": "58c0e3dc5f5ebc2419a636b54601e0247d4e26c6",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_cancelstack_small",
+      "snapshot": "solver_family_cancelstack_small",
+      "group": "families",
+      "family": "cancelstack",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_cancelstack_medium",
+      "snapshot": "solver_family_cancelstack_medium",
+      "group": "families",
+      "family": "cancelstack",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_cancelstack_large",
+      "snapshot": "solver_family_cancelstack_large",
+      "group": "families",
+      "family": "cancelstack",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_heavy_melee_small",
+      "snapshot": "solver_family_heavy_melee_small",
+      "group": "families",
+      "family": "heavy_melee",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_heavy_melee_medium",
+      "snapshot": "solver_family_heavy_melee_medium",
+      "group": "families",
+      "family": "heavy_melee",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_heavy_melee_large",
+      "snapshot": "solver_family_heavy_melee_large",
+      "group": "families",
+      "family": "heavy_melee",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_tierstack_small",
+      "snapshot": "solver_family_tierstack_small",
+      "group": "families",
+      "family": "tierstack",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_tierstack_medium",
+      "snapshot": "solver_family_tierstack_medium",
+      "group": "families",
+      "family": "tierstack",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_tierstack_large",
+      "snapshot": "solver_family_tierstack_large",
+      "group": "families",
+      "family": "tierstack",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spellsteal_small",
+      "snapshot": "solver_family_spellsteal_small",
+      "group": "families",
+      "family": "spellsteal",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spellsteal_medium",
+      "snapshot": "solver_family_spellsteal_medium",
+      "group": "families",
+      "family": "spellsteal",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spellsteal_large",
+      "snapshot": "solver_family_spellsteal_large",
+      "group": "families",
+      "family": "spellsteal",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spell_sustained_small",
+      "snapshot": "solver_family_spell_sustained_small",
+      "group": "families",
+      "family": "spell_sustained",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spell_sustained_medium",
+      "snapshot": "solver_family_spell_sustained_medium",
+      "group": "families",
+      "family": "spell_sustained",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_spell_sustained_large",
+      "snapshot": "solver_family_spell_sustained_large",
+      "group": "families",
+      "family": "spell_sustained",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_hybrid_small",
+      "snapshot": "solver_family_hybrid_small",
+      "group": "families",
+      "family": "hybrid",
+      "variant": "small",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_hybrid_medium",
+      "snapshot": "solver_family_hybrid_medium",
+      "group": "families",
+      "family": "hybrid",
+      "variant": "medium",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "fam_hybrid_large",
+      "snapshot": "solver_family_hybrid_large",
+      "group": "families",
+      "family": "hybrid",
+      "variant": "large",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "gaia2m",
+      "snapshot": "solver_gaia_armor_ring_2m",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "gaia_wide",
+      "snapshot": "solver_gaia_wide_95m_input",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "gaia_ultra",
+      "snapshot": "solver_gaia_ultra_1900m_input",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "gaia_all_free",
+      "snapshot": "solver_gaia_all_free_1816b_input",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "spell_wide",
+      "snapshot": "solver_readme_spell_wide",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "spell_8free",
+      "snapshot": "solver_spell_8free",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "ehp",
+      "snapshot": "solver_spell_ehp",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "heal",
+      "snapshot": "solver_spell_heal",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    },
+    {
+      "name": "xpb",
+      "snapshot": "solver_spell_xpb",
+      "group": "legacy",
+      "reference": {
+        "kind": "best_known",
+        "score": null,
+        "source": "Uncalibrated; use fresh same-query runs."
+      }
+    }
+  ]
+}

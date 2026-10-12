@@ -150,6 +150,8 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
                 damage_keys: [...damage_keys],
                 sp_percentage_rate: SP_PERCENTAGE_RATE,
                 sp_percentage_input_cap: SP_PERCENTAGE_INPUT_CAP,
+                // null (JSON for Infinity) turns the cap off on the Rust side too.
+                max_mana_cap: MAX_MANA_CAP,
                 // V8's Math.pow and Rust's powf can differ by 1 ULP; skill
                 // points are integers, so ship the exact JS values instead.
                 sp_pct_table: Array.from({length: SP_PERCENTAGE_INPUT_CAP + 1},
@@ -180,12 +182,23 @@ function buildScoreFixture(initMsgBase, ringPoolSer, numCases, writeOut, env) {
             // to reproduce build stats → assemble → greedy → mana → score
             // from raw items (PORT_PLAN.md). Item registry covers pools,
             // locked, rings, and none items, keyed by displayName.
+            //
+            // `minRolls` is left out: the engine reads rolled stats from
+            // `maxRolls` only (the roll mode is applied to that before this
+            // point), and the minima were 3.0 of the fixture's 6.6 MB on an
+            // all-slots-free scenario, serialized on the main thread, cloned
+            // into every worker and parsed there (wasm engine setup 150 ->
+            // 105 ms). Results are identical with and without them on every
+            // committed score fixture.
             const item_registry = {};
             const regAdd = (it) => {
                 const sm = it?.statMap ?? it;
                 if (!sm?.get) return;
                 const name = sm.get('displayName') ?? sm.get('name');
-                if (name && !(name in item_registry)) item_registry[name] = _jser(sm);
+                if (!name || name in item_registry) return;
+                const o = {};
+                for (const [k, x] of sm) if (k !== 'minRolls') o[String(k)] = _jser(x);
+                item_registry[name] = { __m: o };
             };
             for (const pool of Object.values(initMsgBase.pools)) for (const it of pool) regAdd(it);
             for (const it of ringPoolSer) regAdd(it);
@@ -628,8 +641,25 @@ function buildEnumFixture({ initMsgBase, ringPoolSer, solverSnap, env }) {
         const noneSm = initMsgBase.none_item_sms[p];
         L.push(noneSm?.get?.('displayName') ?? noneSm?.get?.('name') ?? '');
     }
+    const eps = epsFixtureLine(initMsgBase);
+    if (eps) L.push(eps);
+    const win = windowFixtureLine(initMsgBase);
+    if (win) L.push(win);
 
     return L.join('\n') + '\n';
+}
+
+/// The enumeration fixture's R21 tolerance line ('within' search mode), or
+/// null for an exact search. Engines without R21 skip unknown keys.
+function epsFixtureLine(initMsgBase) {
+    const eps = Number(initMsgBase?.search_eps);
+    return Number.isFinite(eps) && eps > 0 ? `EPS ${eps}` : null;
+}
+
+/// The R20 window line ('shortlist' search mode), or null without a window.
+function windowFixtureLine(initMsgBase) {
+    const w = Number(initMsgBase?.search_window);
+    return Number.isFinite(w) && w > 0 && w < 1 ? `WINDOW ${w}` : null;
 }
 
 /// Default env for the browser, where the game functions are globals.
@@ -662,7 +692,37 @@ function browserEnv(scope) {
     return { ctx, evalInCtx };
 }
 
-const _bridge = { buildScoreFixture, buildEnumFixture, browserEnv, _jser };
+/**
+ * Quick search uses the same conservative fixture scope as the quality suite.
+ * Raw item totals omit finalized set/skill-point effects, so their minimum
+ * prechecks cannot safely reject a candidate. Keep the schema and item columns
+ * intact; restrictions in the separate scoring fixture remain authoritative.
+ */
+function sanitizeEnumFixtureForAnytime(fixture) {
+    if (typeof fixture !== 'string' || !fixture.trim()) {
+        throw new Error('Quick search requires a nonempty enumeration fixture.');
+    }
+    let names = false;
+    const result = fixture.split(/\r?\n/).map(line => {
+        const fields = line.trim().split(/\s+/);
+        if (fields[0] === 'NAMES') names = true;
+        if (names) return line;
+        if (fields[0] === 'PC') {
+            if (fields.length !== 4) throw new Error('Unsupported quick-search PC schema.');
+            fields[2] = '-1e300';
+            return fields.join(' ');
+        }
+        if (['EHP', 'EHPNA', 'THP'].includes(fields[0])) {
+            const expected = fields[0] === 'THP' ? 4 : 5;
+            if (fields.length !== expected) throw new Error('Unsupported quick-search HP schema.');
+            return [fields[0], ...fields.slice(1).map(() => '0')].join(' ');
+        }
+        return line;
+    }).join('\n');
+    return result.endsWith('\n') ? result : result + '\n';
+}
+
+const _bridge = { buildScoreFixture, buildEnumFixture, sanitizeEnumFixtureForAnytime, epsFixtureLine, windowFixtureLine, browserEnv, _jser };
 
 // The solver page loads this as a plain script and `search.js` looks for it
 // under this name. Without the assignment the lookup returned undefined, the

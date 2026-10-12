@@ -1,0 +1,2 @@
+fam_spellsteal_medium alns seed=707: finished, n=15, best=80641.13636217853, T99=n/a, errors=0
+{"runs":1,"failures":0,"returned_api":1,"host_deadlines":0,"with_result":1,"with_frozen_reference":0,"attained_t99":0,"attained_t999":0,"parity_pass":0}

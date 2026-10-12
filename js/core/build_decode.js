@@ -913,6 +913,14 @@ function decodeSolverParams(b64_str) {
             }
         }
 
+        // ── Soft-floor mask (v11, presence bit 13) ──
+        if (version >= 11 && (presence & (1 << 13)) && restriction_count > 0) {
+            const mask = cursor.advanceBy(restriction_count);
+            for (let i = 0; i < restriction_count; i++) {
+                if (mask & (1 << i)) restrictions[i].soft = true;
+            }
+        }
+
         return {
             roll_groups, sfree, dir_enabled, lvl_min, lvl_max, lvl_overrides,
             tome_opt, tome_roll, tome_inventory, nomaj, gtome, dtime, mana_disabled,

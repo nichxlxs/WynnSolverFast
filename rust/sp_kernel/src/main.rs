@@ -87,6 +87,14 @@ fn main() {
     let mut feasible = 0usize;
     for (idx, case) in cases.iter().enumerate() {
         let got = kernel.calculate(case);
+        // The feasibility-only solve (R9's node check) must agree, and must
+        // not disturb the next full solve (it runs between them here).
+        if kernel.feasible_with_extra(case, None) != case.expected.is_some() {
+            mismatches += 1;
+            if mismatches <= 5 {
+                eprintln!("MISMATCH case {}: feasible_with_extra disagrees with {:?}", idx, case.expected);
+            }
+        }
         if got != case.expected {
             mismatches += 1;
             if mismatches <= 5 {

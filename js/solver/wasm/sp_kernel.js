@@ -1,6 +1,84 @@
 /* @ts-self-types="./sp_kernel.d.ts" */
 
 /**
+ * R24: one worker's engine for the work-queue solve.
+ *
+ * Browser workers cannot share a cutoff without `SharedArrayBuffer`, and a
+ * running solve cannot receive messages, so `solve_partition` workers each
+ * rediscover their own cutoff. An `Engine` instead parses the fixtures,
+ * builds the bound tables and runs the warm start once, then solves units
+ * (contiguous first-slot offset ranges) one call at a time. Between calls
+ * the host hands the worker its next unit together with the merged cutoff
+ * of everything every worker has finished, so later units prune against
+ * the best builds found anywhere. Results accumulate across a worker's
+ * units: each call returns the solve JSON of all of them so far, in the
+ * same shape `solve_partition` returns, and progress is cumulative too.
+ */
+export class Engine {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        EngineFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_engine_free(ptr, 0);
+    }
+    /**
+     * @param {string} enum_fixture
+     * @param {string} score_fixture
+     */
+    constructor(enum_fixture, score_fixture) {
+        const ptr0 = passStringToWasm0(enum_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(score_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.engine_new(ptr0, len0, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        EngineFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * How many entries the merged cutoff counts down to: the result count,
+     * or the archive cap under an R20 window.
+     * @returns {number}
+     */
+    result_count() {
+        const ret = wasm.engine_result_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Solves unit `index` of `count`. `seed_cutoff` is the floor of the
+     * `result_count()`-th best distinct score across every worker's latest
+     * report (0 for none) and `seed_best` the best; both are admissible
+     * because they are scores of real builds.
+     * @param {number} index
+     * @param {number} count
+     * @param {number} seed_cutoff
+     * @param {number} seed_best
+     * @param {Function} on_progress
+     * @returns {string}
+     */
+    solve_unit(index, count, seed_cutoff, seed_best, on_progress) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.engine_solve_unit(this.__wbg_ptr, index, count, seed_cutoff, seed_best, on_progress);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+}
+if (Symbol.dispose) Engine.prototype[Symbol.dispose] = Engine.prototype.free;
+
+/**
  * Total canonical search size for a fixture, so the UI can show progress
  * without starting a solve.
  * @param {string} enum_fixture
@@ -38,6 +116,35 @@ export function solve(enum_fixture, score_fixture, max_leaves) {
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Search overlapping neighborhoods for strong builds within a time budget.
+ * This is a heuristic: every progress/final payload sets `complete:false`.
+ * Options and witness shapes are shared with the native testable wrapper.
+ * @param {string} enum_fixture
+ * @param {string} score_fixture
+ * @param {string} options_json
+ * @param {Function} on_progress
+ * @returns {string}
+ */
+export function solve_anytime_with_progress(enum_fixture, score_fixture, options_json, on_progress) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(enum_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(score_fixture, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(options_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.solve_anytime_with_progress(ptr0, len0, ptr1, len1, ptr2, len2, on_progress);
+        deferred4_0 = ret[0];
+        deferred4_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -92,8 +199,8 @@ export function solve_partition(enum_fixture, score_fixture, max_leaves, part_in
  * movement in the UI instead of appearing hung — the reason to run this in
  * a dedicated worker rather than chunking on the main thread.
  *
- * Emission is keyed on leaves rather than wall time because wasm32 has no
- * usable clock; that also makes the emission points reproducible.
+ * Exact-mode emission is keyed on credited leaves, preserving its existing
+ * progress behavior and deterministic emission points.
  * @param {string} enum_fixture
  * @param {string} score_fixture
  * @param {number} max_leaves
@@ -132,6 +239,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_now_4b23a1420c8a31f6: function() {
+            const ret = performance.now();
+            return ret;
+        },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
@@ -152,6 +263,10 @@ function __wbg_get_imports() {
         "./sp_kernel_bg.js": import0,
     };
 }
+
+const EngineFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_engine_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
@@ -227,6 +342,12 @@ function passStringToWasm0(arg, malloc, realloc) {
 
     WASM_VECTOR_LEN = offset;
     return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });

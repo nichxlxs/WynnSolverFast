@@ -71,6 +71,18 @@ const _eval_indirect_stat = eval_indirect_stat;
 // ── Item stat helpers ────────────────────────────────────────────────────────
 
 /**
+ * Hard thresholds plus R14 soft floors (as >= rows). Sensitivity weights,
+ * dominance classification and the constraint bonuses treat a soft floor
+ * like a hard one: the penalised score is non-decreasing in a floored stat,
+ * so an item higher on it is never worse (see apply_soft_floors).
+ */
+function _floor_constraints(restrictions) {
+    const hard = restrictions?.stat_thresholds ?? [];
+    const soft = restrictions?.soft_floors ?? [];
+    return soft.length ? [...hard, ...soft.map(f => ({ stat: f.stat, op: 'ge', value: f.value }))] : hard;
+}
+
+/**
  * Read a stat's contribution from an item statMap.
  * Checks maxRolls first (rolled stats), then falls back to direct properties (static stats).
  */
@@ -224,10 +236,26 @@ function _build_baseline_statmap(snap, locked) {
  * Assemble combo stats from build_sm + total_sp — delegates to shared
  * assemble_combo_stats (no scratch allocation needed on main thread).
  */
-function _assemble_baseline_combo(build_sm, total_sp, snap) {
+function _assemble_baseline_combo(build_sm, total_sp, snap, item_sp = null) {
     return assemble_combo_stats(build_sm, total_sp, snap.weapon_sm,
         snap.atree_raw, snap.radiance_boost, snap.atree_mgd,
-        snap.button_states, snap.slider_states, snap.static_boosts, null);
+        snap.button_states, snap.slider_states, snap.static_boosts, null,
+        undefined, undefined, item_sp);
+}
+
+/** total_sp - base_sp: the SP items and set bonuses grant (Radiance scales it). */
+function _item_sp_of(base_sp, total_sp) {
+    const out = [0, 0, 0, 0, 0];
+    for (let i = 0; i < 5; i++) out[i] = total_sp[i] - base_sp[i];
+    return out;
+}
+
+/** item_sp with `delta` more in lane i: an item providing SP is scaled too. */
+function _item_sp_plus(item_sp, i, delta) {
+    if (!item_sp) return null;
+    const out = [...item_sp];
+    out[i] += delta;
+    return out;
 }
 
 // ── Step 6: Main-thread greedy SP allocator ─────────────────────────────────
@@ -326,9 +354,10 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
         // then greedy-optimize the remaining budget for score.
         const effort = _best_effort_sp(equip_sms, snap.weapon_sm, snap.sp_budget);
         const remaining = snap.sp_budget - effort.assigned_sp;
+        const effort_item_sp = _item_sp_of(effort.base_sp, effort.total_sp);
         if (remaining > 0) {
             function _trial_score() {
-                const cb = _assemble_baseline_combo(build_sm, effort.total_sp, snap);
+                const cb = _assemble_baseline_combo(build_sm, effort.total_sp, snap, effort_item_sp);
                 return _sensitivity_eval_score(cb, snap);
             }
             const _default_caps = [150, 150, 150, 150, 150];
@@ -336,7 +365,7 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
                 effort.base_sp, effort.total_sp, remaining, _default_caps, null, _trial_score, null
             );
         }
-        return { total_sp: effort.total_sp, assigned_sp: effort.assigned_sp };
+        return { total_sp: effort.total_sp, assigned_sp: effort.assigned_sp, item_sp: effort_item_sp };
     }
 
     for (let i = 0; i < 5; i++) {
@@ -344,9 +373,10 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
         total_sp[i] = sp_result[1][i];
     }
     let assigned_sp = sp_result[2];
+    const item_sp = [...sp_result[4]];
 
     function _trial_score() {
-        const cb = _assemble_baseline_combo(build_sm, total_sp, snap);
+        const cb = _assemble_baseline_combo(build_sm, total_sp, snap, item_sp);
         return _sensitivity_eval_score(cb, snap);
     }
 
@@ -354,7 +384,7 @@ function _greedy_sp_alloc_main(build_sm, snap, locked) {
     const remaining = snap.sp_budget - assigned_sp;
     assigned_sp += greedy_sp_allocate(base_sp, total_sp, remaining, _default_caps, null, _trial_score, null);
 
-    return { total_sp, assigned_sp };
+    return { total_sp, assigned_sp, item_sp };
 }
 
 // ── Step 7: Pool-calibrated deltas ──────────────────────────────────────────
@@ -434,10 +464,10 @@ function _compute_sensitivity_weights(snap, locked, pools) {
     const build_sm = _build_baseline_statmap(snap, locked);
 
     // 2. Greedy SP allocation
-    const { total_sp, assigned_sp } = _greedy_sp_alloc_main(build_sm, snap, locked);
+    const { total_sp, assigned_sp, item_sp } = _greedy_sp_alloc_main(build_sm, snap, locked);
 
     // 3. Assemble combo stats
-    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap);
+    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap, item_sp);
 
     // 4. Baseline score & perturbation
     // Suppress has_dynamic_sliders during perturbation — the drain mechanic
@@ -489,7 +519,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
 
         const trial_sp = [...total_sp];
         trial_sp[i] += delta;
-        const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap);
+        const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap, _item_sp_plus(item_sp, i, delta));
         const perturbed_score = _sensitivity_eval_score(trial_combo, snap);
         sp_sensitivities[i] = (perturbed_score - baseline_score) / delta * _SP_SENSITIVITY_DAMPEN;
     }
@@ -603,7 +633,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
         console.groupEnd();
     }
 
-    return { weights, baseline_score, combo_base, deltas, sp_deltas, total_sp, build_sm };
+    return { weights, baseline_score, combo_base, deltas, sp_deltas, total_sp, item_sp, build_sm };
 }
 
 // ── Step 9: Constraint & mana weight integration ────────────────────────────
@@ -612,7 +642,7 @@ function _compute_sensitivity_weights(snap, locked, pools) {
  * Augment sensitivity weights with constraint bonuses and mana sustainability hints.
  */
 function _augment_sensitivity_weights(result, snap, restrictions) {
-    const { weights, combo_base, deltas, sp_deltas, total_sp, build_sm } = result;
+    const { weights, combo_base, deltas, sp_deltas, total_sp, item_sp, build_sm } = result;
 
     // Compute max absolute weight for constraint/mana bonus scaling
     let max_abs = 1.0;
@@ -634,7 +664,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
         : 1;
 
     // ── Restriction thresholds (ge constraints on direct stats) ─────────
-    for (const { stat, op, value } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op, value } of _floor_constraints(restrictions)) {
         if (op !== 'ge' || _INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         const current = combo_base.get(stat) ?? 0;
         const deficit = value - current;
@@ -660,7 +690,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
     // These stats are computed from the full build via getDefenseStats(), so
     // we can't just read them from the statMap. Instead, perturb each
     // contributing direct stat and measure the indirect stat's response.
-    for (const { stat, op, value } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op, value } of _floor_constraints(restrictions)) {
         if (!_INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         if (op !== 'ge') continue;
         if (!_INDIRECT_CONTRIBUTORS[stat]) continue;  // e.g. finalSpellCost — handled separately
@@ -699,7 +729,7 @@ function _augment_sensitivity_weights(result, snap, restrictions) {
                 const sp_delta = sp_deltas[si] || 10;
                 const trial_sp = [...total_sp];
                 trial_sp[si] += sp_delta;
-                const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap);
+                const trial_combo = _assemble_baseline_combo(build_sm, trial_sp, snap, _item_sp_plus(item_sp, si, sp_delta));
                 const perturbed_val = _eval_indirect_stat(trial_combo, stat);
 
                 const sp_sens = (perturbed_val - baseline_val) / sp_delta;
@@ -993,7 +1023,7 @@ function _estimate_mana_balance(snap, combo_base) {
         ? Math.floor(skillPointsToPercentage(combo_base.get('int') ?? 0) * 100)
         : 0;
     const item_mana = combo_base ? (combo_base.get('maxMana') ?? 0) : 0;
-    const start_mana = 100 + int_mana + item_mana;
+    const start_mana = total_mana_pool(item_mana, int_mana);
     const max_mana = start_mana;
 
     // MR regen (matching worker pure/simulate.js)
@@ -1085,7 +1115,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     }
 
     // ge/le restrictions on direct stats
-    for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op } of _floor_constraints(restrictions)) {
         if (_INDIRECT_CONSTRAINT_STATS.has(stat)) continue;
         if (op === 'ge') higher.add(stat);
         else if (op === 'le') lower.add(stat);
@@ -1096,7 +1126,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     // rather than in maxRolls, but _item_stat_val handles both locations.
     // We skip individual def stats — they interact non-monotonically with EHP
     // and adding all 5 would make dominance proofs nearly impossible.
-    for (const { stat, op } of (restrictions.stat_thresholds ?? [])) {
+    for (const { stat, op } of _floor_constraints(restrictions)) {
         if (op !== 'ge') continue;
         if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') {
             higher.add('hp');
@@ -1151,7 +1181,7 @@ function _build_dominance_stats(snap, dmg_weights, restrictions, options = {}) {
     // atkTier special case: melee DPS + mana-tight/ls-constraint conflict —
     // faster attacks trade per-hit damage against mana/ls economy, so
     // direction is build-dependent. Still relevant, so demand equality.
-    const ls_constraint = (restrictions.stat_thresholds ?? []).some(t => t.stat === 'ls' && t.op === 'ge');
+    const ls_constraint = _floor_constraints(restrictions).some(t => t.stat === 'ls' && t.op === 'ge');
     if (has_melee && (mana_tight || ls_constraint)) {
         if (higher.delete('atkTier') || lower.delete('atkTier')) {
             equal.add('atkTier');
@@ -1347,6 +1377,48 @@ function _dedupe_identical_items(pools, report) {
 let _last_dominance_report = null;
 function _dominance_report() { return _last_dominance_report; }
 
+/**
+ * R4: the extreme changes to each stat when one piece of a set leaves a
+ * build, or null when a piece of this set must never be dominated.
+ *
+ * Swapping set item B for a setless item A at the same slot moves the set
+ * from c pieces to c - 1, for whatever c the build has. Every stat is
+ * additive (items and set rows sum into one stat map), so the swapped build
+ * is at least as good on a higher-is-better stat s for every c exactly when
+ * A_s >= B_s + max_c (row(c)_s - row(c - 1)_s), and symmetrically with the
+ * minimum for lower-is-better stats; a must-be-equal stat must not move at
+ * all. c runs over 1..max(rows, pieces), a missing row reading as no bonus,
+ * as applySetBonuses does.
+ *
+ * Refused (null): sets with an `illegal` row (exclusive sets keep their own
+ * guard) and sets granting skill points at any count. Set skill points are
+ * free provision in calculate_skillpoints, available before any item is
+ * equipped, while an item's own points arrive only once its requirements
+ * are met; no item stat can stand in for them, so their removal could make
+ * a build infeasible.
+ */
+function _set_transition_bounds(set_data) {
+    const rows = set_data?.bonuses;
+    if (!Array.isArray(rows)) return null;
+    const SKP = ['str', 'dex', 'int', 'def', 'agi'];
+    if (rows.some(r => r && (r.illegal || SKP.some(k => r[k])))) return null;
+    const n = Math.max(rows.length, (set_data.items ?? []).length);
+    const row = (c) => (c >= 1 && rows[c - 1]) || {};
+    const keys = new Set(rows.flatMap(r => Object.keys(r ?? {})));
+    const hi = new Map(), lo = new Map();
+    for (const key of keys) {
+        let mx = -Infinity, mn = Infinity;
+        for (let c = 1; c <= n; c++) {
+            const d = (row(c)[key] ?? 0) - (row(c - 1)[key] ?? 0);
+            if (d > mx) mx = d;
+            if (d < mn) mn = d;
+        }
+        if (!Number.isFinite(mx) || !Number.isFinite(mn)) return null;
+        hi.set(key, mx); lo.set(key, mn);
+    }
+    return { max: (stat) => hi.get(stat) ?? 0, min: (stat) => lo.get(stat) ?? 0 };
+}
+
 function _prune_dominated_items(pools, dominance_stats, options = {}) {
     const mode = _resolve_dominance_mode(options);
     const report = { mode, per_slot: {}, pruned: 0 };
@@ -1370,6 +1442,14 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
     const preserve_set_items = options.preserve_set_items !== false;
     const return_report = options.return_report === true;
+    // R4 (roadmap): set items become dominable when the caller passes the
+    // set table. Off unless asked for.
+    const set_aware = preserve_set_items && options.set_aware === true && options.sets instanceof Map;
+    const set_cache = new Map();
+    const set_bounds = (name) => {
+        if (!set_cache.has(name)) set_cache.set(name, _set_transition_bounds(options.sets.get(name)));
+        return set_cache.get(name);
+    };
     const higher_stats = [...dominance_stats.higher];
     const lower_stats = [...dominance_stats.lower];
     const equal_stats = [...(dominance_stats.equal ?? [])];
@@ -1401,9 +1481,31 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
         const _name = (sm) => sm.get('displayName') ?? sm.get('name') ?? '?';
 
+        // Each item's compared stat values, read once instead of per pair
+        // (two Map lookups per stat per comparison were most of the prep
+        // phase on wide pools). Plain arrays keep the values as read, so the
+        // comparisons below see exactly what `_item_stat_val` returns.
+        const vals = (stats) => real.map(it => stats.map(stat => _item_stat_val(it.statMap, stat)));
+        const higher_v = vals(higher_stats), lower_v = vals(lower_stats), equal_v = vals(equal_stats);
+
+        // R4: a set item, compared as the item plus the most its set can
+        // change when it leaves the build (see _set_transition_bounds), or
+        // null when it cannot be dominated.
+        const set_adj = real.map((it, idx) => {
+            const set_name = it.statMap.get('set');
+            if (!set_name) return null;
+            const t = set_aware ? set_bounds(set_name) : null;
+            if (!t) return null;
+            const higher = higher_v[idx].map((v, k) => v + t.max(higher_stats[k]));
+            const lower = lower_v[idx].map((v, k) => v + t.min(lower_stats[k]));
+            if (!equal_stats.every(stat => t.max(stat) === 0 && t.min(stat) === 0)) return null;
+            return { higher, lower };
+        });
+
         for (let i = 0; i < real.length; i++) {
             if (dominated[i]) continue;
             const a_sm = real[i].statMap;
+            const a_higher = higher_v[i], a_lower = lower_v[i], a_equal = equal_v[i];
             const a_reqs = a_sm.get('reqs') ?? [0, 0, 0, 0, 0];
             const a_skp = a_sm.get('skillpoints') ?? [0, 0, 0, 0, 0];
             const a_illegal = real[i]._illegalSet ?? null;
@@ -1416,7 +1518,10 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
             for (let j = 0; j < real.length; j++) {
                 if (i === j || dominated[j]) continue;
                 const b_sm = real[j].statMap;
-                if (preserve_set_items && b_sm.get('set')) continue;
+                // A set item only through R4, and only by a setless item:
+                // a dominator in a set would bring its own transitions.
+                const b_set = preserve_set_items && b_sm.get('set') ? set_adj[j] : undefined;
+                if (b_set === null || (b_set && a_sm.get('set'))) continue;
                 if ((b_sm.get('majorIds') ?? []).length > 0) continue;
 
                 // Exclusive set guard: an item from an exclusive set must not
@@ -1428,16 +1533,18 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 // 1. Higher-is-better stats: A >= B on all
                 let ok = true;
-                for (const stat of higher_stats) {
-                    if (_item_stat_val(a_sm, stat) < _item_stat_val(b_sm, stat)) {
+                const b_higher = b_set ? b_set.higher : higher_v[j];
+                for (let k = 0; k < a_higher.length; k++) {
+                    if (a_higher[k] < b_higher[k]) {
                         ok = false; break;
                     }
                 }
                 if (!ok) continue;
 
                 // 2. Lower-is-better stats: A <= B on all
-                for (const stat of lower_stats) {
-                    if (_item_stat_val(a_sm, stat) > _item_stat_val(b_sm, stat)) {
+                const b_lower = b_set ? b_set.lower : lower_v[j];
+                for (let k = 0; k < a_lower.length; k++) {
+                    if (a_lower[k] > b_lower[k]) {
                         ok = false; break;
                     }
                 }
@@ -1445,8 +1552,9 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 // 2b. Non-monotonic relevant stats: A == B on all — a
                 // difference in either direction can matter to the build.
-                for (const stat of equal_stats) {
-                    if (_item_stat_val(a_sm, stat) !== _item_stat_val(b_sm, stat)) {
+                const b_equal = equal_v[j];
+                for (let k = 0; k < a_equal.length; k++) {
+                    if (a_equal[k] !== b_equal[k]) {
                         ok = false; break;
                     }
                 }
@@ -1468,6 +1576,7 @@ function _prune_dominated_items(pools, dominance_stats, options = {}) {
 
                 dominated[j] = true;
                 if (dominated_by) dominated_by[j] = i;
+                if (b_set) report.set_dominated = (report.set_dominated ?? 0) + 1;
             }
         }
 

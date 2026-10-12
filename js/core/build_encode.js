@@ -834,6 +834,11 @@ function encodeSolverParams(params) {
     if (tome_opt !== 0) presence |= (1 << 10);
     if (tome_roll !== tome_roll_default) presence |= (1 << 11);
     if (tome_inv_ids) presence |= (1 << 12);
+    // Bit 13: R14 soft-floor mask, written after the custom weights. Older
+    // decoders ignore the bit and the trailing mask, reading the rows as ≥.
+    const soft_mask = (params.restrictions || []).slice(0, 15)
+        .reduce((m, r, i) => (r.soft ? m | (1 << i) : m), 0);
+    if (soft_mask !== 0) presence |= (1 << 13);
 
     bv.append(presence, PRESENCE_BITS_V11);   // v11: 16 bits, was 10
 
@@ -983,6 +988,9 @@ function encodeSolverParams(params) {
         bv.append(sign, 1);
         bv.append(Math.min(65535, Math.abs(Math.round(entry.weight))), 16);
     }
+
+    // ── Soft-floor mask (presence bit 13): one bit per restriction row ──
+    if (presence & (1 << 13)) bv.append(soft_mask, Math.min(15, (params.restrictions || []).length));
 
     return bv.toB64();
 }

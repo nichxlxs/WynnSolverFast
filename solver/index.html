@@ -1206,6 +1206,22 @@
                                 Requirement</button>
                             <button class="btn btn-sm btn-outline-secondary" onclick="blacklist_add_row()">+ Blacklist
                                 Item</button>
+                            <input id="restr-constraint-roll" type="number" min="0" max="99"
+                                class="form-control form-control-sm bg-dark text-light" style="width:6.5em"
+                                placeholder="Req. roll %"
+                                title="Roll-robust requirements: each stat a requirement (or the mana check) reads is taken at this roll toward its worse end, so results meet their requirements at that roll; damage keeps the normal roll. Blank = off.">
+                            <select id="restriction-preset" class="solver-select form-select form-select-sm"
+                                style="width:auto"
+                                title="Replace the requirements above with a playstyle's starting floors (each family's validated seed build meets them)"
+                                onchange="solver_restriction_preset_changed(this)">
+                                <option value="" selected>Preset floors...</option>
+                                <option value="cancelstack">Cancelstack melee</option>
+                                <option value="heavy_melee">Heavy melee</option>
+                                <option value="tierstack">Attack-speed tierstack</option>
+                                <option value="spellsteal">Spellsteal</option>
+                                <option value="spell_sustained">Sustained spellspam</option>
+                                <option value="hybrid">Spell/melee hybrid</option>
+                            </select>
                         </div>
                     </div>
 
@@ -1246,6 +1262,53 @@
                                   style="cursor:help"></span>
                         </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap mb-1 mt-2">
+                            <div class="d-flex align-items-center gap-2 w-100">
+                                <label for="solver-search-mode" class="small text-secondary">Search</label>
+                                <select id="solver-search-mode" class="form-select form-select-sm bg-dark text-light"
+                                    style="width:auto" onchange="solver_search_mode_changed()">
+                                    <option value="exhaustive" selected>Exhaustive search</option>
+                                    <option value="within">Near-optimal (proved)</option>
+                                    <option value="shortlist">Shortlist (every build within a margin)</option>
+                                    <option value="quick">Quick search</option>
+                                </select>
+                                <span id="solver-window-row" style="display:none">
+                                    <label for="solver-window" class="visually-hidden">Shortlist margin</label>
+                                    <select id="solver-window" class="form-select form-select-sm bg-dark text-light"
+                                        title="Keep every build scoring within this much of the best"
+                                        onchange="solver_engine_changed()">
+                                        <option value="0.02">within 2%</option>
+                                        <option value="0.05" selected>within 5%</option>
+                                        <option value="0.1">within 10%</option>
+                                    </select>
+                                </span>
+                                <span id="solver-eps-row" style="display:none">
+                                    <label for="solver-eps" class="visually-hidden">Proved tolerance</label>
+                                    <select id="solver-eps" class="form-select form-select-sm bg-dark text-light"
+                                        title="The top result is proved to be within this much of the best build"
+                                        onchange="solver_engine_changed()">
+                                        <option value="0.005">within 0.5%</option>
+                                        <option value="0.01" selected>within 1%</option>
+                                        <option value="0.02">within 2%</option>
+                                        <option value="0.05">within 5%</option>
+                                    </select>
+                                </span>
+                                <span id="solver-quick-budget-row" style="display:none">
+                                    <label for="solver-quick-budget" class="visually-hidden">Quick search time budget</label>
+                                    <select id="solver-quick-budget" class="form-select form-select-sm bg-dark text-light"
+                                        title="Time budget includes preparation and loading">
+                                        <option value="5" selected>5 seconds</option>
+                                        <option value="15">15 seconds</option>
+                                        <option value="30">30 seconds</option>
+                                    </select>
+                                </span>
+                            </div>
+                            <div id="solver-search-mode-note" class="small text-secondary w-100"></div>
+                            <div class="d-flex align-items-center gap-1 w-100">
+                                <label for="solver-weapon-compare" class="text-secondary small" style="white-space:nowrap">Compare weapons:</label>
+                                <input id="solver-weapon-compare" class="form-control form-control-sm bg-dark text-light"
+                                    style="flex:1" placeholder="other weapons of this class, comma-separated"
+                                    title="Solve once per weapon (the current one first, each with the current weapon powders) and rank every result together. Exhaustive and Near-optimal modes.">
+                            </div>
                             <div class="d-flex align-items-center gap-1 w-100">
                                 <span class="text-secondary small" style="white-space:nowrap">Item pool:</span>
                                 <select id="solver-pruning-mode"
@@ -1309,6 +1372,7 @@
                         </div>
                         <div id="solver-summary-text" style="display:none" class="text-secondary small mb-1"></div>
                         <div id="solver-results-panel"></div>
+                        <div id="solver-shortlist-panel"></div>
                     </div>
                 </div>
 
@@ -1766,6 +1830,7 @@
     <script src="../js/solver/engine/candidate_reducer.js"></script>
     <script src="../js/solver/engine/rust_bridge.js"></script>
     <script src="../js/solver/engine/top_results.js"></script>
+    <script src="../js/solver/engine/shortlist.js"></script>
     <script src="../js/solver/engine/search.js"></script>
     <script src="../js/solver/solver.js?v=2"></script>
 

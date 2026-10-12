@@ -1,0 +1,10 @@
+{
+  "variants": [
+    {"name": "safe_baseline15", "kind": "enum", "binary": "target/release/enum_kernel", "env": {"RESULT_COUNT": "15", "RETAIN_WARM": "0", "WIDE_BOUND_KEYS": "0", "WARM_K": "6"}},
+    {"name": "retained15", "kind": "enum", "binary": "target/release/enum_kernel", "env": {"RESULT_COUNT": "15", "RETAIN_WARM": "1", "WIDE_BOUND_KEYS": "0", "WARM_K": "6"}},
+    {"name": "best1", "kind": "enum", "binary": "target/release/enum_kernel", "env": {"RESULT_COUNT": "1", "RETAIN_WARM": "1", "WIDE_BOUND_KEYS": "0", "WARM_K": "6"}},
+    {"name": "best1_warm3", "kind": "enum", "binary": "target/release/enum_kernel", "env": {"RESULT_COUNT": "1", "RETAIN_WARM": "1", "WIDE_BOUND_KEYS": "0", "WARM_K": "3"}},
+    {"name": "wide15", "kind": "enum", "binary": "target/release/enum_kernel", "env": {"RESULT_COUNT": "15", "RETAIN_WARM": "1", "WIDE_BOUND_KEYS": "1", "WARM_K": "6"}},
+    {"name": "alns1", "kind": "lns", "binary": "target/release/anytime_kernel", "env": {"WIDE_BOUND_KEYS": "0"}, "args": ["--warm-k", "3"]}
+  ]
+}

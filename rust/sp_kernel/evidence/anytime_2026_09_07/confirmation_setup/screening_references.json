@@ -1,0 +1,420 @@
+{
+  "meta_archer_boltslinger_fast_hybrid_remove_6": {
+    "kind": "best_known",
+    "score": 155663.7797715262,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "80d507b569c8391d0db4bfaf23e31eb700ce7fc1e7dfd33d35be1c42e3cb2a8d",
+    "score_sha256": "59acdaeff89d70d7674f830990754de9228f96fb4a3dcfd8b722cb0f92e71d0d",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_archer_boltslinger_fast_hybrid_remove_6__safe_baseline15__r00__s1",
+      "meta_archer_boltslinger_fast_hybrid_remove_6__retained15__r00__s1",
+      "meta_archer_boltslinger_fast_hybrid_remove_6__best1__r00__s1",
+      "meta_archer_boltslinger_fast_hybrid_remove_6__best1_warm3__r00__s1",
+      "meta_archer_boltslinger_fast_hybrid_remove_6__wide15__r00__s1",
+      "meta_archer_boltslinger_fast_hybrid_remove_6__alns1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_archer_sharpshooter_heavy_melee_remove_6": {
+    "kind": "best_known",
+    "score": 38609.29024489125,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "bde8e20c705cd16af3c3f06e105d1d040b582670777c1f0ae5f8e730eec79888",
+    "score_sha256": "e6e75aace8eb470a1f78fb2dbef822caf49f0327b9139f9c0ecfbf6d2b7048c2",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_archer_sharpshooter_heavy_melee_remove_6__retained15__r00__s1",
+      "meta_archer_sharpshooter_heavy_melee_remove_6__best1__r00__s1",
+      "meta_archer_sharpshooter_heavy_melee_remove_6__best1_warm3__r00__s1",
+      "meta_archer_sharpshooter_heavy_melee_remove_6__wide15__r00__s1",
+      "meta_archer_sharpshooter_heavy_melee_remove_6__alns1__r00__s1",
+      "meta_archer_sharpshooter_heavy_melee_remove_6__safe_baseline15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_archer_trapper_slow_melee_remove_6": {
+    "kind": "best_known",
+    "score": 25894.477810455217,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "80d2da2a1119fdedd246bca7d0a7a72e5dfc28c71cb884d42ad2a0b1baacd8d1",
+    "score_sha256": "20228305befb8787591e8358225e2dabdfcb078130cd6c5457c921a4abf0011f",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_archer_trapper_slow_melee_remove_6__best1__r00__s1",
+      "meta_archer_trapper_slow_melee_remove_6__best1_warm3__r00__s1",
+      "meta_archer_trapper_slow_melee_remove_6__wide15__r00__s1",
+      "meta_archer_trapper_slow_melee_remove_6__alns1__r00__s1",
+      "meta_archer_trapper_slow_melee_remove_6__safe_baseline15__r00__s1",
+      "meta_archer_trapper_slow_melee_remove_6__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_assassin_acrobat_spellspam_remove_6": {
+    "kind": "best_known",
+    "score": 26124.68014511293,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "946a3e4de67a50b402dc8708448f2f234ab4de0f7cf2d3cfab7cd9f9d4151b49",
+    "score_sha256": "75317e832eac3de41df37d69d8ffce7f771bcc230c5c773f55f11c11488497fd",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_assassin_acrobat_spellspam_remove_6__best1_warm3__r00__s1",
+      "meta_assassin_acrobat_spellspam_remove_6__wide15__r00__s1",
+      "meta_assassin_acrobat_spellspam_remove_6__alns1__r00__s1",
+      "meta_assassin_acrobat_spellspam_remove_6__safe_baseline15__r00__s1",
+      "meta_assassin_acrobat_spellspam_remove_6__retained15__r00__s1",
+      "meta_assassin_acrobat_spellspam_remove_6__best1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_assassin_shadestepper_spellsteal_remove_6": {
+    "kind": "best_known",
+    "score": 54110.606244171206,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "fa05a092ca804003444efe93da46ae5df3b1be49c796a17b6310a44f3841e97d",
+    "score_sha256": "72069aea404f739e77cb0751d2106dab7ab5d5359b0df6153f9495b0eed08d7f",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_assassin_shadestepper_spellsteal_remove_6__wide15__r00__s1",
+      "meta_assassin_shadestepper_spellsteal_remove_6__alns1__r00__s1",
+      "meta_assassin_shadestepper_spellsteal_remove_6__safe_baseline15__r00__s1",
+      "meta_assassin_shadestepper_spellsteal_remove_6__retained15__r00__s1",
+      "meta_assassin_shadestepper_spellsteal_remove_6__best1__r00__s1",
+      "meta_assassin_shadestepper_spellsteal_remove_6__best1_warm3__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_assassin_trickster_spell_remove_6": {
+    "kind": "best_known",
+    "score": 79185.81130625762,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "2f88f7822d3db57488640f06d6bc4883b072e40ab79327b8643fda4dcedf5ada",
+    "score_sha256": "f492597f2766ecd5e808f4d48d97b77883e419e42145fb39f159f005cc4b46d9",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_assassin_trickster_spell_remove_6__alns1__r00__s1",
+      "meta_assassin_trickster_spell_remove_6__safe_baseline15__r00__s1",
+      "meta_assassin_trickster_spell_remove_6__retained15__r00__s1",
+      "meta_assassin_trickster_spell_remove_6__best1__r00__s1",
+      "meta_assassin_trickster_spell_remove_6__best1_warm3__r00__s1",
+      "meta_assassin_trickster_spell_remove_6__wide15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_mage_arcanist_meteor_remove_6": {
+    "kind": "best_known",
+    "score": 43293.54757315414,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "732c18ea3022f9bff644b63ef1feaf1d8e853a76655a93d93ca6c90f18c20fef",
+    "score_sha256": "7609a6d5113a83214d93c8d519d6829af04f8932d765e45dc9b47ac290ba78cc",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_mage_arcanist_meteor_remove_6__safe_baseline15__r00__s1",
+      "meta_mage_arcanist_meteor_remove_6__retained15__r00__s1",
+      "meta_mage_arcanist_meteor_remove_6__best1__r00__s1",
+      "meta_mage_arcanist_meteor_remove_6__best1_warm3__r00__s1",
+      "meta_mage_arcanist_meteor_remove_6__wide15__r00__s1",
+      "meta_mage_arcanist_meteor_remove_6__alns1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_mage_light_bender_healing_remove_6": {
+    "kind": "best_known",
+    "score": 15807.210000011217,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "8bf973614a1b7a89c8abc468a563b0793b5386deaec7bc14ab585e673d79349d",
+    "score_sha256": "4e782a53a4b82bb492dc92cc1df090aa986d683087a97e3a8fb6286b26766303",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_mage_light_bender_healing_remove_6__retained15__r00__s1",
+      "meta_mage_light_bender_healing_remove_6__best1__r00__s1",
+      "meta_mage_light_bender_healing_remove_6__best1_warm3__r00__s1",
+      "meta_mage_light_bender_healing_remove_6__wide15__r00__s1",
+      "meta_mage_light_bender_healing_remove_6__alns1__r00__s1",
+      "meta_mage_light_bender_healing_remove_6__safe_baseline15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_mage_riftwalker_cancelstack_remove_6": {
+    "kind": "best_known",
+    "score": 361768.68413388747,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "b63a242055776ad788aa8afb149830f189c7787de6677b19cc7d42a0c2af060a",
+    "score_sha256": "0419bafaa426957ff34bc2d49b7a07ae6c2ccb4ba208079a07193f6d7b443c28",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_mage_riftwalker_cancelstack_remove_6__best1__r00__s1",
+      "meta_mage_riftwalker_cancelstack_remove_6__best1_warm3__r00__s1",
+      "meta_mage_riftwalker_cancelstack_remove_6__wide15__r00__s1",
+      "meta_mage_riftwalker_cancelstack_remove_6__alns1__r00__s1",
+      "meta_mage_riftwalker_cancelstack_remove_6__safe_baseline15__r00__s1",
+      "meta_mage_riftwalker_cancelstack_remove_6__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_shaman_acolyte_healing_remove_6": {
+    "kind": "best_known",
+    "score": 12244.162500000002,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "9a59efc231a7dbf716371bed6bbd269d58dc91e7943cdfb3bc96cdd3bb773814",
+    "score_sha256": "4a4bce3d6af3cd885c2c6bc5d9557179c95b12cbbccdbbf1f9f5ef9070a2f971",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_shaman_acolyte_healing_remove_6__best1_warm3__r00__s1",
+      "meta_shaman_acolyte_healing_remove_6__wide15__r00__s1",
+      "meta_shaman_acolyte_healing_remove_6__alns1__r00__s1",
+      "meta_shaman_acolyte_healing_remove_6__safe_baseline15__r00__s1",
+      "meta_shaman_acolyte_healing_remove_6__retained15__r00__s1",
+      "meta_shaman_acolyte_healing_remove_6__best1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_shaman_ritualist_tierstack_remove_6": {
+    "kind": "best_known",
+    "score": 267253.98139341245,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "8a6968e09dffeab304bcf4a3057e929b5f1c64632f11c7c54f3ae381f4d044ae",
+    "score_sha256": "a92ac4b66d3a0872253e87a44283766229ac2ddb26e88be963fa0fd803cb1ebb",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_shaman_ritualist_tierstack_remove_6__wide15__r00__s1",
+      "meta_shaman_ritualist_tierstack_remove_6__alns1__r00__s1",
+      "meta_shaman_ritualist_tierstack_remove_6__safe_baseline15__r00__s1",
+      "meta_shaman_ritualist_tierstack_remove_6__retained15__r00__s1",
+      "meta_shaman_ritualist_tierstack_remove_6__best1__r00__s1",
+      "meta_shaman_ritualist_tierstack_remove_6__best1_warm3__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_shaman_summoner_aura_remove_6": {
+    "kind": "best_known",
+    "score": 8226.53937516732,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "cdf4842d5d8defdd4fb4e41ff300bff679069a7703e85b62681ffcdfc6fd8e1c",
+    "score_sha256": "12b5b70d7c10521d7e8d43152c40416281fac5fd07e689a2f3dd0285d2ad8575",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_shaman_summoner_aura_remove_6__alns1__r00__s1",
+      "meta_shaman_summoner_aura_remove_6__safe_baseline15__r00__s1",
+      "meta_shaman_summoner_aura_remove_6__retained15__r00__s1",
+      "meta_shaman_summoner_aura_remove_6__best1__r00__s1",
+      "meta_shaman_summoner_aura_remove_6__best1_warm3__r00__s1",
+      "meta_shaman_summoner_aura_remove_6__wide15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_warrior_battle_monk_uppercut_remove_6": {
+    "kind": "best_known",
+    "score": 25939.547280286744,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "8f70edc4ac2ba0a1f49deb2cb9836fc93fd75a787b4947a478e6b31cf28388ba",
+    "score_sha256": "9a0a4afa2b7ef022be45263c85051b5376b93737f576a96c3d71df54c9936cfe",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_warrior_battle_monk_uppercut_remove_6__safe_baseline15__r00__s1",
+      "meta_warrior_battle_monk_uppercut_remove_6__retained15__r00__s1",
+      "meta_warrior_battle_monk_uppercut_remove_6__best1__r00__s1",
+      "meta_warrior_battle_monk_uppercut_remove_6__best1_warm3__r00__s1",
+      "meta_warrior_battle_monk_uppercut_remove_6__wide15__r00__s1",
+      "meta_warrior_battle_monk_uppercut_remove_6__alns1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_warrior_fallen_uppercut_remove_6": {
+    "kind": "best_known",
+    "score": 38088.40528939774,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "1e7ecb3a8be17f73ae7d7a2ee6e39d29b62a1f6f20a8756ae8aba8189419b57d",
+    "score_sha256": "8127b05b5caf4da7c14374c795bcf75e7147dafe24367d6ac65da38322a66f58",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_warrior_fallen_uppercut_remove_6__retained15__r00__s1",
+      "meta_warrior_fallen_uppercut_remove_6__best1__r00__s1",
+      "meta_warrior_fallen_uppercut_remove_6__best1_warm3__r00__s1",
+      "meta_warrior_fallen_uppercut_remove_6__wide15__r00__s1",
+      "meta_warrior_fallen_uppercut_remove_6__alns1__r00__s1",
+      "meta_warrior_fallen_uppercut_remove_6__safe_baseline15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "meta_warrior_paladin_tank_remove_6": {
+    "kind": "best_known",
+    "score": 16445.296546915266,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "82e5266514695d368f72ca26088656bb867a0c13127de995e89235fef00cbf5d",
+    "score_sha256": "8ab664aab61d39f3c4851106b7d949bc686153bce09adc2ad2188bb00066763a",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "meta_warrior_paladin_tank_remove_6__best1__r00__s1",
+      "meta_warrior_paladin_tank_remove_6__best1_warm3__r00__s1",
+      "meta_warrior_paladin_tank_remove_6__wide15__r00__s1",
+      "meta_warrior_paladin_tank_remove_6__alns1__r00__s1",
+      "meta_warrior_paladin_tank_remove_6__safe_baseline15__r00__s1",
+      "meta_warrior_paladin_tank_remove_6__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_cancelstack_large": {
+    "kind": "best_known",
+    "score": 510715.00785697025,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "5449d17a819ef6a2c3f7e2cd5a557c44cdbd5768e2fd2180794c9bf0d48e6e35",
+    "score_sha256": "c524906c31b86465ed5786b7ce5b4b4683454354a42b4e0c26d6750817d7ed58",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_cancelstack_large__alns1__r00__s1",
+      "fam_cancelstack_large__safe_baseline15__r00__s1",
+      "fam_cancelstack_large__retained15__r00__s1",
+      "fam_cancelstack_large__best1__r00__s1",
+      "fam_cancelstack_large__best1_warm3__r00__s1",
+      "fam_cancelstack_large__wide15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_heavy_melee_large": {
+    "kind": "best_known",
+    "score": 37822.40581168717,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "75da677778ad5a7050739b4dfcd47f989c3935ac7686e4b349050ada487479fc",
+    "score_sha256": "f534f6134f39dc697be7058ca18cac2fd3462891eda23222f26f1813eae07237",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_heavy_melee_large__best1__r00__s1",
+      "fam_heavy_melee_large__best1_warm3__r00__s1",
+      "fam_heavy_melee_large__wide15__r00__s1",
+      "fam_heavy_melee_large__alns1__r00__s1",
+      "fam_heavy_melee_large__safe_baseline15__r00__s1",
+      "fam_heavy_melee_large__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_tierstack_large": {
+    "kind": "best_known",
+    "score": 196090.0892544803,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "fe61dfe7f4842976bda56916fd7eb7ae88834d5c5319ab8785ba8125d1cc52aa",
+    "score_sha256": "59e342c64721412f5c332fc06400803c61809294f40c6316702c66e3e234becd",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_tierstack_large__alns1__r00__s1",
+      "fam_tierstack_large__safe_baseline15__r00__s1",
+      "fam_tierstack_large__retained15__r00__s1",
+      "fam_tierstack_large__best1__r00__s1",
+      "fam_tierstack_large__best1_warm3__r00__s1",
+      "fam_tierstack_large__wide15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_spellsteal_large": {
+    "kind": "best_known",
+    "score": 93162.6626560366,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "2011195f9cf488b357d201ea9bd831fa26bc0d1869c8333dc28373cdb7a72bb5",
+    "score_sha256": "8b0e10e8523201559b1c1ac6d33d9489730a317bbb60dca264c3f1079863b898",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_spellsteal_large__best1__r00__s1",
+      "fam_spellsteal_large__best1_warm3__r00__s1",
+      "fam_spellsteal_large__wide15__r00__s1",
+      "fam_spellsteal_large__alns1__r00__s1",
+      "fam_spellsteal_large__safe_baseline15__r00__s1",
+      "fam_spellsteal_large__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_spell_sustained_large": {
+    "kind": "best_known",
+    "score": 1573331.1056414065,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "27cb99eb86c384ea6b294513bdb1e7c37530ab2bba3b07abd584f9fbca5471f8",
+    "score_sha256": "06cb7d04108e62991f8dbeba2a494203f6fcb169fdd19aebf1ff40167ffb4c03",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_spell_sustained_large__alns1__r00__s1",
+      "fam_spell_sustained_large__safe_baseline15__r00__s1",
+      "fam_spell_sustained_large__retained15__r00__s1",
+      "fam_spell_sustained_large__best1__r00__s1",
+      "fam_spell_sustained_large__best1_warm3__r00__s1",
+      "fam_spell_sustained_large__wide15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "fam_hybrid_large": {
+    "kind": "best_known",
+    "score": 261937.07198258536,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "ed7611dd8437c0dc9e6e4260eb9a370296883b5c6ad5c52d0788508359531b44",
+    "score_sha256": "b850e281c74e7147106aea36a27cb3f58bf0dbe30136c0296016b4e94cbb795a",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "fam_hybrid_large__best1__r00__s1",
+      "fam_hybrid_large__best1_warm3__r00__s1",
+      "fam_hybrid_large__wide15__r00__s1",
+      "fam_hybrid_large__alns1__r00__s1",
+      "fam_hybrid_large__safe_baseline15__r00__s1",
+      "fam_hybrid_large__retained15__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  },
+  "gaia_all_free": {
+    "kind": "best_known",
+    "score": 324111.66069395555,
+    "source": "Frozen maximum observed within screening budgets across all screening arms and repeats; /workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json (SHA-256 3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208). Written before confirmation. Best-known screening target, not an optimum certificate.",
+    "enum_sha256": "d4fb396370b745aabd90dc6ac13947cb8c698d76bd7fff46b21e8301037d6455",
+    "score_sha256": "4fd37cf1ccd0dd50b9cbb4bfbabfe7a2bde2dad77890bfd728744ce8ac403100",
+    "evidence_kind": "frozen_screening_best_known",
+    "screening_run_ids": [
+      "gaia_all_free__safe_baseline15__r00__s1",
+      "gaia_all_free__retained15__r00__s1",
+      "gaia_all_free__best1__r00__s1",
+      "gaia_all_free__best1_warm3__r00__s1",
+      "gaia_all_free__wide15__r00__s1",
+      "gaia_all_free__alns1__r00__s1"
+    ],
+    "screening_budget_seconds": [
+      2.0
+    ]
+  }
+}

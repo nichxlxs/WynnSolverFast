@@ -290,7 +290,7 @@ function assertManaMatchHC(label, rows, stats, hc, has_trans) {
 
 // 12. value_cap — state_value capped at 26 even with large mana pool
 {
-    const stats = makeStats({ mr: 0, int: 0, maxMana: 900 });  // start_mana = 1000
+    const stats = makeStats({ mr: 0, int: 0, maxMana: 300 });  // start_mana = 400, the MAX_MANA_CAP pool
     const hc = makeVanishConfig({ mana_drain: true, value_cap: 26 });
     const dashSpell = makeSpell('Dash', 5, { base_spell: 2 });
     const meleeSpell = makeSpell('Melee', null, { base_spell: 0, scaling: 'melee', mana_derived_from: 0 });
@@ -300,12 +300,12 @@ function assertManaMatchHC(label, rows, stats, hc, has_trans) {
     ];
 
     const full = assertManaMatchHC('value_cap', rows, stats, hc, false);
-    // After Dash cost (5), mana=995. compute_drain_override:
-    //   drain_rate = 5/100*1000 = 50/sec, target = min(26, 995) = 26
-    //   drain_time = 26/50 = 0.52s (< duration 5), actual_drain = 26
+    // After Dash cost (5), mana=395. compute_drain_override:
+    //   drain_rate = 5/100*400 = 20/sec, target = min(26, 395) = 26
+    //   drain_time = 26/20 = 1.3s (< duration 5), actual_drain = 26
     const dash_result = full.row_results[0];
-    t.assert(Math.abs(dash_result.computed_delay - 0.52) < 0.01,
-        `value_cap: computed_delay should be ~0.52, got ${dash_result.computed_delay}`);
+    t.assert(Math.abs(dash_result.computed_delay - 1.3) < 0.01,
+        `value_cap: computed_delay should be ~1.3, got ${dash_result.computed_delay}`);
     // Melee row deactivates Vanished; state_value should be exactly 26
     const meleeResult = full.row_results[1];
     t.assert(meleeResult.state_values.Vanished === 26,

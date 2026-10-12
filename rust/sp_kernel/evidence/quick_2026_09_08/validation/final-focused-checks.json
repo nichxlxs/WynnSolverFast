@@ -1,0 +1,18 @@
+{
+  "source": "Integrator final check results reported in the task handoff; complete source logs are not included for these two short commands.",
+  "checks": [
+    {
+      "command": "python3 -m unittest test_benchmark_quality test_long_campaign",
+      "working_directory": "rust/sp_kernel",
+      "tests_passed": 17,
+      "tests_failed": 0,
+      "reported_seconds": 0.212
+    },
+    {
+      "command": "node rust/sp_kernel/benchmark_quick_wasm.mjs --self-test",
+      "working_directory": "repository root",
+      "assertions_passed": 11,
+      "assertions_failed": 0
+    }
+  ]
+}

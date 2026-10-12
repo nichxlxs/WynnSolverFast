@@ -608,6 +608,214 @@ t.assert(_normalize_dominance_mode('nonsense') === 'legacy'
     'Test 27: the default policy is the certified, exact one');
 }
 
+// Test 28 (R27): the per-item stat vectors give exactly the survivors and
+// dominators of the per-pair `_item_stat_val` lookups they replaced. The
+// reference below is the pre-vector loop, verbatim in its comparisons.
+{
+    function reference(pools, ds) {
+        const higher = [...ds.higher], lower = [...ds.lower], equal = [...(ds.equal ?? [])];
+        const out = {};
+        for (const [slot, pool] of Object.entries(pools)) {
+            const real = pool.filter(it => !it.statMap.has('NONE'));
+            const none = pool.filter(it => it.statMap.has('NONE'));
+            const dom = new Array(real.length).fill(false);
+            if (real.length >= 2) for (let i = 0; i < real.length; i++) {
+                if (dom[i]) continue;
+                const a = real[i].statMap, ai = real[i]._illegalSet ?? null;
+                if (a.get('set')) continue;
+                if ((a.get('majorIds') ?? []).length > 0) continue;
+                const ar = a.get('reqs') ?? [0, 0, 0, 0, 0], as = a.get('skillpoints') ?? [0, 0, 0, 0, 0];
+                for (let j = 0; j < real.length; j++) {
+                    if (i === j || dom[j]) continue;
+                    const b = real[j].statMap;
+                    if (b.get('set')) continue;
+                    if ((b.get('majorIds') ?? []).length > 0) continue;
+                    if (ai && ai !== (real[j]._illegalSet ?? null)) continue;
+                    if (higher.some(st => _item_stat_val(a, st) < _item_stat_val(b, st))) continue;
+                    if (lower.some(st => _item_stat_val(a, st) > _item_stat_val(b, st))) continue;
+                    if (equal.some(st => _item_stat_val(a, st) !== _item_stat_val(b, st))) continue;
+                    const br = b.get('reqs') ?? [0, 0, 0, 0, 0], bs = b.get('skillpoints') ?? [0, 0, 0, 0, 0];
+                    let ok = true;
+                    for (let k = 0; k < 5; k++) if ((ar[k] ?? 0) > (br[k] ?? 0) || (as[k] ?? 0) < (bs[k] ?? 0)) ok = false;
+                    if (ok) dom[j] = true;
+                }
+            }
+            out[slot] = [...real.filter((_, k) => !dom[k]), ...none];
+        }
+        return out;
+    }
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const STATS = ['damPct', 'sdPct', 'hpBonus', 'spRaw1', 'mr', 'atkTier', 'eDef'];
+    const pick = () => [0, 0, 1, 2, 3, 5, -1, -4, NaN][Math.floor(rnd() * 9)];
+    let same = 0, trials = 0, pruned = 0;
+    for (let trial = 0; trial < 300; trial++) {
+        const items = [];
+        for (let n = 0; n < 2 + Math.floor(rnd() * 40); n++) {
+            const sm = new Map(), mr = new Map();
+            for (const st of STATS) {
+                const r = rnd();
+                if (r < 0.4) mr.set(st, pick());          // rolled
+                else if (r < 0.6) sm.set(st, pick());     // static
+            }                                             // else: missing
+            sm.set('maxRolls', mr);
+            sm.set('reqs', [0, 1, 2, 3, 4].map(() => (rnd() < 0.7 ? 0 : Math.floor(rnd() * 3))));
+            sm.set('skillpoints', [0, 1, 2, 3, 4].map(() => (rnd() < 0.8 ? 0 : Math.floor(rnd() * 3))));
+            if (rnd() < 0.1) sm.set('set', 'S');
+            if (rnd() < 0.05) sm.set('majorIds', ['M']);
+            const it = { statMap: sm };
+            if (rnd() < 0.1) it._illegalSet = rnd() < 0.5 ? 'X' : 'Y';
+            items.push(it);
+        }
+        const none = makeNoneItem();
+        const shuffle = (a) => a.map(v => [rnd(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
+        const ds = { higher: new Set(shuffle(STATS).slice(0, 3)), lower: new Set(['spRaw1']),
+                     equal: new Set(rnd() < 0.5 ? ['atkTier'] : []) };
+        ds.higher.delete('spRaw1'); ds.higher.delete('atkTier');
+        const pools = { helmet: [...items, none], ring: shuffle(items) };
+        const want = reference(pools, ds);
+        const before = items.length * 2;
+        _prune_dominated_items(pools, ds);
+        trials++;
+        pruned += before - pools.helmet.length - pools.ring.length + 1;
+        if (want.helmet.length === pools.helmet.length && want.helmet.every((x, k) => x === pools.helmet[k])
+            && want.ring.length === pools.ring.length && want.ring.every((x, k) => x === pools.ring[k])) same++;
+    }
+    t.assert(same === trials && pruned > 100,
+        `Test 28: stat vectors match per-pair lookups on ${same}/${trials} random pools (${pruned} items pruned)`);
+}
+
+// ── R4: set-aware dominance ──────────────────────────────────────────────────
+const _set_transition_bounds = ctx._set_transition_bounds;
+function makeSetItem(set, stats, reqs, skp) {
+    const it = makeItem(stats, reqs, skp);
+    it.statMap.set('set', set);
+    return it;
+}
+const setOpts = (sets) => ({ set_aware: true, sets: new Map(Object.entries(sets)) });
+
+// Test 29: B in an SP-free set is dominated only by A >= B + max transition.
+{
+    const sets = { S: { bonuses: [{}, { sdPct: 10 }, { sdPct: 25 }], items: ['B', 'x', 'y'] } };
+    const ds = { higher: new Set(['sdPct']), lower: new Set(), equal: new Set() };
+    const B = makeSetItem('S', { sdPct: 5 });
+    const A = makeItem({ sdPct: 20 });          // 5 + max(0, 10, 15) = 20
+    const A2 = makeItem({ sdPct: 19 });
+    const p1 = { helmet: [A, B] };
+    _prune_dominated_items(p1, ds, setOpts(sets));
+    t.assert(p1.helmet.length === 1 && p1.helmet[0] === A, 'Test 29: A at B + max transition dominates the set item');
+    const p2 = { helmet: [A2, B] };
+    _prune_dominated_items(p2, ds, setOpts(sets));
+    t.assert(p2.helmet.length === 2, 'Test 29: one short of the max transition does not');
+    const p3 = { helmet: [A, B] };
+    _prune_dominated_items(p3, ds);
+    t.assert(p3.helmet.length === 2, 'Test 29: without set_aware set items are never dominated');
+}
+
+// Test 30: a set granting skill points at any count is never dominated.
+{
+    const sets = { S: { bonuses: [{}, { sdPct: 1, dex: 5 }], items: ['B', 'x'] } };
+    const ds = { higher: new Set(['sdPct']), lower: new Set(), equal: new Set() };
+    const pools = { helmet: [makeItem({ sdPct: 999 }, [0, 0, 0, 0, 0], [9, 9, 9, 9, 9]), makeSetItem('S', { sdPct: 1 })] };
+    _prune_dominated_items(pools, ds, setOpts(sets));
+    t.assert(pools.helmet.length === 2 && _set_transition_bounds(sets.S) === null,
+        'Test 30: a set with skill-point rows is refused');
+}
+
+// Test 31: negative transitions count in A's favour, exactly.
+{
+    const sets = { S: { bonuses: [{ damPct: -10 }], items: ['B'] } };
+    const ds = { higher: new Set(['damPct']), lower: new Set(), equal: new Set() };
+    const B = makeSetItem('S', { damPct: 20 });
+    const pools = { helmet: [makeItem({ damPct: 10 }), B] };   // 10 >= 20 - 10
+    _prune_dominated_items(pools, ds, setOpts(sets));
+    t.assert(pools.helmet.length === 1, 'Test 31: a set that only costs damPct lets a weaker item replace its piece');
+}
+
+// Test 32: lower-is-better uses the minimum transition; equal stats must not move.
+{
+    const sets = { S: { bonuses: [{}, { spRaw1: -4 }], items: ['B', 'x'] },
+                   E: { bonuses: [{}, { atkTier: 1 }], items: ['B', 'x'] } };
+    const lowerDs = { higher: new Set(), lower: new Set(['spRaw1']), equal: new Set() };
+    const okPools = { helmet: [makeItem({ spRaw1: -4 }), makeSetItem('S', { spRaw1: 0 })] };
+    _prune_dominated_items(okPools, lowerDs, setOpts(sets));
+    const badPools = { helmet: [makeItem({ spRaw1: -3 }), makeSetItem('S', { spRaw1: 0 })] };
+    _prune_dominated_items(badPools, lowerDs, setOpts(sets));
+    t.assert(okPools.helmet.length === 1 && badPools.helmet.length === 2,
+        'Test 32: lower-is-better compares against B + min transition');
+    const eqDs = { higher: new Set(), lower: new Set(), equal: new Set(['atkTier']) };
+    const eqPools = { helmet: [makeItem({}), makeSetItem('E', {})] };
+    _prune_dominated_items(eqPools, eqDs, setOpts(sets));
+    t.assert(eqPools.helmet.length === 2, 'Test 32: a set that moves a must-be-equal stat is refused');
+}
+
+// Test 33: exclusive sets refused; a set item never dominates; reqs and
+// item skill points still apply to the set item's own values.
+{
+    const sets = { X: { bonuses: [{}, { illegal: true }], items: ['B', 'x'] },
+                   S: { bonuses: [{}, { sdPct: 2 }], items: ['B', 'x'] } };
+    const ds = { higher: new Set(['sdPct']), lower: new Set(), equal: new Set() };
+    const ex = { helmet: [makeItem({ sdPct: 99 }), makeSetItem('X', { sdPct: 1 })] };
+    _prune_dominated_items(ex, ds, setOpts(sets));
+    const rev = { helmet: [makeSetItem('S', { sdPct: 99 }), makeItem({ sdPct: 1 })] };
+    _prune_dominated_items(rev, ds, setOpts(sets));
+    const req = { helmet: [makeItem({ sdPct: 99 }, [0, 10, 0, 0, 0]), makeSetItem('S', { sdPct: 1 }, [0, 5, 0, 0, 0])] };
+    _prune_dominated_items(req, ds, setOpts(sets));
+    t.assert(ex.helmet.length === 2 && rev.helmet.length === 2 && req.helmet.length === 2,
+        'Test 33: exclusive sets, set dominators and higher requirements all keep the set item');
+}
+
+// Test 34: property. For every set item the pruner deletes, the build with
+// its dominator is at least as good on each higher stat, at most on each
+// lower stat and equal on each equal stat, at every piece count, with the
+// set rows actually summed (integer stats, so exact).
+{
+    let seed = 777;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const ri = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
+    const STATS = ['sdPct', 'mdPct', 'hpBonus', 'spRaw1', 'mr', 'atkTier'];
+    let checked = 0, bad = 0;
+    for (let trial = 0; trial < 1000; trial++) {
+        const sets = {};
+        for (const name of ['P', 'Q', 'R']) {
+            const n = ri(1, 4), bonuses = [];
+            for (let c = 0; c < n; c++) {
+                const row = {};
+                for (const st of STATS) if (rnd() < 0.3) row[st] = ri(-8, 12);
+                if (rnd() < 0.05) row.dex = 3;
+                bonuses.push(row);
+            }
+            sets[name] = { bonuses, items: new Array(ri(n, n + 1)).fill(name) };
+        }
+        const items = [];
+        for (let k = 0; k < ri(4, 12); k++) {
+            const st = {};
+            for (const s2 of STATS) if (rnd() < 0.7) st[s2] = ri(-5, 30);
+            items.push(rnd() < 0.5 ? makeSetItem(['P', 'Q', 'R'][ri(0, 2)], st) : makeItem(st));
+        }
+        const ds = { higher: new Set(['sdPct', 'mdPct', 'hpBonus']), lower: new Set(['spRaw1']),
+                     equal: new Set(rnd() < 0.5 ? ['atkTier'] : []) };
+        const pools = { helmet: [...items] };
+        const rep = _prune_dominated_items(pools, ds, { ...setOpts(sets), return_report: true });
+        for (const cert of rep.certificates) {
+            const b = cert.item.statMap, a = cert.dominator.statMap, name = b.get('set');
+            if (!name) continue;
+            const rows = sets[name].bonuses, n = Math.max(rows.length, sets[name].items.length);
+            const row = (c) => (c >= 1 && rows[c - 1]) || {};
+            for (let c = 1; c <= n; c++) {
+                checked++;
+                const withB = (s2) => _item_stat_val(b, s2) + (row(c)[s2] ?? 0);
+                const withA = (s2) => _item_stat_val(a, s2) + (row(c - 1)[s2] ?? 0);
+                if ([...ds.higher].some(s2 => withA(s2) < withB(s2))
+                    || [...ds.lower].some(s2 => withA(s2) > withB(s2))
+                    || [...ds.equal].some(s2 => withA(s2) !== withB(s2))) bad++;
+            }
+        }
+    }
+    t.assert(bad === 0 && checked > 200,
+        `Test 34: every set-item deletion holds at every piece count (${checked} checks, ${bad} violations)`);
+}
+
 const summary = t.summary();
 if (require.main === module) {
     if (summary.fail > 0) process.exit(1);

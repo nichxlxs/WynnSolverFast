@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "cohort": "screen_selected_diagnostic",
+  "query_count": 3,
+  "queries": [
+    "meta_warrior_battle_monk_uppercut_remove_4",
+    "fam_spellsteal_small",
+    "ehp"
+  ],
+  "seconds": 15,
+  "repeat": 3,
+  "seeds": [
+    1001,
+    2002,
+    3003
+  ],
+  "arms": [
+    "safe_baseline15",
+    "alns1",
+    "alns_warm6"
+  ],
+  "selection_policy": "Selected after screening to investigate a specific observed effect. Separate from the prespecified primary confirmation cohort; not unbiased population evidence.",
+  "scope": "New random seeds on prespecified workload definitions; not unseen query definitions.",
+  "screen_path": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json",
+  "screen_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+  "references_frozen": true
+}

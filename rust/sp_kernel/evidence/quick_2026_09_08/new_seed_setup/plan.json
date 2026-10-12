@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "selection_policy": "Supplemental repeatability check selected from the three observed exact-baseline quality gaps before any new heuristic campaign results. Uses previously unused seeds1217 and2423. Separate from the primary eight-query denominator; not winner-selected from heuristic outcomes.",
+  "queries": [
+    {
+      "name": "fam_spellsteal_medium",
+      "candidate_band": "minutes",
+      "completion_time_established": false,
+      "classification_note": "Search-size capacity hypothesis only; prior eligible timed runs did not establish exhaustive completion duration.",
+      "prior_completed_runs": 0,
+      "search_combinations": 2562488880,
+      "baseline_cap_seconds": 180,
+      "enum_sha256": "ef7e01582fad54b3dab7d62bd01677f91a405b43d637c0112326b874d3fc1ea6",
+      "score_sha256": "66da3a05f085d980343fd9e3ba8f6642c686a5412d21ec4f3ac91bee4ba0ab22"
+    },
+    {
+      "name": "meta_mage_arcanist_meteor_remove_6",
+      "candidate_band": "hour_or_larger",
+      "completion_time_established": false,
+      "classification_note": "Search-size capacity hypothesis only; prior eligible timed runs did not establish exhaustive completion duration.",
+      "prior_completed_runs": 0,
+      "search_combinations": 38432844710400,
+      "baseline_cap_seconds": 60,
+      "enum_sha256": "732c18ea3022f9bff644b63ef1feaf1d8e853a76655a93d93ca6c90f18c20fef",
+      "score_sha256": "7609a6d5113a83214d93c8d519d6829af04f8932d765e45dc9b47ac290ba78cc"
+    },
+    {
+      "name": "meta_mage_light_bender_healing_remove_6",
+      "candidate_band": "hour_or_larger",
+      "completion_time_established": false,
+      "classification_note": "Search-size capacity hypothesis only; prior eligible timed runs did not establish exhaustive completion duration.",
+      "prior_completed_runs": 0,
+      "search_combinations": 6924305902415,
+      "baseline_cap_seconds": 60,
+      "enum_sha256": "8bf973614a1b7a89c8abc468a563b0793b5386deaec7bc14ab585e673d79349d",
+      "score_sha256": "4e782a53a4b82bb492dc92cc1df090aa986d683087a97e3a8fb6286b26766303"
+    }
+  ],
+  "top_k": 15,
+  "heuristic_seconds": 15,
+  "heuristic_seeds": [
+    1217,
+    2423
+  ],
+  "baseline_repeats": 0,
+  "baseline_seed": 707,
+  "wide_exact_seconds": 30,
+  "wide_exact_repeats": 0,
+  "heuristic_profile_adjustment": "Same max_repairs100000 top15 profile as the primary campaign; shorter15-second cap is identical for both arms.",
+  "comparison_policy": "Compare current and elite ALNS at a common15-second budget on new seeds and the unchanged primary frozen targets. Reuse primary baseline results only as explicitly separate descriptive context; no baseline reruns in this supplemental cohort.",
+  "reference_policy": "Targets are frozen from earlier committed evidence. New maxima are separate best-known extensions and never retroactively replace primary milestones.",
+  "runtime_policy": "Native one-thread runs sequentially on the same machine with no competing builds or benchmarks. Generation excluded and recorded separately. Timed tests include launch, parse and warm start.",
+  "prior_sources": {
+    "screen": {
+      "sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+      "file": "evidence/anytime_2026_09_07/screen/campaign.json"
+    },
+    "confirmation": {
+      "sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+      "file": "evidence/anytime_2026_09_07/confirmation/campaign.json"
+    },
+    "diagnostic": {
+      "sha256": "26a9e82784cf85a6517868d3196fffd5e37e72980a779cdeac87d37055aa30ee",
+      "file": "evidence/anytime_2026_09_07/diagnostic/campaign.json"
+    },
+    "followup": {
+      "sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+      "file": "evidence/anytime_2026_09_07/followup/campaign.json"
+    }
+  },
+  "fixture_index_sha256": "ef9a3be3c12023a29a2a044d82a50abfee6f6ffde6372a6566f6e398cbcff8e8",
+  "planned_runs": 12,
+  "all_controls_are_correctness_only": true,
+  "cohort": "new_seed_gap_confirmation"
+}

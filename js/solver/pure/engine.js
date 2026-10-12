@@ -193,6 +193,31 @@ function compute_combo_damage_totals(base_stats, weapon_sm, parsed_rows, crit_ch
 // (item_priority.js, search.js).
 
 /**
+ * A restriction stat's value for a build, or null when it cannot be read
+ * (a spell cost for a spell the combo does not have). `get_def` returns the
+ * build's getDefenseStats, computed at most once per check.
+ */
+function threshold_stat_value(stats, stat, spell_base_costs, get_def) {
+    if (stat === 'ehp') return get_def()[1]?.[0] ?? 0;
+    if (stat === 'ehp_no_agi') return get_def()[1]?.[1] ?? 0;
+    if (stat === 'total_hp') return get_def()[0] ?? 0;
+    if (stat === 'ehpr') return get_def()[3]?.[0] ?? 0;
+    if (stat === 'hpr') return get_def()[2] ?? 0;
+    if (stat.startsWith('finalSpellCost')) {
+        const spell_num = parseInt(stat.charAt(stat.length - 1));
+        const base_cost = spell_base_costs?.[spell_num];
+        if (base_cost == null) return null;
+        return getSpellCost(stats, { cost: base_cost, base_spell: spell_num });
+    }
+    if (stat === 'total_mana') {
+        const mm = stats.get('maxMana') ?? 0;
+        const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
+        return total_mana_pool(mm, int_mana);
+    }
+    return stats.get(stat) ?? 0;
+}
+
+/**
  * Check stat threshold constraints (ge/le).
  * Returns false if any constraint is violated.
  */
@@ -200,33 +225,40 @@ function check_thresholds(stats, thresholds, spell_base_costs) {
     let _def_cache = null;
     const _get_def = () => _def_cache ?? (_def_cache = getDefenseStats(stats));
     for (const { stat, op, value } of thresholds) {
-        let v;
-        if (stat === 'ehp') {
-            v = _get_def()[1]?.[0] ?? 0;
-        } else if (stat === 'ehp_no_agi') {
-            v = _get_def()[1]?.[1] ?? 0;
-        } else if (stat === 'total_hp') {
-            v = _get_def()[0] ?? 0;
-        } else if (stat === 'ehpr') {
-            v = _get_def()[3]?.[0] ?? 0;
-        } else if (stat === 'hpr') {
-            v = _get_def()[2] ?? 0;
-        } else if (stat.startsWith('finalSpellCost')) {
-            const spell_num = parseInt(stat.charAt(stat.length - 1));
-            const base_cost = spell_base_costs?.[spell_num];
-            if (base_cost == null) continue;
-            v = getSpellCost(stats, { cost: base_cost, base_spell: spell_num });
-        } else if (stat === 'total_mana') {
-            const mm = stats.get('maxMana') ?? 0;
-            const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-            v = 100 + mm + int_mana;
-        } else {
-            v = stats.get(stat) ?? 0;
-        }
+        const v = threshold_stat_value(stats, stat, spell_base_costs, _get_def);
+        if (v === null) continue;
         if (op === 'ge' && v < value) return false;
         if (op === 'le' && v > value) return false;
     }
     return true;
+}
+
+/**
+ * Soft floors (roadmap R14): a floor the user would trade a little score for,
+ * not a cliff. Each floor a build misses costs the fraction it falls short
+ * (shortfall / floor) of |score|; fractions add across floors and the total
+ * is capped at 1, so a build never scores below -|score|.
+ *
+ * The penalised score is monotone non-decreasing in the raw score and in
+ * every floored stat, for either sign of the score. Two things follow: it
+ * never exceeds the raw score, so every upper bound on the raw score stays
+ * an upper bound and no ceiling needs to change; and an item better on a
+ * floored stat is never worse, so dominance treats a soft floor like a hard
+ * >= floor. Floors must be positive (a fraction of 0 is undefined); others
+ * are ignored here and refused by the UI.
+ */
+function apply_soft_floors(score, stats, soft_floors, spell_base_costs) {
+    if (!soft_floors || soft_floors.length === 0 || !Number.isFinite(score)) return score;
+    let _def_cache = null;
+    const _get_def = () => _def_cache ?? (_def_cache = getDefenseStats(stats));
+    let short = 0;
+    for (const { stat, value } of soft_floors) {
+        if (!(value > 0)) continue;
+        const v = threshold_stat_value(stats, stat, spell_base_costs, _get_def);
+        if (v === null || !(v < value)) continue;
+        short += (value - v) / value;
+    }
+    return short > 0 ? score - Math.abs(score) * Math.min(1, short) : score;
 }
 
 /**
@@ -391,9 +423,27 @@ function eval_combo_damage_with_bp(combo_base, weapon_sm, parsed_combo, bp_confi
  *   { combo_base, combo_base_nested, atree }
  * @param {Map|null} extra_stats - Additional additive stats merged last (tome bundle).
  */
+/**
+ * Radiance on item-granted skill points, exactly as the builder's
+ * compute_radiance does it: each positive lane of SP granted by items and set
+ * bonuses adds floor(sp + item_sp * (boost - 1)) on top of the scaled stat
+ * map. Same operands in the same order, so the float rounding matches the
+ * builder bit for bit. item_sp is the SP solve's total_item_skillpoints (equal
+ * to total_sp - base_sp, which greedy and the mana rescue both preserve), so
+ * it is constant per leaf. No-op without a boost or without item_sp.
+ */
+function _apply_radiance_item_sp(statMap, item_sp, boost) {
+    if (boost === 1 || !item_sp) return;
+    for (let i = 0; i < skp_order.length; i++) {
+        if ((item_sp[i] || 0) > 0) {
+            statMap.set(skp_order[i], Math.floor((statMap.get(skp_order[i]) || 0) + item_sp[i] * (boost - 1)));
+        }
+    }
+}
+
 function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance_boost,
                                atree_merged, button_states, slider_states, static_boosts,
-                               scratch, scaling_opts, extra_stats) {
+                               scratch, scaling_opts, extra_stats, item_sp) {
     // One working map, not two. The pre-scale stats and the returned combo_base
     // used to be separate clones of the build statmap, but nothing reads
     // pre_scale after the atree scaling below is computed from it — neither
@@ -417,6 +467,7 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
     if (weaponType) pre_scale.set('classDef', classDefenseMultipliers.get(weaponType) || 1.0);
     _merge_into(pre_scale, atree_raw);
     _apply_radiance_scale_inplace(pre_scale, radiance_boost);
+    _apply_radiance_item_sp(pre_scale, item_sp, radiance_boost);
     // scaling_opts (worker only): {cached} — atree scaling proven constant
     // for this search, reuse the precomputed result; {split} — constant
     // partition cached, stat-input effects re-evaluated per candidate;
@@ -449,7 +500,11 @@ function assemble_combo_stats(build_sm, total_sp, weapon_sm, atree_raw, radiance
 
 /**
  * Greedy SP allocation loop — shared by worker and main-thread sensitivity.
- * Step-down [20, 4, 1] with try-revert-keep pattern.
+ * Step-down [10, 4, 1] with try-revert-keep pattern. A 20-point first step
+ * could spend a whole 20-point budget on one lane before a split was tried
+ * (the C6 counterexample); the R12 polish recovers that too, and with it
+ * the two step sets give identical top-15s on the six small families at
+ * equal speed (benchmark_ab 1.004x), so this matches the PR #19 branch.
  *
  * @param {Int32Array|number[]} base_sp - Per-attribute base SP (mutated in-place)
  * @param {Int32Array|number[]} total_sp - Per-attribute total SP (mutated in-place)
@@ -463,7 +518,7 @@ function greedy_sp_loop(base_sp, total_sp, remaining, cap_total, trial_score_fn)
     let cur = trial_score_fn();
     const placed = [0, 0, 0, 0, 0];   // points this loop added, per lane
 
-    for (const step of [20, 4, 1]) {
+    for (const step of [10, 4, 1]) {
         let progress = true;
         while (progress && remaining > 0) {
             progress = false;
@@ -591,7 +646,7 @@ function eval_indirect_stat(stats, stat) {
     if (stat === 'total_mana') {
         const mm = stats.get('maxMana') ?? 0;
         const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-        return 100 + mm + int_mana;
+        return total_mana_pool(mm, int_mana);
     }
     return stats.get(stat) ?? 0;
 }

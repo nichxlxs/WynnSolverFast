@@ -46,6 +46,9 @@ pub struct Kernel {
     /// Exponential moving average of nodes per solve, in sixteenths.
     node_ema16: u32,
     nodes_this: u32,
+    /// `feasible_with_extra`: stop at the first order within the budget.
+    first_only: bool,
+    found: bool,
 }
 
 const SEEN_SLOTS: usize = 128;
@@ -71,6 +74,7 @@ impl Kernel {
             seen: vec![(0, 0, [0; 5]); SEEN_SLOTS],
             seen_gen: 0,
             seen_on: false, node_ema16: 0, nodes_this: 0,
+            first_only: false, found: false,
         }
     }
 
@@ -79,9 +83,23 @@ impl Kernel {
         self.calculate_with_extra(case, None)
     }
 
+    /// Whether `calculate_with_extra` would return Some, without finding the
+    /// cheapest order: the search stops at the first order whose total fits
+    /// the budget. Equivalent because `bt` never records an assignment above
+    /// the per-lane cap, so "the minimum fits" and "some order fits" agree.
+    pub fn feasible_with_extra(&mut self, case: &Case, extra: Option<&Unit>) -> bool {
+        self.first_only = true;
+        let r = self.calculate_with_extra(case, extra).is_some();
+        self.first_only = false;
+        r
+    }
+
     /// Same as calculate, with an optional 9th equipment unit (the guild
     /// tome slot in the solver's calculate_skillpoints input).
     pub fn calculate_with_extra(&mut self, case: &Case, extra: Option<&Unit>) -> Option<([i32; 5], [i32; 5], i32)> {
+        // Every solve starts unfound (a feasibility solve sets it to stop
+        // early; left set, it would cut the next full solve short).
+        self.found = false;
         // EMA over the previous solves' node counts, 15/16 decay.
         self.node_ema16 = self.node_ema16 - (self.node_ema16 >> 4) + self.nodes_this;
         self.nodes_this = 0;
@@ -206,7 +224,11 @@ impl Kernel {
         }
 
         // Lodestone-style closure fast path (see skillpoints.js).
-        let mut best_total = i32::MAX;
+        // Incumbent starts just above the budget: an order costing more is
+        // rejected below anyway, so only branches that cannot fit are cut and
+        // the cheapest fitting order (the same one, same visiting order) is
+        // still the one recorded.
+        let mut best_total = case.budget.saturating_add(1);
         let mut closure_solved = false;
         let has_neg_ord = (0..k).any(|n| self.ord_skp[n].iter().any(|&s| s < 0));
         if !has_neg_ord {
@@ -250,7 +272,7 @@ impl Kernel {
             );
         }
 
-        if best_total == i32::MAX {
+        if best_total > case.budget {
             return None;
         }
 
@@ -287,6 +309,7 @@ impl Kernel {
         running_bonus: &mut [i32; 5],
         best_total: &mut i32,
     ) {
+        if self.found { return; }
         // Only worth probing where a hit prunes a real subtree.
         self.nodes_this += 1;
         if self.seen_on && depth >= 1 && depth + 2 <= k {
@@ -309,11 +332,13 @@ impl Kernel {
                 for j in 0..5 {
                     self.best_assign[j] = post_floor[j].max(assign[j]);
                 }
+                if self.first_only { self.found = true; }
             }
             return;
         }
 
         for n in 0..k {
+            if self.found { break; }
             if used & (1 << n) != 0 {
                 continue;
             }
@@ -399,8 +424,51 @@ impl Kernel {
 pub mod clock;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
+mod bound_memo;
 pub mod enumerate;
 pub mod scoring;
+pub mod tangent;
 pub mod mana_sim;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+
+#[cfg(test)]
+mod feasible_tests {
+    use super::*;
+
+    /// feasible_with_extra agrees with calculate on deterministic random
+    /// cases, interleaved so a flag left set by one would cut the next short.
+    #[test]
+    fn feasibility_solve_matches_full_solve() {
+        let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut rnd = |n: i32| -> i32 {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+            (seed % n as u64) as i32
+        };
+        let mut kernel = Kernel::new();
+        let (mut feasible, mut infeasible) = (0, 0);
+        for _ in 0..20_000 {
+            let mut unit = |rnd: &mut dyn FnMut(i32) -> i32| {
+                let mut reqs = [0i32; 5];
+                let mut skp = [0i32; 5];
+                for j in 0..5 {
+                    if rnd(4) == 0 { reqs[j] = rnd(90); }
+                    if rnd(3) == 0 { skp[j] = rnd(25) - 7; }
+                }
+                Unit { crafted: rnd(20) == 0, reqs, skp }
+            };
+            let mut equipment = [Unit::default(); 8];
+            for e in equipment.iter_mut() { *e = unit(&mut rnd); }
+            let weapon = unit(&mut rnd);
+            let set_free = [rnd(10), rnd(10), 0, 0, rnd(10)];
+            let case = Case { budget: 150 + rnd(60), equipment, weapon, set_free, expected: None };
+            let full = kernel.calculate(&case);
+            let fast = kernel.feasible_with_extra(&case, None);
+            assert_eq!(fast, full.is_some(), "feasibility solve disagrees: budget {} weapon {:?} equipment {:?}", case.budget, case.weapon, case.equipment);
+            // And a full solve right after a feasibility solve is unaffected.
+            assert_eq!(kernel.calculate(&case), full);
+            if full.is_some() { feasible += 1 } else { infeasible += 1 }
+        }
+        assert!(feasible > 1000 && infeasible > 1000, "{feasible} feasible, {infeasible} infeasible");
+    }
+}

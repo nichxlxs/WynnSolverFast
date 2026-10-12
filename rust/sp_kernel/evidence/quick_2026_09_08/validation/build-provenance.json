@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "source_snapshot": {
+    "local_commit": "1479d683e0de30d51f14b8ef0a8102bbcc12c34c",
+    "published_commit": "d9b1d383c599cf02c7bff9994fa2c1b3eebfc1bb",
+    "tree_sha1": "311bc693942ce8d4881b35278e065694851ea836",
+    "published_tree_sha1": "311bc693942ce8d4881b35278e065694851ea836",
+    "tree_identity_verified_by": "git fetch origin d9b1d383c599cf02c7bff9994fa2c1b3eebfc1bb; git rev-parse <commit>^{tree}",
+    "kernel_and_browser_source_diff_from_snapshot": [],
+    "diff_verification_command": "git diff --name-only 1479d683 -- rust/sp_kernel/src rust/sp_kernel/Cargo.toml rust/sp_kernel/Cargo.lock rust/sp_kernel/build-wasm.sh js/solver/wasm js/solver/engine/search.js js/solver/engine/rust_bridge.js solver/index.html",
+    "source_blobs": [
+      {
+        "path": "js/solver/engine/rust_bridge.js",
+        "mode": "100644",
+        "git_blob_sha1": "32e1316cac3b711307f29c57094a029457636cb9",
+        "working_file_sha256": "449e40529d7a2850f3e2f5e67bb1c4c14345398d09d766628b3277bb9532afa7",
+        "bytes": 34102
+      },
+      {
+        "path": "js/solver/engine/search.js",
+        "mode": "100644",
+        "git_blob_sha1": "71cbf75fff956c58ae1e1ff0a35a6c16372aa2b6",
+        "working_file_sha256": "05f20d42fd5538ad4e404f6227dd843e49aae490e6af0e76ef4b607c8325c13f",
+        "bytes": 139764
+      },
+      {
+        "path": "js/solver/wasm/sp_kernel.d.ts",
+        "mode": "100644",
+        "git_blob_sha1": "1e0e2643f0571d93ed8286fd3240b71be2c3f4dd",
+        "working_file_sha256": "1449118a89447639683e0856c6f7a3c4203ca1940cbd2679ca10a8a2b28b4a46",
+        "bytes": 4724
+      },
+      {
+        "path": "js/solver/wasm/sp_kernel.js",
+        "mode": "100644",
+        "git_blob_sha1": "12bcf288df89be9f7536156cfaa9f17b72babdd2",
+        "working_file_sha256": "6839ed29e56925e46849b2714bc39beb98648ea8fb9378877f96194b6e4cf276",
+        "bytes": 14046
+      },
+      {
+        "path": "js/solver/wasm/sp_kernel_bg.wasm",
+        "mode": "100644",
+        "git_blob_sha1": "4e4b1fb05b1f97ce792687a9f086d7311d81fdb9",
+        "working_file_sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+        "bytes": 892886
+      },
+      {
+        "path": "js/solver/wasm/sp_kernel_bg.wasm.d.ts",
+        "mode": "100644",
+        "git_blob_sha1": "d9f329b6a6b5ac08125c6dd0d01f8587aa54d428",
+        "working_file_sha256": "21a6f2efe98ecc7525d33a5eb98cec7ce2fe6071af2d604679fef2235c054cd5",
+        "bytes": 1069
+      },
+      {
+        "path": "js/solver/wasm/worker.js",
+        "mode": "100644",
+        "git_blob_sha1": "97817ebe3b9b73357e141db8cca6c09042f8e66d",
+        "working_file_sha256": "5ec42fcfa8c5ea74ca60da696b2f24c59867678d716637fb57086afb6e1ae6b0",
+        "bytes": 9615
+      },
+      {
+        "path": "rust/sp_kernel/Cargo.lock",
+        "mode": "100644",
+        "git_blob_sha1": "19abb99098e10c68c50f551e7c5aa36a21210303",
+        "working_file_sha256": "9f0498245e564930fac5b77a1f7e6f77b6671793566dc0c6848ff701bd02459a",
+        "bytes": 29963
+      },
+      {
+        "path": "rust/sp_kernel/Cargo.toml",
+        "mode": "100644",
+        "git_blob_sha1": "6a103dbb7047c4964ef71bbdca18d7018c453d72",
+        "working_file_sha256": "cd0354bfb5fe6c42569dfca6adfc6bb22df06e155b1ae5371ea0f442d1156446",
+        "bytes": 1023
+      },
+      {
+        "path": "rust/sp_kernel/build-wasm.sh",
+        "mode": "100755",
+        "git_blob_sha1": "1a75c4aa6425ade59e576491b7b189e099bdbc73",
+        "working_file_sha256": "81ff22b15f03d7253181ebc7dcca015a95c222823e46ea3d2d93ef00b81b117d",
+        "bytes": 862
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/anytime_core_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "7704fd4ecfadc023c553a3754487c3c5dfe3a830",
+        "working_file_sha256": "8e0ced455671a692a1c748923a404daf5329f0dacf7ccdc5b4975fcf620004b4",
+        "bytes": 3088
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/anytime_kernel.rs",
+        "mode": "100644",
+        "git_blob_sha1": "c18cef1089d0f6dc49f61034c63d29025300139c",
+        "working_file_sha256": "dd0b70445c64db6cae3ea2b63f83adfc723f18d3dda8e8c556d81988ce62cdd2",
+        "bytes": 233
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/enum_kernel.rs",
+        "mode": "100644",
+        "git_blob_sha1": "4b1c67e0560c30015e4023964cfd62548a2b2ee3",
+        "working_file_sha256": "303fbd33d64b9c80e4e54a1b50a7695fd23fd9fa964503bcfee54b0453d7d9cf",
+        "bytes": 188
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/gpu_bench.rs",
+        "mode": "100644",
+        "git_blob_sha1": "79f1c21119229a88cdf0f3ec2a171e1649529164",
+        "working_file_sha256": "eb15bec6e296d364e775c2629e7f0a4813da8b1353f7cf852d2c8f831ed8e72e",
+        "bytes": 9645
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/gpu_probe.rs",
+        "mode": "100644",
+        "git_blob_sha1": "bcc35aea3f574567849d6ed5394a95d631d3dc18",
+        "working_file_sha256": "20cdbc09e90c801479828a8d07560599aad1d0d6a55feb6a6f8a541dbe254a39",
+        "bytes": 1254
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/mana_sim_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "cc9e0176c7b6a8fa3a7052cd7d60f1d4762dd583",
+        "working_file_sha256": "0fd9422eebd7a340d912dc43ead870a81c8f258a37cb33ce1ef879635b8a37ea",
+        "bytes": 17705
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/partition_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "436907bfd42ab58e48102048178432961c304c79",
+        "working_file_sha256": "c77874848bb46b692678d0e257296d1f9705480ada08230b8140e69b7570ea80",
+        "bytes": 3476
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/partition_one.rs",
+        "mode": "100644",
+        "git_blob_sha1": "451bc1e18dc9490f43ec5ae1e745d03c15da3f35",
+        "working_file_sha256": "9b1e2c6cf31df8d2169123de28a72f6338f553bd937eb4c8b0d15d42bde0b0b8",
+        "bytes": 516
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/progress_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "21f82a7b653b4fe9a9b95c567cabb9b33af68366",
+        "working_file_sha256": "1328bfb74a96a464805215b54bd3cae9715a443f0c77d6523a4cd2464b66d09b",
+        "bytes": 1028
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/quick_kernel_json.rs",
+        "mode": "100644",
+        "git_blob_sha1": "0ca620e813697d5b0762776b28151b697fd0f37e",
+        "working_file_sha256": "c950984fb8e0dd1d59e0933bc17867e6e43de488ee497c63fbf6f3680b163d89",
+        "bytes": 861
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/radiance_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "607fc5eebb1a244aebaa3bc1965dcc68dce42cff",
+        "working_file_sha256": "4c9e65a887b60adeef331cc558d91a8316b037020ba170c5cad541a5eebea149",
+        "bytes": 1180
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/score_kernel.rs",
+        "mode": "100644",
+        "git_blob_sha1": "8a087ff57548f4dbdea5a74ab95b434dd75660de",
+        "working_file_sha256": "9f3ab25c15b8eca7c3f51bdbc02c9879c05a8e40eae6527f737ecdc89f3e61f5",
+        "bytes": 19478
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/var_effect_check.rs",
+        "mode": "100644",
+        "git_blob_sha1": "ac77f92b9cc90557712f6cc08d8b67ce5d0f422a",
+        "working_file_sha256": "5aa5a24b3767d6d792cea489a6cb638a18fbf36a43a9f747900129067961c96a",
+        "bytes": 3659
+      },
+      {
+        "path": "rust/sp_kernel/src/bin/wasm_selftest.rs",
+        "mode": "100644",
+        "git_blob_sha1": "6c0e5b03830cce9954d7f2244fcdaa1de319aebe",
+        "working_file_sha256": "f12cbdcbc19103fd1bc2faa5ea2d16bf795d9f40c17e2ba6cbdee43ef21c23e1",
+        "bytes": 705
+      },
+      {
+        "path": "rust/sp_kernel/src/bound_memo.rs",
+        "mode": "100644",
+        "git_blob_sha1": "5197e6fd4cd6d3572c88a114e0551e6d3548e2ec",
+        "working_file_sha256": "373664a64423217410e292a1c2170588172d3ed0023f67950444864b8b73156d",
+        "bytes": 7021
+      },
+      {
+        "path": "rust/sp_kernel/src/clock.rs",
+        "mode": "100644",
+        "git_blob_sha1": "051a012adf9f9691589f4edbf97b86b92d17734a",
+        "working_file_sha256": "a510358dddb884b0e2b4af58998ae5f966a61cfa0caa51150ecc9a03d8f373f4",
+        "bytes": 1699
+      },
+      {
+        "path": "rust/sp_kernel/src/enumerate.rs",
+        "mode": "100644",
+        "git_blob_sha1": "fa863be91a881e53c40e2fb9b580ad90824ebaa8",
+        "working_file_sha256": "b503dc38d8d31ee03f26fcc62d51dc321003c2143be2089e55dfc345f48cd2c1",
+        "bytes": 117842
+      },
+      {
+        "path": "rust/sp_kernel/src/enumerate/anytime.rs",
+        "mode": "100644",
+        "git_blob_sha1": "03ea1088ab019db4c54887cef73e71a44bc15f70",
+        "working_file_sha256": "48be859768736ce2f6d2ee2ec75f4304606b214bd0ffc38f7d05557db3d76cb9",
+        "bytes": 59368
+      },
+      {
+        "path": "rust/sp_kernel/src/gpu.rs",
+        "mode": "100644",
+        "git_blob_sha1": "73af2922f3c5d08fd41f7c1d4a12abd8c92bbaaf",
+        "working_file_sha256": "58ea39df74d93431add42ddc56d4cf8f8b7b96a4397be6d885921eb6a6ee4594",
+        "bytes": 3416
+      },
+      {
+        "path": "rust/sp_kernel/src/lib.rs",
+        "mode": "100644",
+        "git_blob_sha1": "bd8c4a16b1eb6b7aa9f31b1d7b6de88b5863ff44",
+        "working_file_sha256": "89dd2fcf6d115b7495ffd0a5f59392c0c91ce286e48ce8f47958ef53e3000c53",
+        "bytes": 14087
+      },
+      {
+        "path": "rust/sp_kernel/src/main.rs",
+        "mode": "100644",
+        "git_blob_sha1": "38aa558dd3b367c3c64521f33e7c17aeff0714c5",
+        "working_file_sha256": "3fff5fc7849bf2ee4e27205fd03b2292fe5adfcbe7dd08b7a962f07c9a13e45c",
+        "bytes": 3578
+      },
+      {
+        "path": "rust/sp_kernel/src/mana_sim.rs",
+        "mode": "100644",
+        "git_blob_sha1": "18a75024a1422d85f93381016b82dc9e6cdd11a1",
+        "working_file_sha256": "7b625e7db4d6c8bb4753bf26bfa86865da5f22d9a8369fa3ce28b13df8ed95a8",
+        "bytes": 47166
+      },
+      {
+        "path": "rust/sp_kernel/src/scoring.rs",
+        "mode": "100644",
+        "git_blob_sha1": "ff2f90a3fd6ec954a684bf158ff06815bdfc4f3a",
+        "working_file_sha256": "dfb1d46e079c26196c8a46c30f9c2203c4c1f57025e1fe8ee2610698f9e6b712",
+        "bytes": 327239
+      },
+      {
+        "path": "rust/sp_kernel/src/wasm_api.rs",
+        "mode": "100644",
+        "git_blob_sha1": "aac4c844df5d63cf77a803a2b028ef3eb578f03f",
+        "working_file_sha256": "9ced56c8da815643d1a7dad1791d933e7e8967e6f7becc1627dca858263668dc",
+        "bytes": 5108
+      },
+      {
+        "path": "solver/index.html",
+        "mode": "100644",
+        "git_blob_sha1": "9ee653980c9aaeaa48556045bfe5120024ae7286",
+        "working_file_sha256": "e6b5c52d8106608634f30f11d4b870d1d6af71626176ba27f4055a75f49fcfbd",
+        "bytes": 140437
+      }
+    ]
+  },
+  "timed_native_binaries": {
+    "enum_kernel": {
+      "path": "rust/sp_kernel/target/release/enum_kernel",
+      "sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "bytes": 1465720
+    },
+    "anytime_kernel": {
+      "path": "rust/sp_kernel/target/release/anytime_kernel",
+      "sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "bytes": 1406160
+    },
+    "quick_kernel_json": {
+      "path": "rust/sp_kernel/target/release/quick_kernel_json",
+      "sha256": "3308ca6e5aa1c1b2f76e467343f5fb6cf363fc871e776019b48f8d97ca2b6bd6",
+      "bytes": 1444864
+    }
+  },
+  "native_campaign_binary_checks": [
+    {
+      "campaign": "long/baseline_60/campaign.json",
+      "variant": "current_exact15",
+      "binary": "enum_kernel",
+      "recorded_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "long/baseline_180/campaign.json",
+      "variant": "current_exact15",
+      "binary": "enum_kernel",
+      "recorded_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "long/heuristic/campaign.json",
+      "variant": "current_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "long/heuristic/campaign.json",
+      "variant": "elite_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "long/wide/campaign.json",
+      "variant": "wide_exact15",
+      "binary": "enum_kernel",
+      "recorded_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "gaia/baseline_60/campaign.json",
+      "variant": "current_exact15",
+      "binary": "enum_kernel",
+      "recorded_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "gaia/heuristic/campaign.json",
+      "variant": "current_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "gaia/heuristic/campaign.json",
+      "variant": "elite_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "gaia/wide/campaign.json",
+      "variant": "wide_exact15",
+      "binary": "enum_kernel",
+      "recorded_sha256": "303c83421624002be794fd846ad302d5ac6856ff0937a9c0ad007f16828b005d",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "new_seeds/heuristic/campaign.json",
+      "variant": "current_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    },
+    {
+      "campaign": "new_seeds/heuristic/campaign.json",
+      "variant": "elite_alns15",
+      "binary": "anytime_kernel",
+      "recorded_sha256": "6ac9284442d9b34b1bde81be5781b9a98d22f8fdc7f08c9d6515167bc0ba5eaa",
+      "matches_preserved_binary": true
+    }
+  ],
+  "shipped_wasm": {
+    "path": "js/solver/wasm/sp_kernel_bg.wasm",
+    "bytes": 892886,
+    "sha256": "b7e1150ab56bb5b81b66453b9b4cf3df8652dd86566f408f3f4c03a280c1b41d",
+    "published_git_blob_sha1": "4e4b1fb05b1f97ce792687a9f086d7311d81fdb9",
+    "published_blob_bytes_sha256_matches": true,
+    "matches_all_four_wasm_validation_reports": true,
+    "browser_ci_commit": "d9b1d383c599cf02c7bff9994fa2c1b3eebfc1bb",
+    "browser_ci_run_id": 34288116399
+  },
+  "toolchain_versions": [
+    "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "binary: rustc",
+    "commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985",
+    "commit-date: 2026-09-01",
+    "host: x86_64-unknown-linux-gnu",
+    "release: 1.98.1",
+    "LLVM version: 22.1.8",
+    "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "wasm-bindgen 0.2.127",
+    "v24.19.0"
+  ],
+  "build_invocations": {
+    "exact_original_shell_commands_logged": false,
+    "native_reproduction_command": "cargo build --locked --release --bin enum_kernel --bin anytime_kernel --bin quick_kernel_json",
+    "native_command_basis": "Recovered reproduction invocation for the three preserved release artifacts. The final log records sp_kernel compilation and release completion, but not the shell command; this is not an assertion about the exact original flags.",
+    "native_log": "elite_native_build_final.log",
+    "wasm_recovered_command": "bash build-wasm.sh",
+    "wasm_command_basis": "Recovered from the versioned script and matching final output. Script calls cargo build --release --target wasm32-unknown-unknown --features wasm --lib, followed by wasm-bindgen --target web. The exact original outer shell invocation is not retained.",
+    "wasm_log": "wasm-build-final.log",
+    "wasm_opt_applied": false,
+    "wasm_opt_evidence": "Final build log states wasm-opt not found, skipping size pass."
+  },
+  "dirty_worktree_scope": {
+    "status_at_provenance_capture": [
+      "M .github/workflows/solver-anytime.yml",
+      " M ANYTIME_OPTIMIZATION_RESULTS.md",
+      " M rust/sp_kernel/prepare_long_campaign.py",
+      "?? LONG_QUERY_OPTIMIZATION_RESULTS.md",
+      "?? rust/sp_kernel/analyze_long_campaign.py",
+      "?? rust/sp_kernel/evidence/quick_2026_09_08/gaia/",
+      "?? rust/sp_kernel/evidence/quick_2026_09_08/long/",
+      "?? rust/sp_kernel/evidence/quick_2026_09_08/long_quality.png",
+      "?? rust/sp_kernel/evidence/quick_2026_09_08/new_seeds/",
+      "?? rust/sp_kernel/evidence/quick_2026_09_08/validation/",
+      "?? rust/sp_kernel/plot_long_campaign.py",
+      "?? rust/sp_kernel/test_long_campaign.py"
+    ],
+    "current_kernel_and_browser_sources_match_snapshot": true,
+    "current_changes_scope": "Benchmark harness, analysis and evidence additions only; no current kernel or browser source differences from the verified source snapshot.",
+    "historical_validation_headers": "The earlier WASM reports record base commit366327d5c34edc2f6227724bfd2d6515f21809d2 and source_dirty=true while integrated changes awaited a commit. These headers are preserved unchanged. They are not proof that only evidence was dirty at that earlier point; artifact hashes and the later verified source snapshot provide the recorded association."
+  },
+  "limits": "Recovered artifact provenance, not a hermetic build attestation: the original build logs omit the exact shell commands and source tree IDs. No rebuild was performed as part of packaging."
+}

@@ -28,6 +28,16 @@ const _solver_state = {
     engine_phase: '',             // Rust/WASM startup/search phase label
     search_plan: null,            // staged candidate reduction / verification plan
     last_search_plan: null,       // completed plan and per-stage metrics for diagnostics
+    search_mode: 'exhaustive',
+    search_eps: 0,                // 'within' mode: proved tolerance (roadmap R21)
+    search_window: 0,             // 'shortlist' mode: archive margin (roadmap R20)
+    shortlist: null,              // merged archive + completeness, after a shortlist run
+    run_id: 0,                    // invalidates pending work after Stop/new run
+    quick_budget_secs: 5,
+    quick_deadline: 0,
+    deadline_timer: 0,
+    leaf_calls: 0,                // actual evaluated builds, never credited space
+    stop_reason: '',
 };
 
 // Bitmask tracking which equipment slots were last filled by the solver.
@@ -234,7 +244,11 @@ function _build_solver_snapshot(restrictions) {
 
     let radiance_boost = 1;
     if (document.getElementById('radiance-boost')?.classList.contains('toggleOn')) radiance_boost += 0.15;
-    if (document.getElementById('divinehonor-boost')?.classList.contains('toggleOn')) radiance_boost += 0.10;
+    // +5%, as the toggle says and as compute_radiance (the builder) applies it;
+    // the game describes Divine Honor as "Increases the bonus from Radiance by
+    // 5%". Same additions in the same order as compute_radiance, so the boost
+    // is the identical double and the item-SP floor below matches bit for bit.
+    if (document.getElementById('divinehonor-boost')?.classList.contains('toggleOn')) radiance_boost += 0.05;
     if (document.getElementById('shine-boost')?.classList.contains('toggleOn')) radiance_boost += 0.05;
     if (document.getElementById('judgement-boost')?.classList.contains('toggleOn')) radiance_boost = 1.4;
 
@@ -392,6 +406,7 @@ function _insert_top5(candidate) {
         if (ex_names === cand_names) {
             if (candidate.score > existing.score) {
                 _solver_state.top5[i] = candidate;
+                _solver_state.top5.sort(compareTopResult);
             }
             return;
         }
@@ -439,6 +454,16 @@ function _eval_current_build(snap, restrictions, blacklist) {
         }
     }
 
+    return _eval_equip_build(snap, restrictions, items, equip_sms, true);
+}
+
+/**
+ * Score one equipment set under the current snapshot the way the seed build
+ * is scored: SP solve (or the UI's SP override, when `use_sp_override`),
+ * thresholds, mana, objective and soft floors. Returns a top-5 entry, or
+ * null when the build is infeasible here.
+ */
+function _eval_equip_build(snap, restrictions, items, equip_sms, use_sp_override) {
     // Build statMap using worker_shims (same path as the search worker)
     const fixed_sms = [snap.weapon_sm];
     for (const tome of snap.tomes) {
@@ -466,7 +491,7 @@ function _eval_current_build(snap, restrictions, blacklist) {
     // with the same SPs the user sees in the stat display / mana panel.
     // Falling back to calculate_skillpoints only when no override exists.
     let base_sp, total_sp, assigned_sp;
-    if (_solver_sp_override?.total_sp) {
+    if (use_sp_override && _solver_sp_override?.total_sp) {
         base_sp = [..._solver_sp_override.base_sp];
         total_sp = [..._solver_sp_override.total_sp];
         assigned_sp = _solver_sp_override.assigned_sp ?? base_sp.reduce((a, b) => a + b, 0);
@@ -480,7 +505,7 @@ function _eval_current_build(snap, restrictions, blacklist) {
     }
 
     // Assemble combo stats
-    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap);
+    const combo_base = _assemble_baseline_combo(build_sm, total_sp, snap, _item_sp_of(base_sp, total_sp));
 
     // Threshold check
     if (restrictions.stat_thresholds?.length > 0) {
@@ -508,8 +533,11 @@ function _eval_current_build(snap, restrictions, blacklist) {
         }
     }
 
-    // Score
-    const score = _sensitivity_eval_score(combo_base, snap);
+    // Score, with the R14 soft-floor penalty the workers apply.
+    const raw_score = _sensitivity_eval_score(combo_base, snap);
+    const score = restrictions.soft_floors?.length
+        ? apply_soft_floors(raw_score, _deep_clone_statmap(combo_base), restrictions.soft_floors, snap.spell_base_costs)
+        : raw_score;
 
     return {
         score,
@@ -518,6 +546,63 @@ function _eval_current_build(snap, restrictions, blacklist) {
         total_sp: [...total_sp],
         assigned_sp,
     };
+}
+
+// ── R13: result archive across runs ─────────────────────────────────────────
+//
+// The last finished run's results, as item names. When the next run starts
+// (typically after tightening a requirement), each archived build whose
+// items are all still in this run's pools is re-scored under the new
+// snapshot by _eval_equip_build. The survivors are real builds of the new
+// search, so they show at once and stay in the list like the seed build
+// until the search finds better; the JS workers also count them toward
+// their starting cutoff, admissible for the same reason as the seed's.
+// Display only for the Rust engine: the R6/R13 measurement bounds what an
+// incumbent can save there at 2 to 8%.
+let _solver_result_archive = [];
+const _ARCHIVE_SIZE = 15;
+
+function _archive_results(top5) {
+    _solver_result_archive = (top5 ?? []).slice(0, _ARCHIVE_SIZE)
+        .map(r => r.items.map(it => get_item_display_name(it.statMap)));
+}
+
+/** Archived builds valid in this run, re-scored; excludes `skip_names`. */
+function _archived_seed_builds(snap, restrictions, locked, pools, illegal_at_2, skip_names) {
+    if (!_solver_result_archive.length || snap.tome_opt) return [];
+    const slot_pool = (i) => {
+        const slot = equipment_fields[i];
+        if (locked[slot]) return null;
+        return pools[slot === 'ring1' || slot === 'ring2' ? 'ring' : slot] ?? null;
+    };
+    const out = [];
+    for (const names of _solver_result_archive) {
+        const key = names.join(',');
+        if (skip_names.has(key)) continue;
+        const items = _reconstruct_result_items(names);
+        let ok = true;
+        for (let i = 0; i < 8 && ok; i++) {
+            const slot = equipment_fields[i];
+            const name = names[i];
+            if (locked[slot]) {
+                ok = get_item_display_name(locked[slot].statMap) === name;
+            } else {
+                const pool = slot_pool(i);
+                ok = !!pool && pool.some(it => get_item_display_name(it.statMap) === name);
+            }
+        }
+        if (!ok) continue;
+        // An exclusive set may appear once per build.
+        const counts = new Map();
+        for (const it of items) {
+            const set = it.statMap.get('set');
+            if (set && illegal_at_2.has(set)) counts.set(set, (counts.get(set) ?? 0) + 1);
+        }
+        if ([...counts.values()].some(c => c > 1)) continue;
+        const r = _eval_equip_build(snap, restrictions, items, items.map(it => it.statMap), false);
+        if (r) { out.push(r); skip_names.add(key); }
+    }
+    return out;
 }
 
 /**
@@ -529,13 +614,17 @@ function _eval_current_build(snap, restrictions, blacklist) {
 function _merge_worker_top5(workers, include_interim) {
     _solver_state.top5 = [];
     // Re-insert the seed build so it competes with worker results
-    if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
+    if (_solver_state.search_mode !== 'quick' && _solver_state.seed_build) _insert_top5(_solver_state.seed_build);
+    if (_solver_state.search_mode !== 'quick') for (const b of _solver_state.archive_seeds ?? []) _insert_top5(b);
     for (const w of workers) {
         const sources = include_interim
             ? [w.top5 ?? [], w._cur_top5 ?? []]
             : [w.top5 ?? []];
         for (const src of sources) {
-            for (const r of src) {
+            // Sources are best-first, so the merged top-N lies within each
+            // source's first N. A shortlist (R20) source can hold thousands
+            // of builds; reconstructing all of them here was wasted work.
+            for (const r of src.slice(0, _TOP_N)) {
                 if (!r.item_names) continue;
                 const items = _reconstruct_result_items(r.item_names);
                 const merged = {
@@ -635,6 +724,10 @@ function _format_duration(total_s) {
  * Show the progress panel in stopped/completed state with a prefix label.
  */
 function _show_solver_stopped_progress(label, elapsed_s) {
+    if (_solver_state.search_mode === 'quick') {
+        _show_quick_search_progress(label, elapsed_s);
+        return;
+    }
     const el = document.getElementById('solver-progress-text');
     el.style.display = '';
     const el_left = document.getElementById('solver-progress-left');
@@ -673,6 +766,7 @@ function _init_solver_progress_toggle() {
     if (!header) return;
     const BG_HOVER = 'rgba(255, 255, 255, 0.12)';
     header.addEventListener('click', () => {
+        if (_solver_state.search_mode === 'quick') return;
         _solver_state.progress_expanded = !_solver_state.progress_expanded;
         const details = document.getElementById('solver-progress-details');
         if (details) details.style.display = _solver_state.progress_expanded ? '' : 'none';
@@ -682,6 +776,10 @@ function _init_solver_progress_toggle() {
 }
 
 function _update_solver_progress_ui() {
+    if (_solver_state.search_mode === 'quick') {
+        _show_quick_search_progress('Quick search', (_quick_now() - _solver_state.quick_started) / 1000);
+        return;
+    }
     const el_left = document.getElementById('solver-progress-left');
     const el_right = document.getElementById('solver-progress-right');
     const el_precheck = document.getElementById('solver-precheck-count');
@@ -790,6 +888,14 @@ function _update_solver_progress_ui() {
 // in solver_graph_build.js (_schedule_solver_hash_update / _do_solver_hash_update).
 
 function _fill_build_into_ui(result) {
+    // R16: a compared-weapon result loads its weapon first.
+    if (result.weapon && !_solver_state.weapon_compare) {
+        const input = document.getElementById('weapon-choice');
+        if (input && input.value !== result.weapon) {
+            input.value = result.weapon;
+            input.dispatchEvent(new Event('change'));
+        }
+    }
     // Store solver SP data so SolverSKPNode can show "Assign: X (+Y)" format
     // when the computation graph fires asynchronously.
     // Only set when real SP data is present (progress messages may lack it).
@@ -887,6 +993,7 @@ function _build_result_row(r, i, target) {
         ? [...(r.tome_names.weaponTome ?? []), ...(r.tome_names.armorTome ?? [])] : [];
     if (flat_tomes.length) tome_bits.push('Tomes: ' + flat_tomes.join(', '));
     if (tome_bits.length) names_str += ' \u2022 ' + tome_bits.join(' \u2022 ');
+    if (r.weapon) names_str = `<b>${r.weapon}</b> \u2022 ` + names_str;   // R16
     const result_hash = solver_compute_result_hash(r);
     let new_tab_link = '';
     if (result_hash) {
@@ -934,6 +1041,123 @@ function _display_solver_results(topN) {
     panel.innerHTML = html;
     _display_priority_weights();
     if (_solver_state.top15_expanded) _update_top15_time_display();
+}
+
+// ── R20 shortlist: every build within a margin, re-ranked by QoL ───────────
+
+// Weights persist across runs on this page; the archive does not.
+const _shortlist_settings = { ...(typeof SHORTLIST_DEFAULTS !== 'undefined' ? SHORTLIST_DEFAULTS : {}) };
+const _SHORTLIST_ROWS = 25;
+let _shortlist_rows_shown = _SHORTLIST_ROWS;
+// R20 step 3: fold builds that differ in one slot under the best of them.
+let _shortlist_group = true;
+const _shortlist_open = new Set();   // representative keys whose variants are shown
+
+function _shortlist_toggle_group(on) {
+    _shortlist_group = !!on;
+    _render_shortlist();
+}
+
+function _shortlist_toggle_variants(key, event) {
+    if (event) event.stopPropagation();
+    if (_shortlist_open.has(key)) _shortlist_open.delete(key); else _shortlist_open.add(key);
+    _render_shortlist();
+}
+
+function _shortlist_set_weight(key, value) {
+    _shortlist_settings[key] = Math.max(0, parseFloat(value) || 0);
+    _render_shortlist();
+}
+
+/** R14 lexicographic tier: rank the shortlist by one stat ('' = the blend). */
+function _shortlist_set_lex(value) {
+    _shortlist_settings.lex = value || null;
+    _render_shortlist();
+}
+
+function _shortlist_show_more() {
+    _shortlist_rows_shown += 100;
+    _render_shortlist();
+}
+
+/// Load a shortlist row into the builder (same path as a top-15 row).
+function _shortlist_load(i) {
+    const e = _solver_state._shortlist_ranked?.[i];
+    if (!e) return;
+    _fill_build_into_ui({
+        score: e.score, items: _reconstruct_result_items(e.item_names),
+        base_sp: e.base_sp ?? [0, 0, 0, 0, 0], total_sp: e.total_sp ?? [0, 0, 0, 0, 0],
+        assigned_sp: e.assigned_sp ?? 0,
+        ...(typeof e.guild_tome_idx === 'number' ? { guild_tome_idx: e.guild_tome_idx } : {}),
+        ...(e.tome_names ? { tome_names: e.tome_names } : {}),
+    });
+}
+
+function _render_shortlist() {
+    const panel = document.getElementById('solver-shortlist-panel');
+    if (!panel) return;
+    const sl = _solver_state.shortlist;
+    if (!sl || !sl.entries.length) { panel.innerHTML = ''; _solver_state._shortlist_ranked = null; return; }
+    const ranked = rankShortlist(sl.entries, _shortlist_settings);
+    const groups = _shortlist_group ? collapseShortlistVariants(ranked, 2)
+        : ranked.map(e => ({ ...e, variants: [] }));
+    // Flat list of displayed rows, so a click can index it: each
+    // representative, then its variants when expanded.
+    const shown = [];
+    for (const g of groups.slice(0, _shortlist_rows_shown)) {
+        const key = (g.item_names ?? []).join('|');
+        shown.push({ entry: g, rank: ranked.indexOf(ranked.find(r => r.item_names === g.item_names)) + 1,
+            key, variants: g.variants.length, variant: false });
+        if (_shortlist_open.has(key)) {
+            for (const v of g.variants) shown.push({ entry: v, rank: ranked.indexOf(v) + 1, key, variants: 0, variant: true });
+        }
+    }
+    _solver_state._shortlist_ranked = shown.map(r => r.entry);
+    const pct = +(_solver_state.search_window * 100).toFixed(2);
+    const claim = sl.complete
+        ? `every build within ${pct}% of the best (proved)`
+        : `builds within ${pct}% found so far (not complete: the search stopped, or the archive filled)`;
+    const fmt = v => (Number.isFinite(v) ? Math.round(v).toLocaleString() : '—');
+    const slider = (key, label) =>
+        `<label class="small text-secondary me-2">${label} <input type="range" min="0" max="0.2" step="0.01" ` +
+        `value="${_shortlist_settings[key]}" style="width:5em;vertical-align:middle" ` +
+        `oninput="_shortlist_set_weight('${key}', this.value)"> ${_shortlist_settings[key].toFixed(2)}</label>`;
+    let html = `<div class="text-secondary small mt-2 mb-1">Shortlist: ${sl.entries.length} ${claim}. `
+        + 'Weights add up to the stated bonus over the score ratio; all at 0 is score order.</div>';
+    const lex = _shortlist_settings.lex ?? '';
+    const lexOpt = (v, label) => `<option value="${v}"${lex === v ? ' selected' : ''}>${label}</option>`;
+    html += '<div class="mb-1"><label class="small text-secondary me-2">Rank by '
+        + '<select class="form-select form-select-sm d-inline-block bg-dark text-light" style="width:auto" '
+        + 'title="Rank every build in the margin by one stat (score breaks ties): the best of that stat among near-best builds" '
+        + 'onchange="_shortlist_set_lex(this.value)">'
+        + lexOpt('', 'score + weights') + lexOpt('ehp', 'highest EHP') + lexOpt('mana', 'best mana')
+        + lexOpt('speed', 'fastest') + lexOpt('sustain', 'most sustain') + '</select></label>'
+        + (lex ? '' : slider('w_ehp', 'EHP') + slider('w_mana', 'Mana')
+        + slider('w_speed', 'Speed') + slider('w_sustain', 'Sustain'))
+        + `<label class="small text-secondary ms-2"><input type="checkbox" id="solver-shortlist-group" ${_shortlist_group ? 'checked' : ''} `
+        + `onchange="_shortlist_toggle_group(this.checked)"> group one-slot variants</label></div>`;
+    html += '<table class="table table-sm table-dark small mb-1" id="solver-shortlist-table"><thead><tr>'
+        + '<th>#</th><th>Score</th><th>EHP (no agi)</th><th>Mana/combo</th><th>Walk</th><th>HPR+LS</th><th>Items</th>'
+        + '</tr></thead><tbody>';
+    shown.forEach((row, i) => {
+        const e = row.entry;
+        const st = e.stats ?? {};
+        const names = (e.item_names ?? []).filter(n => !/^No /.test(n)).join(', ');
+        const mana = st.mana_delta !== undefined ? (st.mana_delta >= 0 ? '+' : '') + st.mana_delta.toFixed(1)
+            : (st.mr !== undefined ? `${fmt(st.mr)} mr` : '—');
+        const more = row.variants
+            ? ` <a href="#" class="solver-shortlist-variants" onclick="_shortlist_toggle_variants(${JSON.stringify(row.key).replace(/"/g, '&quot;')}, event); return false;">`
+                + `${_shortlist_open.has(row.key) ? '\u2212' : '+'}${row.variants}</a>` : '';
+        html += `<tr class="solver-shortlist-row${row.variant ? ' text-secondary' : ''}" style="cursor:pointer" onclick="_shortlist_load(${i})">`
+            + `<td>${row.variant ? '\u2514 ' : ''}${row.rank}${more}</td><td>${(100 * e.score / sl.best).toFixed(2)}%</td>`
+            + `<td>${fmt(st.ehp_no_agi)}</td><td>${mana}</td><td>${fmt(st.spd)}%</td>`
+            + `<td>${fmt((st.hpr ?? NaN) + (st.ls ?? 0))}</td><td>${names}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    if (groups.length > _shortlist_rows_shown) {
+        html += `<div class="solver-expand-toggle small" onclick="_shortlist_show_more()">show more (${groups.length - _shortlist_rows_shown} hidden)</div>`;
+    }
+    panel.innerHTML = html;
 }
 
 function _toggle_top15_expand() {
@@ -1159,7 +1383,9 @@ function _get_none_sms() {
  * on the gear. Scoping the front to the search's own stat set is what keeps it
  * small (measured: 56,700 bundles over all combat stats vs ~6 scoped).
  */
-function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
+function _prepare_tome_optimisation(snap, restrictions, dominance_stats, check_budget = null) {
+    if (check_budget) check_budget();
+    let budget_steps = 0;
     snap.guild_tome_candidates = null;
     snap.tome_wa_bundles = null;
     snap.tome_bound = null;
@@ -1168,7 +1394,9 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
 
     // Guild candidates — skipped when a real tome is equipped in the slot.
     const gt_idx = tome_fields.indexOf('guildTome1');
-    const gt_val = (gt_idx >= 0) ? solver_item_final_nodes[9 + gt_idx]?.value : null;
+    const captured_tomes = snap._quick_tome_slots;
+    const gt_val = captured_tomes ? captured_tomes[gt_idx]?.item
+        : (gt_idx >= 0) ? solver_item_final_nodes[9 + gt_idx]?.value : null;
     const guild_locked = !!(gt_val && !gt_val.statMap.has('NONE'));
     const inventory = snap.tome_inventory ?? null;
     if (!guild_locked) {
@@ -1206,9 +1434,10 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     for (let ti = 0; ti < tome_fields.length; ti++) {
         const type = tome_fields[ti].replace(/[0-9]/g, '');
         if (!(type in empty)) continue;
-        const input = document.getElementById(tome_fields[ti] + '-choice');
-        if (input?.dataset?.solverFilled === 'true') { empty[type]++; continue; }
-        const v = solver_item_final_nodes[9 + ti]?.value;
+        const solver_filled = captured_tomes ? captured_tomes[ti]?.solver_filled
+            : document.getElementById(tome_fields[ti] + '-choice')?.dataset?.solverFilled === 'true';
+        if (solver_filled) { empty[type]++; continue; }
+        const v = captured_tomes ? captured_tomes[ti]?.item : solver_item_final_nodes[9 + ti]?.value;
         if (!v || v.statMap.has('NONE')) empty[type]++;
     }
     if (empty.weaponTome === 0 && empty.armorTome === 0) return;
@@ -1220,6 +1449,7 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     const pools = { weaponTome: [], armorTome: [] };
     with_tome_roll(snap.tome_roll, () => {
         for (const [, raw] of tomeMap) {
+            if (check_budget && (++budget_steps & 127) === 0) check_budget();
             if (!(raw.type in pools)) continue;
             if ((raw.name || '').startsWith('No ')) continue;
             if ((raw.lvl ?? 0) > snap.level) continue;
@@ -1267,9 +1497,9 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     for (const type of Object.keys(pools)) {
         const count = empty[type];
         if (count === 0) { fronts[type] = [{ vec: keys.map(() => 0), picks: [] }]; continue; }
-        const pruned = tome_prune_dominated(pools[type], keys, signs);
+        const pruned = tome_prune_dominated(pools[type], keys, signs, check_budget);
         pruned.push(none_sm);
-        fronts[type] = tome_bundles(pruned, count, keys, signs);
+        fronts[type] = tome_bundles(pruned, count, keys, signs, check_budget);
     }
 
     // Cross product of the two per-type fronts → concrete bundles for the
@@ -1277,6 +1507,7 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     const bundles = [];
     for (const wb of fronts.weaponTome) {
         for (const ab of fronts.armorTome) {
+            if (check_budget && (++budget_steps & 127) === 0) check_budget();
             const stats = new Map();
             const names = { weaponTome: [], armorTome: [] };
             for (const [type, picklist] of [['weaponTome', wb.picks], ['armorTome', ab.picks]]) {
@@ -1301,6 +1532,7 @@ function _prepare_tome_optimisation(snap, restrictions, dominance_stats) {
     // Admissible per-key maximum for the workers' ge-prechecks.
     const bound = new Map();
     for (const b of bundles) {
+        if (check_budget && (++budget_steps & 127) === 0) check_budget();
         if (!b.stats) continue;
         for (const [k, v] of b.stats) {
             const cur = bound.get(k);
@@ -1404,6 +1636,9 @@ function _reconstruct_result_items(item_names) {
 
 function _stop_solver(options = {}) {
     _solver_state.running = false;
+    _solver_state.run_id += 1;
+    if (_solver_state.deadline_timer) clearTimeout(_solver_state.deadline_timer);
+    _solver_state.deadline_timer = 0;
     schedule_search_space_update?.();
     _solver_state.verification_phase = false;
     const _status_el = document.getElementById('solver-status-msg');
@@ -1438,6 +1673,7 @@ function _stop_solver(options = {}) {
         clearInterval(_solver_state.progress_timer);
         _solver_state.progress_timer = 0;
     }
+    solver_engine_changed();
 }
 
 /**
@@ -1561,6 +1797,16 @@ function _on_all_workers_done(workers_snapshot) {
     }
 
     _merge_worker_top5(workers_snapshot, false);
+    _archive_results(_solver_state.top5);   // R13: seeds the next run
+    // R20: merge the partitions' archives (every in-window build, with
+    // stats) before the top-15 view, which keeps only 15, is displayed.
+    if (_solver_state.search_mode === 'shortlist' && _solver_state.engine_used === 'rust'
+        && _solver_state.search_window > 0) {
+        _solver_state.shortlist = mergeShortlistArchives(
+            workers_snapshot.map(w => ({ top_n: w.top5 ?? [], complete: search_completed && !!w.complete,
+                archive_full: !!w.archive_full, archive_last: w.archive_last })),
+            _solver_state.search_window);
+    }
 
     // In fast-verify mode the guarded pool is only the first stage. Its best
     // result becomes the incumbent for a second, full-pool pass. The score
@@ -1595,8 +1841,16 @@ function _on_all_workers_done(workers_snapshot) {
     if (_status_el) _status_el.textContent = '';
 
     // Show progress panel in stopped state
-    _show_solver_stopped_progress(search_completed ? 'Solved' : 'Stopped', elapsed_s);
+    // The proved claim only holds when the Rust engine ran with the
+    // tolerance and finished; a JS fallback run is exact and says 'Solved'.
+    const eps_run = _solver_state.search_mode === 'within' && _solver_state.engine_used === 'rust'
+        && _solver_state.search_eps > 0;
+    const pct = +(_solver_state.search_eps * 100).toFixed(3);
+    _show_solver_stopped_progress(
+        eps_run ? (search_completed ? `Solved within ${pct}% (proved)` : 'Stopped (not proved)')
+            : (search_completed ? 'Solved' : 'Stopped'), elapsed_s);
     _display_solver_results(_solver_state.top5);
+    _render_shortlist();
     if (_solver_state.top5.length > 0) {
         _fill_build_into_ui(_solver_state.top5[0]);
     } else if (search_completed) {
@@ -1633,6 +1887,295 @@ function _on_all_workers_done(workers_snapshot) {
 }
 
 
+// ── Time-bounded quick search ────────────────────────────────────────────────
+
+function _quick_now() {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now() : Date.now();
+}
+
+function _quick_preparation_budget(run_id) {
+    if (!_quick_search_current(run_id) || _quick_now() >= _solver_state.quick_deadline) {
+        const error = new Error('The time budget was used preparing tome choices. Try a longer budget or reduce automatic tome choices.');
+        error.code = 'quick_preparation_budget';
+        throw error;
+    }
+}
+
+function _quick_assert_supported_base(snap, locked, illegal_at_2) {
+    // Set weapons used to be refused here: neither engine counted a weapon
+    // toward its set (roadmap C1). Both do now, and Quick search runs the
+    // same Rust leaf evaluator, so they are modelled like any set piece.
+    const counts = new Map();
+    for (const item of Object.values(locked)) {
+        const sm = item?.statMap;
+        if (!sm || sm.has('NONE')) continue;
+        const name = sm.get('set');
+        if (!illegal_at_2.has(name)) continue;
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+        if (counts.get(name) > 1) throw new Error(`The locked build contains multiple exclusive ${name} items. Unlock or remove one before searching.`);
+    }
+}
+
+function _normalize_rust_result(t) {
+    const entry = {
+        score: t.score,
+        item_names: t.item_names ?? t.items,
+        base_sp: t.base_sp,
+        total_sp: t.total_sp,
+        assigned_sp: t.assigned_sp,
+    };
+    if (typeof t.guild_tome_idx === 'number') entry.guild_tome_idx = t.guild_tome_idx;
+    if (t.tome_names) entry.tome_names = t.tome_names;
+    if (t.tome) {
+        entry.guild_tome_idx = t.tome.guild_idx;
+        entry.tome_names = {
+            weaponTome: t.tome.weaponTome ?? [],
+            armorTome: t.tome.armorTome ?? [],
+        };
+    }
+    return entry;
+}
+
+function _quick_result_has_witness(t) {
+    return Number.isFinite(t?.score) && Array.isArray(t.item_names) && t.item_names.length === 8
+        && ['base_sp', 'total_sp'].every(k => Array.isArray(t[k])
+            && t[k].length === 5 && t[k].every(Number.isFinite))
+        && Number.isFinite(t.assigned_sp);
+}
+
+function _quick_search_current(run_id) {
+    return _solver_state.running && _solver_state.search_mode === 'quick'
+        && _solver_state.run_id === run_id;
+}
+
+function _show_quick_search_progress(label, elapsed_s) {
+    const panel = document.getElementById('solver-progress-text');
+    if (panel) panel.style.display = '';
+    const left = document.getElementById('solver-progress-left');
+    const right = document.getElementById('solver-progress-right');
+    if (left) left.textContent = `${label} · Builds evaluated: ${_format_compact(_solver_state.leaf_calls)}`;
+    if (right) right.textContent = `${Math.max(0, elapsed_s).toFixed(1)}s / ${_solver_state.quick_budget_secs}s budget`;
+    const details = document.getElementById('solver-progress-details');
+    if (details) details.style.display = 'none';
+    const remaining = document.getElementById('solver-remaining-text');
+    if (remaining) remaining.textContent = '';
+    const remaining_row = document.getElementById('solver-remaining-row');
+    if (remaining_row) remaining_row.style.display = 'none';
+    _solver_state.verification_phase = false;
+    if (_solver_state.running) {
+        const status = document.getElementById('solver-status-msg');
+        if (status) {
+            status.textContent = _solver_state.engine_phase === 'preparing'
+                ? 'Preparing quick search…'
+                : _solver_state.engine_phase.startsWith('loading') ? 'Loading quick search…'
+                : 'Searching for better builds…';
+            status.className = 'text-info';
+        }
+    }
+}
+
+function _finish_quick_search(run_id, reason, error_message = '') {
+    if (!_quick_search_current(run_id)) return;
+    _solver_state.stop_reason = reason;
+    const elapsed_s = (_quick_now() - _solver_state.quick_started) / 1000;
+    // Merge before terminating, including progress not yet rendered. Workers
+    // retain their real SP/tome witness on every exit path. The UI's
+    // current build stays in place until a validated worker result is applied.
+    _merge_worker_top5(_solver_state.workers, true);
+    _stop_solver();
+    const button = document.getElementById('solver-run-btn');
+    if (button) {
+        button.textContent = 'Solve';
+        button.className = 'btn btn-sm btn-outline-success flex-grow-1';
+    }
+    const label = reason === 'stopped' ? 'Quick search stopped'
+        : error_message ? 'Quick search unavailable' : 'Quick search finished';
+    _show_quick_search_progress(label, elapsed_s);
+    const status = document.getElementById('solver-status-msg');
+    if (status) {
+        status.textContent = error_message ? 'Any builds already found have been kept.'
+            : 'Best builds found in this run. A longer search may find better builds.';
+        status.className = error_message ? 'text-warning' : 'text-info';
+    }
+    const error = document.getElementById('solver-error-text');
+    if (error) error.textContent = error_message;
+    _display_solver_results(_solver_state.top5);
+    if (_solver_state.top5.length) _fill_build_into_ui(_solver_state.top5[0]);
+    else if (!error_message) {
+        const results = document.getElementById('solver-results-panel');
+        if (results) results.textContent = 'No matching build found in this run. Your current build is unchanged. Try a longer budget or adjust your restrictions.';
+    }
+}
+
+async function _quick_search_checkpoint(run_id) {
+    // Let Stop, the deadline, and painting run between preparation phases.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (!_quick_search_current(run_id)) return false;
+    if (_quick_now() >= _solver_state.quick_deadline) {
+        _finish_quick_search(run_id, 'time_budget');
+        return false;
+    }
+    return true;
+}
+
+function _quick_fixed_tomes(snap) {
+    snap._quick_tome_slots = tome_fields.map((slot, index) => ({
+        item: solver_item_final_nodes[9 + index]?.value,
+        solver_filled: document.getElementById(slot + '-choice')?.dataset?.solverFilled === 'true',
+    }));
+    if (snap.tome_opt !== TOME_OPT_ALL) return;
+    // A previous solver result is a candidate, not a lock. Auto-tome bundles
+    // replace these slots; leaving their previous stats in the fixed snapshot
+    // would score both the old tome and its replacement on the next run.
+    snap.tomes = snap._quick_tome_slots.filter((captured, index) => {
+        const slot = tome_fields[index] ?? '';
+        const replaceable = /^(weaponTome|armorTome)\d+$/.test(slot)
+            && captured.solver_filled;
+        return captured.item && !replaceable;
+    }).map(captured => captured.item);
+}
+
+async function _start_quick_solver_search() {
+    const run_id = ++_solver_state.run_id;
+    const requested_budget = Number(document.getElementById('solver-quick-budget')?.value);
+    const budget = [5, 15, 30].includes(requested_budget) ? requested_budget : 5;
+    Object.assign(_solver_state, {
+        running: true, search_mode: 'quick', quick_budget_secs: budget,
+        start: Date.now(), top5: [], seed_build: null, workers: [], leaf_calls: 0,
+        checked: 0, precheck_pass: 0, precheck_reject: 0, feasible: 0, met_req: 0,
+        engine_used: 'rust', partitions: 1, engine_phase: 'preparing',
+        algorithm: 'alns', complete: false,
+        engine_fallback_reason: '', verification_phase: false, stop_reason: '',
+        _prev_topN_fingerprint: '', progress_expanded: false, top15_expanded: false,
+    });
+    _solver_state.quick_started = _quick_now();
+    _solver_state.quick_deadline = _solver_state.quick_started + budget * 1000;
+    _solver_state.deadline_timer = setTimeout(() => _finish_quick_search(run_id, 'time_budget'), budget * 1000);
+    _solver_state.progress_timer = setInterval(() => {
+        if (_quick_search_current(run_id)) _update_solver_progress_ui();
+    }, 100);
+    const error = document.getElementById('solver-error-text');
+    if (error) error.textContent = '';
+    const button = document.getElementById('solver-run-btn');
+    if (button) {
+        button.textContent = 'Stop';
+        button.className = 'btn btn-sm btn-outline-danger flex-grow-1';
+    }
+    solver_engine_changed();
+    _display_solver_results([]);
+    _update_solver_progress_ui();
+    try {
+        if (!await _quick_search_checkpoint(run_id)) return;
+        if (!_rust_engine_available()) throw new Error('Quick search requires Rust/WASM and browser worker support. Enable Rust/WASM or select Exhaustive search.');
+        const restrictions = get_restrictions();
+        _apply_constraint_roll(restrictions);
+        const snap = _build_solver_snapshot(restrictions);
+        _quick_fixed_tomes(snap);
+        if (!snap.weapon || snap.weapon.statMap.has('NONE')) throw new Error('Set a weapon before solving.');
+        if (atree_validate?.value?.[0]) throw new Error('Fix the ability tree errors before solving.');
+        if (['combo_damage', 'total_healing'].includes(snap.scoring_target) && !snap.parsed_combo.length) {
+            throw new Error('Add combo rows with spells before solving.');
+        }
+        _solver_state.snap = snap;
+        const blacklist = get_blacklist();
+        const illegal_at_2 = new Set([...sets].filter(([, s]) => s.bonuses?.[1]?.illegal).map(([name]) => name));
+        const locked = _collect_locked_items(illegal_at_2);
+        _quick_assert_supported_base(snap, locked, illegal_at_2);
+        // The current UI build is not a validated candidate for a new query:
+        // filters/tome inventory may have changed, and its stored SP override
+        // may no longer be feasible. Only WASM-evaluated witnesses enter this
+        // run's results. Leave the current build untouched until one arrives.
+        if (!await _quick_search_checkpoint(run_id)) return;
+        const pools = _build_item_pools(restrictions, illegal_at_2, blacklist);
+        if (locked.ring1 && locked.ring2) delete pools.ring;
+        for (const slot of ['helmet', 'chestplate', 'leggings', 'boots', 'bracelet', 'necklace']) {
+            if (locked[slot]) delete pools[slot];
+        }
+        // Keep raw candidate pools. Sensitivity ranks candidates but must not
+        // eliminate gear before the neighborhood search can consider it.
+        if (!await _quick_search_checkpoint(run_id)) return;
+        const weights = _build_dmg_weights(snap, locked, pools);
+        _solver_state.dmg_weights = weights;
+        _display_priority_weights();
+        _prioritize_pools(pools, weights);
+        if (!await _quick_search_checkpoint(run_id)) return;
+        _prepare_tome_optimisation(snap, restrictions, _build_dominance_stats(snap, weights, restrictions),
+            () => _quick_preparation_budget(run_id));
+        if (!await _quick_search_checkpoint(run_id)) return;
+        const serialized = _serialize_pools(pools);
+        const locked_ser = _serialize_locked(locked);
+        const ring_pool = serialized.ring ?? [];
+        const init = _build_worker_init_msg(snap, serialized, locked_ser, ring_pool, null, 0);
+        const bridge = window.__solver_rust_bridge;
+        if (!bridge || typeof bridge.sanitizeEnumFixtureForAnytime !== 'function') {
+            throw new Error('Quick search files are unavailable. Reload the page, or select Exhaustive search.');
+        }
+        const env = bridge.browserEnv();
+        const fixture = bridge.sanitizeEnumFixtureForAnytime(bridge.buildEnumFixture({
+            initMsgBase: init, ringPoolSer: ring_pool, solverSnap: snap, env,
+        }));
+        const score_fixture = await bridge.buildScoreFixture(init, ring_pool, 0, null, env);
+        if (!await _quick_search_checkpoint(run_id)) return;
+        _start_quick_search_worker(run_id, fixture, JSON.stringify(score_fixture));
+    } catch (err) {
+        _finish_quick_search(run_id, err?.code === 'quick_preparation_budget' ? 'preparation_budget' : 'error',
+            err?.message || 'Quick search could not start. Reload the page or select Exhaustive search.');
+    }
+}
+
+function _start_quick_search_worker(run_id, enum_fixture, score_fixture) {
+    if (!_quick_search_current(run_id)) return;
+    _solver_state.engine_phase = 'loading';
+    const worker = new Worker('../js/solver/wasm/worker.js', { type: 'module' });
+    const state = {
+        worker, done: false, checked: 0, feasible: 0, met_req: 0,
+        top5: [], _cur_top5: [], _cur_checked: 0,
+    };
+    _solver_state.workers = [state];
+    const fail = message => _finish_quick_search(run_id, 'error',
+        `Quick search could not run: ${message}. Reload the page or select Exhaustive search.`);
+    worker.onerror = event => {
+        if (_quick_search_current(run_id)) fail(event?.message || 'worker failed');
+    };
+    worker.onmessage = event => {
+        if (!_quick_search_current(run_id)) return;
+        const m = event.data;
+        if (!m) return;
+        if (m.type === 'worker_error') { fail(m.message || m.code || 'unsupported scenario'); return; }
+        if (m.type !== 'progress' && m.type !== 'done') return;
+        _solver_state.engine_phase = m.phase ?? 'searching';
+        if (Number.isFinite(m.leaf_calls)) {
+            _solver_state.leaf_calls = m.leaf_calls;
+            state._cur_checked = m.leaf_calls;
+        }
+        if (m.top_n) {
+            const entries = m.top_n.map(_normalize_rust_result).filter(_quick_result_has_witness);
+            // Startup/empty final messages must not erase earlier witnesses.
+            if (entries.length) {
+                state._cur_top5 = entries;
+                _merge_worker_top5([state], true);
+                _display_solver_results(_solver_state.top5);
+            }
+        }
+        _update_solver_progress_ui();
+        if (m.type === 'done') _finish_quick_search(run_id, m.stop_reason ?? 'time_budget');
+    };
+    _rust_compiled_module().then(compiled_module => {
+        if (!_quick_search_current(run_id)) return;
+        const seconds = (_solver_state.quick_deadline - _quick_now()) / 1000;
+        if (seconds <= 0) { _finish_quick_search(run_id, 'time_budget'); return; }
+        // Native options remain in the worker so the browser uses the same
+        // measured profile. This seed is per-run, not a tuned fixture seed.
+        const seed = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+            ? crypto.getRandomValues(new Uint32Array(1))[0] : (Date.now() >>> 0);
+        worker.postMessage({ type: 'solve_anytime', worker_id: 0,
+            enum_fixture, score_fixture, compiled_module,
+            options: { seconds, seed, top_k: 15, warm_k: 6, warm_budget: 2000000,
+                repair_budget: 100000, max_repairs: 10000, cycle_stagnation: true } });
+    }).catch(err => { if (_quick_search_current(run_id)) fail(err?.message || 'module loading failed'); });
+}
+
 // ── Optional Rust/WASM engine ────────────────────────────────────────────────
 //
 // When the WASM engine is available AND the scenario is one it supports, the
@@ -1656,19 +2199,64 @@ function _rust_engine_available() {
     } catch (e) { return false; }
 }
 
-/// Engine selector: the thread count applies to the JS workers only —
-/// Rust/WASM runs one dedicated worker until wasm threads land (they need
-/// SharedArrayBuffer plus COOP/COEP cross-origin isolation).
+/// Exhaustive searches support worker partitions; Quick uses one worker and
+/// keeps its time budget independent of the selected exhaustive worker count.
 function solver_engine_changed() {
     const rust = document.getElementById('solver-engine')?.value === 'rust';
+    const mode_value = document.getElementById('solver-search-mode')?.value;
+    const quick = mode_value === 'quick';
+    // 'within' (roadmap R21/R32): the Rust engine prunes below (1 + eps) x
+    // best, so the top result is proved within eps of the optimum. The JS
+    // engine has no eps; like Quick, the mode owns the engine selector.
+    const within = mode_value === 'within';
+    // 'shortlist' (roadmap R20): every build within a margin, ranked by
+    // tunable quality of life. Rust only, like 'within'.
+    const shortlist = mode_value === 'shortlist';
+    const running = _solver_state.running;
+    const engine = document.getElementById('solver-engine');
+    const mode = document.getElementById('solver-search-mode');
+    const budget = document.getElementById('solver-quick-budget');
+    const eps_sel = document.getElementById('solver-eps');
+    if (engine) engine.disabled = running || quick || within || shortlist;
+    if (mode) mode.disabled = running;
+    if (budget) budget.disabled = running;
+    if (eps_sel) eps_sel.disabled = running;
+    const budget_row = document.getElementById('solver-quick-budget-row');
+    if (budget_row) budget_row.style.display = quick ? '' : 'none';
+    const eps_row = document.getElementById('solver-eps-row');
+    if (eps_row) eps_row.style.display = within ? '' : 'none';
+    const win_row = document.getElementById('solver-window-row');
+    if (win_row) win_row.style.display = shortlist ? '' : 'none';
+    const win_sel = document.getElementById('solver-window');
+    if (win_sel) win_sel.disabled = running;
+    const win_pct = (parseFloat(win_sel?.value) || 0.05) * 100;
+    const note = document.getElementById('solver-search-mode-note');
+    const pct = (parseFloat(eps_sel?.value) || 0.01) * 100;
+    if (note) note.textContent = quick
+        ? 'Find strong builds within a time budget. Results may improve with another run.'
+        : within
+            ? `Proves the top build is within ${pct}% of the best possible, usually much faster than Exhaustive. Ranks 2 to 15 are not verified.`
+            : shortlist
+                ? `Keeps every build within ${win_pct}% of the best, then lets you re-rank them by EHP, mana, speed and sustain without searching again.`
+                : '';
     const sel = document.getElementById('solver-thread-count');
     if (!sel) return;
     // Both engines scale across workers now — the Rust engine partitions the
     // search across ordinary workers rather than needing wasm threads.
-    sel.disabled = false;
-    sel.title = rust
+    sel.disabled = running || quick;
+    sel.title = quick ? 'Quick search uses one worker' : rust
         ? 'Number of Rust/WASM worker partitions'
         : 'Number of JavaScript worker threads';
+}
+
+function solver_search_mode_changed() {
+    const v = document.getElementById('solver-search-mode')?.value;
+    if (v === 'quick' || v === 'within' || v === 'shortlist') {
+        const engine = document.getElementById('solver-engine');
+        if (engine) engine.value = 'rust';
+    }
+    solver_engine_changed();
+    schedule_search_space_update();
 }
 
 /// Run the whole search in the Rust engine. Returns true when it handled the
@@ -1676,6 +2264,8 @@ function solver_engine_changed() {
 function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser, init_base,
                                      on_unsupported) {
     if (!_rust_engine_available()) return false;
+    const run_id = _solver_state.run_id;
+    const still_current = () => _solver_state.running && _solver_state.run_id === run_id;
     // Tome optimisation is a SEARCHED dimension, and the Rust engine now
     // searches it: the fixture carries the guild candidates and the
     // weapon/armour bundles, and `leaf_pipeline_tome` tries each combination
@@ -1692,8 +2282,9 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
         // No sampling env → fixture carries no validation cases, which is all
         // the engine needs to solve.
         const score_fixture = bridge.buildScoreFixture(init_base, ring_pool_ser, 0, null, env);
-        const start = (f) =>
-            _rust_solve_in_worker(enum_fixture, JSON.stringify(f), on_unsupported);
+        const start = (f) => {
+            if (still_current()) _rust_solve_in_worker(enum_fixture, JSON.stringify(f), on_unsupported);
+        };
         if (score_fixture && typeof score_fixture.then === 'function') {
             // Builder is async only in the sampling (test) path; without
             // sampling it resolves immediately, but guard anyway.
@@ -1706,6 +2297,7 @@ function _try_run_solver_search_rust(snap, pools_ser, locked_ser, ring_pool_ser,
             // one throw leaves `running` true with neither engine going, which
             // is exactly how the WorkerCtor bug hung the solve.
             score_fixture.then(start).catch((err) => {
+                if (!still_current()) return;
                 console.warn('[solver] Rust fixture build failed, using JS workers:',
                              err && err.message, err && err.stack);
                 _solver_state.engine_used = 'javascript';
@@ -1760,6 +2352,12 @@ function _rust_search_space_estimate(enum_fixture) {
 /// threshold keeps a 2x margin.
 const _RUST_PARTITION_MIN_SPACE = 8e6;
 
+/// R24: work-queue units per worker. Native simulation (4 workers, six
+/// families): 8 units per worker 3.25 to 3.90x over one worker, 4 per
+/// worker 3.04 to 3.50x, 2 per worker 2.46 to 3.40x. A unit costs one
+/// message round trip.
+const _RUST_UNITS_PER_WORKER = 8;
+
 /// Tests may lower the threshold via `window.__SOLVER_TEST_PARTITION_MIN_SPACE`.
 ///
 /// This guard is a PERFORMANCE cut-off, not a correctness one: partitioning is
@@ -1806,6 +2404,8 @@ function _rust_compiled_module() {
 }
 
 function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported) {
+    const run_id = _solver_state.run_id;
+    const still_current = () => _solver_state.running && _solver_state.run_id === run_id;
     // One ordinary worker per core. wasm threads would need SharedArrayBuffer
     // plus COOP/COEP cross-origin isolation, which the app cannot assume;
     // partitioning needs neither. Each worker enumerates a disjoint range of
@@ -1816,7 +2416,8 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     //
     // The one thing lost versus native threads is the shared score cutoff:
     // each partition discovers its own, so the gate prunes a little less.
-    // That costs work, never results.
+    // That costs work, never results. The R24 work queue below recovers most
+    // of it by passing the merged cutoff with every unit.
     const part_count = _rust_partition_count(enum_fixture);
     const states = [];
     let finished = 0;
@@ -1835,7 +2436,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     _solver_state.partitions = part_count;
 
     const finish_one = () => {
-        if (failed) return;
+        if (failed || !still_current()) return;
         finished += 1;
         if (finished < states.length) return;
         for (const st of states) {
@@ -1845,7 +2446,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
     };
 
     const fail = (code, message) => {
-        if (failed) return;
+        if (failed || !still_current()) return;
         failed = true;
         console.warn(`[solver] Rust engine (${code}): ${message} — using the JS workers`);
         _solver_state.engine_phase = '';
@@ -1879,6 +2480,37 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
         try { cutoff_sab = new SharedArrayBuffer(4); } catch (e) { cutoff_sab = null; }
     }
 
+    // R24 work queue. Instead of one fixed range per worker, the first
+    // slot's pool is cut into `unit_count` contiguous ranges handed out one
+    // at a time, and each unit carries the merged cutoff of everything every
+    // worker has reported so far. Without `SharedArrayBuffer` that is the
+    // only way partitions can share a cutoff (a running solve cannot receive
+    // messages), and the small grain also balances the load. Each worker
+    // keeps one engine (parse, bound tables, warm start once) and
+    // accumulates its units, so its last `unit_done` is its `done`. Seeds
+    // are admissible: the merged list holds scores of real builds, so its
+    // result_count-th entry bounds the final cutoff from below. Measured
+    // natively (partition_time queue, 4 workers, 32 units, six families):
+    // 3.25 to 3.90x over one worker, against 2.48 to 3.02x for 4 fixed
+    // partitions; exactness by partition_check's queue rows.
+    const use_queue = part_count > 1
+        && !(typeof window !== 'undefined' && window.__SOLVER_NO_QUEUE);   // test escape hatch
+    const unit_count = part_count * _RUST_UNITS_PER_WORKER;
+    let next_unit = 0;
+    let result_count = 15;
+    const latest_scores = [];   // per worker: its accumulated top-N scores
+    const unit_seed = () => {
+        const s = latest_scores.flat().filter(Number.isFinite).sort((a, b) => b - a);
+        const cut = s.length >= result_count ? Math.floor(s[result_count - 1]) : 0;
+        return { seed_cutoff: cut > 0 ? cut : 0, seed_best: s.length && s[0] > 0 ? s[0] : 0 };
+    };
+    const send_unit = (worker, worker_id) => {
+        if (next_unit >= unit_count) return false;
+        worker.postMessage({ type: 'unit', worker_id, index: next_unit++, count: unit_count, ...unit_seed() });
+        return true;
+    };
+    _solver_state.rust_units = use_queue ? unit_count : 0;
+
     for (let i = 0; i < part_count; i++) {
         let worker;
         try {
@@ -1895,8 +2527,10 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
             _cur_checked_since_top5: 0, _cur_L_progress: [0, 1],
         };
         states.push(state);
+        const part_index = i;
 
         worker.onmessage = (event) => {
+            if (failed || !still_current()) return;
             const m = event.data;
             if (!m) return;
             if (m.type === 'worker_error') { fail(m.code, m.message); return; }
@@ -1910,10 +2544,28 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                 // Every partition reports the FULL space, so this is a set
                 // rather than a sum; `checked` is what accumulates.
                 if (m.total > 0) _solver_state.total = m.total;
-                if (m.top_n) state._cur_top5 = m.top_n;
+                if (m.top_n) state._cur_top5 = m.top_n.map(_normalize_rust_result);
                 return;
             }
-            if (m.type !== 'done') return;
+            if (m.type === 'ready') {
+                if (Number.isFinite(m.result_count) && m.result_count > 0) result_count = m.result_count;
+                if (m.total > 0) _solver_state.total = m.total;
+                return;
+            }
+            if (m.type === 'unit_done') {
+                latest_scores[part_index] = (m.top_n || []).map(t => t.score);
+                if (send_unit(worker, part_index)) {
+                    // Cumulative over this worker's units, like its progress.
+                    state._cur_checked = m.checked ?? 0;
+                    state._cur_precheck_pass = m.precheck_pass ?? 0;
+                    state._cur_precheck_reject = m.precheck_reject ?? 0;
+                    state._cur_feasible = m.feasible ?? 0;
+                    state._cur_met_req = m.met_req ?? 0;
+                    state._cur_top5 = (m.top_n || []).map(_normalize_rust_result);
+                    return;
+                }
+                // No units left: this report is the worker's result.
+            } else if (m.type !== 'done') return;
             _solver_state.engine_phase = '';
             state.done = true;
             state.checked = m.checked ?? 0;
@@ -1954,15 +2606,30 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
                         e.tome_names = { weaponTome: w, armorTome: a };
                     }
                 }
+                if (t.stats) e.stats = t.stats;
                 return e;
             });
+            // R20: what the shortlist merge needs from each partition.
+            state.complete = !!m.complete;
+            state.archive_full = !!m.archive_full;
+            state.archive_last = m.archive_last ?? null;
             finish_one();
         };
         worker.onerror = (e) => fail('rust_worker_crash', (e && e.message) || 'worker failed');
 
-        const part_index = i;
         module_ready.then((compiled_module) => {
-            if (failed) return;
+            if (failed || !still_current()) return;
+            if (use_queue) {
+                // The worker handles messages in order, so the first unit
+                // can follow the session without waiting for `ready`.
+                worker.postMessage({
+                    type: 'session', worker_id: part_index,
+                    enum_fixture, score_fixture: score_fixture_json,
+                    compiled_module, cutoff_sab,
+                });
+                if (!send_unit(worker, part_index)) finish_one();
+                return;
+            }
             worker.postMessage({
                 type: 'solve', worker_id: part_index,
                 enum_fixture, score_fixture: score_fixture_json,
@@ -1976,7 +2643,7 @@ function _rust_solve_in_worker(enum_fixture, score_fixture_json, on_unsupported)
 
     _solver_state.workers = states;
     _solver_state.progress_timer = setInterval(() => {
-        if (!_solver_state.running) return;
+        if (!still_current()) return;
         let checked = 0, pre_pass = 0, pre_rej = 0, feasible = 0, met = 0;
         for (const st of states) {
             checked += st.checked + st._cur_checked;
@@ -2029,6 +2696,8 @@ function solver_refresh_auto_thread_label() {
  *   worker reported the scenario unsupported, so the retry cannot loop.
  */
 function _run_solver_search_workers(pools, locked, snap, force_js) {
+    const run_id = _solver_state.run_id;
+    const still_current = () => _solver_state.running && _solver_state.run_id === run_id;
     // Determine thread count
     const thread_sel = document.getElementById('solver-thread-count');
     const thread_val = thread_sel?.value ?? 'auto';
@@ -2078,10 +2747,11 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     // names, so a worker rediscovering the same build must collapse to ONE
     // cutoff entry — a duplicate would make the shared cutoff the 14th
     // distinct score and let the ceiling gate discard a legitimate #15.
-    if (typeof _solver_state.seed_build?.score === 'number') {
-        const seed_names = _solver_state.seed_build.items
+    for (const seed of [_solver_state.seed_build, ...(_solver_state.archive_seeds ?? [])]) {
+        if (typeof seed?.score !== 'number') continue;
+        const seed_names = seed.items
             ?.map(i => i.statMap?.get?.('name') ?? '').join(' ');
-        cutoff_scores.set(seed_names || '\x00seed', _solver_state.seed_build.score);
+        cutoff_scores.set(seed_names || '\x00seed', Math.max(cutoff_scores.get(seed_names || '\x00seed') ?? -Infinity, seed.score));
     }
     function _update_shared_cutoff(entries) {
         if (!entries) return;
@@ -2113,7 +2783,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
     // Send a lightweight 'run' message for subsequent partitions (no heavy data)
     function _dispatch_next(wstate) {
-        if (partition_queue.length === 0 || !_solver_state.running) return false;
+        if (partition_queue.length === 0 || !still_current()) return false;
         const partition = partition_queue.shift();
         wstate.done = false;
         wstate._cur_checked = 0;
@@ -2134,6 +2804,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     }
 
     function _on_partition_done(wstate, msg) {
+        if (!still_current()) return;
         wstate.done = true;
         // Accumulate into cumulative totals
         wstate.checked += msg.checked;
@@ -2170,6 +2841,10 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
     // Build the heavy init message once (without partition — added per-worker below)
     const init_base = _build_worker_init_msg(snap, pools_ser, locked_ser, ring_pool_ser, null, 0);
+    // Read by the Rust fixture builder only (an EPS line); the JS engine has
+    // no tolerance, so a fallback run is exact, which still satisfies it.
+    init_base.search_eps = _solver_state.search_eps || 0;
+    init_base.search_window = _solver_state.search_window || 0;
 
     // Opt-in Rust/WASM engine; returns false (and we continue with the JS
     // workers below) whenever it is unavailable or the scenario is not one
@@ -2180,6 +2855,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
     // rather than leaving the user with no results.
     if (!force_js) {
         const fall_back_to_js = () => {
+            if (!still_current()) return;
             if (_solver_state.progress_timer) {
                 clearInterval(_solver_state.progress_timer);
                 _solver_state.progress_timer = 0;
@@ -2214,6 +2890,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
         _solver_state.workers.push(wstate);
 
         w.onmessage = (e) => {
+            if (!still_current()) return;
             const msg = e.data;
             if (msg.type === 'progress') {
                 wstate._cur_checked = msg.checked;
@@ -2233,6 +2910,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
         };
 
         w.onerror = (err) => {
+            if (!still_current()) return;
             console.error('[solver] worker error:', err);
             wstate.done = true;
             active_count--;
@@ -2261,7 +2939,7 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
     // Start progress timer
     _solver_state.progress_timer = setInterval(() => {
-        if (!_solver_state.running) return;
+        if (!still_current()) return;
         // Aggregate stats: cumulative completed + current in-flight partition
         _solver_state.checked = 0;
         _solver_state.precheck_pass = 0;
@@ -2281,8 +2959,127 @@ function _run_solver_search_workers(pools, locked, snap, force_js) {
 
 // ── Top-level orchestrator ────────────────────────────────────────────────────
 
+// ── R15: roll-robust requirements ───────────────────────────────────────────
+//
+// "Requirement rolls %" (blank = off): every stat a requirement reads rolls
+// at that percentage toward its worse end (constraint_roll_dirs), so a
+// build is only accepted if it meets its requirements at that roll, while
+// the objective keeps the normal roll. Set before the snapshot: the item
+// nodes are re-rolled so locked items and the weapon match the pools.
+function _apply_constraint_roll(restrictions) {
+    if (typeof constraint_roll_dirs === 'undefined') return;   // constants.js not loaded (unit tests)
+    const raw = document.getElementById('restr-constraint-roll')?.value ?? '';
+    const pct = raw.trim() === '' ? NaN : parseInt(raw);
+    const mana_on = document.getElementById('combo-mana-btn')?.classList.contains('toggleOn') ?? true;
+    const next = Number.isFinite(pct) && pct < 100
+        ? { pct: Math.max(0, pct), dirs: constraint_roll_dirs(restrictions, mana_on) } : null;
+    const key = (c) => c ? `${c.pct}|${[...c.dirs].map(([k, d]) => k + d).sort().join(',')}` : '';
+    if (key(next) === key(current_constraint_roll)) return;
+    current_constraint_roll = next && next.dirs.size ? next : null;
+    if (typeof solver_equip_input_nodes !== 'undefined') {
+        for (const node of solver_equip_input_nodes) node.mark_dirty();
+        for (const node of solver_equip_input_nodes) node.update();
+    }
+}
+
+// ── R16: weapon as an outer group ───────────────────────────────────────────
+//
+// "Compare weapons" solves once per listed weapon, through the page's own
+// pipeline (the weapon input is set and the page left to settle, so atree,
+// combo and snapshot are exactly what a manual run with that weapon builds),
+// then ranks every weapon's results together. One shared top-N: the union
+// of each weapon's top-N contains the overall top-N, so the merged list is
+// exact for whatever each run is exact for. Only weapons of the current
+// weapon's type (class), so every run scores the same combo rows. Each run
+// starts with the previous weapon's builds re-scored (R13).
+const _WEAPON_SETTLE_MS = 1500;
+
+/** Parsed compare list: { weapons: [names], error } (empty when unused). */
+function _weapon_compare_list() {
+    const raw = document.getElementById('solver-weapon-compare')?.value ?? '';
+    const names = raw.split(',').map(x => x.trim()).filter(Boolean);
+    if (!names.length) return { weapons: [] };
+    const cur = solver_item_final_nodes[8]?.value?.statMap;
+    if (!cur || cur.has('NONE')) return { weapons: [], error: 'Set a weapon before comparing weapons.' };
+    const type = cur.get('type');
+    const out = [];
+    for (const name of names) {
+        const it = itemMap.get(name);
+        if (!it || it.category !== 'weapon') return { weapons: [], error: `"${name}" is not a weapon.` };
+        if (it.type !== type) return { weapons: [], error: `"${name}" is a ${it.type}, not a ${type}: compare weapons of one class.` };
+        if (!out.includes(name)) out.push(name);
+    }
+    return { weapons: out };
+}
+
+/** Set the weapon input and wait until the page reflects it. */
+async function _set_weapon_and_settle(name) {
+    const input = document.getElementById('weapon-choice');
+    if (!input) return false;
+    if (input.value !== name) {
+        input.value = name;
+        input.dispatchEvent(new Event('change'));
+    }
+    for (let t = 0; t < 100; t++) {
+        const sm = solver_item_final_nodes[8]?.value?.statMap;
+        if (sm && get_item_display_name(sm) === name) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    await new Promise(r => setTimeout(r, _WEAPON_SETTLE_MS));
+    return get_item_display_name(solver_item_final_nodes[8]?.value?.statMap ?? new Map([['NONE', true]])) === name;
+}
+
+async function _run_weapon_comparison(others) {
+    const original = document.getElementById('weapon-choice')?.value ?? '';
+    const weapons = [original, ...others.filter(w => w !== original)];
+    const status = document.getElementById('solver-status-msg');
+    const cmp = _solver_state.weapon_compare = { cancelled: false, done: 0, total: weapons.length };
+    const all = [];
+    for (const w of weapons) {
+        if (cmp.cancelled) break;
+        if (status) status.textContent = `Comparing weapons: ${w} (${cmp.done + 1} of ${cmp.total})`;
+        if (!await _set_weapon_and_settle(w)) {
+            console.warn('[solver] weapon compare: could not set', w);
+            continue;
+        }
+        const weapon_item = solver_item_final_nodes[8].value;
+        start_solver_search();
+        // A run that refused to start (e.g. a validation error) leaves the
+        // previous weapon's results in top5: never collect those.
+        if (!_solver_state.running) {
+            console.warn('[solver] weapon compare: no search started for', w);
+            continue;
+        }
+        while (_solver_state.running) await new Promise(r => setTimeout(r, 200));
+        if (cmp.cancelled) break;
+        for (const r of _solver_state.top5) all.push({ ...r, weapon: w, weapon_item });
+        cmp.done += 1;
+    }
+    await _set_weapon_and_settle(original);
+    // Shared top-N over every weapon's results, best first.
+    const seen = new Set();
+    const merged = all.sort((a, b) => b.score - a.score).filter(r => {
+        const key = r.weapon + '|' + r.items.map(i => get_item_display_name(i.statMap)).join(',');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).slice(0, _TOP_N);
+    _solver_state.top5 = merged;
+    // Only now: until here a Solve click must not start a run.
+    _solver_state.weapon_compare = null;
+    _display_solver_results(merged);
+    if (status) status.textContent = cmp.cancelled
+        ? `Weapon comparison stopped after ${cmp.done} of ${cmp.total} weapons.`
+        : `Compared ${cmp.done} weapons; best: ${merged[0]?.weapon ?? 'none'}.`;
+}
+
 function toggle_solver() {
+    if (_solver_state.weapon_compare && _solver_state.running) _solver_state.weapon_compare.cancelled = true;
     if (_solver_state.running) {
+        if (_solver_state.search_mode === 'quick') {
+            _finish_quick_search(_solver_state.run_id, 'stopped');
+            return;
+        }
         // Save worker references before _stop_solver clears them
         const saved_workers = [..._solver_state.workers];
         const elapsed_s = Math.floor((Date.now() - _solver_state.start) / 1000);
@@ -2299,6 +3096,18 @@ function toggle_solver() {
         _merge_worker_top5(saved_workers, true);
         _display_solver_results(_solver_state.top5);
         if (_solver_state.top5.length > 0) _fill_build_into_ui(_solver_state.top5[0]);
+        return;
+    }
+    if (_solver_state.weapon_compare) return;   // a comparison is between runs
+    const mode = document.getElementById('solver-search-mode')?.value ?? 'exhaustive';
+    const cmp = _weapon_compare_list();
+    if (cmp.error) {
+        const err_el = document.getElementById('solver-error-text');
+        if (err_el) err_el.textContent = cmp.error;
+        return;
+    }
+    if (cmp.weapons.length && (mode === 'exhaustive' || mode === 'within')) {
+        _run_weapon_comparison(cmp.weapons);
         return;
     }
     start_solver_search();
@@ -2421,7 +3230,8 @@ function _update_search_space_display() {
             return;
         }
         const engine_is_rust = document.getElementById('solver-engine')?.value !== 'javascript';
-        const [word, cls] = _space_guidance(total, engine_is_rust);
+        const quick = document.getElementById('solver-search-mode')?.value === 'quick';
+        const [word, cls] = quick ? ['time budget applies', 'text-info'] : _space_guidance(total, engine_is_rust);
         el.textContent = _format_space(total);
         el.className = `fw-bold ${cls}`;
         if (note) note.textContent = word ? `\u2014 ${word}` : '';
@@ -2539,7 +3349,26 @@ function _advance_candidate_search_stage() {
 }
 
 function start_solver_search() {
+    if (_solver_state.running) return;
+    if (document.getElementById('solver-search-mode')?.value === 'quick') {
+        return _start_quick_solver_search();
+    }
+    const mode_value = document.getElementById('solver-search-mode')?.value;
+    const within = mode_value === 'within';
+    const shortlist = mode_value === 'shortlist';
+    _solver_state.search_mode = within ? 'within' : shortlist ? 'shortlist' : 'exhaustive';
+    _solver_state.search_eps = within
+        ? Math.max(0, parseFloat(document.getElementById('solver-eps')?.value) || 0.01) : 0;
+    _solver_state.search_window = shortlist
+        ? Math.min(0.5, Math.max(0, parseFloat(document.getElementById('solver-window')?.value) || 0.05)) : 0;
+    _solver_state.shortlist = null;
+    _shortlist_rows_shown = _SHORTLIST_ROWS;
+    _render_shortlist();
+    _solver_state.algorithm = 'exhaustive';
+    _solver_state.complete = false;
+    _solver_state.run_id += 1;
     const restrictions = get_restrictions();
+    _apply_constraint_roll(restrictions);
     const snap = _build_solver_snapshot(restrictions);
 
     // Validate pre-conditions
@@ -2636,8 +3465,17 @@ function start_solver_search() {
     if (_solver_state.seed_build) {
         console.log('[solver] seeded current build as baseline, score:', _solver_state.seed_build.score);
     }
+    // R13: the previous run's builds that are still valid here, re-scored.
+    const seed_key = _solver_state.seed_build?.items.map(it => get_item_display_name(it.statMap)).join(',');
+    _solver_state.archive_seeds = (typeof window !== 'undefined' && window.__SOLVER_NO_ARCHIVE) ? []
+        : _archived_seed_builds(snap, restrictions, locked, search_plan.original_pools, illegal_at_2,
+            new Set(seed_key ? [seed_key] : []));
+    if (_solver_state.archive_seeds.length) {
+        console.log('[solver] re-scored', _solver_state.archive_seeds.length, 'builds from the previous run');
+    }
 
     _solver_state.running = true;
+    solver_engine_changed();
     // Default to the JS workers; the Rust path sets this to 'rust' only once it
     // actually starts, and every fallback resets it. See _rust_solve_in_worker.
     _solver_state.engine_used = 'javascript';
@@ -2645,6 +3483,7 @@ function start_solver_search() {
     _solver_state.engine_fallback_reason = '';
     _solver_state.top5 = [];
     if (_solver_state.seed_build) _insert_top5(_solver_state.seed_build);
+    for (const b of _solver_state.archive_seeds) _insert_top5(b);
     _solver_state.checked = 0;
     _solver_state.feasible = 0;
     _solver_state.met_req = 0;

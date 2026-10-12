@@ -83,7 +83,7 @@ function displaySolverSummary(parent_id, stats) {
 
     const maxMana = stats.get('maxMana') ?? 0;
     const int_mana = Math.floor(skillPointsToPercentage(stats.get('int') ?? 0) * 100);
-    parent.append(row('Total Mana:', 100 + maxMana + int_mana, 'wDam'));
+    parent.append(row('Total Mana:', total_mana_pool(maxMana, int_mana), 'wDam'));
 
     const ls = stats.get('ls') ?? 0;
     if (ls) {
@@ -161,7 +161,8 @@ let solver_raid_buff_node = new (class extends ComputeNode {
 let solver_radiance_node = new (class extends ComputeNode {
     constructor() { super('solver-radiance-node'); this.fail_cb = true; }
     compute_func(input_map) {
-        return compute_radiance(input_map.get('stats'));
+        // Item-granted SP too, as the builder's radiance node passes it.
+        return compute_radiance(input_map.get('stats'), input_map.get('build')?.total_item_skillpoints);
     }
 })();
 

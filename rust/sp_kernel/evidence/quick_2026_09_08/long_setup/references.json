@@ -1,0 +1,594 @@
+{
+  "fam_tierstack_medium": {
+    "kind": "best_known",
+    "score": 215849.5874088834,
+    "enum_sha256": "c4f9a60249d3f2e716b09d410752617bfa43c70115fdf6ccc4845b109dce3d57",
+    "score_sha256": "95923427f7638429f70b98ab8c43543bc4b1f49483995b798087d64bb7714c21",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_tierstack_medium__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_tierstack_medium__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_tierstack_medium__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_tierstack_medium__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_tierstack_medium__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      }
+    ],
+    "eligible_prior_runs": 6
+  },
+  "fam_spellsteal_medium": {
+    "kind": "best_known",
+    "score": 92806.8118289668,
+    "enum_sha256": "ef7e01582fad54b3dab7d62bd01677f91a405b43d637c0112326b874d3fc1ea6",
+    "score_sha256": "66da3a05f085d980343fd9e3ba8f6642c686a5412d21ec4f3ac91bee4ba0ab22",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_spellsteal_medium__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      }
+    ],
+    "eligible_prior_runs": 6
+  },
+  "fam_hybrid_medium": {
+    "kind": "best_known",
+    "score": 262855.8060403939,
+    "enum_sha256": "022a7f4764be64c82a5f733fded5b23f5a78bbca6e379070dc20142ca708ab1f",
+    "score_sha256": "acdce3104e43fcfec6cb86a535f61336fb1db5f85fafe73256f9d02d85b4819b",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__best1_warm3__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1_warm3",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_hybrid_medium__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      }
+    ],
+    "eligible_prior_runs": 6
+  },
+  "fam_cancelstack_large": {
+    "kind": "best_known",
+    "score": 510715.00785697025,
+    "enum_sha256": "5449d17a819ef6a2c3f7e2cd5a557c44cdbd5768e2fd2180794c9bf0d48e6e35",
+    "score_sha256": "c524906c31b86465ed5786b7ce5b4b4683454354a42b4e0c26d6750817d7ed58",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_cancelstack_large__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_cancelstack_large__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_cancelstack_large__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_cancelstack_large__best1_warm3__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1_warm3",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_cancelstack_large__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns_warm6__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__safe_baseline15__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__best1_warm3__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns1__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns1__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__best1_warm3__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__safe_baseline15__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns_warm6__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns_warm6__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__safe_baseline15__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__best1_warm3__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_cancelstack_large__alns1__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 303
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_cancelstack_large__alns_cyclic_warm6__r00__s707",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 707
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_cancelstack_large__alns_cyclic_warm6__r01__s808",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 808
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_cancelstack_large__alns_cyclic_warm6__r02__s909",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 909
+      }
+    ],
+    "eligible_prior_runs": 21
+  },
+  "fam_heavy_melee_large": {
+    "kind": "best_known",
+    "score": 37822.40581168717,
+    "enum_sha256": "75da677778ad5a7050739b4dfcd47f989c3935ac7686e4b349050ada487479fc",
+    "score_sha256": "f534f6134f39dc697be7058ca18cac2fd3462891eda23222f26f1813eae07237",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__best1_warm3__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1_warm3",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "fam_heavy_melee_large__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__safe_baseline15__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__best1_warm3__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns1__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns_warm6__r00__s101",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 101
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns_warm6__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns1__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__best1_warm3__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__safe_baseline15__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__safe_baseline15__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "safe_baseline15",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__best1_warm3__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "best1_warm3",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns1__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns1",
+        "seed": 303
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "fam_heavy_melee_large__alns_warm6__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 303
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_heavy_melee_large__alns_cyclic_warm6__r00__s707",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 707
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_heavy_melee_large__alns_cyclic_warm6__r01__s808",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 808
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "fam_heavy_melee_large__alns_cyclic_warm6__r02__s909",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 909
+      }
+    ],
+    "eligible_prior_runs": 21
+  },
+  "meta_mage_arcanist_meteor_remove_6": {
+    "kind": "best_known",
+    "score": 44734.31761146617,
+    "enum_sha256": "732c18ea3022f9bff644b63ef1feaf1d8e853a76655a93d93ca6c90f18c20fef",
+    "score_sha256": "7609a6d5113a83214d93c8d519d6829af04f8932d765e45dc9b47ac290ba78cc",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "meta_mage_arcanist_meteor_remove_6__alns_cyclic_warm6__r01__s808",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 808
+      }
+    ],
+    "eligible_prior_runs": 21
+  },
+  "meta_mage_light_bender_healing_remove_6": {
+    "kind": "best_known",
+    "score": 22459.50000001594,
+    "enum_sha256": "8bf973614a1b7a89c8abc468a563b0793b5386deaec7bc14ab585e673d79349d",
+    "score_sha256": "4e782a53a4b82bb492dc92cc1df090aa986d683087a97e3a8fb6286b26766303",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r01__s202",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 202
+      },
+      {
+        "campaign": "confirmation",
+        "campaign_sha256": "0cfafe6b7b7889c96f906d0e343b6f3b745a5cc621e2475821db3162f7092861",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_warm6__r02__s303",
+        "budget_seconds": 5.0,
+        "variant": "alns_warm6",
+        "seed": 303
+      },
+      {
+        "campaign": "followup",
+        "campaign_sha256": "f15594a315ab86b3fe477d86ea3aa83fb908dea853211beda6dba6bb7a65b3ac",
+        "run_id": "meta_mage_light_bender_healing_remove_6__alns_cyclic_warm6__r02__s909",
+        "budget_seconds": 5.0,
+        "variant": "alns_cyclic_warm6",
+        "seed": 909
+      }
+    ],
+    "eligible_prior_runs": 21
+  },
+  "spell_8free": {
+    "kind": "best_known",
+    "score": 1539731.6595562955,
+    "enum_sha256": "1f4104cc5a3bce3c30521e631b7f7c28eeab0d7ee8cac7352ff0f8a1f7fcf50f",
+    "score_sha256": "b42c1a23b3681e9de748cfcbdb72eb6759133c229e3ec10682adb6e887b6dd0b",
+    "source": "Frozen before the long campaign: maximum eligible, same-fixture endpoint across the previously committed screen, confirmation, diagnostic and tuned follow-up campaigns. Not a global optimum certificate.",
+    "evidence_kind": "prior_campaign_best_known",
+    "supporting_runs": [
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__best1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__best1_warm3__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "best1_warm3",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__wide15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "wide15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__alns1__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "alns1",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__safe_baseline15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "safe_baseline15",
+        "seed": 1
+      },
+      {
+        "campaign": "screen",
+        "campaign_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+        "run_id": "spell_8free__retained15__r00__s1",
+        "budget_seconds": 2.0,
+        "variant": "retained15",
+        "seed": 1
+      }
+    ],
+    "eligible_prior_runs": 6
+  }
+}

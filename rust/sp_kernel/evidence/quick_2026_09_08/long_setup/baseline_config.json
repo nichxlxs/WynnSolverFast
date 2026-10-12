@@ -1,0 +1,16 @@
+{
+  "variants": [
+    {
+      "name": "current_exact15",
+      "kind": "enum",
+      "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/enum_kernel",
+      "env": {
+        "RESULT_COUNT": "15",
+        "RETAIN_WARM": "1",
+        "WIDE_BOUND_KEYS": "0",
+        "WARM_K": "6",
+        "QUALITY_TRACE_COUNTERS": "1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+(127, 3, 5)      bounds_off exact top-15;   1905 checked;      0 bound-pruned; 0.0185s
+(127, 3, 5)      legacy     exact top-15;   1905 checked;     25 bound-pruned; 0.0270s
+(127, 3, 5)      wide       exact top-15;   1905 checked;     25 bound-pruned; 0.0231s
+(128, 3, 5)      bounds_off exact top-15;   1920 checked;      0 bound-pruned; 0.0160s
+(128, 3, 5)      legacy     exact top-15;   1920 checked;      0 bound-pruned; 0.0158s
+(128, 3, 5)      wide       exact top-15;   1920 checked;     25 bound-pruned; 0.0230s
+(129, 3, 5)      bounds_off exact top-15;   1935 checked;      0 bound-pruned; 0.0183s
+(129, 3, 5)      legacy     exact top-15;   1935 checked;      0 bound-pruned; 0.0183s
+(129, 3, 5)      wide       exact top-15;   1935 checked;     25 bound-pruned; 0.0227s
+(257, 3, 5)      bounds_off exact top-15;   3855 checked;      0 bound-pruned; 0.0320s
+(257, 3, 5)      legacy     exact top-15;   3855 checked;      0 bound-pruned; 0.0310s
+(257, 3, 5)      wide       exact top-15;   3855 checked;     30 bound-pruned; 0.0432s
+(3, 257, 5)      bounds_off exact top-15;   3855 checked;      0 bound-pruned; 0.0300s
+(3, 257, 5)      legacy     exact top-15;   3855 checked;      0 bound-pruned; 0.0271s
+(3, 257, 5)      wide       exact top-15;   3855 checked;   2525 bound-pruned; 0.0362s
+(3, 5, 257)      bounds_off exact top-15;   3855 checked;      0 bound-pruned; 0.0276s
+(3, 5, 257)      legacy     exact top-15;   3855 checked;      0 bound-pruned; 0.0270s
+(3, 5, 257)      wide       exact top-15;   3855 checked;   3491 bound-pruned; 0.0449s
+(2050, 3, 5)     bounds_off exact top-15;  30750 checked;      0 bound-pruned; 0.2374s
+(2050, 3, 5)     legacy     exact top-15;  30750 checked;      0 bound-pruned; 0.2577s
+(2050, 3, 5)     wide       exact top-15;  30750 checked;     45 bound-pruned; 0.3343s
+21 exhaustive synthetic scored regressions passed

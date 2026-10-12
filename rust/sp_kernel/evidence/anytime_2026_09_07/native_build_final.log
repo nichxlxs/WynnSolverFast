@@ -1,0 +1,154 @@
+   Compiling sp_kernel v0.1.0 (/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel)
+warning: unused imports: `Case`, `Kernel`, and `Unit`
+  --> src/scoring.rs:14:13
+   |
+14 | use crate::{Case, Kernel, Unit};
+   |             ^^^^  ^^^^^^  ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `bt`
+    --> src/enumerate.rs:2166:25
+     |
+2166 |         (Some(sc), Some(bt)) => sc.dense.as_ref().and_then(|d| {
+     |                         ^^ help: if this is intentional, prefix it with an underscore: `_bt`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1790:46
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1897 |             advance!(pre_dt);
+     |             ---------------- in this macro invocation
+...
+1901 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1901:42
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+...
+1901 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1790:46
+     |
+1790 |                     if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1833 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ---------------------------------- `mana_wasted` is overwritten here before the previous value is read
+...
+1982 |             advance!(effective_post);
+     |             ------------------------ in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `mana_wasted` is never read
+    --> src/scoring.rs:1833:42
+     |
+1833 |                 if uncapped > max_mana { mana_wasted += uncapped - max_mana; }
+     |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1781:37
+     |
+1781 |                                     total_mana_drain += actual;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |                                     |
+     |                                     this value is reassigned later and never used
+     |                                     `total_mana_drain` is overwritten here before the previous value is read
+...
+1897 |             advance!(pre_dt);
+     |             ---------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1781:37
+     |
+1781 |                                     total_mana_drain += actual;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1966 |                             total_mana_drain += dro.actual_drain;
+     |                             ------------------------------------ `total_mana_drain` is overwritten here before the previous value is read
+...
+1982 |             advance!(effective_post);
+     |             ------------------------ in this macro invocation
+     |
+     = note: this warning originates in the macro `advance` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: value assigned to `total_mana_drain` is never read
+    --> src/scoring.rs:1966:29
+     |
+1966 | ...                   total_mana_drain += dro.actual_drain;
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: unused variable: `weapon`
+    --> src/scoring.rs:3770:23
+     |
+3770 |     combo_base: &Obj, weapon: &Obj, rows: &[Row], registry: &[Value],
+     |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_weapon`
+
+warning: variable does not need to be mutable
+    --> src/scoring.rs:4840:13
+     |
+4840 |         let mut intern = |k: &str, idx: &mut HashMap<String, u32>, keys: &mut Vec<String>| -> u32 {
+     |             ----^^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> src/scoring.rs:6014:13
+     |
+6014 |         let mut read = |i: u32| {
+     |             ----^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: fields `ring_pair_count` and `sp_fixed_max_req` are never read
+   --> src/enumerate.rs:315:5
+    |
+289 | pub struct Search<'a> {
+    |            ------ fields in this struct
+...
+315 |     ring_pair_count: Vec<f64>,
+    |     ^^^^^^^^^^^^^^^
+...
+320 |     sp_fixed_max_req: [i32; 5],
+    |     ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `sp_mid_tree_feasible`, `sp_leaf_feasible`, and `restr_mid_tree_feasible` are never used
+    --> src/enumerate.rs:973:8
+     |
+ 426 | impl<'a> Search<'a> {
+     | ------------------- methods in this implementation
+...
+ 973 |     fn sp_mid_tree_feasible(&self, next_depth: usize) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^
+...
+ 989 |     fn sp_leaf_feasible(&self) -> bool {
+     |        ^^^^^^^^^^^^^^^^
+...
+1022 |     fn restr_mid_tree_feasible(&self, next_depth: usize) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `sp_kernel` (lib) generated 14 warnings (run `cargo fix --lib -p sp_kernel` to apply 5 suggestions)
+    Finished `release` profile [optimized] target(s) in 34.51s

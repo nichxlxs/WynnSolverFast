@@ -1,0 +1,884 @@
+{
+  "campaign": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/diagnostic/campaign.json",
+  "campaign_sha256": "26a9e82784cf85a6517868d3196fffd5e37e72980a779cdeac87d37055aa30ee",
+  "frozen_references": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/diagnostic_setup/screening_references.json",
+  "run_count": 27,
+  "seconds_budget": 15.0,
+  "seeds": [
+    1001,
+    2002,
+    3003
+  ],
+  "reference_scope": "Frozen screening best-known scores; not an optimum certificate. Every target uses exactly the same fixture hashes as screening.",
+  "variants": {
+    "safe_baseline15": {
+      "runs": 9,
+      "statuses": {
+        "timeout": 9
+      },
+      "process_failures": 0,
+      "no_result": 0,
+      "targets": {
+        "0.95": {
+          "attained": 9,
+          "total": 9,
+          "censored": 0
+        },
+        "0.99": {
+          "attained": 9,
+          "total": 9,
+          "censored": 0
+        },
+        "0.999": {
+          "attained": 9,
+          "total": 9,
+          "censored": 0
+        }
+      }
+    },
+    "alns1": {
+      "runs": 9,
+      "statuses": {
+        "capped": 9
+      },
+      "process_failures": 0,
+      "no_result": 0,
+      "targets": {
+        "0.95": {
+          "attained": 7,
+          "total": 9,
+          "censored": 2
+        },
+        "0.99": {
+          "attained": 7,
+          "total": 9,
+          "censored": 2
+        },
+        "0.999": {
+          "attained": 6,
+          "total": 9,
+          "censored": 3
+        }
+      }
+    },
+    "alns_warm6": {
+      "runs": 9,
+      "statuses": {
+        "capped": 9
+      },
+      "process_failures": 0,
+      "no_result": 0,
+      "targets": {
+        "0.95": {
+          "attained": 9,
+          "total": 9,
+          "censored": 0
+        },
+        "0.99": {
+          "attained": 9,
+          "total": 9,
+          "censored": 0
+        },
+        "0.999": {
+          "attained": 8,
+          "total": 9,
+          "censored": 1
+        }
+      }
+    }
+  },
+  "queries": [
+    {
+      "scenario": "meta_warrior_battle_monk_uppercut_remove_4",
+      "reference_score": 25222.691078125776,
+      "target95": 23961.556524219486,
+      "target99": 24970.46416734452,
+      "reference_kind": "best_known",
+      "reference_evidence": "frozen_screening_best_known",
+      "enum_sha256": "34a3bc42dad5221e143972c7c75a7b18870ebe68fbedba7280ef0892ee37117b",
+      "score_sha256": "a6c0e3242763b377c7a94a0086535749fcc5bb23f688c288075a5f1748496a54",
+      "arms": {
+        "safe_baseline15": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            25222.691078125776,
+            25222.691078125776,
+            25222.691078125776
+          ],
+          "endpoint_reference_ratios": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "wall_seconds": [
+            15.010046494000562,
+            15.009534516000713,
+            15.009500207997917
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                2.031590684000548,
+                2.1059577760024695,
+                1.9390403920006065
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 2.031590684000548
+            },
+            "0.99": {
+              "times_seconds": [
+                8.353999019000184,
+                8.244103390999953,
+                8.151164323000557
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 8.244103390999953
+            },
+            "0.999": {
+              "times_seconds": [
+                8.353999019000184,
+                8.244103390999953,
+                8.151164323000557
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 8.244103390999953
+            }
+          }
+        },
+        "alns1": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            25037.292095000783,
+            25222.691078125776,
+            25422.766519520585
+          ],
+          "endpoint_reference_ratios": [
+            0.9926495161618271,
+            1.0,
+            1.007932359032392
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            1.6004860409993853,
+            1.3605351519981923,
+            2.1059975489988574
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                0.37765568400209304,
+                0.25858006199996453,
+                0.3580430330002855
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.3580430330002855
+            },
+            "0.99": {
+              "times_seconds": [
+                0.5343710550005198,
+                0.4667210269981297,
+                0.7791788249996898
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.5343710550005198
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                0.649225340999692,
+                1.268435710000631
+              ],
+              "attained": 2,
+              "total": 3,
+              "median_seconds_all_attained": null
+            }
+          }
+        },
+        "alns_warm6": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            25037.292095000783,
+            25222.691078125776,
+            25422.766519520585
+          ],
+          "endpoint_reference_ratios": [
+            0.9926495161618271,
+            1.0,
+            1.007932359032392
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            1.6043159229993762,
+            1.4021702659993025,
+            2.106744536999031
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                0.4019782209979894,
+                0.2510712399998738,
+                0.33707132500057924
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.33707132500057924
+            },
+            "0.99": {
+              "times_seconds": [
+                0.567847989997972,
+                0.4684617819984851,
+                0.7491481129982276
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.567847989997972
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                0.6515233860009175,
+                1.2609618040005444
+              ],
+              "attained": 2,
+              "total": 3,
+              "median_seconds_all_attained": null
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "alns1": {
+          "0.95": {
+            "median_speedup_all_attained": 5.674152257555388,
+            "paired_seed_speedups": [
+              5.379478636390095,
+              8.144316153821475,
+              5.41566296026506
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": 15.42767579541136,
+            "paired_seed_speedups": [
+              15.633329950837359,
+              17.663878235837423,
+              10.461224126571718
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": null,
+            "paired_seed_speedups": [
+              null,
+              12.698369688258772,
+              6.426154876226642
+            ],
+            "censored_lower_bound": null
+          }
+        },
+        "alns_warm6": {
+          "0.95": {
+            "median_speedup_all_attained": 6.027183368377767,
+            "paired_seed_speedups": [
+              5.053981976826326,
+              8.387889333734632,
+              5.752611534064116
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": 14.518151928352156,
+            "paired_seed_speedups": [
+              14.711681939791703,
+              17.598241111217504,
+              10.880577794393833
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": null,
+            "paired_seed_speedups": [
+              null,
+              12.65358016018836,
+              6.464243640957295
+            ],
+            "censored_lower_bound": null
+          }
+        }
+      }
+    },
+    {
+      "scenario": "fam_spellsteal_small",
+      "reference_score": 91703.87017799041,
+      "target95": 87118.67666909088,
+      "target99": 90786.8314762105,
+      "reference_kind": "best_known",
+      "reference_evidence": "frozen_screening_best_known",
+      "enum_sha256": "b4500f5be6eb86d0691ee24298be915ae532e81277bf58ff0b4f364176f74727",
+      "score_sha256": "d3f3216d9979bd56c9c861f068c8482c6989417ea78186471ac6d23e81d8591b",
+      "arms": {
+        "safe_baseline15": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            91703.87017799041,
+            91703.87017799041,
+            91703.87017799041
+          ],
+          "endpoint_reference_ratios": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "wall_seconds": [
+            15.007387066001684,
+            15.00750355800119,
+            15.00761591599803
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                3.1867757700019865,
+                3.1927563669996744,
+                3.000323145999573
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 3.1867757700019865
+            },
+            "0.99": {
+              "times_seconds": [
+                3.1867757700019865,
+                3.1927563669996744,
+                3.000323145999573
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 3.1867757700019865
+            },
+            "0.999": {
+              "times_seconds": [
+                3.1867757700019865,
+                3.1927563669996744,
+                3.000323145999573
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 3.1867757700019865
+            }
+          }
+        },
+        "alns1": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            85927.08892101167,
+            85927.08892101167,
+            91703.87017799041
+          ],
+          "endpoint_reference_ratios": [
+            0.9370061345746212,
+            0.9370061345746212,
+            1.0
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            1.2330702640028903,
+            1.1534908009998617,
+            1.6850557389989262
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                null,
+                null,
+                0.3235039079991111
+              ],
+              "attained": 1,
+              "total": 3,
+              "median_seconds_all_attained": null
+            },
+            "0.99": {
+              "times_seconds": [
+                null,
+                null,
+                0.3597330789998523
+              ],
+              "attained": 1,
+              "total": 3,
+              "median_seconds_all_attained": null
+            },
+            "0.999": {
+              "times_seconds": [
+                null,
+                null,
+                0.3597330789998523
+              ],
+              "attained": 1,
+              "total": 3,
+              "median_seconds_all_attained": null
+            }
+          }
+        },
+        "alns_warm6": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            91703.87017799041,
+            91703.87017799041,
+            91703.87017799041
+          ],
+          "endpoint_reference_ratios": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            1.5892778510024073,
+            1.816806496000936,
+            1.5046426820008492
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                0.9504517019995546,
+                0.4641288640013954,
+                0.21831981500145048
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.4641288640013954
+            },
+            "0.99": {
+              "times_seconds": [
+                0.9504517019995546,
+                0.4641288640013954,
+                0.30623407999883057
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.4641288640013954
+            },
+            "0.999": {
+              "times_seconds": [
+                0.9504517019995546,
+                0.4641288640013954,
+                0.30623407999883057
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.4641288640013954
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "alns1": {
+          "0.95": {
+            "median_speedup_all_attained": null,
+            "paired_seed_speedups": [
+              null,
+              null,
+              9.274457191434662
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": null,
+            "paired_seed_speedups": [
+              null,
+              null,
+              8.340414938601754
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": null,
+            "paired_seed_speedups": [
+              null,
+              null,
+              8.340414938601754
+            ],
+            "censored_lower_bound": null
+          }
+        },
+        "alns_warm6": {
+          "0.95": {
+            "median_speedup_all_attained": 6.866144334415723,
+            "paired_seed_speedups": [
+              3.352906584624623,
+              6.879029973430128,
+              13.742788972130814
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": 6.866144334415723,
+            "paired_seed_speedups": [
+              3.352906584624623,
+              6.879029973430128,
+              9.79748284714435
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": 6.866144334415723,
+            "paired_seed_speedups": [
+              3.352906584624623,
+              6.879029973430128,
+              9.79748284714435
+            ],
+            "censored_lower_bound": null
+          }
+        }
+      }
+    },
+    {
+      "scenario": "ehp",
+      "reference_score": 56207.73033990491,
+      "target95": 53397.343822909665,
+      "target99": 55645.653036505864,
+      "reference_kind": "best_known",
+      "reference_evidence": "frozen_screening_best_known",
+      "enum_sha256": "fddccfc04bc2e55b74e9e85802282bdda3d4ca2e399d8c4239bc9d526430856d",
+      "score_sha256": "41b2dfda4eef0f24affd77a207932c6d252f8d95ae5fd27523694b6e187a89b9",
+      "arms": {
+        "safe_baseline15": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            56207.73033990491,
+            56207.73033990491,
+            56207.73033990491
+          ],
+          "endpoint_reference_ratios": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "statuses": [
+            "timeout",
+            "timeout",
+            "timeout"
+          ],
+          "wall_seconds": [
+            15.00840402799804,
+            15.008361840998987,
+            15.00831338399803
+          ],
+          "stop_reasons": [
+            null,
+            null,
+            null
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                1.5039885509977466,
+                1.4828681020007934,
+                1.5344809880007233
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 1.5039885509977466
+            },
+            "0.99": {
+              "times_seconds": [
+                7.263218570999015,
+                7.191669019997789,
+                7.434160816999793
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 7.263218570999015
+            },
+            "0.999": {
+              "times_seconds": [
+                7.263218570999015,
+                7.191669019997789,
+                7.434160816999793
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 7.263218570999015
+            }
+          }
+        },
+        "alns1": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            57646.93741963321,
+            57646.93741963321,
+            57646.93741963321
+          ],
+          "endpoint_reference_ratios": [
+            1.0256051448977743,
+            1.0256051448977743,
+            1.0256051448977743
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            4.810532853000041,
+            3.5609019080002327,
+            4.922409241000423
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                2.594359427999734,
+                0.0735177009992185,
+                0.33726606699929107
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.33726606699929107
+            },
+            "0.99": {
+              "times_seconds": [
+                2.6670583840023028,
+                0.08432732000073884,
+                1.0934029849995568
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 1.0934029849995568
+            },
+            "0.999": {
+              "times_seconds": [
+                2.6670583840023028,
+                0.08432732000073884,
+                1.0934029849995568
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 1.0934029849995568
+            }
+          }
+        },
+        "alns_warm6": {
+          "seeds": [
+            1001,
+            2002,
+            3003
+          ],
+          "endpoint_scores": [
+            57646.93741963321,
+            56881.70851527334,
+            57646.93741963321
+          ],
+          "endpoint_reference_ratios": [
+            1.0256051448977743,
+            1.0119908448765442,
+            1.0256051448977743
+          ],
+          "statuses": [
+            "capped",
+            "capped",
+            "capped"
+          ],
+          "wall_seconds": [
+            3.4225252459982585,
+            4.6929511340022145,
+            4.936211396001454
+          ],
+          "stop_reasons": [
+            "repair_limit",
+            "repair_limit",
+            "repair_limit"
+          ],
+          "target_times": {
+            "0.95": {
+              "times_seconds": [
+                0.3127348529997107,
+                0.15233245399940643,
+                0.42521721799857914
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.3127348529997107
+            },
+            "0.99": {
+              "times_seconds": [
+                0.3127348529997107,
+                0.365120497001044,
+                1.0704356919995917
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.365120497001044
+            },
+            "0.999": {
+              "times_seconds": [
+                0.3127348529997107,
+                0.9209771380010352,
+                1.0704356919995917
+              ],
+              "attained": 3,
+              "total": 3,
+              "median_seconds_all_attained": 0.9209771380010352
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "alns1": {
+          "0.95": {
+            "median_speedup_all_attained": 4.459353306364225,
+            "paired_seed_speedups": [
+              0.5797147977130256,
+              20.17021862553287,
+              4.549763934608781
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": 6.642764534799546,
+            "paired_seed_speedups": [
+              2.723306926674592,
+              85.28278877989695,
+              6.799104190302541
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": 6.642764534799546,
+            "paired_seed_speedups": [
+              2.723306926674592,
+              85.28278877989695,
+              6.799104190302541
+            ],
+            "censored_lower_bound": null
+          }
+        },
+        "alns_warm6": {
+          "0.95": {
+            "median_speedup_all_attained": 4.809149145263761,
+            "paired_seed_speedups": [
+              4.809149145263761,
+              9.73442009938717,
+              3.6086990908393806
+            ],
+            "censored_lower_bound": null
+          },
+          "0.99": {
+            "median_speedup_all_attained": 19.892661821662255,
+            "paired_seed_speedups": [
+              23.224845268543618,
+              19.696700347056183,
+              6.944985927284111
+            ],
+            "censored_lower_bound": null
+          },
+          "0.999": {
+            "median_speedup_all_attained": 7.88642656946263,
+            "paired_seed_speedups": [
+              23.224845268543618,
+              7.808737832089059,
+              6.944985927284111
+            ],
+            "censored_lower_bound": null
+          }
+        }
+      }
+    }
+  ]
+}

@@ -7,11 +7,17 @@ rollout is listed at the bottom.
 ## Build
 
 ```bash
-./rust/sp_kernel/build-wasm.sh        # cargo -> wasm-bindgen -> wasm-opt -Oz
+./rust/sp_kernel/build-wasm.sh        # cargo -> wasm-bindgen -> wasm-opt -O3
 ```
-Output lands in `js/solver/wasm/`. The `-Oz` pass takes the module from
-587 KB to **517 KB** (-12%) with no behavior change — verified in-browser
-afterwards (armor4 still 344 ms, scores still bit-identical).
+Output lands in `js/solver/wasm/`. The `wasm-opt` pass was `-Oz` (size)
+until R25 measured the speed preset: `-O3` is 1.051x geometric mean, 18/20
+faster on the 18 family fixtures plus `spell_wide` and `heal` (fixed leaf
+budget through `solve`, 5 interleaved repeats, top-15 identical) for a
+module 0.5% larger (776 KB to 780 KB). Skipping `wasm-opt` entirely is no
+faster than `-Oz` (0.998x) and 19% larger. `-C target-feature=+simd128`
+with `-O3` measured 1.069x, 20/20, but browsers without simd128 (Safari
+before 16.4) could not load the module, and a second fallback build is not
+worth the extra 1.6%.
 
 `-C target-cpu=native` is scoped to non-wasm targets in `.cargo/config.toml`,
 so cross-compilation is clean. The module is ~630 KB before `wasm-opt`.
@@ -276,6 +282,59 @@ while the UI showed a frozen `checked: 0`. Progress is now posted first and
 the cutoff work is wrapped; a failure disables sharing for that worker and
 nothing else.
 
+### The work queue (roadmap R24): a shared cutoff without isolation
+
+Cross-origin isolation was later turned off by default (the service worker
+broke the live site twice), so the `SharedArrayBuffer` path above is absent
+in the deployed default. The queue gets the cutoff to the workers by
+messaging instead, between calls rather than during one:
+
+- `Engine` (wasm) wraps `enumerate::EngineSession`: it parses the fixtures,
+  builds the bound tables and runs the warm start once per worker, then
+  `solve_unit(index, count, seed_cutoff, seed_best, on_progress)` solves one
+  of `count` contiguous first-slot ranges (`partition_bounds`). Results
+  accumulate across a worker's units: every call returns the solve JSON of
+  everything that worker has solved, and progress is cumulative.
+- The host (`_rust_solve_in_worker`) cuts the pool into 8 units per worker
+  and hands them out one at a time. Each unit carries the merged cutoff
+  (the floor of the `result_count()`-th best score across every worker's
+  latest report) and best. Admissible like the warm cutoff: the scores
+  belong to real builds. A worker's last `unit_done` is its `done`, so
+  the result merge (including R20's archive rule) is unchanged.
+- The SAB path still runs inside each unit when the page is isolated.
+- `window.__SOLVER_NO_QUEUE = true` restores fixed partitions (test hatch).
+
+Exactness: `partition_check` adds queue rows (1 to 4 simulated workers,
+3 units up to more units than the pool has offsets, each seeded with the
+merged cutoff so far): `checked` equal to the whole run's and the top-N
+bit-identical on heavy_melee, tierstack and hybrid, and the in-window
+builds identical with completeness kept under an R20 window. Unit tests in
+`session_tests` cover out-of-order units, cumulative progress, and that an
+inadmissible seed changes the result (so the seed is really honored).
+`browser_e2e.js` checks 1 worker, the 4-worker queue and 4 fixed
+partitions agree in the page.
+
+Speed, real parallel wasm (`Engine` and `solve_partition` in Node worker
+threads, wall time including engine setup, best of 2, counterbalanced,
+small family fixtures):
+
+| family | 1 worker | 3 fixed | 3 queue | 4 fixed | 4 queue |
+|---|---|---|---|---|---|
+| cancelstack | 8.75 s | 4.29 s | 3.60 s | 3.93 s | 2.81 s |
+| heavy_melee | 2.94 s | 1.46 s | 1.35 s | 1.24 s | 1.04 s |
+| tierstack | 2.51 s | 1.27 s | 0.94 s | 1.10 s | 0.81 s |
+| spellsteal | 12.00 s | 5.89 s | 5.16 s | 4.89 s | 3.83 s |
+| spell_sustained | 26.40 s | 11.58 s | 10.29 s | 8.71 s | 8.15 s |
+| hybrid | 5.54 s | 2.39 s | 2.33 s | 2.03 s | 1.82 s |
+
+Queue over fixed: 1.15x geometric mean at 3 workers and 1.23x at 4, 6/6
+faster at both. Scored leaves drop by up to 48% (spellsteal); hybrid's barely move. The native simulation
+(`partition_time ... queue`) agrees: 3.25 to 3.90x over one worker at
+4 x 8 units, against 2.48 to 3.02x for 4 fixed partitions, and 3.5 to 3.6x
+on the medium cancelstack and heavy_melee fixtures (125 to 200 s searches).
+The 8M-leaf partition threshold is unchanged: the queue does not reduce
+per-worker startup, which is what the threshold guards against.
+
 Still not implemented: **threaded wasm** (many threads in one module). It
 needs nightly, an atomics `-Z build-std` rebuild and a second artifact, and
 the table above says startup — not cutoff quality — dominates every workload
@@ -318,4 +377,4 @@ a short search it would have made things worse.
    `{"error": "..."}` naming the unsupported mechanic, and `search.js`
    drops back to the JS workers on it. (Count loops, Radiance and
    `total_healing` are supported — see `SUPPORT_MATRIX.md` section A.)
-4. **Size**: `wasm-opt -Oz` runs as part of `build-wasm.sh` (587 KB -> 517 KB).
+4. **Size**: `wasm-opt -O3` runs as part of `build-wasm.sh` (speed over size; see Build).

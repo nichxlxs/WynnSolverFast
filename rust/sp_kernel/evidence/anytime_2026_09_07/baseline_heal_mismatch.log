@@ -1,0 +1,13 @@
+case 0: L2 SCORE MISMATCH expected 4.21800000000527325e3 got 0.00000000000000000e0
+case 0: PIPELINE MISMATCH
+    base_sp  got [74, 98, 0, 0, 0] want [74.0, 98.0, 0.0, 0.0, 0.0]
+    total_sp got [75, 135, 2, 2, 1] want [75.0, 135.0, 2.0, 2.0, 1.0]
+    assigned got 172 want 172
+    score    got 0.00000000000000000e0 want 4.21800000000527325e3
+case 0: COMPILED MISMATCH got 0.00000000000000000e0 want 4.21800000000527325e3
+case 0: MISMATCH expected 4.21800000000527325e3 (40b07a00000016a6) got 0.00000000000000000e0 (0000000000000000) (diff 4.218e3) items=Shimmersight, Chaos, Babel, Final Spark, Mercy, Agave, Diamond Static Bracelet, Achromatic Gloom
+score_kernel: 1 cases | 0 exact | 1 mismatched | 208.2 evals/s
+layer2: assembly 1 exact / 0 diff | end-to-end score 0 exact / 1 diff
+pipeline (SP+greedy+mana+score): 0 exact / 1 diff
+pipeline compiled-rows: 0 exact / 1 diff
+pipeline dense: unsupported scenario shape, Obj fallback

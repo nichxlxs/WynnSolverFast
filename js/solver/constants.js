@@ -210,7 +210,56 @@ function rollDisplayText() {
 
 /** Returns true if ALL groups are >= 100 (i.e. no rolling needed). */
 function _allRollsMax() {
-    return ROLL_GROUP_ORDER.every(g => current_roll_mode[g] >= 100);
+    return current_constraint_roll === null && ROLL_GROUP_ORDER.every(g => current_roll_mode[g] >= 100);
+}
+
+/**
+ * R15 roll-robust requirements: null, or { pct, dirs: Map(stat -> +1|-1) }.
+ * Every stat a requirement reads (see constraint_roll_dirs) rolls at `pct`
+ * toward its worse end for that requirement instead of its group's roll:
+ * +1 (higher is better) interpolates up from the lower extreme, -1 down
+ * from the higher one. Items are baked once (pools, locked items, weapon),
+ * so both engines see a build's requirements at the conservative roll and
+ * its objective at the objective roll; a stat read by both takes the
+ * conservative value everywhere.
+ */
+let current_constraint_roll = null;
+
+/**
+ * Stats each requirement reads and the direction that helps it: hard
+ * floors (+1 for >=, -1 for <=), soft floors (+1), and when the mana check
+ * is on, mana regen, mana steal, max mana and spell costs. Derived stats map
+ * to their rolled inputs (EHP and total HP to hpBonus, HP regen to hprRaw,
+ * total mana to maxMana, spell N's cost to spRawN and spPctN). A stat wanted
+ * in both directions is left out (it keeps its group's roll).
+ */
+function constraint_roll_dirs(restrictions, mana_on) {
+    const dirs = new Map(), conflict = new Set();
+    const add = (k, d) => {
+        if (conflict.has(k)) return;
+        if (dirs.has(k) && dirs.get(k) !== d) { dirs.delete(k); conflict.add(k); return; }
+        dirs.set(k, d);
+    };
+    const keys = (stat) => {
+        if (stat === 'ehp' || stat === 'ehp_no_agi' || stat === 'total_hp') return [['hpBonus', 1]];
+        if (stat === 'hpr' || stat === 'ehpr') return [['hprRaw', 1]];
+        if (stat === 'total_mana') return [['maxMana', 1]];
+        const m = /^finalSpellCost(\d)$/.exec(stat);
+        if (m) return [['spRaw' + m[1], 1], ['spPct' + m[1], 1]];   // higher raw cost = higher stat
+        return [[stat, 1]];
+    };
+    for (const { stat, op } of restrictions?.stat_thresholds ?? []) {
+        const sign = op === 'le' ? -1 : 1;
+        for (const [k, d] of keys(stat)) add(k, d * sign);
+    }
+    for (const { stat } of restrictions?.soft_floors ?? []) {
+        for (const [k, d] of keys(stat)) add(k, d);
+    }
+    if (mana_on) {
+        for (const k of ['mr', 'ms', 'maxMana']) add(k, 1);
+        for (const n of [1, 2, 3, 4]) { add('spRaw' + n, -1); add('spPct' + n, -1); }
+    }
+    return dirs;
 }
 
 /**
@@ -439,7 +488,9 @@ function tome_stat(sm, key) {
  * invisible here — so `keys` must cover everything the current search can score
  * or threshold on, or a genuinely better tome can be discarded.
  */
-function tome_prune_dominated(statmaps, keys, signs = null) {
+function tome_prune_dominated(statmaps, keys, signs = null, check_budget = null) {
+    if (check_budget) check_budget();
+    let budget_steps = 0;
     // signs[i] = -1 flips key i so "more is better" holds universally (stats
     // under an 'le' restriction, where less is better). signs[i] = 0 marks an
     // EQUALITY key — a stat that is both score-positive and le-capped, where
@@ -453,6 +504,7 @@ function tome_prune_dominated(statmaps, keys, signs = null) {
     for (let i = 0; i < statmaps.length; i++) {
         let dominated = false;
         for (let j = 0; j < statmaps.length && !dominated; j++) {
+            if (check_budget && (++budget_steps & 255) === 0) check_budget();
             if (i === j) continue;
             let ge_all = true, gt_any = false;
             for (let k = 0; k < keys.length; k++) {
@@ -488,7 +540,9 @@ function tome_prune_dominated(statmaps, keys, signs = null) {
  * @returns {{vec: number[], picks: Map[]}[]} bundles, each a summed stat vector
  *          over `keys` plus the tomes that produced it
  */
-function tome_bundles(statmaps, count, keys, signs = null) {
+function tome_bundles(statmaps, count, keys, signs = null, check_budget = null) {
+    if (check_budget) check_budget();
+    let budget_steps = 0;
     if (count <= 0 || statmaps.length === 0) return [{ vec: keys.map(() => 0), picks: [] }];
     const out = [];
     const cur = [];
@@ -497,6 +551,7 @@ function tome_bundles(statmaps, count, keys, signs = null) {
         return tome_stat(sm, k) * (sgn === 0 ? 1 : sgn);
     }));
     (function pick(start, depth, acc) {
+        if (check_budget && (++budget_steps & 127) === 0) check_budget();
         if (depth === count) {
             out.push({ vec: acc.slice(), picks: cur.slice() });
             return;
@@ -508,16 +563,19 @@ function tome_bundles(statmaps, count, keys, signs = null) {
             cur.pop();
         }
     })(0, 0, keys.map(() => 0));
-    return pareto_prune_bundles(out, signs);
+    return pareto_prune_bundles(out, signs, check_budget);
 }
 
 /** Keep only bundles no other bundle matches or beats on every stat.
  *  signs[k] === 0 marks an equality key: dominator must match it exactly. */
-function pareto_prune_bundles(bundles, signs = null) {
+function pareto_prune_bundles(bundles, signs = null, check_budget = null) {
+    if (check_budget) check_budget();
+    let budget_steps = 0;
     const keep = [];
     for (let i = 0; i < bundles.length; i++) {
         let dominated = false;
         for (let j = 0; j < bundles.length && !dominated; j++) {
+            if (check_budget && (++budget_steps & 255) === 0) check_budget();
             if (i === j) continue;
             const a = bundles[i].vec, b = bundles[j].vec;
             let ge_all = true, gt_any = false;
@@ -689,6 +747,12 @@ const RESTRICTION_STATS = [
  * @returns {number}
  */
 function getRolledValue(minVal, maxVal, statKey) {
+    const dir = current_constraint_roll?.dirs.get(statKey);
+    if (dir !== undefined) {
+        const p = Math.max(0, Math.min(100, current_constraint_roll.pct)) / 100;
+        const lo = Math.min(minVal, maxVal), hi = Math.max(minVal, maxVal);
+        return Math.round(dir > 0 ? lo + p * (hi - lo) : hi - p * (hi - lo));
+    }
     const pct = current_roll_mode[_get_roll_group(statKey)] ?? current_roll_mode.misc ?? 100;
     if (pct >= 100) return maxVal;
     if (pct <= 0) return minVal;

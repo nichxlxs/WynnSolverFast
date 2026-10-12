@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "cohort": "confirmation",
+  "query_count": 22,
+  "queries": [
+    "meta_archer_boltslinger_fast_hybrid_remove_6",
+    "meta_archer_sharpshooter_heavy_melee_remove_6",
+    "meta_archer_trapper_slow_melee_remove_6",
+    "meta_assassin_acrobat_spellspam_remove_6",
+    "meta_assassin_shadestepper_spellsteal_remove_6",
+    "meta_assassin_trickster_spell_remove_6",
+    "meta_mage_arcanist_meteor_remove_6",
+    "meta_mage_light_bender_healing_remove_6",
+    "meta_mage_riftwalker_cancelstack_remove_6",
+    "meta_shaman_acolyte_healing_remove_6",
+    "meta_shaman_ritualist_tierstack_remove_6",
+    "meta_shaman_summoner_aura_remove_6",
+    "meta_warrior_battle_monk_uppercut_remove_6",
+    "meta_warrior_fallen_uppercut_remove_6",
+    "meta_warrior_paladin_tank_remove_6",
+    "fam_cancelstack_large",
+    "fam_heavy_melee_large",
+    "fam_tierstack_large",
+    "fam_spellsteal_large",
+    "fam_spell_sustained_large",
+    "fam_hybrid_large",
+    "gaia_all_free"
+  ],
+  "seconds": 5,
+  "repeat": 3,
+  "seeds": [
+    101,
+    202,
+    303
+  ],
+  "arms": [
+    "safe_baseline15",
+    "best1_warm3",
+    "alns1",
+    "alns_warm6"
+  ],
+  "selection_policy": "All fifteen recovered archetypes at remove-six, all six original large families, Gaia all-free. No winner-only selection.",
+  "scope": "New random seeds on prespecified workload definitions; not unseen query definitions.",
+  "screen_path": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/evidence/anytime_2026_09_07/screen/campaign.json",
+  "screen_sha256": "3797cd2d9651d00b6b873804611d93f58e106e5e6da3d4de5a16cbd8dba6c208",
+  "references_frozen": true
+}

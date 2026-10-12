@@ -1,0 +1,71 @@
+name: Solver anytime checks
+
+on:
+  pull_request:
+    paths:
+      - 'rust/sp_kernel/**'
+      - 'js/solver/**'
+      - 'solver/index.html'
+      - '.github/workflows/solver-anytime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: rust/sp_kernel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+          targets: wasm32-unknown-unknown
+      - name: Rust semantic and budget regressions
+        run: cargo test --locked --release --lib
+      - name: Benchmark evidence integrity
+        run: python3 -m unittest test_benchmark_quality test_long_campaign
+      - name: Compile browser engine
+        run: cargo check --locked --release --target wasm32-unknown-unknown --features wasm --lib
+
+  browser-quick-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # This repository has no package-lock.json and contains an incomplete
+      # checked-in playwright-core. Install a pinned, isolated test dependency
+      # instead of relying on that package or claiming npm ci is reproducible.
+      - name: Provision pinned browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/wynn-browser" --ignore-scripts --no-audit --no-fund --package-lock=false playwright-core@1.62.1
+          node "$RUNNER_TEMP/wynn-browser/node_modules/playwright-core/cli.js" install --with-deps chromium
+          echo "PLAYWRIGHT_CORE_PATH=$RUNNER_TEMP/wynn-browser/node_modules/playwright-core" >> "$GITHUB_ENV"
+      # Exercises the actual checked-in browser bundle. An obsolete bundle
+      # without the Quick export fails the real worker path; no mock replaces it.
+      - name: Exercise bounded Quick search in Chromium
+        env:
+          QUICK_E2E_BASE_URL: http://127.0.0.1:8765
+          QUICK_E2E_ARTIFACTS: ${{ runner.temp }}/quick-browser-artifacts
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/quick-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          node -e 'let n=0; const check=()=>fetch("http://127.0.0.1:8765/solver/index.html").then(r=>{if(!r.ok)throw Error(r.status)}).catch(e=>{if(++n===30){console.error(e);process.exit(1)}setTimeout(check,100)});check()'
+          timeout 240s node js/solver/tests/test_browser_quick_search.js
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-search-browser-evidence
+          path: |
+            ${{ runner.temp }}/quick-browser-artifacts
+            ${{ runner.temp }}/quick-server.log
+          retention-days: 14

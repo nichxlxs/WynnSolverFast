@@ -107,6 +107,7 @@ function solver_graph_init() {
 
     // Radiance / Divine Honor scaling of the pre-scale stat total
     solver_radiance_node.link_to(pre_scale_agg, 'stats');
+    solver_radiance_node.link_to(solver_build_node, 'build');
 
     // Atree scaling nodes need the radiance-scaled stats as their "scale-stats" input
     atree_scaling.link_to(solver_radiance_node, 'scale-stats');

@@ -1,0 +1,10 @@
+# Complete raw directories are preserved in the adjacent verified archives.
+long/*
+!long/long_analysis.json
+!long/long_analysis.md
+gaia/*
+!gaia/long_analysis.json
+!gaia/long_analysis.md
+new_seeds/*
+!new_seeds/long_analysis.json
+!new_seeds/long_analysis.md

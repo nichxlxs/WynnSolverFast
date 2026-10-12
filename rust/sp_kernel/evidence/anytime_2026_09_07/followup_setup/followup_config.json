@@ -1,0 +1,24 @@
+{
+  "variants": [
+    {
+      "name": "alns_cyclic_warm6",
+      "kind": "lns",
+      "binary": "/workspace/scratch/b17a901c79d8/WynnSolverFast-optimized/rust/sp_kernel/target/release/anytime_kernel",
+      "env": {
+        "WIDE_BOUND_KEYS": "0"
+      },
+      "args": [
+        "--warm-k",
+        "6",
+        "--warm-budget",
+        "2000000",
+        "--repair-budget",
+        "100000",
+        "--max-repairs",
+        "10000",
+        "--cycle-stagnation",
+        "1"
+      ]
+    }
+  ]
+}

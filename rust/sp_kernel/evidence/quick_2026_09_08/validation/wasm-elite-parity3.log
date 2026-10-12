@@ -1,0 +1,4 @@
+fam_spellsteal_medium alns seed=707: finished, n=15, best=92806.8118289668, T99=n/a, errors=0
+meta_mage_arcanist_meteor_remove_6 alns seed=707: finished, n=15, best=44638.34702467411, T99=1.3705913510000005, errors=0
+meta_mage_light_bender_healing_remove_6 alns seed=707: finished, n=15, best=19742.97000001401, T99=0.7859284189999999, errors=0
+{"runs":3,"failures":0,"returned_api":3,"host_deadlines":0,"with_result":3,"with_frozen_reference":2,"attained_t99":2,"attained_t999":2,"parity_pass":3}
