@@ -161,11 +161,20 @@ Measurement note: the container moved hosts mid-session (the old
 absolute times before and after that point are not comparable; every A/B
 above ran both sides on one host.
 
-Not done yet: the crit-floor fix (`fe06315`) is not in PR #20; it reaches
-master through the stack either way. Porting it down is about six conflict
-hunks (worker.js, enumerate.rs, scoring.rs; the tangent.rs part drops out),
-a wasm rebuild and the negcrit snapshot, and waits on the author's go-ahead
-to push to that branch. Otherwise nothing on the list. Every item has a row above: built, measured and not built, or bounded by another measurement.
+Not done yet: nothing on the list.
+
+- **Crit floor ported down the stack.** `fe06315` is now in #20 as
+  `a271541`, adapted to that branch (all-150 ceilings, no R2 or bound
+  observation code). It is a live fix there: `solver_indep_oracle_negcrit`
+  returns a wrong top-N on #20 without the floor and matches the prune-free
+  oracle with it. Merged up through `claude/r1-reachable-sp` (`241050b`) and
+  into #22 (`6bcd4ef`), so the three branches agree and the stack merges
+  without conflicts. While porting, the JS per-bundle tome gate turned out
+  to have no floor on any branch (`335afd9` on #22, included in `a271541`):
+  its all-150 assemble is not an upper bound below -100% crit damage either.
+  The floor can only raise that ceiling. No committed fixture combines
+  several tome bundles with crit below -100%, so no test reproduces that
+  case. Every item has a row above: built, measured and not built, or bounded by another measurement.
 the author, both since settled (`6216667`, `6216667`): Radiance item-SP
 scaling (above) and the 400 mana cap (section 5, item 3).
 
