@@ -34,16 +34,18 @@
  * @param {number[][]} rows  bonus per attribute, indexed by (count - 1)
  * @param {number} worn      pieces of this set already equipped
  * @param {number} reach     further pieces the remaining slots could supply
- * @param {Int32Array|number[]} out  accumulator, maxed in place (length 5)
+ * @param {Int32Array|number[]} out  accumulator, summed in place (length 5)
  */
 function accumulate_reachable_set_bonus(rows, worn, reach, out) {
     if (!rows || rows.length === 0) return out;
     const lo = Math.min(Math.max(worn, 1), rows.length);
     const hi = Math.max(lo, Math.min(rows.length, worn + reach));
+    const best = [0, 0, 0, 0, 0];
     for (let t = lo; t <= hi; t++) {
         const row = rows[t - 1];
-        for (let j = 0; j < 5; j++) if (row[j] > out[j]) out[j] = row[j];
+        for (let j = 0; j < 5; j++) if (row[j] > best[j]) best[j] = row[j];
     }
+    for (let j = 0; j < 5; j++) out[j] += best[j];
     return out;
 }
 
