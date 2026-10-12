@@ -1573,6 +1573,7 @@ pub fn run_single_with_progress(
         // it cannot express a two-sided bound; leave it off there. The leaf
         // gate handles those objectives on its own.
         if !sc.objective.supports_ceiling() || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting || sc.consts.dynamic.is_some()
             || sc.objective.needs_two_sided_ceiling() {
             return None;
@@ -1955,6 +1956,7 @@ pub fn cli_main() {
         // and scored none of them.
         if !sc.objective.supports_ceiling()
             || !sc.layer2.ceiling_vars_ok
+            || !crate::scoring::rows_crit_ceiling_ok(&sc.compiled_rows)
             || sc.consts.hp_casting
             || sc.consts.dynamic.is_some()
             // See run_single_with_progress: one assembled state cannot
